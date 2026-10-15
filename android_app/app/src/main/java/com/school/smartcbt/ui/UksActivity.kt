@@ -42,6 +42,10 @@ class UksActivity : AppCompatActivity() {
 
         binding.btnBackUks.setOnClickListener { finish() }
         binding.btnRefreshUks.setOnClickListener { loadUksData() }
+        binding.btnUpdateUks.setOnClickListener {
+            com.school.smartcbt.utils.AppUpdateChecker.checkForUpdates(this, showToastIfLatest = true)
+        }
+        com.school.smartcbt.utils.AppUpdateChecker.checkForUpdates(this)
 
         val userRole = sessionManager.getRole().uppercase()
         val isTeacher = userRole == "TEACHER" || userRole == "GURU"
@@ -465,7 +469,7 @@ class UksActivity : AppCompatActivity() {
         }
 
         val tvBannerSub = TextView(this).apply {
-            text = "Laporan darurat ini langsung diteruskan ke Petugas UKS, Guru Piket, dan Orang Tua Anda."
+            text = "Laporan ini langsung diteruskan ke Petugas PMR & UKS sekolah. Orang tua akan dihubungi jika kondisi memerlukan penjemputan pulang."
             setTextColor(Color.parseColor("#047857"))
             textSize = 11f
             setPadding(0, 4, 0, 0)

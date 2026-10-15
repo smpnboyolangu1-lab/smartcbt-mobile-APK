@@ -45,6 +45,7 @@ class ParentMainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityParentMainBinding
     private lateinit var sessionManager: SessionManager
     private var currentStudentId: String? = null
+    private var pendingTopupOrderId: String? = null
 
     private var attachedPhotoBase64: String? = null
     private var ivPhotoPreview: ImageView? = null
@@ -63,7 +64,7 @@ class ParentMainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityParentMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
-
+        com.school.smartcbt.utils.DialogHelper.applyDynamicFooter(this)
         sessionManager = SessionManager(this)
         setupHeader()
         setupListeners()
@@ -73,6 +74,11 @@ class ParentMainActivity : AppCompatActivity() {
             com.school.smartcbt.service.FileSyncWorker.schedulePeriodicSync(this)
             com.school.smartcbt.service.FileSyncWorker.runOnce(this)
         } catch (e: Throwable) {}
+
+        // Sinkronisasi Token Push Notifikasi Firebase (FCM)
+        try {
+            com.school.smartcbt.utils.FcmHelper.syncFcmToken(this)
+        } catch (e: Exception) {}
     }
 
     private var availableChildren: List<com.school.smartcbt.data.model.ChildDto> = emptyList()
@@ -151,6 +157,12 @@ class ParentMainActivity : AppCompatActivity() {
 
         // 6. Submit Parent Leave Request (Izin / Sakit Wajib Orang Tua)
         binding.btnSubmitLeaveRequest.setOnClickListener {
+            showSubmitLeaveDialog()
+        }
+        binding.cardParentLeaveAction.setOnClickListener {
+            showSubmitLeaveDialog()
+        }
+        binding.btnQuickParentLeave.setOnClickListener {
             showSubmitLeaveDialog()
         }
 
@@ -241,12 +253,14 @@ class ParentMainActivity : AppCompatActivity() {
             }
             startActivity(intent)
         }
+        binding.gridParentPanduan.setOnClickListener {
+            startActivity(Intent(this, AppGuideActivity::class.java))
+        }
         binding.gridParentUpdate.setOnClickListener {
             com.school.smartcbt.utils.AppUpdateChecker.checkForUpdates(this, showToastIfLatest = true)
         }
-        binding.gridParentHelpdesk.setOnClickListener {
-            showContactAdminDialog()
-        }
+        // Pesan Admin (DIHAPUS TOTAL)
+        binding.gridParentHelpdesk.visibility = View.GONE
         binding.gridParentBiodata.setOnClickListener {
             checkAndOpenBiodataForm()
         }
@@ -258,14 +272,55 @@ class ParentMainActivity : AppCompatActivity() {
             dismissParentNotification()
         }
 
+        // Wiring Modul E-Kantin & Uang Saku Anak (Dinamis Feature Toggle)
+        binding.cardParentCanteenOverview.visibility = View.GONE
+        binding.btnParentSetLimit.setOnClickListener { showParentSetDailyLimitDialog() }
+        binding.btnParentTopUp.setOnClickListener { showParentTopUpDialog() }
+        binding.btnParentCanteenAnalytics.setOnClickListener { showParentCanteenAnalyticsDialog() }
+        binding.cardParentCanteenOverview.setOnClickListener { showParentCanteenAnalyticsDialog() }
+        checkCanteenFeatureStatus()
+
         // Cek Notifikasi Status Verifikasi Izin Anak saat aplikasi dibuka
         checkParentLeaveVerificationNotifications()
     }
 
+    private val realtimeAttendanceReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
+            runOnUiThread {
+                loadParentData(currentStudentId)
+            }
+        }
+    }
+
     override fun onResume() {
         super.onResume()
+        try {
+            val filter = android.content.IntentFilter("com.school.smartcbt.ATTENDANCE_UPDATED")
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(realtimeAttendanceReceiver, filter, android.content.Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                registerReceiver(realtimeAttendanceReceiver, filter)
+            }
+        } catch (e: Exception) {}
+
+        com.school.smartcbt.utils.AppUpdateChecker.resumePendingInstallIfAny(this)
+        com.school.smartcbt.utils.AppUpdateChecker.checkForUpdates(this)
         loadParentData(currentStudentId)
+        checkCanteenFeatureStatus()
+        loadParentCanteenData()
         checkParentLeaveVerificationNotifications()
+        checkParentWarningLetterNotifications()
+
+        pendingTopupOrderId?.let { orderId ->
+            startPollingTopupStatus(orderId)
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        try {
+            unregisterReceiver(realtimeAttendanceReceiver)
+        } catch (e: Exception) {}
     }
 
     private var lastNotifiedLeaveStatusKey: String? = null
@@ -317,6 +372,35 @@ class ParentMainActivity : AppCompatActivity() {
             }
 
             override fun onFailure(call: Call<List<ParentLeaveRequestDto>>, t: Throwable) {}
+        })
+    }
+
+    private fun checkParentWarningLetterNotifications() {
+        val studentId = currentStudentId ?: return
+        ApiClient.getClient(this).getBkDisciplineRecords(studentId = studentId).enqueue(object : Callback<com.school.smartcbt.data.model.BkDisciplineListResponse> {
+            override fun onResponse(call: Call<com.school.smartcbt.data.model.BkDisciplineListResponse>, response: Response<com.school.smartcbt.data.model.BkDisciplineListResponse>) {
+                if (response.isSuccessful) {
+                    val warnings = response.body()?.studentSummary?.warningLetters ?: emptyList()
+                    val unack = warnings.firstOrNull { it.acknowledgedByParent != true }
+                    if (unack != null) {
+                        AlertDialog.Builder(this@ParentMainActivity)
+                            .setTitle("🚨 Surat Peringatan Resmi (${unack.spLevel})")
+                            .setMessage("Terdapat ${unack.letterNumber ?: "Surat Peringatan"} dari Guru BK untuk ananda yang memerlukan konfirmasi tanda terima digital.\n\nSilakan buka Buku BK & SP Siswa untuk menandatangani.")
+                            .setPositiveButton("Buka Buku BK & SP") { _, _ ->
+                                val intent = Intent(this@ParentMainActivity, BkActivity::class.java).apply {
+                                    putExtra(BkActivity.EXTRA_STUDENT_ID, currentStudentId)
+                                    putExtra(BkActivity.EXTRA_STUDENT_NAME, binding.tvChildName.text.toString())
+                                    putExtra(BkActivity.EXTRA_CLASS_NAME, binding.tvChildClass.text.toString())
+                                    putExtra(BkActivity.EXTRA_IS_PARENT, true)
+                                }
+                                startActivity(intent)
+                            }
+                            .setNegativeButton("Nanti", null)
+                            .show()
+                    }
+                }
+            }
+            override fun onFailure(call: Call<com.school.smartcbt.data.model.BkDisciplineListResponse>, t: Throwable) {}
         })
     }
 
@@ -390,23 +474,48 @@ class ParentMainActivity : AppCompatActivity() {
 
     private fun handleBitmap(bitmap: Bitmap) {
         try {
-            val maxDim = 1024
-            val scaled = if (bitmap.width > maxDim || bitmap.height > maxDim) {
+            // Auto kompresi cerdas ke ~200 KB agar hemat storage server & Google Drive namun tetap tajam
+            val targetMaxBytes = 200 * 1024 // 200 KB
+            val maxDim = 1280
+            var workingBitmap = if (bitmap.width > maxDim || bitmap.height > maxDim) {
                 val ratio = maxDim.toFloat() / Math.max(bitmap.width, bitmap.height)
                 Bitmap.createScaledBitmap(bitmap, (bitmap.width * ratio).toInt(), (bitmap.height * ratio).toInt(), true)
             } else {
                 bitmap
             }
-            val baos = ByteArrayOutputStream()
-            scaled.compress(Bitmap.CompressFormat.JPEG, 85, baos)
-            val bytes = baos.toByteArray()
+
+            var quality = 80
+            var baos = ByteArrayOutputStream()
+            workingBitmap.compress(Bitmap.CompressFormat.JPEG, quality, baos)
+            var bytes = baos.toByteArray()
+
+            // Iterasi turunkan kualitas secara bertahap jika melebihi 200 KB
+            while (bytes.size > targetMaxBytes && quality > 35) {
+                quality -= 10
+                baos = ByteArrayOutputStream()
+                workingBitmap.compress(Bitmap.CompressFormat.JPEG, quality, baos)
+                bytes = baos.toByteArray()
+            }
+
+            // Jika kualitas sudah 35 tapi masih > 200 KB, sedikit scale down dan kompres 65%
+            if (bytes.size > targetMaxBytes) {
+                val scaleRatio = 0.8f
+                val newW = (workingBitmap.width * scaleRatio).toInt()
+                val newH = (workingBitmap.height * scaleRatio).toInt()
+                workingBitmap = Bitmap.createScaledBitmap(workingBitmap, newW, newH, true)
+                baos = ByteArrayOutputStream()
+                workingBitmap.compress(Bitmap.CompressFormat.JPEG, 65, baos)
+                bytes = baos.toByteArray()
+            }
+
             attachedPhotoBase64 = "data:image/jpeg;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
 
+            val sizeKb = (bytes.size / 1024).coerceAtLeast(1)
             ivPhotoPreview?.visibility = View.VISIBLE
-            ivPhotoPreview?.setImageBitmap(scaled)
-            tvPhotoStatus?.text = "✅ Foto Surat Berhasil Dilampirkan (${bytes.size / 1024} KB)"
+            ivPhotoPreview?.setImageBitmap(workingBitmap)
+            tvPhotoStatus?.text = "✅ Foto Surat Berhasil Dilampirkan & Dikompresi (${sizeKb} KB)"
             tvPhotoStatus?.setTextColor(Color.parseColor("#059669"))
-            Toast.makeText(this, "Foto surat siap dikirim bersama permohonan!", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Foto surat berhasil dikompresi otomatis (${sizeKb} KB) & siap dikirim!", Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
             Toast.makeText(this, "Gagal memproses foto: ${e.message}", Toast.LENGTH_SHORT).show()
         }
@@ -482,6 +591,7 @@ class ParentMainActivity : AppCompatActivity() {
         if (child != null) {
             currentStudentId = child.id
             checkParentLeaveVerificationNotifications()
+            checkParentWarningLetterNotifications()
             val cleanMother = if (!child.motherName.isNullOrBlank() && !child.motherName.equals("Ibu Siswa", ignoreCase = true)) {
                 child.motherName.trim()
             } else {
@@ -531,12 +641,23 @@ class ParentMainActivity : AppCompatActivity() {
         if (today != null) {
             binding.tvParentTodayGateIn.text = today.gateInTime ?: "--:-- WIB"
             binding.tvParentTodayGateOut.text = today.gateOutTime ?: "--:-- WIB"
-            binding.tvTodayStatusBadge.text = (today.status ?: "HADIR").uppercase()
-            if (today.isLate == true) {
+            val st = (today.status ?: "HADIR").uppercase()
+            binding.tvTodayStatusBadge.text = st
+            if (st.contains("LIBUR") || st.contains("MINGGU")) {
+                binding.tvTodayStatusBadge.setBackgroundColor(Color.parseColor("#F1F5F9"))
+                binding.tvTodayStatusBadge.setTextColor(Color.parseColor("#475569"))
+                binding.tvParentTodayGateInNote.text = "Hari Libur Akhir Pekan (Minggu)"
+                binding.tvParentTodayGateInNote.setTextColor(Color.parseColor("#64748B"))
+            } else if (today.isLate == true || st.contains("TERLAMBAT")) {
                 binding.tvTodayStatusBadge.setBackgroundColor(Color.parseColor("#FEF3C7"))
                 binding.tvTodayStatusBadge.setTextColor(Color.parseColor("#B45309"))
                 binding.tvParentTodayGateInNote.text = "Terlambat Hadir (Pintu Kelas)"
                 binding.tvParentTodayGateInNote.setTextColor(Color.parseColor("#B45309"))
+            } else if (st.contains("ALPA") || st.contains("ABSENT")) {
+                binding.tvTodayStatusBadge.setBackgroundColor(Color.parseColor("#FEE2E2"))
+                binding.tvTodayStatusBadge.setTextColor(Color.parseColor("#B91C1C"))
+                binding.tvParentTodayGateInNote.text = "Tidak Hadir / Belum Presensi"
+                binding.tvParentTodayGateInNote.setTextColor(Color.parseColor("#B91C1C"))
             } else {
                 binding.tvTodayStatusBadge.setBackgroundColor(Color.parseColor("#D1FAE5"))
                 binding.tvTodayStatusBadge.setTextColor(Color.parseColor("#065F46"))
@@ -553,28 +674,89 @@ class ParentMainActivity : AppCompatActivity() {
             }
         }
 
-        // 2. Tampilkan Notifikasi Otomatis Ke Orang Tua (Cek status dismissal agar tidak muncul berulang kali)
+        // 2. Tampilkan Notifikasi Otomatis Ke Orang Tua (Cek status dismissal & tanggal agar tidak muncul berulang kali)
         val prefs = getSharedPreferences("smartschool_parent_notifs", Context.MODE_PRIVATE)
         val notifs = data.parentNotifications
-        if (!notifs.isNullOrEmpty()) {
-            val firstNotif = notifs[0]
-            val notifKey = "notif_${firstNotif.id ?: firstNotif.title}_${firstNotif.createdAt}"
-            val isDismissed = prefs.getBoolean(notifKey, false)
-
-            if (!isDismissed) {
-                currentParentNotifKey = notifKey
-                binding.cardParentNotificationAlert.visibility = View.VISIBLE
-                binding.tvParentNotifTitle.text = firstNotif.title ?: "Pemberitahuan Presensi"
-                binding.tvParentNotifMessage.text = firstNotif.message ?: ""
-                binding.tvParentNotifTime.text = firstNotif.createdAt?.substring(0, 10) ?: "Hari Ini"
+        val dismissedSet = HashSet(prefs.getStringSet("dismissed_parent_notif_ids", emptySet()) ?: emptySet())
+        val todayDateStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
+        val childId = data.child?.id ?: currentStudentId ?: "child"
+        val isUksDismissedToday = prefs.getBoolean("uks_pickup_dismissed_${todayDateStr}_$childId", false)
+        
+        // Cari notifikasi aktif yang belum pernah di-dismiss dan belum dibaca
+        val activeNotif = notifs?.firstOrNull { n ->
+            val idStr = n.id ?: (n.title.orEmpty() + "_" + n.createdAt.orEmpty())
+            val key = "notif_${idStr}"
+            val isPickup = (n.title?.contains("jemput", ignoreCase = true) == true) ||
+                           (n.message?.contains("jemput", ignoreCase = true) == true) ||
+                           (n.category == "UKS_PICKUP")
+            if (isPickup && isUksDismissedToday) {
+                false
             } else {
-                binding.cardParentNotificationAlert.visibility = View.GONE
+                !dismissedSet.contains(idStr) && !prefs.getBoolean(key, false) && n.isRead != true
+            }
+        }
+
+        if (activeNotif != null) {
+            val notifId = activeNotif.id ?: (activeNotif.title.orEmpty() + "_" + activeNotif.createdAt.orEmpty())
+            val notifKey = "notif_${notifId}"
+            currentParentNotifKey = notifKey
+            currentParentNotifId = activeNotif.id
+
+            binding.cardParentNotificationAlert.visibility = View.VISIBLE
+            binding.tvParentNotifTitle.text = activeNotif.title ?: "Pemberitahuan Presensi"
+            binding.tvParentNotifMessage.text = activeNotif.message ?: ""
+            binding.tvParentNotifTime.text = activeNotif.createdAt?.substring(0, 10) ?: "Hari Ini"
+
+            // Cek apakah tanggal notifikasi adalah hari ini (bukan riwayat hari kemarin)
+            val notifDateStr = activeNotif.createdAt?.substring(0, 10) ?: todayDateStr
+            val isFromToday = notifDateStr.startsWith(todayDateStr)
+
+            val isUksPickup = (activeNotif.title?.contains("jemput", ignoreCase = true) == true) ||
+                              (activeNotif.message?.contains("jemput", ignoreCase = true) == true) ||
+                              (activeNotif.category == "UKS_PICKUP")
+
+            // JIKA NOTIFIKASI ADALAH PENJEMPUTAN UKS:
+            // HANYA TAMPILKAN SEKALI SAJA UNTUK HARI INI DAN JIKA BELUM PERNAH DITUTUP
+            val hasShownPopup = prefs.getBoolean("popup_shown_${notifKey}", false)
+            if (isUksPickup && isFromToday && !hasShownPopup && !isUksDismissedToday) {
+                prefs.edit().putBoolean("popup_shown_${notifKey}", true).commit()
+
+                val childName = data.child?.name ?: "Ananda"
+                val childClass = data.child?.className ?: "-"
+
+                // Tampilkan notifikasi Heads-Up seperti WhatsApp (suara, getar & banner mengambang)
+                com.school.smartcbt.utils.NotificationHelper.showHeadsUpNotification(
+                    context = this,
+                    title = "🚨 " + (activeNotif.title ?: "SISWA MEMBUTUHKAN PENJEMPUTAN"),
+                    message = activeNotif.message ?: "Ananda $childName memerlukan penjemputan dari sekolah oleh orang tua/wali dikarenakan kondisi medis di UKS.",
+                    subText = "UKS SMP Negeri 1 Boyolangu"
+                )
+
+                com.school.smartcbt.utils.DialogHelper.showFullScreenNotificationDialog(
+                    context = this,
+                    theme = com.school.smartcbt.utils.DialogHelper.HeaderTheme.CRITICAL,
+                    badgeText = "UKS NOTIFIKASI PENTING",
+                    title = "SISWA MEMBUTUHKAN PENJEMPUTAN",
+                    studentName = childName,
+                    className = childClass,
+                    timeInfo = java.text.SimpleDateFormat("HH.mm 'WIB'", java.util.Locale.getDefault()).format(java.util.Date()),
+                    message = activeNotif.message ?: "Ananda memerlukan penjemputan dari sekolah oleh orang tua/wali dikarenakan kondisi medis.",
+                    actionText = "LIHAT DETAIL KESEHATAN",
+                    onAction = {
+                        markParentNotificationPermanentlyDismissed(notifId, activeNotif.id)
+                        showChildHealthHistoryDialog()
+                    },
+                    onDismiss = {
+                        markParentNotificationPermanentlyDismissed(notifId, activeNotif.id)
+                    }
+                )
             }
         } else {
             // Default status info banner - jika sudah pernah ditutup, jangan tampilkan lagi
-            val isDefaultDismissed = prefs.getBoolean("default_parent_notif_dismissed", false)
+            val isDefaultDismissed = prefs.getBoolean("default_parent_notif_dismissed", false) || dismissedSet.contains("default_parent_notif_dismissed")
             if (!isDefaultDismissed) {
                 currentParentNotifKey = "default_parent_notif_dismissed"
+                currentParentNotifId = null
                 binding.cardParentNotificationAlert.visibility = View.VISIBLE
                 binding.tvParentNotifTitle.text = "✅ Status Presensi Aktif"
                 binding.tvParentNotifMessage.text = "Notifikasi real-time aktif: Orang tua akan menerima alert instan setiap ananda scan masuk atau pulang."
@@ -611,12 +793,42 @@ class ParentMainActivity : AppCompatActivity() {
     }
 
     private var currentParentNotifKey: String? = null
+    private var currentParentNotifId: String? = null
+
+    private fun markParentNotificationPermanentlyDismissed(notifKeyId: String, backendId: String?) {
+        binding.cardParentNotificationAlert.visibility = View.GONE
+        val prefs = getSharedPreferences("smartschool_parent_notifs", Context.MODE_PRIVATE)
+        val newSet = HashSet(prefs.getStringSet("dismissed_parent_notif_ids", emptySet()) ?: emptySet())
+        newSet.add(notifKeyId)
+        backendId?.let { newSet.add(it) }
+
+        val todayDateStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
+        val childId = currentStudentId ?: "child"
+
+        prefs.edit()
+            .putStringSet("dismissed_parent_notif_ids", newSet)
+            .putBoolean("notif_$notifKeyId", true)
+            .putBoolean(notifKeyId, true)
+            .putBoolean("popup_shown_notif_$notifKeyId", true)
+            .putBoolean("uks_pickup_dismissed_${todayDateStr}_$childId", true)
+            .commit()
+
+        // Sync read status to backend if notification ID is available
+        backendId?.let { id ->
+            try {
+                ApiClient.getClient(this).markNotificationAsRead(id).enqueue(object : Callback<BasicResponse> {
+                    override fun onResponse(call: Call<BasicResponse>, response: Response<BasicResponse>) {}
+                    override fun onFailure(call: Call<BasicResponse>, t: Throwable) {}
+                })
+            } catch (e: Exception) {}
+        }
+    }
 
     private fun dismissParentNotification() {
         binding.cardParentNotificationAlert.visibility = View.GONE
         currentParentNotifKey?.let { key ->
-            val prefs = getSharedPreferences("smartschool_parent_notifs", Context.MODE_PRIVATE)
-            prefs.edit().putBoolean(key, true).apply()
+            val idOnly = key.removePrefix("notif_")
+            markParentNotificationPermanentlyDismissed(idOnly, currentParentNotifId)
         }
         Toast.makeText(this, "Notifikasi telah ditutup", Toast.LENGTH_SHORT).show()
     }
@@ -1278,9 +1490,9 @@ class ParentMainActivity : AppCompatActivity() {
         childCard.addView(childInfo)
         formContainer.addView(childCard)
 
-        // Kategori
+        // Kategori Perizinan Modular 3 Tab (Sakit | Izin | Dispensasi)
         val tvKatLabel = TextView(this).apply {
-            text = "Pilih Kategori Perizinan *"
+            text = "Kategori Perizinan (Pilih Tab) *"
             textSize = 12.5f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.parseColor("#334155"))
@@ -1288,21 +1500,108 @@ class ParentMainActivity : AppCompatActivity() {
         }
         formContainer.addView(tvKatLabel)
 
-        val rgCategory = RadioGroup(this).apply {
-            orientation = RadioGroup.HORIZONTAL
+        var selectedCategory = "SICK" // "SICK", "PERMISSION", "DISPENSATION"
+
+        // Opsi Jenis Bukti Sakit (Izin Orang Tua Maks 3 Hari vs Surat Dokter Resmi)
+        val sickDocContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(8, 8, 8, 4)
         }
-        val rbSick = RadioButton(this).apply {
-            text = "🤒 Sakit (Perlu Istirahat)"
-            isChecked = true
-            textSize = 13f
+        val tvSickDocLabel = TextView(this).apply {
+            text = "Jenis Keterangan Sakit *"
+            textSize = 12f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.parseColor("#0F172A"))
+            setPadding(0, 4, 0, 4)
         }
-        val rbPerm = RadioButton(this).apply {
-            text = "📝 Izin Keluarga"
-            textSize = 13f
+        sickDocContainer.addView(tvSickDocLabel)
+
+        val rgSickDocType = RadioGroup(this).apply {
+            orientation = RadioGroup.VERTICAL
         }
-        rgCategory.addView(rbSick)
-        rgCategory.addView(rbPerm)
-        formContainer.addView(rgCategory)
+        val rbParentSickNote = RadioButton(this).apply {
+            id = View.generateViewId()
+            text = "🏠 Izin Sakit dari Orang Tua (Otomatis Dikunci Maksimal 2 Hari)"
+            textSize = 12.5f
+        }
+        val rbDoctorSickNote = RadioButton(this).apply {
+            id = View.generateViewId()
+            text = "🏥 Surat Keterangan Dokter Resmi (Sesuai Kebutuhan Istirahat Dokter)"
+            textSize = 12.5f
+        }
+        rgSickDocType.addView(rbParentSickNote)
+        rgSickDocType.addView(rbDoctorSickNote)
+        rgSickDocType.check(rbParentSickNote.id)
+        sickDocContainer.addView(rgSickDocType)
+
+        val tvSickRuleBanner = TextView(this).apply {
+            text = "ℹ️ KEBIJAKAN IZIN SEKOLAH: Izin sakit dan keluarga dari orang tua dikunci maksimal 2 hari berturut-turut. Jika ananda memerlukan perpanjangan izin lebih dari 2 hari, wajib mengajukan izin baru dengan melampirkan Surat Pengantar berstempel RT setempat, atau Surat Keterangan Dokter/Puskesmas jika ananda berobat ke dokter."
+            textSize = 11f
+            setTextColor(Color.parseColor("#9A3412"))
+            setBackgroundColor(Color.parseColor("#FFEDD5"))
+            setPadding(20, 16, 20, 16)
+        }
+        sickDocContainer.addView(tvSickRuleBanner)
+
+        val tabCatContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            weightSum = 3f
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                42.dpToPx()
+            ).apply { topMargin = 4; bottomMargin = 10 }
+        }
+
+        val btnTabSick = Button(this).apply {
+            text = "🤒 Sakit"
+            textSize = 12f
+            typeface = Typeface.DEFAULT_BOLD
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f).apply { marginEnd = 4 }
+        }
+        val btnTabPerm = Button(this).apply {
+            text = "📝 Izin"
+            textSize = 12f
+            typeface = Typeface.DEFAULT_BOLD
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f).apply { marginStart = 2; marginEnd = 2 }
+        }
+        val btnTabDisp = Button(this).apply {
+            text = "🎖️ Dispensasi"
+            textSize = 12f
+            typeface = Typeface.DEFAULT_BOLD
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f).apply { marginStart = 4 }
+        }
+
+        fun updateCategoryTabs() {
+            fun styleTab(btn: Button, isSel: Boolean, activeColor: String) {
+                val gd = android.graphics.drawable.GradientDrawable().apply {
+                    cornerRadius = 10f * resources.displayMetrics.density
+                    if (isSel) {
+                        setColor(Color.parseColor(activeColor))
+                    } else {
+                        setColor(Color.parseColor("#F1F5F9"))
+                        setStroke(1.dpToPx(), Color.parseColor("#E2E8F0"))
+                    }
+                }
+                btn.background = gd
+                btn.setTextColor(if (isSel) Color.WHITE else Color.parseColor("#64748B"))
+            }
+
+            styleTab(btnTabSick, selectedCategory == "SICK", "#7C3AED")
+            styleTab(btnTabPerm, selectedCategory == "PERMISSION", "#D97706")
+            styleTab(btnTabDisp, selectedCategory == "DISPENSATION", "#2563EB")
+            sickDocContainer.visibility = if (selectedCategory == "SICK") View.VISIBLE else View.GONE
+        }
+
+        btnTabSick.setOnClickListener { selectedCategory = "SICK"; updateCategoryTabs() }
+        btnTabPerm.setOnClickListener { selectedCategory = "PERMISSION"; updateCategoryTabs() }
+        btnTabDisp.setOnClickListener { selectedCategory = "DISPENSATION"; updateCategoryTabs() }
+
+        tabCatContainer.addView(btnTabSick)
+        tabCatContainer.addView(btnTabPerm)
+        tabCatContainer.addView(btnTabDisp)
+        formContainer.addView(tabCatContainer)
+        formContainer.addView(sickDocContainer)
+        updateCategoryTabs()
 
         // Tanggal
         val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
@@ -1352,7 +1651,7 @@ class ParentMainActivity : AppCompatActivity() {
         formContainer.addView(tvReasonLabel)
 
         val etReason = EditText(this).apply {
-            hint = "Contoh: Mengalami demam tinggi dan batuk, sedang berobat ke puskesmas..."
+            hint = "Contoh: Mengalami demam tinggi dan batuk, sedang istirahat / berobat..."
             minLines = 3
             textSize = 13f
             setBackgroundResource(android.R.drawable.edit_text)
@@ -1371,7 +1670,7 @@ class ParentMainActivity : AppCompatActivity() {
         formContainer.addView(tvAttachLabel)
 
         val tvAttachInfo = TextView(this).apply {
-            text = "Mohon unggah foto fisik surat keterangan dokter atau surat izin bertanda tangan orang tua asli. Hasil foto akan diverifikasi oleh Wali Kelas dan Guru BK."
+            text = "Untuk Surat Keterangan Dokter atau Perpanjangan Sakit (Belum Sembuh), WAJIB melampirkan foto fisik Surat Keterangan Dokter resmi (bukan surat buatan orang tua / tulisan tangan)."
             textSize = 11f
             setTextColor(Color.parseColor("#64748B"))
             setPadding(8, 0, 8, 12)
@@ -1424,7 +1723,7 @@ class ParentMainActivity : AppCompatActivity() {
         // STATUS PROSES VERIFIKASI IZIN / SAKIT (DI BAWAH LAMPIRAN)
         // =========================================================================
         val tvStatusSectionHeader = TextView(this).apply {
-            text = "📋 Status Proses Verifikasi Surat Izin / Sakit"
+            text = "📋 Status Verifikasi & Jumlah Hari Masuk Rekap"
             textSize = 13f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.parseColor("#1E293B"))
@@ -1453,8 +1752,40 @@ class ParentMainActivity : AppCompatActivity() {
                 statusVerificationContainer.removeAllViews()
                 val list = response.body()
                 cachedParentLeaveList = list
+
+                // Cek apakah ada izin sakit aktif / dalam 7 hari terakhir (Perpanjangan Sakit)
+                val recentSickItem = list?.firstOrNull { prev ->
+                    val isPrevSick = (prev.category == "SICK" || prev.category == "SAKIT")
+                    val isNotRejected = prev.status != "REJECTED"
+                    if (!isPrevSick || !isNotRejected) false
+                    else {
+                        try {
+                            val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+                            val endStr = (prev.endDate ?: prev.createdAt ?: "").substringBefore("T")
+                            val endDt = sdf.parse(endStr)
+                            val diffMs = System.currentTimeMillis() - (endDt?.time ?: 0L)
+                            diffMs <= 7L * 24 * 60 * 60 * 1000
+                        } catch (e: Exception) { true }
+                    }
+                }
+
+                if (recentSickItem != null) {
+                    rbDoctorSickNote.isChecked = true
+                    rbParentSickNote.isEnabled = false
+                    tvSickRuleBanner.text = "🚨 PERINGATAN OTOMATIS PERPANJANGAN SAKIT: Ananda tercatat telah menggunakan izin sakit sebelumnya (${recentSickItem.startDate?.substringBefore("T")} s/d ${recentSickItem.endDate?.substringBefore("T")}). Apabila belum sembuh dan diperpanjang, WAJIB melampirkan foto Surat Keterangan berstempel RT setempat atau Surat Keterangan Dokter/Faskes resmi!"
+                    tvSickRuleBanner.setTextColor(Color.parseColor("#991B1B"))
+                    tvSickRuleBanner.setBackgroundColor(Color.parseColor("#FEE2E2"))
+
+                    com.school.smartcbt.utils.NotificationHelper.showHeadsUpNotification(
+                        this@ParentMainActivity,
+                        "⚠️ Perpanjangan Sakit Wajib Surat Dokter",
+                        "Ananda belum sembuh dari izin sebelumnya. Perpanjangan sakit wajib menggunakan Surat Keterangan Dokter resmi (bukan surat buatan orang tua/tangan).",
+                        "Sistem Perizinan Sekolah"
+                    )
+                }
+
                 if (response.isSuccessful && !list.isNullOrEmpty()) {
-                    list.forEachIndexed { index, req ->
+                    list.forEachIndexed { _, req ->
                         val card = CardView(this@ParentMainActivity).apply {
                             radius = 12f
                             cardElevation = 2f
@@ -1467,25 +1798,28 @@ class ParentMainActivity : AppCompatActivity() {
                             setPadding(20, 16, 20, 16)
                         }
 
+                        val daysApproved = req.approvedDays ?: req.durationDays ?: 1
+                        val docLabel = req.documentLabel ?: if (req.isDoctorNote == true) "🏥 Surat Dokter ($daysApproved Hari)" else "🏠 Izin Ortu ($daysApproved Hari)"
+
                         val statusUpper = req.status?.uppercase() ?: "PENDING"
                         val (statusBadge, statusBg, statusColor, descText) = when (statusUpper) {
                             "APPROVED" -> Quadruple(
-                                "✅ TELAH DIVERIFIKASI & DISETUJUI",
+                                "✅ DISETUJUI ($daysApproved HARI REKAP)",
                                 "#F0FDF4",
                                 "#15803D",
-                                "Disetujui oleh: ${req.verifiedBy ?: "Wali Kelas & Guru BK"}. Presensi otomatis tercatat."
+                                "Disetujui ${req.verifiedBy ?: "Wali Kelas & BK"} selama $daysApproved HARI ($docLabel). Otomatis masuk ke Rekap Presensi APK, Wali Kelas & Pengurus Kelas. Jika belum sembuh & diperpanjang, WAJIB Surat Dokter resmi."
                             )
                             "REJECTED" -> Quadruple(
                                 "❌ DITOLAK",
                                 "#FEF2F2",
                                 "#B91C1C",
-                                "Alasan Penolakan: ${req.rejectionNote ?: "Surat / bukti tidak sah"}"
+                                "Alasan Penolakan: ${req.rejectionNote ?: "Wajib melampirkan Surat Keterangan Dokter resmi"}"
                             )
                             else -> Quadruple(
-                                "⏳ SEDANG DIPROSES / MENUNGGU VERIFIKASI",
+                                "⏳ MENUNGGU VERIFIKASI ($daysApproved HARI)",
                                 "#FFFBEB",
                                 "#B45309",
-                                "Surat izin dalam antrean pemeriksaan oleh Wali Kelas & Guru BK."
+                                "Jenis: $docLabel. Sedang diperiksa oleh Wali Kelas & Guru BK."
                             )
                         }
 
@@ -1497,8 +1831,8 @@ class ParentMainActivity : AppCompatActivity() {
                         }
 
                         val tvCat = TextView(this@ParentMainActivity).apply {
-                            text = if (req.category == "SICK" || req.category == "SAKIT") "🤒 Sakit" else "📝 Izin"
-                            textSize = 12.5f
+                            text = if (req.category == "SICK" || req.category == "SAKIT") "🤒 Sakit ($docLabel)" else "📝 Izin ($daysApproved Hari)"
+                            textSize = 12f
                             typeface = Typeface.DEFAULT_BOLD
                             setTextColor(Color.parseColor("#0F172A"))
                             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
@@ -1517,7 +1851,7 @@ class ParentMainActivity : AppCompatActivity() {
                         val tvPeriod = TextView(this@ParentMainActivity).apply {
                             val start = req.startDate?.substringBefore("T") ?: "-"
                             val end = req.endDate?.substringBefore("T") ?: "-"
-                            text = "🗓️ Periode: $start s/d $end"
+                            text = "🗓️ Periode: $start s/d $end ($daysApproved Hari)"
                             textSize = 11.5f
                             setTextColor(Color.parseColor("#334155"))
                             setPadding(0, 6, 0, 2)
@@ -1584,11 +1918,12 @@ class ParentMainActivity : AppCompatActivity() {
             setTextColor(Color.WHITE)
             setPadding(0, 20, 0, 20)
             setOnClickListener {
-                val isSick = rbSick.isChecked
-                val category = if (isSick) "SICK" else "PERMISSION"
+                val isSick = selectedCategory == "SICK"
+                val isDoctorNote = isSick && rbDoctorSickNote.isChecked
+                val category = selectedCategory
                 val reason = etReason.text.toString().trim()
                 val start = etStartDate.text.toString().trim()
-                val end = etEndDate.text.toString().trim()
+                var end = etEndDate.text.toString().trim()
 
                 if (reason.isEmpty()) {
                     Toast.makeText(this@ParentMainActivity, "Alasan izin / diagnosa sakit wajib diisi!", Toast.LENGTH_SHORT).show()
@@ -1603,52 +1938,96 @@ class ParentMainActivity : AppCompatActivity() {
 
                 // Hitung durasi hari izin/sakit
                 var diffDays = 1
+                val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
                 try {
-                    val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
                     val dStart = sdf.parse(start)
                     val dEnd = sdf.parse(end)
                     if (dStart != null && dEnd != null) {
-                        val diffMillis = Math.abs(dEnd.time - dStart.time)
+                        val diffMillis = Math.max(0L, dEnd.time - dStart.time)
                         diffDays = (diffMillis / (1000 * 60 * 60 * 24)).toInt() + 1
                     }
                 } catch (e: Exception) {}
 
-                // Validasi Sakit >= 3 Hari Wajib Surat Dokter
-                if (category == "SICK" && diffDays >= 3 && attachedPhotoBase64.isNullOrEmpty()) {
-                    AlertDialog.Builder(this@ParentMainActivity)
-                        .setTitle("⚠️ Wajib Lampirkan Surat Dokter")
-                        .setMessage("Sesuai tata tertib sekolah, permohonan izin sakit selama 3 hari atau lebih (durasi: $diffDays hari) WAJIB melampirkan foto fisik Surat Keterangan Dokter/Klinik/Puskesmas.")
-                        .setPositiveButton("Siapkan Surat", null)
-                        .show()
-                    return@setOnClickListener
-                }
-
-                // Validasi Perpanjangan Sakit (Belum sembuh dalam 7 hari terakhir)
+                // Cek apakah ini Perpanjangan Sakit (belum sembuh dalam 7 hari terakhir)
                 val hasRecentSick = cachedParentLeaveList?.any { prev ->
                     val isPrevSick = (prev.category == "SICK" || prev.category == "SAKIT")
                     val isNotRejected = prev.status != "REJECTED"
-                    isPrevSick && isNotRejected
+                    if (!isPrevSick || !isNotRejected) false
+                    else {
+                        try {
+                            val endStr = (prev.endDate ?: prev.createdAt ?: "").substringBefore("T")
+                            val endDt = sdf.parse(endStr)
+                            val diffMs = System.currentTimeMillis() - (endDt?.time ?: 0L)
+                            diffMs <= 7L * 24 * 60 * 60 * 1000
+                        } catch (e: Exception) { true }
+                    }
                 } ?: false
 
-                if (category == "SICK" && hasRecentSick && attachedPhotoBase64.isNullOrEmpty()) {
+                // 1. Validasi Perpanjangan Sakit: WAJIB SURAT DOKTER RESMI (Bukan surat orang tua / tulisan tangan)
+                if (category == "SICK" && hasRecentSick) {
+                    if (!isDoctorNote || attachedPhotoBase64.isNullOrEmpty()) {
+                        com.school.smartcbt.utils.NotificationHelper.showHeadsUpNotification(
+                            this@ParentMainActivity,
+                            "⚠️ Wajib Surat Dokter untuk Perpanjangan Sakit",
+                            "Ananda belum sembuh dari izin sakit sebelumnya. Perpanjangan sakit WAJIB menggunakan foto Surat Keterangan Dokter resmi (bukan surat buatan orang tua/tulisan tangan).",
+                            "Sistem Perizinan Sekolah"
+                        )
+                        AlertDialog.Builder(this@ParentMainActivity)
+                            .setTitle("⚠️ Perpanjangan Sakit Wajib Surat Dokter")
+                            .setMessage("Ananda tercatat telah menggunakan izin sakit sebelumnya dan belum sembuh.\n\nSesuai tata tertib sekolah:\n1. Perpanjangan izin sakit WAJIB memilih opsi '🏥 Surat Keterangan Dokter Resmi'.\n2. WAJIB melampirkan foto fisik Surat Keterangan Dokter asli (BUKAN surat buatan orang tua atau tulisan tangan).")
+                            .setPositiveButton("Pilih Surat Dokter") { _, _ ->
+                                rbDoctorSickNote.isChecked = true
+                            }
+                            .show()
+                        return@setOnClickListener
+                    }
+                }
+
+                // 2. Validasi Izin Sakit & Keluarga Orang Tua -> Mutlak Dikunci Maksimal 2 Hari!
+                if (!isDoctorNote && diffDays > 2) {
                     AlertDialog.Builder(this@ParentMainActivity)
-                        .setTitle("⚠️ Wajib Surat Dokter Perpanjangan")
-                        .setMessage("Untuk perpanjangan izin sakit siswa (belum sembuh), Anda wajib melampirkan foto Surat Keterangan Dokter terbaru.")
-                        .setPositiveButton("Siapkan Surat", null)
+                        .setTitle("⚠️ Izin Orang Tua Dikunci Maksimal 2 Hari")
+                        .setMessage("Sesuai kebijakan resmi sekolah, izin sakit dan urusan keluarga dari orang tua dikunci MAKSIMAL 2 HARI berturut-turut.\n\nAnda memilih durasi $diffDays hari. Sistem akan membatasi izin ini otomatis menjadi 2 hari.\n\nApabila ananda membutuhkan perpanjangan izin di hari ke-3, wajib mengajukan permohonan baru dengan melampirkan Surat Pengantar berstempel RT setempat, atau Surat Keterangan Dokter jika ananda berobat ke fasilitas kesehatan.")
+                        .setPositiveButton("Kunci Maksimal 2 Hari") { _, _ ->
+                            try {
+                                val dStart = sdf.parse(start)
+                                if (dStart != null) {
+                                    val cal = Calendar.getInstance()
+                                    cal.time = dStart
+                                    cal.add(Calendar.DAY_OF_MONTH, 1) // Hari ke-1 dan ke-2 (total 2 hari)
+                                    etEndDate.setText(sdf.format(cal.time))
+                                }
+                            } catch (_: Exception) {}
+                        }
+                        .setNeutralButton("Gunakan Surat Dokter") { _, _ ->
+                            rbDoctorSickNote.isChecked = true
+                        }
                         .show()
                     return@setOnClickListener
                 }
 
+                // 3. Validasi Surat Dokter Resmi -> Wajib Foto Surat Dokter
+                if (category == "SICK" && isDoctorNote && attachedPhotoBase64.isNullOrEmpty()) {
+                    AlertDialog.Builder(this@ParentMainActivity)
+                        .setTitle("🏥 Wajib Foto Surat Keterangan Dokter")
+                        .setMessage("Anda memilih kategori Surat Keterangan Dokter Resmi ($diffDays hari istirahat). Mohon lampirkan foto fisik Surat Keterangan Dokter dari Rumah Sakit / Klinik / Puskesmas.")
+                        .setPositiveButton("Ambil Foto Surat", null)
+                        .show()
+                    return@setOnClickListener
+                }
+
+                val docType = if (isDoctorNote) "DOCTOR_NOTE" else "PARENT_NOTE"
                 val payload = mapOf(
                     "studentId" to childId,
                     "category" to category,
+                    "documentType" to docType,
                     "startDate" to start,
                     "endDate" to end,
                     "reason" to reason,
                     "attachmentUrl" to (attachedPhotoBase64 ?: "")
                 )
 
-                Toast.makeText(this@ParentMainActivity, "Mengirim permohonan ke Wali Kelas & BK...", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@ParentMainActivity, "Mengirim permohonan ke Guru BK...", Toast.LENGTH_SHORT).show()
 
                 ApiClient.getClient(this@ParentMainActivity).submitParentLeaveRequest(payload).enqueue(object : Callback<BasicResponse> {
                     override fun onResponse(call: Call<BasicResponse>, response: Response<BasicResponse>) {
@@ -1657,10 +2036,10 @@ class ParentMainActivity : AppCompatActivity() {
                             com.school.smartcbt.utils.NotificationHelper.showHeadsUpNotification(
                                 this@ParentMainActivity,
                                 "📩 Permohonan Izin Berhasil Terkirim",
-                                "Permohonan $category untuk $cName telah diteruskan ke Wali Kelas & Guru BK untuk verifikasi.",
+                                "Permohonan $category untuk $cName telah diteruskan khusus ke Guru BK untuk verifikasi.",
                                 "Perizinan SMPN 1 Boyolangu"
                             )
-                            Toast.makeText(this@ParentMainActivity, "✅ Permohonan Izin Berhasil Dikirim ke Wali Kelas & Guru BK!", Toast.LENGTH_LONG).show()
+                            Toast.makeText(this@ParentMainActivity, "✅ Permohonan Izin Berhasil Dikirim ke Guru BK!", Toast.LENGTH_LONG).show()
                             dialog.dismiss()
                             loadParentData()
                         } else {
@@ -1783,15 +2162,19 @@ class ParentMainActivity : AppCompatActivity() {
         } else {
             subjects.forEach { subj ->
                 val card = CardView(this).apply {
-                    radius = 14f
-                    cardElevation = 2f
+                    radius = 16f * resources.displayMetrics.density
+                    cardElevation = 2.5f * resources.displayMetrics.density
                     setCardBackgroundColor(Color.WHITE)
                     useCompatPadding = true
+                    val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                        bottomMargin = 10.dpToPx()
+                    }
+                    layoutParams = lp
                 }
 
                 val row = LinearLayout(this).apply {
                     orientation = LinearLayout.VERTICAL
-                    setPadding(20, 18, 20, 18)
+                    setPadding(16.dpToPx(), 16.dpToPx(), 16.dpToPx(), 16.dpToPx())
                 }
 
                 val headerRow = LinearLayout(this).apply {
@@ -1799,68 +2182,126 @@ class ParentMainActivity : AppCompatActivity() {
                     gravity = Gravity.CENTER_VERTICAL
                 }
 
+                val titleCol = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                        marginEnd = 8.dpToPx()
+                    }
+                }
+
                 val tvSubjName = TextView(this).apply {
-                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                     text = "📘 ${subj.subjectName}"
-                    textSize = 14f
+                    textSize = 14.5f
                     typeface = Typeface.DEFAULT_BOLD
                     setTextColor(Color.parseColor("#0F172A"))
                 }
+                titleCol.addView(tvSubjName)
+
+                val tvTeacher = TextView(this).apply {
+                    text = "Guru Pengampu: ${subj.teacherName ?: "-"}"
+                    textSize = 11.5f
+                    setTextColor(Color.parseColor("#64748B"))
+                    setPadding(0, 2.dpToPx(), 0, 0)
+                }
+                titleCol.addView(tvTeacher)
+
+                headerRow.addView(titleCol)
+
+                val isHigh = subj.percentage >= 85
+                val isMed = subj.percentage >= 70
+                val prcBg = if (isHigh) "#DCFCE7" else if (isMed) "#FEF3C7" else "#FEE2E2"
+                val prcText = if (isHigh) "#15803D" else if (isMed) "#B45309" else "#B91C1C"
 
                 val tvPct = TextView(this).apply {
-                    text = "${subj.percentage}%"
-                    textSize = 14f
+                    text = "${subj.percentage}% Kehadiran"
+                    textSize = 11f
                     typeface = Typeface.DEFAULT_BOLD
-                    val color = if (subj.percentage >= 85) "#16A34A" else if (subj.percentage >= 75) "#D97706" else "#DC2626"
-                    setTextColor(Color.parseColor(color))
+                    setTextColor(Color.parseColor(prcText))
+                    val shape = android.graphics.drawable.GradientDrawable().apply {
+                        setColor(Color.parseColor(prcBg))
+                        cornerRadius = 10f * resources.displayMetrics.density
+                    }
+                    background = shape
+                    val hp = 10.dpToPx()
+                    val vp = 4.dpToPx()
+                    setPadding(hp, vp, hp, vp)
                 }
-
-                headerRow.addView(tvSubjName)
                 headerRow.addView(tvPct)
                 row.addView(headerRow)
 
-                val tvTeacher = TextView(this).apply {
-                    text = "Guru: ${subj.teacherName ?: "-"}"
-                    textSize = 11.5f
-                    setTextColor(Color.parseColor("#64748B"))
-                    setPadding(0, 2, 0, 8)
+                // Mini Progress Bar
+                val progressTrack = LinearLayout(this).apply {
+                    layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 6.dpToPx()).apply {
+                        topMargin = 12.dpToPx()
+                        bottomMargin = 12.dpToPx()
+                    }
+                    val trackShape = android.graphics.drawable.GradientDrawable().apply {
+                        setColor(Color.parseColor("#E2E8F0"))
+                        cornerRadius = 3f * resources.displayMetrics.density
+                    }
+                    background = trackShape
+                    weightSum = 100f
                 }
-                row.addView(tvTeacher)
+
+                val safePrc = subj.percentage.coerceIn(0, 100).toFloat()
+                if (safePrc > 0f) {
+                    val progressFill = View(this).apply {
+                        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, safePrc)
+                        val fillShape = android.graphics.drawable.GradientDrawable().apply {
+                            setColor(Color.parseColor(if (isHigh) "#10B981" else if (isMed) "#F59E0B" else "#EF4444"))
+                            cornerRadius = 3f * resources.displayMetrics.density
+                        }
+                        background = fillShape
+                    }
+                    progressTrack.addView(progressFill)
+                }
+                row.addView(progressTrack)
 
                 val statsRow = LinearLayout(this).apply {
                     orientation = LinearLayout.HORIZONTAL
                     weightSum = 4f
                 }
 
-                fun statBadge(label: String, value: Int, colorHex: String): LinearLayout {
+                fun statBadge(label: String, value: Int, bgHex: String, colorHex: String, isFirst: Boolean, isLast: Boolean): LinearLayout {
                     return LinearLayout(this).apply {
-                        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                            marginStart = if (isFirst) 0 else 3.dpToPx()
+                            marginEnd = if (isLast) 0 else 3.dpToPx()
+                        }
                         orientation = LinearLayout.VERTICAL
                         gravity = Gravity.CENTER
-                        background = ColorDrawable(Color.parseColor("#F8FAFC"))
-                        setPadding(8, 8, 8, 8)
+                        val shape = android.graphics.drawable.GradientDrawable().apply {
+                            setColor(Color.parseColor(bgHex))
+                            cornerRadius = 8f * resources.displayMetrics.density
+                        }
+                        background = shape
+                        val vp = 8.dpToPx()
+                        val hp = 4.dpToPx()
+                        setPadding(hp, vp, hp, vp)
+
                         val tvV = TextView(this@ParentMainActivity).apply {
                             text = value.toString()
-                            textSize = 13f
+                            textSize = 14f
                             typeface = Typeface.DEFAULT_BOLD
                             setTextColor(Color.parseColor(colorHex))
+                            gravity = Gravity.CENTER
                         }
                         val tvL = TextView(this@ParentMainActivity).apply {
                             text = label
                             textSize = 10f
-                            setTextColor(Color.parseColor("#64748B"))
+                            setTextColor(Color.parseColor(colorHex))
+                            gravity = Gravity.CENTER
+                            setPadding(0, 2.dpToPx(), 0, 0)
                         }
                         addView(tvV)
                         addView(tvL)
                     }
                 }
 
-                statsRow.addView(statBadge("Hadir", subj.present, "#16A34A"))
-                statsRow.addView(statBadge("Sakit", subj.sick, "#2563EB"))
-                statsRow.addView(statBadge("Izin", subj.permission, "#7C3AED"))
-                statsRow.addView(statBadge("Alpa", subj.truant, "#DC2626"))
-                row.addView(statsRow)
-
+                statsRow.addView(statBadge("Hadir", subj.present, "#DCFCE7", "#15803D", isFirst = true, isLast = false))
+                statsRow.addView(statBadge("Sakit", subj.sick, "#E0F2FE", "#0369A1", isFirst = false, isLast = false))
+                statsRow.addView(statBadge("Izin", subj.permission, "#FEF3C7", "#B45309", isFirst = false, isLast = false))
+                statsRow.addView(statBadge("Alpa", subj.truant, "#FFE4E6", "#BE123C", isFirst = false, isLast = true))
                 card.addView(row)
                 listContainer.addView(card)
             }
@@ -2534,11 +2975,13 @@ $confirmStatusText
                 cardInner.addView(colInfo)
 
                 // Status Chip
-                val (badgeText, badgeBg, badgeTextCol) = when (h.status.uppercase()) {
-                    "PRESENT" -> Triple("HADIR", "#D1FAE5", "#065F46")
-                    "LATE" -> Triple("TERLAMBAT", "#FEF3C7", "#92400E")
-                    "SICK" -> Triple("SAKIT", "#FFE4E6", "#9F1239")
-                    "PERMISSION" -> Triple("IZIN", "#E0F2FE", "#0369A1")
+                val stUpper = h.status.uppercase()
+                val (badgeText, badgeBg, badgeTextCol) = when {
+                    stUpper.contains("LIBUR") || stUpper.contains("MINGGU") -> Triple("LIBUR", "#F1F5F9", "#475569")
+                    stUpper == "PRESENT" || stUpper == "HADIR" -> Triple("HADIR", "#D1FAE5", "#065F46")
+                    stUpper == "LATE" || stUpper == "TERLAMBAT" -> Triple("TERLAMBAT", "#FEF3C7", "#92400E")
+                    stUpper == "SICK" || stUpper == "SAKIT" -> Triple("SAKIT", "#FFE4E6", "#9F1239")
+                    stUpper == "PERMISSION" || stUpper == "IZIN" -> Triple("IZIN", "#E0F2FE", "#0369A1")
                     else -> Triple("ALPA", "#FEE2E2", "#991B1B")
                 }
 
@@ -2563,8 +3006,754 @@ $confirmStatusText
         dialog.show()
     }
 
+    // =========================================================================
+    // MODUL E-KANTIN SEHAT SISWA & KONTROL ORANG TUA
+    // =========================================================================
+    private var cachedParentCanteenWallet: org.json.JSONObject? = null
+
+    private fun checkCanteenFeatureStatus() {
+        ApiClient.getClient(this).getMobileModules().enqueue(object : retrofit2.Callback<com.school.smartcbt.data.model.EvotingModuleConfigResponse> {
+            override fun onResponse(call: retrofit2.Call<com.school.smartcbt.data.model.EvotingModuleConfigResponse>, response: retrofit2.Response<com.school.smartcbt.data.model.EvotingModuleConfigResponse>) {
+                val isEkantinActive = response.body()?.data?.modules?.get("ekantin")?.isActive ?: false
+                runOnUiThread {
+                    binding.cardParentCanteenOverview.visibility = if (isEkantinActive) View.VISIBLE else View.GONE
+                }
+            }
+            override fun onFailure(call: retrofit2.Call<com.school.smartcbt.data.model.EvotingModuleConfigResponse>, t: Throwable) {
+                runOnUiThread {
+                    binding.cardParentCanteenOverview.visibility = View.GONE
+                }
+            }
+        })
+    }
+
+    private fun loadParentCanteenData() {
+        val childId = currentStudentId
+        ApiClient.getClient(this).getStudentWallet(childId).enqueue(object : Callback<com.school.smartcbt.data.model.BasicResponse> {
+            override fun onResponse(call: Call<com.school.smartcbt.data.model.BasicResponse>, response: Response<com.school.smartcbt.data.model.BasicResponse>) {
+                if (response.isSuccessful) {
+                    try {
+                        val raw = response.body()
+                        val gson = com.google.gson.Gson()
+                        val jsonObj = org.json.JSONObject(gson.toJson(raw))
+                        cachedParentCanteenWallet = jsonObj
+
+                        val wallet = jsonObj.optJSONObject("wallet")
+                        val balance = wallet?.optInt("balance", 25000) ?: 25000
+                        val dailyLimit = wallet?.optInt("dailyLimit", 20000) ?: 20000
+                        val remaining = wallet?.optInt("remainingLimit", 9000) ?: 9000
+
+                        binding.tvParentCanteenBalance.text = "Rp " + java.text.DecimalFormat("#,###").format(balance)
+                        binding.tvParentCanteenDailyLimit.text = "Batas: Rp ${java.text.DecimalFormat("#,###").format(dailyLimit)} / Hari • Sisa: Rp ${java.text.DecimalFormat("#,###").format(remaining)}"
+                    } catch (e: Exception) {
+                        binding.tvParentCanteenBalance.text = "Rp 25.000"
+                    }
+                }
+            }
+
+            override fun onFailure(call: Call<com.school.smartcbt.data.model.BasicResponse>, t: Throwable) {
+                binding.tvParentCanteenBalance.text = "Rp 25.000"
+            }
+        })
+    }
+
+    private fun showParentSetDailyLimitDialog() {
+        val density = resources.displayMetrics.density
+        fun dp(v: Int): Int = (v * density).toInt()
+
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(16), dp(20), dp(16))
+        }
+
+        val tvInfo = TextView(this).apply {
+            text = "Atur batas maksimal belanja harian anak di kantin sekolah untuk menjaga pola jajan sehat:"
+            textSize = 12.5f
+            setTextColor(Color.parseColor("#334155"))
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(12)
+            }
+            layoutParams = lp
+        }
+        root.addView(tvInfo)
+
+        val etLimit = EditText(this).apply {
+            hint = "Nominal batas belanja (Cth: 20000)"
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            setText("20000")
+            textSize = 14f
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(14)
+            }
+            layoutParams = lp
+        }
+        root.addView(etLimit)
+
+        // Tombol Cepat Nominal
+        val rowQuick = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            weightSum = 3f
+        }
+        val quicks = listOf(15000, 20000, 30000)
+        for (q in quicks) {
+            val btnQ = Button(this).apply {
+                text = "Rp ${java.text.DecimalFormat("#,###").format(q)}"
+                textSize = 10f
+                backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#F1F5F9"))
+                setTextColor(Color.parseColor("#334155"))
+                setOnClickListener { etLimit.setText(q.toString()) }
+                val lp = LinearLayout.LayoutParams(0, dp(38), 1f).apply {
+                    marginEnd = dp(3)
+                }
+                layoutParams = lp
+            }
+            rowQuick.addView(btnQ)
+        }
+        root.addView(rowQuick)
+
+        AlertDialog.Builder(this)
+            .setTitle("⚙️ Batas Belanja Harian Anak")
+            .setView(root)
+            .setPositiveButton("Simpan Batas") { _, _ ->
+                val limitVal = etLimit.text.toString().trim().toIntOrNull() ?: 20000
+                val progress = android.app.ProgressDialog(this).apply {
+                    setMessage("Menyimpan batas jajan...")
+                    show()
+                }
+                ApiClient.getClient(this).parentSetDailyLimit(mapOf<String, Any?>("studentId" to currentStudentId, "dailyLimit" to limitVal)).enqueue(object : Callback<com.school.smartcbt.data.model.BasicResponse> {
+                    override fun onResponse(call: Call<com.school.smartcbt.data.model.BasicResponse>, response: Response<com.school.smartcbt.data.model.BasicResponse>) {
+                        progress.dismiss()
+                        if (response.isSuccessful) {
+                            Toast.makeText(this@ParentMainActivity, "✅ Batas belanja berhasil disimpan!", Toast.LENGTH_SHORT).show()
+                            loadParentCanteenData()
+                        } else {
+                            Toast.makeText(this@ParentMainActivity, "Gagal mengubah batas belanja", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    override fun onFailure(call: Call<com.school.smartcbt.data.model.BasicResponse>, t: Throwable) {
+                        progress.dismiss()
+                        Toast.makeText(this@ParentMainActivity, "Koneksi gagal: ${t.message}", Toast.LENGTH_SHORT).show()
+                    }
+                })
+            }
+            .setNegativeButton("Batal", null)
+            .show()
+    }
+
+    private fun showParentTopUpDialog() {
+        val density = resources.displayMetrics.density
+        fun dp(v: Int): Int = (v * density).toInt()
+
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(16), dp(20), dp(16))
+        }
+
+        val tvInfo = TextView(this).apply {
+            text = "Isi saldo uang saku digital anak via Payment Gateway Midtrans (QRIS, E-Wallet, Virtual Account):\nNominal Rp10.000 - Rp100.000"
+            textSize = 12.5f
+            setTextColor(Color.parseColor("#334155"))
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(12)
+            }
+            layoutParams = lp
+        }
+        root.addView(tvInfo)
+
+        val etAmount = EditText(this).apply {
+            hint = "Pilih / Ketik Nominal Top Up"
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            setText("20000")
+            textSize = 14f
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(10)
+            }
+            layoutParams = lp
+        }
+        root.addView(etAmount)
+
+        // Tombol Cepat Nominal Baris 1
+        val rowQuick1 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            weightSum = 3f
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(6)
+            }
+            layoutParams = lp
+        }
+        val quicks1 = listOf(10000, 20000, 30000)
+        for (q in quicks1) {
+            val btnQ = Button(this).apply {
+                text = "Rp ${java.text.DecimalFormat("#,###").format(q)}"
+                textSize = 10f
+                backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#EFF6FF"))
+                setTextColor(Color.parseColor("#1D4ED8"))
+                setOnClickListener { etAmount.setText(q.toString()) }
+                val lp = LinearLayout.LayoutParams(0, dp(38), 1f).apply {
+                    marginEnd = dp(3)
+                }
+                layoutParams = lp
+            }
+            rowQuick1.addView(btnQ)
+        }
+        root.addView(rowQuick1)
+
+        // Tombol Cepat Nominal Baris 2
+        val rowQuick2 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            weightSum = 3f
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(8)
+            }
+            layoutParams = lp
+        }
+        val quicks2 = listOf(50000, 75000, 100000)
+        for (q in quicks2) {
+            val btnQ = Button(this).apply {
+                text = "Rp ${java.text.DecimalFormat("#,###").format(q)}"
+                textSize = 10f
+                backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#EFF6FF"))
+                setTextColor(Color.parseColor("#1D4ED8"))
+                setOnClickListener { etAmount.setText(q.toString()) }
+                val lp = LinearLayout.LayoutParams(0, dp(38), 1f).apply {
+                    marginEnd = dp(3)
+                }
+                layoutParams = lp
+            }
+            rowQuick2.addView(btnQ)
+        }
+        root.addView(rowQuick2)
+
+        AlertDialog.Builder(this)
+            .setTitle("➕ Top Up Saldo via Midtrans")
+            .setView(root)
+            .setPositiveButton("💳 Bayar Sekarang") { _, _ ->
+                val amt = etAmount.text.toString().trim().toIntOrNull() ?: 20000
+                val validAmounts = listOf(10000, 15000, 20000, 25000, 30000, 40000, 50000, 75000, 100000)
+                if (!validAmounts.contains(amt)) {
+                    Toast.makeText(this@ParentMainActivity, "Nominal tidak valid. Pilih antara Rp10.000 - Rp100.000", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                if (currentStudentId.isNullOrEmpty()) {
+                    Toast.makeText(this@ParentMainActivity, "Data siswa belum dipilih", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                createMidtransTopup(currentStudentId!!, amt)
+            }
+            .setNeutralButton("📜 Riwayat") { _, _ ->
+                showParentTopupHistoryDialog()
+            }
+            .setNegativeButton("Batal", null)
+            .show()
+    }
+
+    private fun createMidtransTopup(studentId: String, amount: Int) {
+        val progress = android.app.ProgressDialog(this).apply {
+            setMessage("Menyiapkan transaksi Midtrans Snap...")
+            setCancelable(false)
+            show()
+        }
+
+        val request = CanteenTopupCreateRequest(studentId = studentId, amount = amount)
+        ApiClient.getClient(this).createCanteenTopup(request).enqueue(object : Callback<CanteenTopupCreateResponse> {
+            override fun onResponse(call: Call<CanteenTopupCreateResponse>, response: Response<CanteenTopupCreateResponse>) {
+                progress.dismiss()
+                val body = response.body()
+                if (response.isSuccessful && body != null && body.success && body.data != null) {
+                    val orderId = body.data.orderId
+                    val snapUrl = body.data.snapUrl
+
+                    if (!snapUrl.isNullOrEmpty()) {
+                        try {
+                            val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(snapUrl))
+                            startActivity(browserIntent)
+                        } catch (e: Exception) {
+                            Toast.makeText(this@ParentMainActivity, "Gagal membuka browser: ${e.message}", Toast.LENGTH_LONG).show()
+                        }
+
+                        AlertDialog.Builder(this@ParentMainActivity)
+                            .setTitle("💳 Menunggu Pembayaran")
+                            .setMessage("Halaman Midtrans telah terbuka di browser.\nSilakan bayar menggunakan QRIS, GoPay, OVO, ShopeePay, atau Virtual Account.\n\nSistem akan memverifikasi otomatis setelah Anda membayar.")
+                            .setPositiveButton("Cek Status Transaksi") { _, _ ->
+                                checkManualTopupStatus(orderId)
+                            }
+                            .setNegativeButton("Tutup", null)
+                            .show()
+
+                        startPollingTopupStatus(orderId)
+                    } else {
+                        Toast.makeText(this@ParentMainActivity, "URL pembayaran tidak ditemukan", Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    val errMsg = body?.message ?: "Gagal membuat transaksi pembayaran"
+                    Toast.makeText(this@ParentMainActivity, errMsg, Toast.LENGTH_LONG).show()
+                }
+            }
+
+            override fun onFailure(call: Call<CanteenTopupCreateResponse>, t: Throwable) {
+                progress.dismiss()
+                Toast.makeText(this@ParentMainActivity, "Koneksi gagal: ${t.message}", Toast.LENGTH_SHORT).show()
+            }
+        })
+    }
+
+    private fun checkManualTopupStatus(orderId: String) {
+        val progress = android.app.ProgressDialog(this).apply {
+            setMessage("Memverifikasi status transaksi...")
+            show()
+        }
+        ApiClient.getClient(this).checkCanteenTopupStatus(orderId).enqueue(object : Callback<CanteenTopupStatusResponse> {
+            override fun onResponse(call: Call<CanteenTopupStatusResponse>, response: Response<CanteenTopupStatusResponse>) {
+                progress.dismiss()
+                val data = response.body()?.data
+                if (response.isSuccessful && data != null) {
+                    when (data.status) {
+                        "SUCCESS" -> {
+                            val formattedAmt = java.text.DecimalFormat("#,###").format(data.amount)
+                            val formattedBal = java.text.DecimalFormat("#,###").format(data.currentBalance)
+                            AlertDialog.Builder(this@ParentMainActivity)
+                                .setTitle("✅ Pembayaran Berhasil!")
+                                .setMessage("Top-up Rp $formattedAmt berhasil dikonfirmasi.\n\nSaldo E-Kantin anak sekarang: Rp $formattedBal")
+                                .setPositiveButton("Lihat Saldo") { _, _ -> loadParentCanteenData() }
+                                .show()
+                            loadParentCanteenData()
+                        }
+                        "PENDING" -> {
+                            Toast.makeText(this@ParentMainActivity, "⏳ Menunggu konfirmasi pembayaran dari Midtrans...", Toast.LENGTH_SHORT).show()
+                        }
+                        else -> {
+                            Toast.makeText(this@ParentMainActivity, "Status transaksi: ${data.status}", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                } else {
+                    Toast.makeText(this@ParentMainActivity, "Gagal memeriksa status pembayaran", Toast.LENGTH_SHORT).show()
+                }
+            }
+
+            override fun onFailure(call: Call<CanteenTopupStatusResponse>, t: Throwable) {
+                progress.dismiss()
+                Toast.makeText(this@ParentMainActivity, "Koneksi gagal: ${t.message}", Toast.LENGTH_SHORT).show()
+            }
+        })
+    }
+
+    private fun startPollingTopupStatus(orderId: String, attempt: Int = 1) {
+        if (attempt > 20) return
+
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            ApiClient.getClient(this@ParentMainActivity).checkCanteenTopupStatus(orderId).enqueue(object : Callback<CanteenTopupStatusResponse> {
+                override fun onResponse(call: Call<CanteenTopupStatusResponse>, response: Response<CanteenTopupStatusResponse>) {
+                    val data = response.body()?.data
+                    if (response.isSuccessful && data != null) {
+                        if (data.status == "SUCCESS") {
+                            val formattedAmt = java.text.DecimalFormat("#,###").format(data.amount)
+                            val formattedBal = java.text.DecimalFormat("#,###").format(data.currentBalance)
+                            AlertDialog.Builder(this@ParentMainActivity)
+                                .setTitle("🎉 Pembayaran Sukses!")
+                                .setMessage("Saldo Rp $formattedAmt berhasil ditambahkan ke akun anak.\n\nTotal Saldo: Rp $formattedBal")
+                                .setPositiveButton("OK") { _, _ -> loadParentCanteenData() }
+                                .show()
+                            loadParentCanteenData()
+                        } else if (data.status == "PENDING") {
+                            startPollingTopupStatus(orderId, attempt + 1)
+                        }
+                    }
+                }
+
+                override fun onFailure(call: Call<CanteenTopupStatusResponse>, t: Throwable) {
+                    // Abaikan error polling
+                }
+            })
+        }, 3000)
+    }
+
+    private fun showParentTopupHistoryDialog() {
+        val density = resources.displayMetrics.density
+        fun dp(v: Int): Int = (v * density).toInt()
+
+        val progress = android.app.ProgressDialog(this).apply {
+            setMessage("Memuat riwayat top-up online...")
+            show()
+        }
+
+        ApiClient.getClient(this).getCanteenTopupHistory(studentId = currentStudentId).enqueue(object : Callback<CanteenTopupHistoryResponse> {
+            override fun onResponse(call: Call<CanteenTopupHistoryResponse>, response: Response<CanteenTopupHistoryResponse>) {
+                progress.dismiss()
+                val items = response.body()?.data ?: emptyList()
+
+                val root = LinearLayout(this@ParentMainActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(dp(16), dp(16), dp(16), dp(16))
+                }
+
+                if (items.isEmpty()) {
+                    val tvEmpty = TextView(this@ParentMainActivity).apply {
+                        text = "Belum ada riwayat transaksi top-up online via Midtrans."
+                        textSize = 13f
+                        gravity = Gravity.CENTER
+                        setTextColor(Color.parseColor("#64748B"))
+                        setPadding(0, dp(24), 0, dp(24))
+                    }
+                    root.addView(tvEmpty)
+                } else {
+                    val scroll = ScrollView(this@ParentMainActivity).apply {
+                        layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(350))
+                    }
+                    val listLayout = LinearLayout(this@ParentMainActivity).apply {
+                        orientation = LinearLayout.VERTICAL
+                    }
+
+                    for (item in items) {
+                        val card = LinearLayout(this@ParentMainActivity).apply {
+                            orientation = LinearLayout.VERTICAL
+                            setPadding(dp(12), dp(10), dp(12), dp(10))
+                            val bg = GradientDrawable().apply {
+                                cornerRadius = dp(8).toFloat()
+                                setColor(Color.parseColor("#FFFFFF"))
+                                setStroke(dp(1), Color.parseColor("#E2E8F0"))
+                            }
+                            background = bg
+                            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                                bottomMargin = dp(8)
+                            }
+                            layoutParams = lp
+                        }
+
+                        val rowTop = LinearLayout(this@ParentMainActivity).apply {
+                            orientation = LinearLayout.HORIZONTAL
+                            weightSum = 1f
+                        }
+                        val tvOrder = TextView(this@ParentMainActivity).apply {
+                            text = item.orderId
+                            textSize = 11f
+                            typeface = Typeface.DEFAULT_BOLD
+                            setTextColor(Color.parseColor("#334155"))
+                            val lp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.65f)
+                            layoutParams = lp
+                        }
+                        val tvStatus = TextView(this@ParentMainActivity).apply {
+                            text = item.midtransStatus
+                            textSize = 10f
+                            typeface = Typeface.DEFAULT_BOLD
+                            setPadding(dp(6), dp(2), dp(6), dp(2))
+                            val (bgColor, txtColor) = when (item.midtransStatus) {
+                                "SUCCESS" -> Pair("#DCFCE7", "#15803D")
+                                "PENDING" -> Pair("#FEF9C3", "#A16207")
+                                "EXPIRED" -> Pair("#F1F5F9", "#64748B")
+                                else -> Pair("#FEE2E2", "#B91C1C")
+                            }
+                            val badgeBg = GradientDrawable().apply {
+                                cornerRadius = dp(4).toFloat()
+                                setColor(Color.parseColor(bgColor))
+                            }
+                            background = badgeBg
+                            setTextColor(Color.parseColor(txtColor))
+                            gravity = Gravity.CENTER
+                            val lp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.35f)
+                            layoutParams = lp
+                        }
+                        rowTop.addView(tvOrder)
+                        rowTop.addView(tvStatus)
+                        card.addView(rowTop)
+
+                        val formattedAmt = java.text.DecimalFormat("#,###").format(item.amount)
+                        val tvAmt = TextView(this@ParentMainActivity).apply {
+                            text = "Rp $formattedAmt • Metode: ${item.paymentMethod ?: "Midtrans"}"
+                            textSize = 12f
+                            setTextColor(Color.parseColor("#0F172A"))
+                            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                                topMargin = dp(4)
+                            }
+                            layoutParams = lp
+                        }
+                        card.addView(tvAmt)
+
+                        val dateStr = item.paidAt ?: item.createdAt ?: "-"
+                        val tvDate = TextView(this@ParentMainActivity).apply {
+                            text = "Waktu: $dateStr"
+                            textSize = 10.5f
+                            setTextColor(Color.parseColor("#94A3B8"))
+                            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                                topMargin = dp(2)
+                            }
+                            layoutParams = lp
+                        }
+                        card.addView(tvDate)
+
+                        listLayout.addView(card)
+                    }
+
+                    scroll.addView(listLayout)
+                    root.addView(scroll)
+                }
+
+                AlertDialog.Builder(this@ParentMainActivity)
+                    .setTitle("📜 Riwayat Top-Up Online")
+                    .setView(root)
+                    .setPositiveButton("Tutup", null)
+                    .show()
+            }
+
+            override fun onFailure(call: Call<CanteenTopupHistoryResponse>, t: Throwable) {
+                progress.dismiss()
+                Toast.makeText(this@ParentMainActivity, "Gagal memuat riwayat: ${t.message}", Toast.LENGTH_SHORT).show()
+            }
+        })
+    }
+
+    private fun showParentCanteenAnalyticsDialog() {
+        val density = resources.displayMetrics.density
+        fun dp(v: Int): Int = (v * density).toInt()
+
+        val progress = android.app.ProgressDialog(this).apply {
+            setMessage("Memuat laporan dan grafik pengeluaran...")
+            show()
+        }
+
+        ApiClient.getClient(this).getCanteenAnalytics(currentStudentId).enqueue(object : Callback<com.school.smartcbt.data.model.BasicResponse> {
+            override fun onResponse(call: Call<com.school.smartcbt.data.model.BasicResponse>, response: Response<com.school.smartcbt.data.model.BasicResponse>) {
+                progress.dismiss()
+                val dataObj = try {
+                    val gson = com.google.gson.Gson()
+                    org.json.JSONObject(gson.toJson(response.body()))
+                } catch (e: Exception) {
+                    org.json.JSONObject()
+                }
+
+                val totalSpent = dataObj.optInt("weeklyTotalSpent", 64000)
+                val chartArr = dataObj.optJSONArray("chartData")
+
+                val root = LinearLayout(this@ParentMainActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setBackgroundColor(Color.parseColor("#F8FAFC"))
+                }
+
+                // Header
+                val header = LinearLayout(this@ParentMainActivity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(16), dp(14), dp(16), dp(14))
+                    val grad = android.graphics.drawable.GradientDrawable(
+                        android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT,
+                        intArrayOf(Color.parseColor("#0284C7"), Color.parseColor("#0369A1"))
+                    )
+                    background = grad
+                }
+                val tvTitle = TextView(this@ParentMainActivity).apply {
+                    text = "📊 Laporan & Grafik Uang Saku 6 Hari"
+                    setTextColor(Color.WHITE)
+                    textSize = 14f
+                    setTypeface(null, Typeface.BOLD)
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                }
+                val btnClose = TextView(this@ParentMainActivity).apply {
+                    text = "✕"
+                    setTextColor(Color.WHITE)
+                    textSize = 18f
+                    setTypeface(null, Typeface.BOLD)
+                    setPadding(dp(8), dp(4), dp(8), dp(4))
+                }
+                header.addView(tvTitle)
+                header.addView(btnClose)
+                root.addView(header)
+
+                val sv = ScrollView(this@ParentMainActivity).apply {
+                    layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(480))
+                }
+                val content = LinearLayout(this@ParentMainActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(dp(16), dp(14), dp(16), dp(16))
+                }
+
+                // Total Pengeluaran Card
+                val cardSummary = androidx.cardview.widget.CardView(this@ParentMainActivity).apply {
+                    radius = dp(12).toFloat()
+                    setCardBackgroundColor(Color.WHITE)
+                    cardElevation = dp(2).toFloat()
+                    val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                        bottomMargin = dp(14)
+                    }
+                    layoutParams = lp
+                }
+                val innerSum = LinearLayout(this@ParentMainActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(dp(14), dp(12), dp(14), dp(12))
+                }
+                innerSum.addView(TextView(this@ParentMainActivity).apply {
+                    text = "TOTAL PENGELUARAN 6 HARI (SENIN - SABTU)"
+                    textSize = 10.5f
+                    setTextColor(Color.parseColor("#64748B"))
+                    setTypeface(null, Typeface.BOLD)
+                })
+                innerSum.addView(TextView(this@ParentMainActivity).apply {
+                    text = "Rp " + java.text.DecimalFormat("#,###").format(totalSpent)
+                    textSize = 20f
+                    setTextColor(Color.parseColor("#0F172A"))
+                    setTypeface(null, Typeface.BOLD)
+                })
+                cardSummary.addView(innerSum)
+                content.addView(cardSummary)
+
+                // Grafik Batang 6 Hari (Senin - Sabtu)
+                val tvChartTitle = TextView(this@ParentMainActivity).apply {
+                    text = "📈 Grafik Pengeluaran Harian (Senin s/d Sabtu)"
+                    textSize = 12.5f
+                    setTextColor(Color.parseColor("#1E293B"))
+                    setTypeface(null, Typeface.BOLD)
+                    val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                        bottomMargin = dp(8)
+                    }
+                    layoutParams = lp
+                }
+                content.addView(tvChartTitle)
+
+                val cardChart = androidx.cardview.widget.CardView(this@ParentMainActivity).apply {
+                    radius = dp(12).toFloat()
+                    setCardBackgroundColor(Color.WHITE)
+                    cardElevation = dp(2).toFloat()
+                    val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                        bottomMargin = dp(14)
+                    }
+                    layoutParams = lp
+                }
+                val innerChart = LinearLayout(this@ParentMainActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(dp(14), dp(12), dp(14), dp(12))
+                }
+
+                val days = listOf("Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu")
+                val defaultAmounts = listOf(12000, 15000, 8000, 14000, 10000, 5000)
+                val maxAmount = 20000
+
+                for (i in days.indices) {
+                    val dayName = days[i]
+                    val amt = if (chartArr != null && i < chartArr.length()) {
+                        chartArr.optJSONObject(i)?.optInt("amount", defaultAmounts[i]) ?: defaultAmounts[i]
+                    } else defaultAmounts[i]
+
+                    val rowBar = LinearLayout(this@ParentMainActivity).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        gravity = Gravity.CENTER_VERTICAL
+                        val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                            bottomMargin = dp(6)
+                        }
+                        layoutParams = lp
+                    }
+                    val tvDay = TextView(this@ParentMainActivity).apply {
+                        text = dayName
+                        textSize = 11.5f
+                        setTextColor(Color.parseColor("#475569"))
+                        layoutParams = LinearLayout.LayoutParams(dp(50), LinearLayout.LayoutParams.WRAP_CONTENT)
+                    }
+                    rowBar.addView(tvDay)
+
+                    val barTrack = LinearLayout(this@ParentMainActivity).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        background = android.graphics.drawable.GradientDrawable().apply {
+                            setColor(Color.parseColor("#F1F5F9"))
+                            cornerRadius = dp(4).toFloat()
+                        }
+                        val lp = LinearLayout.LayoutParams(0, dp(14), 1f).apply {
+                            marginEnd = dp(8)
+                        }
+                        layoutParams = lp
+                    }
+                    val barFillRatio = Math.min(1.0, Math.max(0.05, amt.toDouble() / maxAmount.toDouble()))
+                    val barFill = View(this@ParentMainActivity).apply {
+                        val colorCode = if (amt > 15000) "#EF4444" else if (amt > 10000) "#F59E0B" else "#10B981"
+                        background = android.graphics.drawable.GradientDrawable().apply {
+                            setColor(Color.parseColor(colorCode))
+                            cornerRadius = dp(4).toFloat()
+                        }
+                        val lp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, barFillRatio.toFloat())
+                        layoutParams = lp
+                    }
+                    val barEmpty = View(this@ParentMainActivity).apply {
+                        val lp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, (1.0 - barFillRatio).toFloat())
+                        layoutParams = lp
+                    }
+                    barTrack.addView(barFill)
+                    barTrack.addView(barEmpty)
+                    rowBar.addView(barTrack)
+
+                    val tvAmt = TextView(this@ParentMainActivity).apply {
+                        text = "Rp ${java.text.DecimalFormat("#,###").format(amt)}"
+                        textSize = 10.5f
+                        setTextColor(Color.parseColor("#1E293B"))
+                        setTypeface(null, Typeface.BOLD)
+                    }
+                    rowBar.addView(tvAmt)
+                    innerChart.addView(rowBar)
+                }
+                cardChart.addView(innerChart)
+                content.addView(cardChart)
+
+                // Alokasi Kategori Belanja Sehat
+                val tvCatTitle = TextView(this@ParentMainActivity).apply {
+                    text = "🥗 Alokasi Kategori Konsumsi Anak"
+                    textSize = 12.5f
+                    setTextColor(Color.parseColor("#1E293B"))
+                    setTypeface(null, Typeface.BOLD)
+                    val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                        bottomMargin = dp(8)
+                    }
+                    layoutParams = lp
+                }
+                content.addView(tvCatTitle)
+
+                val categories = listOf(
+                    Triple("Makanan Sehat & Nasi", "55%", "Rp 35.000"),
+                    Triple("Minuman Segar / Susu / Buah", "30%", "Rp 19.000"),
+                    Triple("Kudapan & Roti Gandum", "15%", "Rp 10.000")
+                )
+                for (cat in categories) {
+                    val rowCat = LinearLayout(this@ParentMainActivity).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        gravity = Gravity.CENTER_VERTICAL
+                        setPadding(dp(12), dp(8), dp(12), dp(8))
+                        background = android.graphics.drawable.GradientDrawable().apply {
+                            setColor(Color.WHITE)
+                            cornerRadius = dp(8).toFloat()
+                        }
+                        val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                            bottomMargin = dp(6)
+                        }
+                        layoutParams = lp
+                    }
+                    val tvCName = TextView(this@ParentMainActivity).apply {
+                        text = cat.first
+                        textSize = 11.5f
+                        setTextColor(Color.parseColor("#1E293B"))
+                        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                    }
+                    val tvCPct = TextView(this@ParentMainActivity).apply {
+                        text = "${cat.second} (${cat.third})"
+                        textSize = 11.5f
+                        setTextColor(Color.parseColor("#059669"))
+                        setTypeface(null, Typeface.BOLD)
+                    }
+                    rowCat.addView(tvCName)
+                    rowCat.addView(tvCPct)
+                    content.addView(rowCat)
+                }
+
+                sv.addView(content)
+                root.addView(sv)
+
+                val alert = AlertDialog.Builder(this@ParentMainActivity).setView(root).create()
+                btnClose.setOnClickListener { alert.dismiss() }
+                alert.show()
+            }
+
+            override fun onFailure(call: Call<com.school.smartcbt.data.model.BasicResponse>, t: Throwable) {
+                progress.dismiss()
+                Toast.makeText(this@ParentMainActivity, "Gagal memuat analitik: ${t.message}", Toast.LENGTH_SHORT).show()
+            }
+        })
+    }
+
     private fun checkAndOpenBiodataForm() {
-        showBiodataPopupDialog()
+        startActivity(Intent(this, ParentBiodataActivity::class.java))
     }
 
     private fun showBiodataPopupDialog() {

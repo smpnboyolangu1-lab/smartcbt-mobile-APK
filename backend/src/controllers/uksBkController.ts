@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/db';
 import { logAudit } from '../services/auditLogger';
+import { sendFcmToUser, sendFcmToRole } from '../services/fcmService';
 
 // 1. Ambil Riwayat Kunjungan & Rekam Medis UKS
 export const getUksVisits = async (req: Request, res: Response) => {
@@ -104,11 +105,13 @@ export const createUksVisit = async (req: Request, res: Response) => {
             }
         });
 
-        // Kirim Notifikasi Darurat Otomatis ke Orang Tua
+        // Kirim Notifikasi Darurat Otomatis ke Orang Tua & Wali Kelas
         try {
             const tempStr = visit.temperature ? ` (Suhu: ${visit.temperature}°C)` : '';
             const bedStr = visit.bedNumber ? ` di ${visit.bedNumber}` : '';
             const faintStr = isFaint ? ` [Peringatan Pingsan ke-${currentFaintSnapshot}]` : '';
+            const notifTitle = `🏥 UKS SEKOLAH: Ananda ${visit.user.name} Dirawat`;
+            const notifMsg = `Ananda sedang ditangani di Ruang UKS${bedStr}.${faintStr} Keluhan: ${visit.complaint}${tempStr}. Lokasi: ${visit.incidentLocation}. Penanganan: ${visit.treatment}.`;
 
             await prisma.notificationMessage.create({
                 data: {
@@ -116,13 +119,79 @@ export const createUksVisit = async (req: Request, res: Response) => {
                     studentId: visit.user.id,
                     studentName: visit.user.name,
                     className: visit.user.className || 'VII-A',
-                    title: `🏥 UKS SEKOLAH: Ananda ${visit.user.name} Dirawat`,
-                    message: `Ananda sedang ditangani di Ruang UKS${bedStr}.${faintStr} Keluhan: ${visit.complaint}${tempStr}. Lokasi: ${visit.incidentLocation}. Penanganan: ${visit.treatment}.`,
+                    title: notifTitle,
+                    message: notifMsg,
                     category: 'UKS_HEALTH'
                 }
             });
+
+            // Push FCM ke Akun Orang Tua (P[NISN])
+            if (visit.user.nisn) {
+                const parentUser = await prisma.user.findFirst({
+                    where: {
+                        role: 'PARENT',
+                        OR: [
+                            { username: 'P' + visit.user.nisn },
+                            { nisn: visit.user.nisn }
+                        ]
+                    }
+                });
+                if (parentUser) {
+                    await sendFcmToUser(
+                        parentUser.id,
+                        notifTitle,
+                        notifMsg,
+                        {
+                            type: 'UKS_CHECKIN',
+                            studentId: visit.user.id,
+                            visitId: visit.id,
+                            category: visit.category || 'UKS'
+                        }
+                    );
+                }
+            }
+
+            // Push FCM ke Wali Kelas
+            if (visit.user.className) {
+                const homeroomTeacher = await prisma.user.findFirst({
+                    where: {
+                        role: 'TEACHER',
+                        OR: [
+                            { tugasTambahan: { contains: 'WALI_KELAS' }, teachingClasses: { contains: visit.user.className } },
+                            { rolesTambahan: { contains: 'wali_kelas' }, teachingClasses: { contains: visit.user.className } }
+                        ]
+                    }
+                });
+                if (homeroomTeacher) {
+                    await sendFcmToUser(
+                        homeroomTeacher.id,
+                        `🏥 Info UKS: Siswa Kelas ${visit.user.className}`,
+                        `Siswa ${visit.user.name} sedang dirawat di UKS. Keluhan: ${visit.complaint}.`,
+                        {
+                            type: 'UKS_CHECKIN',
+                            studentId: visit.user.id,
+                            visitId: visit.id,
+                            className: visit.user.className
+                        }
+                    );
+                }
+            }
+
+            // Jika ada indikasi pingsan berulang, kirim push ke Guru BK
+            if (isAlertCounselor) {
+                await sendFcmToRole(
+                    'COUNSELOR',
+                    `⚠️ Perhatian Medis: ${visit.user.name} (${visit.user.className}) Pingsan`,
+                    `Siswa tercatat pingsan (${currentFaintSnapshot}x). Mohon koordinasi dengan pihak UKS dan Orang Tua.`,
+                    {
+                        type: 'UKS_ALERT_BK',
+                        studentId: visit.user.id,
+                        visitId: visit.id
+                    }
+                );
+            }
         } catch (notifErr) {
-            console.error('Error sending parent UKS notification:', notifErr);
+            console.error('Error sending parent & teacher UKS notification:', notifErr);
         }
 
         if (disposition === 'SENT_HOME' || disposition === 'REST_AT_UKS') {
@@ -979,9 +1048,36 @@ export const getParentConsultations = async (req: Request, res: Response) => {
 // 10. Ambil Rekap Poin Kedisiplinan & Pelanggaran / Prestasi Siswa
 export const getDisciplineRecords = async (req: Request, res: Response) => {
     try {
-        const { type, className, search } = req.query;
+        const user = (req as any).user;
+        const { type, className, search, studentId, userId, childId } = req.query;
         const whereClause: any = {};
 
+        let targetStudentId: string | null = (studentId || userId || childId) ? String(studentId || userId || childId) : null;
+
+        if (user && user.role === 'STUDENT') {
+            targetStudentId = user.id;
+        } else if (user && user.role === 'PARENT' && !targetStudentId) {
+            const cleanNisn = (user.username || '').replace(/^[Pp]/, '').trim();
+            const child = await prisma.user.findFirst({
+                where: {
+                    role: 'STUDENT',
+                    OR: [
+                        { nisn: cleanNisn },
+                        { username: cleanNisn },
+                        ...(user.nisn ? [{ nisn: user.nisn }] : []),
+                        { parentPhone: user.username },
+                        { fatherName: user.name },
+                        { motherName: user.name }
+                    ]
+                },
+                select: { id: true }
+            });
+            if (child) targetStudentId = child.id;
+        }
+
+        if (targetStudentId && targetStudentId !== 'ALL') {
+            whereClause.userId = targetStudentId;
+        }
         if (type && type !== 'ALL') whereClause.type = String(type);
         if (className && className !== 'ALL') whereClause.user = { className: String(className) };
         if (search && typeof search === 'string') {
@@ -1000,34 +1096,78 @@ export const getDisciplineRecords = async (req: Request, res: Response) => {
                         id: true,
                         name: true,
                         username: true,
+                        nisn: true,
                         className: true,
                         points: true,
-                        parentPhone: true
+                        parentPhone: true,
+                        counselorTeacher: true,
+                        homeroomTeacher: true
                     }
                 }
             },
             orderBy: { createdAt: 'desc' }
         });
 
-        // Top siswa dengan akumulasi poin terbanyak untuk deteksi dini SP1, SP2, SP3
-        const topStudents = await prisma.user.findMany({
+        // Jika dipanggil untuk 1 siswa spesifik (atau oleh Siswa/Orang Tua), sertakan ringkasan poin & SP siswa tersebut
+        let studentSummary: any = null;
+        if (targetStudentId && targetStudentId !== 'ALL') {
+            const st = await prisma.user.findUnique({
+                where: { id: targetStudentId },
+                select: {
+                    id: true,
+                    name: true,
+                    username: true,
+                    nisn: true,
+                    className: true,
+                    points: true,
+                    counselorTeacher: true,
+                    homeroomTeacher: true,
+                    warningLetters: {
+                        orderBy: { issuedAt: 'desc' }
+                    }
+                }
+            });
+            if (st) {
+                const pts = st.points || 0;
+                const spStatus = st.warningLetters && st.warningLetters.length > 0
+                    ? st.warningLetters[0].spLevel
+                    : (pts >= 50 ? 'SP3' : pts >= 30 ? 'SP2' : pts >= 15 ? 'SP1' : 'AMAN');
+                studentSummary = {
+                    ...st,
+                    points: pts,
+                    spStatus,
+                    nextThreshold: pts < 15 ? 15 : pts < 30 ? 30 : pts < 50 ? 50 : 100,
+                    nextSpLabel: pts < 15 ? 'SP-1 (15 Poin)' : pts < 30 ? 'SP-2 (30 Poin)' : pts < 50 ? 'SP-3 (50 Poin)' : 'Batas Maksimum'
+                };
+            }
+        }
+
+        // Top siswa dengan akumulasi poin terbanyak untuk deteksi dini SP1, SP2, SP3 (Hanya untuk Staf/Guru/BK/Admin)
+        const isStaff = !user || !['STUDENT', 'PARENT'].includes(user.role);
+        const topStudents = isStaff ? await prisma.user.findMany({
             where: { role: 'STUDENT', points: { gt: 0 } },
             select: {
                 id: true,
                 name: true,
                 username: true,
+                nisn: true,
                 className: true,
                 points: true,
-                parentPhone: true
+                parentPhone: true,
+                warningLetters: {
+                    select: { id: true, spLevel: true, letterNo: true, issuedAt: true },
+                    orderBy: { issuedAt: 'desc' }
+                }
             },
             orderBy: { points: 'desc' },
-            take: 20
-        });
+            take: 30
+        }) : [];
 
         res.json({
             success: true,
             records,
-            topStudents
+            topStudents,
+            studentSummary
         });
     } catch (error) {
         console.error('Error fetching discipline records:', error);
@@ -1887,8 +2027,33 @@ export const createDisciplineCategory = async (req: Request, res: Response) => {
 // 22. Surat Peringatan (SP 1, SP 2, SP 3) Otomatis Berdasarkan Akumulasi Poin
 export const getWarningLetters = async (req: Request, res: Response) => {
     try {
-        const { className, spLevel } = req.query;
+        const user = (req as any).user;
+        const { className, spLevel, studentId, userId, childId } = req.query;
         const whereClause: any = {};
+
+        let targetStudentId: string | null = (studentId || userId || childId) ? String(studentId || userId || childId) : null;
+        if (user && user.role === 'STUDENT') {
+            targetStudentId = user.id;
+        } else if (user && user.role === 'PARENT' && !targetStudentId) {
+            const cleanNisn = (user.username || '').replace(/^[Pp]/, '').trim();
+            const child = await prisma.user.findFirst({
+                where: {
+                    role: 'STUDENT',
+                    OR: [
+                        { nisn: cleanNisn },
+                        { username: cleanNisn },
+                        ...(user.nisn ? [{ nisn: user.nisn }] : []),
+                        { parentPhone: user.username }
+                    ]
+                },
+                select: { id: true }
+            });
+            if (child) targetStudentId = child.id;
+        }
+
+        if (targetStudentId && targetStudentId !== 'ALL') {
+            whereClause.userId = targetStudentId;
+        }
         if (spLevel && spLevel !== 'ALL') {
             whereClause.spLevel = String(spLevel);
         }
@@ -2065,15 +2230,15 @@ export const getDisciplineEarlyWarning = async (req: Request, res: Response) => 
         });
 
         const classified = students.map(s => {
-            let suggestedSp = 'AMAN';
-            let alertColor = 'green';
-            if (s.points >= 70) {
-                suggestedSp = 'SP3 (Skorsing/Panggilan Akhir)';
+            let suggestedSp = 'Pembinaan Dini (Waspada)';
+            let alertColor = 'blue';
+            if (s.points >= 50) {
+                suggestedSp = 'SP3 (Skorsing / Panggilan Akhir)';
                 alertColor = 'red';
-            } else if (s.points >= 50) {
-                suggestedSp = 'SP2 (Panggilan Orang Tua II)';
-                alertColor = 'orange';
             } else if (s.points >= 30) {
+                suggestedSp = 'SP2 (Panggilan Orang Tua)';
+                alertColor = 'orange';
+            } else if (s.points >= 15) {
                 suggestedSp = 'SP1 (Peringatan Tertulis I)';
                 alertColor = 'yellow';
             }
@@ -2102,13 +2267,51 @@ export const getBkClassRecap = async (req: Request, res: Response) => {
         // Ambil kelas yang diampu guru BK ini
         const teacher = await prisma.user.findUnique({
             where: { id: user.id },
-            select: { teachingClasses: true, role: true }
+            select: { teachingClasses: true, role: true, className: true }
         });
 
+        // 1. Ambil kelas yang diampu guru BK ini dari BkKelasPlot dan User teachingClasses / className
+        const plots = await (prisma as any).bkKelasPlot.findMany({
+            where: { guruBkId: user.id, isActive: true },
+            include: { kelas: true },
+            orderBy: { kelas: { name: 'asc' } }
+        });
+        const plotClassNames = plots.map((p: any) => p.kelas?.name).filter(Boolean);
+
         let allowedClasses: string[] = [];
-        if (teacher?.teachingClasses) {
-            allowedClasses = teacher.teachingClasses.split(',').map(s => s.trim()).filter(Boolean);
+        if (plotClassNames.length > 0) {
+            allowedClasses = plotClassNames;
+        } else if (teacher?.teachingClasses) {
+            try {
+                if (teacher.teachingClasses.startsWith('[')) {
+                    allowedClasses = JSON.parse(teacher.teachingClasses);
+                } else {
+                    allowedClasses = teacher.teachingClasses.split(',').map((s: string) => s.trim().replace(/^["']|["']$/g, '')).filter(Boolean);
+                }
+            } catch {
+                allowedClasses = teacher.teachingClasses.split(',').map((s: string) => s.trim().replace(/^["'\[\]]|["'\[\]]$/g, '')).filter(Boolean);
+            }
         }
+
+        if (allowedClasses.length === 0 && teacher?.className) {
+            allowedClasses = [teacher.className];
+        }
+
+        // HANYA Admin / Operator yang default ke semua kelas jika belum diplot
+        if (allowedClasses.length === 0 && (user.role === 'ADMIN' || user.role === 'OPERATOR')) {
+            const allClasses = await prisma.class.findMany({ orderBy: { name: 'asc' } });
+            allowedClasses = allClasses.map(c => c.name);
+        }
+
+        // Kelompokkan kelas berdasarkan Tingkat (VII, VIII, IX)
+        const tingkatGroups: { [key: string]: string[] } = {};
+        allowedClasses.forEach(c => {
+            const m = c.match(/^(VII|VIII|IX|X|XI|XII|7|8|9|10|11|12)/i);
+            const tingkat = m ? (m[1].toUpperCase().startsWith('7') ? 'Kelas VII' : m[1].toUpperCase().startsWith('8') ? 'Kelas VIII' : m[1].toUpperCase().startsWith('9') ? 'Kelas IX' : `Kelas ${m[1].toUpperCase()}`) : 'Kelas Lainnya';
+            if (!tingkatGroups[tingkat]) tingkatGroups[tingkat] = [];
+            tingkatGroups[tingkat].push(c);
+        });
+        const tingkats = Object.keys(tingkatGroups);
 
         // Tentukan target kelas
         let targetClass = requestedClass;
@@ -2168,7 +2371,12 @@ export const getBkClassRecap = async (req: Request, res: Response) => {
             orderBy: [{ className: 'asc' }, { name: 'asc' }]
         });
 
-        // Hitung statistik per siswa
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        const todayEnd = new Date();
+        todayEnd.setHours(23, 59, 59, 999);
+
+        // Hitung statistik per siswa & status presensi hari ini
         const recap = (students as any[]).map(s => {
             const atts: any[] = s.attendances || [];
             const gateIns = atts.filter(a => a.type === 'GATE_IN');
@@ -2178,6 +2386,14 @@ export const getBkClassRecap = async (req: Request, res: Response) => {
             const totalIzin = atts.filter(a => a.status === 'PERMIT').length;
             const totalAlpa = atts.filter(a => a.status === 'ABSENT').length;
             const spLevel = s.warningLetters && s.warningLetters.length > 0 ? s.warningLetters[0].spLevel : (s.points >= 50 ? 'SP-3' : s.points >= 30 ? 'SP-2' : s.points >= 15 ? 'SP-1' : 'Aman');
+
+            // Cek presensi hari ini (Gate In & Gate Out)
+            const todayAtts = atts.filter(a => {
+                const t = new Date(a.scanTime);
+                return t >= todayStart && t <= todayEnd;
+            });
+            const todayGateIn = todayAtts.find(a => a.type === 'GATE_IN');
+            const todayGateOut = todayAtts.find(a => a.type === 'GATE_OUT');
 
             return {
                 id: s.id,
@@ -2189,6 +2405,18 @@ export const getBkClassRecap = async (req: Request, res: Response) => {
                 points: s.points || 0,
                 parentPhone: s.parentPhone || '-',
                 spLevel,
+                todayGateIn: todayGateIn ? {
+                    time: new Date(todayGateIn.scanTime).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WIB',
+                    status: todayGateIn.status,
+                    note: todayGateIn.note
+                } : null,
+                todayGateOut: todayGateOut ? {
+                    time: new Date(todayGateOut.scanTime).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WIB',
+                    status: todayGateOut.status,
+                    note: todayGateOut.note
+                } : null,
+                canAbsenMasuk: !todayGateIn,
+                canAbsenPulang: !todayGateOut,
                 stats: {
                     hadir: totalHadir,
                     terlambat: totalTerlambat,
@@ -2203,6 +2431,8 @@ export const getBkClassRecap = async (req: Request, res: Response) => {
         res.json({
             success: true,
             allowedClasses,
+            tingkats,
+            tingkatGroups,
             selectedClass: targetClass || 'ALL',
             totalStudents: recap.length,
             students: recap
@@ -2289,6 +2519,8 @@ export const getBkCounselors = async (req: Request, res: Response) => {
                 name: true,
                 username: true,
                 role: true,
+                isBk: true,
+                tugasTambahan: true,
                 profilePicUrl: true,
                 teachingClasses: true,
                 teachingSubject: true
@@ -2311,9 +2543,11 @@ export const getBkCounselors = async (req: Request, res: Response) => {
             if (sc.className) countMap.set(sc.className, sc._count.id);
         });
 
-        // Guru BK adalah yang memiliki role COUNSELOR atau yang sudah di-assign kelas bimbingan
+        // Guru BK adalah yang memiliki role COUNSELOR, isBk: true, tugasTambahan BK, atau yang sudah di-assign kelas bimbingan
         const counselorTeachers = allTeachers.filter(t => 
             t.role === 'COUNSELOR' || 
+            (t as any).isBk === true ||
+            ((t as any).tugasTambahan && (t as any).tugasTambahan.toUpperCase().includes('BK')) ||
             allClasses.some(cls => cls.counselorId === t.id || cls.counselorName === t.name)
         );
 
@@ -2344,7 +2578,7 @@ export const getBkCounselors = async (req: Request, res: Response) => {
             nip: t.username,
             username: t.username,
             role: t.role,
-            isBk: t.role === 'COUNSELOR' || counselorTeachers.some(c => c.id === t.id),
+            isBk: t.role === 'COUNSELOR' || (t as any).isBk === true || ((t as any).tugasTambahan && (t as any).tugasTambahan.toUpperCase().includes('BK')) || counselorTeachers.some(c => c.id === t.id),
             teachingSubject: t.teachingSubject || '-'
         }));
 
@@ -2442,6 +2676,18 @@ export const assignCounselorClasses = async (req: Request, res: Response) => {
             data: {
                 counselorId: null,
                 counselorName: null
+            }
+        });
+
+        // Lepas juga counselorTeacher pada siswa di kelas yang dilepas
+        await prisma.user.updateMany({
+            where: {
+                role: 'STUDENT',
+                className: { notIn: targetClassNames },
+                counselorTeacher: counselor.name
+            },
+            data: {
+                counselorTeacher: null
             }
         });
 

@@ -56,6 +56,7 @@
                     <span class="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-400 text-sm">🔒</span>
                     <input class="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-400 text-sm focus:bg-white focus:border-blue-600 focus:ring-2 focus:ring-blue-100 outline-none transition-all" id="password" type="password" placeholder="••••••••" required>
                 </div>
+                <p class="text-[11px] text-slate-400 mt-1.5">💡 Masuk menggunakan NIP / NISN / ID Pengguna dan Kata Sandi terdaftar Anda.</p>
             </div>
 
             <button type="submit" class="w-full py-3.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold rounded-xl shadow-lg shadow-blue-600/30 text-sm flex items-center justify-center gap-2 transition-all transform active:scale-[0.99]" id="loginBtn">
@@ -69,7 +70,7 @@
             <p class="text-[11px] text-slate-500 font-medium mb-3">📱 Unduh Aplikasi Mobile Siswa, Guru & Pengawas:</p>
             <a id="apkDownloadLink" href="/uploads/smartcbt-latest.apk" download="smartcbt-latest.apk" class="inline-flex items-center justify-center gap-2 w-full py-2.5 px-4 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200/80 rounded-xl font-bold text-xs transition-all shadow-sm">
                 <span>📲</span>
-                <span id="apkVersionLabel">Unduh APK Smart School v2.8.78 (Build 88)</span>
+                <span id="apkVersionLabel">Unduh APK Smart School v2.9.3 (Build 173)</span>
             </a>
         </div>
     </div>
@@ -129,10 +130,16 @@
                             case 'GURU_BK':
                             case 'GURU BK':
                                 window.location.href = '/bk' + tokenParam; break;
+                            case 'KURIKULUM':
+                                // User Kurikulum diarahkan ke portal kurikulum khusus agar tidak membocorkan data operator non-akademik
+                                window.location.href = '/kurikulum' + tokenParam; break;
                             case 'TEACHER':
                             case 'GURU':
+                                const userTugas = String(data.user?.tugasTambahan || '').toUpperCase();
                                 if (isCounselor || uLower === 'bk' || uLower.includes('bk')) {
                                     window.location.href = '/bk' + tokenParam;
+                                } else if (userTugas.includes('KURIKULUM') || uLower.includes('kurikulum')) {
+                                    window.location.href = '/kurikulum' + tokenParam;
                                 } else {
                                     window.location.href = '/guru' + tokenParam;
                                 }
@@ -143,6 +150,9 @@
                             case 'LIBRARIAN':
                             case 'PERPUSTAKAAN':
                                 window.location.href = '/perpustakaan' + tokenParam; break;
+                            case 'SECURITY':
+                            case 'SATPAM':
+                                window.location.href = '/satpam/gatepass' + tokenParam; break;
                             case 'STUDENT':
                                 window.location.href = '/siswa'; break;
                             case 'PARENT':

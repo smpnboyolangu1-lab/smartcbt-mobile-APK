@@ -142,4 +142,16 @@ object AttendanceOfflineManager {
             }
         }
     }
+
+    fun clearAllOfflineScans(context: Context) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val db = AppDatabase.getDatabase(context)
+                db.pendingAttendanceDao().deleteAll()
+                Log.d(TAG, "Seluruh antrean presensi offline telah dibersihkan.")
+            } catch (e: Exception) {
+                Log.e(TAG, "Gagal membersihkan antrean offline: ${e.message}")
+            }
+        }
+    }
 }

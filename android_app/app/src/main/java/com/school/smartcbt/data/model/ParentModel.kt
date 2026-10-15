@@ -49,7 +49,8 @@ data class ParentNotificationItemDto(
     val title: String?,
     val message: String?,
     val category: String?,
-    val createdAt: String?
+    val createdAt: String?,
+    val isRead: Boolean? = false
 )
 
 data class ParentHomeworkItemDto(
@@ -158,7 +159,23 @@ data class SubjectAttendanceItemDto(
     val sick: Int,
     val permission: Int,
     val truant: Int,
-    val percentage: Int
+    val percentage: Int,
+    val className: String? = null,
+    val totalStudents: Int? = null,
+    val students: List<SubjectStudentDto>? = null
+)
+
+data class SubjectStudentDto(
+    val id: String,
+    val name: String,
+    val nisn: String? = "-",
+    val className: String? = null,
+    val gender: String? = "L",
+    val presentCount: Int = 0,
+    val sickCount: Int = 0,
+    val permissionCount: Int = 0,
+    val absentCount: Int = 0,
+    val percentage: Int = 100
 )
 
 data class StudentNotificationsResponse(
@@ -193,12 +210,19 @@ data class ParentLeaveRequestDto(
     val verifiedBy: String? = null,
     val verifiedAt: String? = null,
     val rejectionNote: String? = null,
-    val createdAt: String? = null
+    val createdAt: String? = null,
+    val durationDays: Int? = null,
+    val approvedDays: Int? = null,
+    val isDoctorNote: Boolean? = false,
+    val isExtension: Boolean? = false,
+    val documentType: String? = null,
+    val documentLabel: String? = null
 )
 
 data class VerifyLeaveRequest(
     val status: String,
-    val rejectionNote: String? = null
+    val rejectionNote: String? = null,
+    val approvedDaysOverride: Int? = null
 )
 
 data class PpdbStatusResponse(
@@ -220,4 +244,64 @@ data class PpdbRegisterRequest(
     val parentPhone: String,
     val parentJob: String,
     val targetClass: String? = "VII-A"
+)
+
+// ==========================================
+// E-KANTIN MIDTRANS TOP-UP MODELS
+// ==========================================
+data class CanteenTopupCreateRequest(
+    val studentId: String,
+    val amount: Int
+)
+
+data class CanteenTopupCreateResponse(
+    val success: Boolean,
+    val message: String,
+    val data: CanteenTopupData?
+)
+
+data class CanteenTopupData(
+    val orderId: String,
+    val snapToken: String?,
+    val snapUrl: String?,
+    val amount: Int,
+    val studentName: String?,
+    val expiredAt: String?
+)
+
+data class CanteenTopupStatusResponse(
+    val success: Boolean,
+    val message: String? = null,
+    val data: CanteenTopupStatusData?
+)
+
+data class CanteenTopupStatusData(
+    val orderId: String,
+    val status: String,
+    val amount: Int,
+    val studentName: String?,
+    val currentBalance: Int = 0,
+    val paymentMethod: String?,
+    val paidAt: String?,
+    val expiredAt: String?
+)
+
+data class CanteenTopupHistoryResponse(
+    val success: Boolean,
+    val total: Int = 0,
+    val page: Int = 1,
+    val data: List<CanteenTopupHistoryItem>?
+)
+
+data class CanteenTopupHistoryItem(
+    val id: String,
+    val orderId: String,
+    val amount: Int,
+    val midtransStatus: String,
+    val paymentMethod: String?,
+    val createdAt: String?,
+    val paidAt: String?,
+    val studentName: String?,
+    val className: String?,
+    val parentName: String?
 )

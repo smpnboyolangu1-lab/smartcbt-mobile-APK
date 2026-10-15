@@ -2,14 +2,19 @@
 <!-- Mobile Backdrop Overlay to prevent screen blocking -->
 <div id="portalSidebarBackdrop" onclick="togglePortalSidebar()" class="fixed inset-0 bg-black/60 z-30 hidden backdrop-blur-xs transition-opacity" title="Klik untuk menutup sidebar"></div>
 
-<!-- Floating Expand Button (Visible when Sidebar is Collapsed) -->
-<button type="button" onclick="togglePortalSidebar()" id="sidebarExpandBtn" title="Tampilkan Sidebar (Shortcut: Ctrl+B)" class="fixed top-3 left-4 z-50 bg-slate-900/95 hover:bg-indigo-600 text-white px-3.5 py-2 rounded-xl shadow-2xl border border-slate-700/80 backdrop-blur-md transition-all duration-300 hidden flex items-center gap-2.5 text-xs font-bold hover:scale-105 group cursor-pointer">
-    <svg class="w-5 h-5 text-indigo-400 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 6h16M4 12h16M4 18h16"></path>
-    </svg>
-    <span class="font-extrabold tracking-wide">Menu Portal</span>
-    <span class="text-[10px] bg-white/15 px-1.5 py-0.5 rounded text-slate-300">Ctrl+B</span>
-</button>
+<!-- Floating Expand & Theme Button (Visible when Sidebar is Collapsed or on Mobile) -->
+<div class="fixed top-3 left-4 z-50 flex items-center gap-2">
+    <button type="button" onclick="togglePortalSidebar()" id="sidebarExpandBtn" title="Tampilkan Sidebar (Shortcut: Ctrl+B)" class="bg-slate-900/95 hover:bg-indigo-600 text-white px-3.5 py-2 rounded-xl shadow-2xl border border-slate-700/80 backdrop-blur-md transition-all duration-300 hidden flex items-center gap-2.5 text-xs font-bold hover:scale-105 group cursor-pointer">
+        <svg class="w-5 h-5 text-indigo-400 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 6h16M4 12h16M4 18h16"></path>
+        </svg>
+        <span class="font-extrabold tracking-wide">Menu Portal</span>
+        <span class="text-[10px] bg-white/15 px-1.5 py-0.5 rounded text-slate-300">Ctrl+B</span>
+    </button>
+    <button type="button" onclick="togglePortalTheme()" id="floatingThemeToggleBtn" title="Ganti Mode Terang / Gelap" class="bg-slate-900/95 hover:bg-slate-800 text-white p-2 rounded-xl shadow-2xl border border-slate-700/80 backdrop-blur-md transition-all duration-300 hidden flex items-center justify-center cursor-pointer">
+        <span id="floatingThemeIcon" class="text-sm">🌙</span>
+    </button>
+</div>
 
 <aside id="portalSidebar" class="w-64 bg-slate-900 h-screen text-white flex flex-col fixed left-0 top-0 shadow-2xl z-40 select-none border-r border-slate-800">
     <!-- Brand Header -->
@@ -24,12 +29,19 @@
             </div>
         </div>
         
-        <!-- Toggle Button to Hide / Collapse Sidebar -->
-        <button type="button" onclick="togglePortalSidebar()" id="sidebarCollapseBtn" title="Sembunyikan Sidebar (Ctrl+B)" class="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-all flex items-center justify-center group flex-shrink-0 cursor-pointer" aria-label="Sembunyikan Sidebar">
-            <svg class="w-5 h-5 transition-transform group-hover:-translate-x-0.5 text-slate-400 group-hover:text-indigo-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M11 19l-7-7 7-7m8 14l-7-7 7-7"></path>
-            </svg>
-        </button>
+        <div class="flex items-center gap-1">
+            <!-- Dark / Light Mode Toggle Button -->
+            <button type="button" onclick="togglePortalTheme()" id="themeToggleBtn" title="Ganti Mode Terang / Gelap" class="p-2 rounded-xl text-slate-300 hover:text-amber-400 hover:bg-slate-800 transition-all flex items-center justify-center flex-shrink-0 cursor-pointer" aria-label="Ganti Tema">
+                <span id="themeToggleIcon" class="text-base">🌙</span>
+            </button>
+
+            <!-- Toggle Button to Hide / Collapse Sidebar -->
+            <button type="button" onclick="togglePortalSidebar()" id="sidebarCollapseBtn" title="Sembunyikan Sidebar (Ctrl+B)" class="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-all flex items-center justify-center group flex-shrink-0 cursor-pointer" aria-label="Sembunyikan Sidebar">
+                <svg class="w-5 h-5 transition-transform group-hover:-translate-x-0.5 text-slate-400 group-hover:text-indigo-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M11 19l-7-7 7-7m8 14l-7-7 7-7"></path>
+                </svg>
+            </button>
+        </div>
     </div>
     
     <!-- Navigation Sections (Enlarged, Clear & Fresh Typography) -->
@@ -40,74 +52,53 @@
                 <span class="text-lg text-indigo-400">📊</span> <span>Dashboard Utama</span>
             </a>
             <a href="/admin/portal" id="nav-portal" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sky-300 hover:text-white hover:bg-sky-600/25 font-bold text-sm transition-all border border-sky-500/20 bg-sky-950/20">
-                <span class="text-lg text-sky-400">🌐</span> <span>Manajemen Portal</span>
-            </a>
-            <a href="/admin/feature-panel" id="nav-feature-panel" class="flex items-center justify-between px-3.5 py-2.5 rounded-xl text-amber-300 hover:text-white hover:bg-amber-600/25 font-bold text-sm transition-all border border-amber-500/30 bg-amber-950/30 shadow-sm">
-                <div class="flex items-center gap-3">
-                    <span class="text-lg text-amber-400">🎛️</span> <span>Panel Kontrol Fitur &amp; GPS</span>
-                </div>
-                <span class="text-[10px] bg-amber-400/20 text-amber-300 px-2 py-0.5 rounded-full font-black border border-amber-400/40 uppercase tracking-wider">39 Fitur</span>
+                <span class="text-lg text-sky-400">🌐</span> <span>Manajemen Portal Gateway</span>
             </a>
             <a href="/admin/evoting" id="nav-evoting" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-purple-300 hover:text-white hover:bg-purple-600/25 font-bold text-sm transition-all border border-purple-500/20 bg-purple-950/20">
                 <span class="text-lg text-purple-400">🗳️</span> <span>e-Voting OSIS</span>
             </a>
         </div>
 
-        <!-- 2. MANAJEMEN REMOTE (ACCORDION) -->
-        <div class="py-1.5">
-            <button type="button" onclick="toggleSidebarMenu('menu-remote')" class="w-full flex items-center justify-between px-3.5 py-2 text-sky-400 font-extrabold uppercase tracking-wider text-xs hover:text-sky-300 transition-colors">
-                <span class="flex items-center gap-2"><span>📱</span> <span>MANAJEMEN REMOTE</span></span>
-                <span id="arrow-menu-remote" class="text-xs transition-transform duration-200">▼</span>
+        <!-- 2. MANAJEMEN REMOTE (KHUSUS ADMIN UTAMA - LOCKED) -->
+        <div class="py-1.5" id="section-menu-remote">
+            <button type="button" onclick="toggleSidebarMenu('menu-remote')" class="w-full flex items-center justify-between px-3.5 py-2 text-rose-400 font-extrabold uppercase tracking-wider text-xs hover:text-rose-300 transition-colors">
+                <span class="flex items-center gap-2"><span>📱</span> <span>REMOTE DEVICE (ADMIN UTAMA)</span></span>
+                <span id="arrow-menu-remote" class="text-xs transition-transform duration-200">▶</span>
             </button>
-            <div id="menu-remote" class="space-y-1 mt-1 pl-1">
+            <div id="menu-remote" class="hidden space-y-1 mt-1 pl-1">
                 <a href="/admin/remote-devices" id="nav-remote-devices" class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-slate-300 hover:bg-indigo-600/20 hover:text-white font-medium text-[13.5px] transition-all">
-                    <span class="text-base">📱</span> <span>Remote Devices</span>
+                    <span class="text-base">📱</span> <span>Remote Devices &amp; Lock</span>
                 </a>
                 <a href="/admin/files" class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-slate-300 hover:bg-indigo-600/20 hover:text-white font-medium text-[13.5px] transition-all">
                     <span class="text-base">📁</span> <span>Remote File Manager</span>
                 </a>
+                <a href="/admin/activity-logs" id="nav-activity-logs" class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-rose-300 hover:bg-rose-600/20 hover:text-white font-bold text-[13.5px] transition-all">
+                    <span class="text-base">🛡️</span> <span>Log Aktivitas &amp; Anomali</span>
+                </a>
                 <a href="/admin/client-logs" class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-rose-300 hover:bg-rose-950/40 font-bold text-[13.5px] transition-all">
-                    <span class="text-base">🚨</span> <span>Log Error APK</span>
+                    <span class="text-base">🚨</span> <span>Log Error APK S1BOY</span>
+                </a>
+                <a href="/admin/wifi-management" id="nav-wifi-management" class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-sky-300 hover:bg-sky-600/20 hover:text-white font-bold text-[13.5px] transition-all">
+                    <span class="text-base">📶</span> <span>Wi-Fi Siswa &amp; MikroTik</span>
                 </a>
             </div>
         </div>
 
-        <!-- 3. MANAJEMEN SEKOLAH (ACCORDION) -->
-        <div class="py-1.5">
-            <button type="button" onclick="toggleSidebarMenu('menu-sekolah')" class="w-full flex items-center justify-between px-3.5 py-2 text-indigo-400 font-extrabold uppercase tracking-wider text-xs hover:text-indigo-300 transition-colors">
-                <span class="flex items-center gap-2"><span>🏫</span> <span>MANAJEMEN SEKOLAH</span></span>
-                <span id="arrow-menu-sekolah" class="text-xs transition-transform duration-200">▼</span>
+        <!-- 3. MANAJEMEN PRESENSI LENGKAP -->
+        <div class="py-1.5" id="section-menu-presensi">
+            <button type="button" onclick="toggleSidebarMenu('menu-presensi')" class="w-full flex items-center justify-between px-3.5 py-2 text-emerald-400 font-extrabold uppercase tracking-wider text-xs hover:text-emerald-300 transition-colors">
+                <span class="flex items-center gap-2"><span>📋</span> <span>MANAJEMEN PRESENSI</span></span>
+                <span id="arrow-menu-presensi" class="text-xs transition-transform duration-200">▶</span>
             </button>
-            <div id="menu-sekolah" class="space-y-1 mt-1 pl-1">
-                <a href="/admin/guru" class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-slate-300 hover:bg-indigo-600/20 hover:text-white font-medium text-[13.5px] transition-all">
-                    <span class="text-base">👨‍🏫</span> <span>Guru &amp; Wali Kelas</span>
-                </a>
-                <a href="/admin/siswa" class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-slate-300 hover:bg-indigo-600/20 hover:text-white font-medium text-[13.5px] transition-all">
-                    <span class="text-base">👨‍🎓</span> <span>Data Siswa</span>
-                </a>
-                <a href="/admin/biodata" class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-teal-300 hover:bg-teal-950/40 font-bold text-[13.5px] transition-all">
-                    <span class="text-base">📑</span> <span>Verifikasi Biodata (TU)</span>
-                </a>
-                <a href="/admin/kelas" class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-slate-300 hover:bg-indigo-600/20 hover:text-white font-medium text-[13.5px] transition-all">
-                    <span class="text-base">🏢</span> <span>Manajemen Kelas</span>
+            <div id="menu-presensi" class="hidden space-y-1 mt-1 pl-1">
+                <a href="/admin/absensi" class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-emerald-300 hover:bg-emerald-950/40 font-bold text-[13.5px] transition-all">
+                    <span class="text-base">📋</span> <span>Rekap Presensi Siswa</span>
                 </a>
                 <a href="/admin/geofence-attendance" class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-emerald-300 hover:bg-emerald-950/40 font-bold text-[13.5px] transition-all">
                     <span class="text-base">📍</span> <span>Presensi Geofence (Anti-Cheat)</span>
                 </a>
-                <a href="/admin/absensi" class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-emerald-300 hover:bg-emerald-950/40 font-bold text-[13.5px] transition-all">
-                    <span class="text-base">📋</span> <span>Rekap Presensi Siswa</span>
-                </a>
-                <a href="/admin/pengumuman" class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-amber-300 hover:bg-amber-950/40 font-bold text-[13.5px] transition-all">
-                    <span class="text-base">📢</span> <span>Broadcast Pengumuman</span>
-                </a>
                 <a href="/bk?tab=sholat" class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-purple-300 hover:bg-purple-950/40 font-bold text-[13.5px] transition-all">
                     <span class="text-base">🕌</span> <span>Presensi Sholat (PAI/BK)</span>
-                </a>
-                <a href="/admin/kelas/print-barcodes" target="_blank" class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-sky-300 hover:bg-sky-950/40 font-bold text-[13.5px] transition-all">
-                    <span class="text-base">🖨️</span> <span>Barcode Kelas, BK &amp; Mushola</span>
-                </a>
-                <a href="/admin/siswa/print-cards" target="_blank" class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-indigo-300 hover:bg-indigo-950/40 font-bold text-[13.5px] transition-all">
-                    <span class="text-base">🪪</span> <span>Cetak &amp; Unduh QR Siswa</span>
                 </a>
                 <a href="/bk?tab=izin" class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-teal-300 hover:bg-teal-950/40 font-bold text-[13.5px] transition-all">
                     <span class="text-base">📩</span> <span>Verifikasi Izin &amp; Sakit</span>
@@ -117,6 +108,40 @@
                 </a>
                 <a href="/absensi/tap-kartu" target="_blank" class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-amber-300 hover:bg-amber-950/40 font-bold text-[13.5px] transition-all">
                     <span class="text-base">💳</span> <span>Kiosk Tap RFID ↗</span>
+                </a>
+                <a href="/admin/kelas/print-barcodes" target="_blank" class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-sky-300 hover:bg-sky-950/40 font-bold text-[13.5px] transition-all">
+                    <span class="text-base">🖨️</span> <span>Barcode Kelas, BK &amp; Mushola</span>
+                </a>
+                <a href="/admin/siswa/print-cards" target="_blank" class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-indigo-300 hover:bg-indigo-950/40 font-bold text-[13.5px] transition-all">
+                    <span class="text-base">🪪</span> <span>Cetak &amp; Unduh QR Siswa</span>
+                </a>
+            </div>
+        </div>
+
+        <!-- 4. MANAJEMEN SEKOLAH & DATA -->
+        <div class="py-1.5" id="section-menu-sekolah">
+            <button type="button" onclick="toggleSidebarMenu('menu-sekolah')" class="w-full flex items-center justify-between px-3.5 py-2 text-indigo-400 font-extrabold uppercase tracking-wider text-xs hover:text-indigo-300 transition-colors">
+                <span class="flex items-center gap-2"><span>🏫</span> <span>MANAJEMEN SEKOLAH</span></span>
+                <span id="arrow-menu-sekolah" class="text-xs transition-transform duration-200">▶</span>
+            </button>
+            <div id="menu-sekolah" class="hidden space-y-1 mt-1 pl-1">
+                <a href="/admin/guru" class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-slate-300 hover:bg-indigo-600/20 hover:text-white font-medium text-[13.5px] transition-all">
+                    <span class="text-base">👨‍🏫</span> <span>Guru &amp; Wali Kelas</span>
+                </a>
+                <a href="/admin/siswa" class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-slate-300 hover:bg-indigo-600/20 hover:text-white font-medium text-[13.5px] transition-all">
+                    <span class="text-base">👨‍🎓</span> <span>Data Siswa</span>
+                </a>
+                <a href="/admin/biodata" class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-teal-300 hover:bg-teal-950/40 font-bold text-[13.5px] transition-all">
+                    <span class="text-base">📑</span> <span>Verifikasi Biodata (TU)</span>
+                </a>
+                <a href="/admin/dapodik" class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-emerald-300 hover:bg-emerald-950/40 font-bold text-[13.5px] transition-all">
+                    <span class="text-base">📊</span> <span>Buku Induk &amp; Dapodik (Excel)</span>
+                </a>
+                <a href="/admin/kelas" class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-slate-300 hover:bg-indigo-600/20 hover:text-white font-medium text-[13.5px] transition-all">
+                    <span class="text-base">🏢</span> <span>Manajemen Kelas</span>
+                </a>
+                <a href="/admin/pengumuman" class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-amber-300 hover:bg-amber-950/40 font-bold text-[13.5px] transition-all">
+                    <span class="text-base">📢</span> <span>Broadcast Pengumuman</span>
                 </a>
                 <a href="/admin/surat" class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-yellow-300 hover:bg-yellow-950/40 font-bold text-[13.5px] transition-all">
                     <span class="text-base">📜</span> <span>Surat Edaran</span>
@@ -133,37 +158,46 @@
                 <a href="/uks" class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-rose-300 hover:bg-rose-950/40 font-bold text-[13.5px] transition-all">
                     <span class="text-base">🏥</span> <span>Layanan UKS Terpadu</span>
                 </a>
+                <a href="/admin/ekstrakurikuler" class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-indigo-300 hover:bg-indigo-950/40 font-bold text-[13.5px] transition-all">
+                    <span class="text-base">🏆</span> <span>Ekstrakurikuler Spenboy</span>
+                </a>
             </div>
         </div>
 
-        <!-- 4. MANAJEMEN UJIAN (ACCORDION) -->
-        <div class="py-1.5">
+        <!-- 5. MANAJEMEN UJIAN & CBT LENGKAP -->
+        <div class="py-1.5" id="section-menu-ujian">
             <button type="button" onclick="toggleSidebarMenu('menu-ujian')" class="w-full flex items-center justify-between px-3.5 py-2 text-violet-400 font-extrabold uppercase tracking-wider text-xs hover:text-violet-300 transition-colors">
-                <span class="flex items-center gap-2"><span>📝</span> <span>CBT &amp; UJIAN</span></span>
-                <span id="arrow-menu-ujian" class="text-xs transition-transform duration-200">▼</span>
+                <span class="flex items-center gap-2"><span>📝</span> <span>MANAJEMEN CBT &amp; UJIAN</span></span>
+                <span id="arrow-menu-ujian" class="text-xs transition-transform duration-200">▶</span>
             </button>
-            <div id="menu-ujian" class="space-y-1 mt-1 pl-1">
+            <div id="menu-ujian" class="hidden space-y-1 mt-1 pl-1">
                 <a href="/admin/monitoring" class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-slate-300 hover:bg-indigo-600/20 hover:text-white font-medium text-[13.5px] transition-all">
-                    <span class="text-base">🖥️</span> <span>Live Monitoring Ujian</span>
+                    <span class="text-base">🖥️</span> <span>Ruang Proktor &amp; Live Monitoring</span>
                 </a>
                 <a href="/admin/cbt" class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-slate-300 hover:bg-indigo-600/20 hover:text-white font-medium text-[13.5px] transition-all">
-                    <span class="text-base">📝</span> <span>Bank Soal &amp; Jadwal</span>
+                    <span class="text-base">📝</span> <span>Bank Soal &amp; Jadwal CBT</span>
                 </a>
                 <a href="/admin/cbt/capacity" class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-amber-300 hover:bg-amber-950/40 hover:text-white font-bold text-[13.5px] transition-all">
                     <span class="text-base">⚡</span> <span>Diagnostik Kapasitas CBT</span>
                 </a>
+                <a href="/admin/cbt?tab=hasil" class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-emerald-300 hover:bg-emerald-950/40 hover:text-white font-bold text-[13.5px] transition-all">
+                    <span class="text-base">📊</span> <span>Rekap Nilai Siswa</span>
+                </a>
+                <a href="/admin/cbt?tab=analisis" class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-indigo-300 hover:bg-indigo-950/40 hover:text-white font-bold text-[13.5px] transition-all">
+                    <span class="text-base">📈</span> <span>Analisis Butir &amp; Psikometrik</span>
+                </a>
             </div>
         </div>
 
-        <!-- 5. PENGATURAN SISTEM & SERVER -->
-        <div class="py-1.5">
+        <!-- 6. PENGATURAN SISTEM & SERVER -->
+        <div class="py-1.5" id="section-menu-pengaturan">
             <button type="button" onclick="toggleSidebarMenu('menu-pengaturan')" class="w-full flex items-center justify-between px-3.5 py-2 text-emerald-400 font-extrabold uppercase tracking-wider text-xs hover:text-emerald-300 transition-colors">
                 <span class="flex items-center gap-2"><span>⚙️</span> <span>PENGATURAN &amp; SERVER</span></span>
-                <span id="arrow-menu-pengaturan" class="text-xs transition-transform duration-200">▼</span>
+                <span id="arrow-menu-pengaturan" class="text-xs transition-transform duration-200">▶</span>
             </button>
-            <div id="menu-pengaturan" class="space-y-1 mt-1 pl-1">
+            <div id="menu-pengaturan" class="hidden space-y-1 mt-1 pl-1">
                 <a href="/admin/users" class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-slate-300 hover:bg-indigo-600/20 hover:text-white font-medium text-[13.5px] transition-all">
-                    <span class="text-base">👥</span> <span>Manajemen User</span>
+                    <span class="text-base">👥</span> <span>Manajemen User (Admin &amp; Op)</span>
                 </a>
                 <a href="/admin/feature-panel" class="flex items-center justify-between px-3 py-2 rounded-xl text-amber-300 hover:bg-amber-950/40 hover:text-white font-bold text-[13.5px] transition-all">
                     <div class="flex items-center gap-2.5">
@@ -230,19 +264,46 @@
 </div>
 
 <script>
+    // ==================== THEME TOGGLE (DARK / LIGHT MODE) ====================
+    function updateThemeUI(isDark) {
+        const icon1 = document.getElementById('themeToggleIcon');
+        const icon2 = document.getElementById('floatingThemeIcon');
+        if (icon1) icon1.innerText = isDark ? '☀️' : '🌙';
+        if (icon2) icon2.innerText = isDark ? '☀️' : '🌙';
+    }
+
+    function togglePortalTheme() {
+        const isDark = document.body.classList.toggle('dark-mode');
+        localStorage.setItem('portal_theme', isDark ? 'dark' : 'light');
+        updateThemeUI(isDark);
+    }
+
+    // Auto-apply saved theme on page load
+    (function applySavedTheme() {
+        const savedTheme = localStorage.getItem('portal_theme');
+        const isDark = savedTheme === 'dark';
+        if (isDark) {
+            document.body.classList.add('dark-mode');
+        }
+        updateThemeUI(isDark);
+    })();
+
     // ==================== SIDEBAR TOGGLE & PERSISTENCE ====================
     function togglePortalSidebar() {
         const isMobile = window.innerWidth < 768;
         const expandBtn = document.getElementById('sidebarExpandBtn');
+        const floatingTheme = document.getElementById('floatingThemeToggleBtn');
         const backdrop = document.getElementById('portalSidebarBackdrop');
 
         if (isMobile) {
             const isOpen = document.body.classList.toggle('sidebar-mobile-open');
             if (backdrop) backdrop.classList.toggle('hidden', !isOpen);
             if (expandBtn) expandBtn.classList.toggle('hidden', isOpen);
+            if (floatingTheme) floatingTheme.classList.toggle('hidden', isOpen);
         } else {
             const isCollapsed = document.body.classList.toggle('sidebar-collapsed');
             if (expandBtn) expandBtn.classList.toggle('hidden', !isCollapsed);
+            if (floatingTheme) floatingTheme.classList.toggle('hidden', !isCollapsed);
             localStorage.setItem('portal_sidebar_collapsed', isCollapsed ? 'true' : 'false');
         }
     }
@@ -259,20 +320,24 @@
     (function applySavedSidebarState() {
         const isMobile = window.innerWidth < 768;
         const expandBtn = document.getElementById('sidebarExpandBtn');
+        const floatingTheme = document.getElementById('floatingThemeToggleBtn');
         const backdrop = document.getElementById('portalSidebarBackdrop');
 
         if (isMobile) {
             document.body.classList.remove('sidebar-mobile-open');
             if (backdrop) backdrop.classList.add('hidden');
             if (expandBtn) expandBtn.classList.remove('hidden');
+            if (floatingTheme) floatingTheme.classList.remove('hidden');
         } else {
             const savedCollapsed = localStorage.getItem('portal_sidebar_collapsed');
             if (savedCollapsed === 'true') {
                 document.body.classList.add('sidebar-collapsed');
                 if (expandBtn) expandBtn.classList.remove('hidden');
+                if (floatingTheme) floatingTheme.classList.remove('hidden');
             } else {
                 document.body.classList.remove('sidebar-collapsed');
                 if (expandBtn) expandBtn.classList.add('hidden');
+                if (floatingTheme) floatingTheme.classList.add('hidden');
             }
         }
     })();
@@ -318,12 +383,13 @@
         }
     }
 
-    // Auto-open active menu on page load
+    // Auto-open active menu on page load & setup mouseleave auto-close
     (function initSidebarState() {
         const path = window.location.pathname;
         const menus = [
-            { id: 'menu-remote', paths: ['/admin/remote-devices', '/admin/files'] },
-            { id: 'menu-sekolah', paths: ['/admin/guru', '/admin/siswa', '/admin/kelas', '/admin/geofence-attendance', '/admin/tugas', '/admin/absensi', '/admin/pengumuman', '/admin/surat', '/bk', '/uks', '/admin/perpus'] },
+            { id: 'menu-remote', paths: ['/admin/remote-devices', '/admin/files', '/admin/client-logs'] },
+            { id: 'menu-presensi', paths: ['/admin/absensi', '/admin/geofence-attendance', '/bk', '/satpam/gatepass', '/absensi/tap-kartu'] },
+            { id: 'menu-sekolah', paths: ['/admin/guru', '/admin/siswa', '/admin/kelas', '/admin/biodata', '/admin/pengumuman', '/admin/surat', '/admin/tugas', '/admin/perpus', '/uks'] },
             { id: 'menu-ujian', paths: ['/admin/monitoring', '/admin/cbt'] },
             { id: 'menu-pengaturan', paths: ['/admin/users', '/admin/pengaturan', '/admin/server-monitoring', '/admin/app-releases', '/admin/feature-panel'] }
         ];
@@ -341,6 +407,25 @@
                 el?.classList.add('hidden');
                 if (arrow) arrow.innerText = '▶';
             }
+        });
+
+        // Setup mouseleave auto-close: Ketika kursor berpindah keluar dari section dropdown
+        document.querySelectorAll('[id^="section-menu-"]').forEach(section => {
+            section.addEventListener('mouseleave', function() {
+                const submenu = this.querySelector('div[id^="menu-"]');
+                if (!submenu) return;
+                const menuId = submenu.id;
+                const arrow = document.getElementById('arrow-' + menuId);
+                const matchedConfig = menus.find(m => m.id === menuId);
+                const isCurrentActive = matchedConfig ? matchedConfig.paths.some(p => path.startsWith(p)) : false;
+
+                // Jika bukan halaman aktif saat ini, tutup otomatis dropdown ketika cursor di pindah
+                if (!isCurrentActive) {
+                    submenu.classList.add('hidden');
+                    if (arrow) arrow.innerText = '▶';
+                    sessionStorage.setItem(menuId, 'CLOSED');
+                }
+            });
         });
     })();
 

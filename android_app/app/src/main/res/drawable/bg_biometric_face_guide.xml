@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Outer Rounded Rectangle border with dashed blue lines -->
+    <item>
+        <shape android:shape="rectangle">
+            <stroke
+                android:width="2.5dp"
+                android:color="#38BDF8"
+                android:dashWidth="10dp"
+                android:dashGap="6dp" />
+            <corners android:radius="24dp" />
+        </shape>
+    </item>
+</layer-list>

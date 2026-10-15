@@ -122,16 +122,32 @@ data class BkDynamicQrData(
     @SerializedName("rotationIntervalSeconds") val rotationIntervalSeconds: Int
 )
 
-// Satpam Checkout
+// Satpam Checkout & Return
 data class SatpamCheckoutRequest(
     @SerializedName("checkoutToken") val checkoutToken: String? = null,
-    @SerializedName("qrPayload") val qrPayload: String? = null
+    @SerializedName("qrPayload") val qrPayload: String? = null,
+    @SerializedName("action") val action: String? = "CHECKOUT"
 )
 
 data class SatpamCheckoutResponse(
     @SerializedName("success") val success: Boolean,
+    @SerializedName("action") val action: String? = null,
     @SerializedName("message") val message: String?,
-    @SerializedName("data") val data: Any?
+    @SerializedName("data") val data: GatepassItemData? = null
+)
+
+data class SatpamGatepassStatsDto(
+    @SerializedName("totalToday") val totalToday: Int = 0,
+    @SerializedName("waitingExit") val waitingExit: Int = 0,
+    @SerializedName("currentlyOutside") val currentlyOutside: Int = 0,
+    @SerializedName("completedExit") val completedExit: Int = 0,
+    @SerializedName("returnedToSchool") val returnedToSchool: Int = 0
+)
+
+data class SatpamGatepassListResponse(
+    @SerializedName("success") val success: Boolean,
+    @SerializedName("stats") val stats: SatpamGatepassStatsDto? = null,
+    @SerializedName("data") val data: List<GatepassItemData>? = null
 )
 
 // BK Gatepass List & Status Update
@@ -143,20 +159,23 @@ data class BkGatepassListResponse(
 
 data class GatepassItemData(
     @SerializedName("id") val id: String,
-    @SerializedName("studentId") val studentId: String,
-    @SerializedName("leaveCategory") val leaveCategory: String,
-    @SerializedName("reason") val reason: String,
-    @SerializedName("pickupBy") val pickupBy: String?,
-    @SerializedName("status") val status: String,
-    @SerializedName("rejectionReason") val rejectionReason: String?,
-    @SerializedName("verifiedAt") val verifiedAt: String?,
-    @SerializedName("validUntil") val validUntil: String?,
-    @SerializedName("exitTimestamp") val exitTimestamp: String?,
-    @SerializedName("singleUseCheckoutToken") val singleUseCheckoutToken: String?,
-    @SerializedName("createdAt") val createdAt: String,
-    @SerializedName("student") val student: StudentBriefDto?,
-    @SerializedName("approvedByBk") val approvedByBk: UserBriefDto?,
-    @SerializedName("checkoutSatpam") val checkoutSatpam: UserBriefDto?
+    @SerializedName("studentId") val studentId: String? = null,
+    @SerializedName("leaveCategory") val leaveCategory: String? = null,
+    @SerializedName("categoryLabel") val categoryLabel: String? = null,
+    @SerializedName("reason") val reason: String? = null,
+    @SerializedName("pickupBy") val pickupBy: String? = null,
+    @SerializedName("status") val status: String = "PENDING_BK",
+    @SerializedName("rejectionReason") val rejectionReason: String? = null,
+    @SerializedName("verifiedAt") val verifiedAt: String? = null,
+    @SerializedName("validUntil") val validUntil: String? = null,
+    @SerializedName("exitTimestamp") val exitTimestamp: String? = null,
+    @SerializedName("returnTimestamp") val returnTimestamp: String? = null,
+    @SerializedName("singleUseCheckoutToken") val singleUseCheckoutToken: String? = null,
+    @SerializedName("createdAt") val createdAt: String? = null,
+    @SerializedName("student") val student: StudentBriefDto? = null,
+    @SerializedName("approvedByBk") val approvedByBk: UserBriefDto? = null,
+    @SerializedName("checkoutSatpam") val checkoutSatpam: UserBriefDto? = null,
+    @SerializedName("returnSatpam") val returnSatpam: UserBriefDto? = null
 )
 
 data class UserBriefDto(
@@ -168,4 +187,29 @@ data class UpdateGatepassStatusRequest(
     @SerializedName("status") val status: String,
     @SerializedName("rejectionReason") val rejectionReason: String? = null,
     @SerializedName("counselorNotes") val counselorNotes: String? = null
+)
+
+data class StudentGatepassHistoryResponse(
+    @SerializedName("success") val success: Boolean,
+    @SerializedName("count") val count: Int = 0,
+    @SerializedName("data") val data: List<GatepassHistoryItem>? = null,
+    @SerializedName("message") val message: String? = null
+)
+
+data class GatepassHistoryItem(
+    @SerializedName("id") val id: String,
+    @SerializedName("leaveCategory") val leaveCategory: String?,
+    @SerializedName("categoryLabel") val categoryLabel: String?,
+    @SerializedName("leaveType") val leaveType: String?,
+    @SerializedName("reason") val reason: String?,
+    @SerializedName("pickupBy") val pickupBy: String?,
+    @SerializedName("status") val status: String,
+    @SerializedName("rejectionReason") val rejectionReason: String?,
+    @SerializedName("counselorNotes") val counselorNotes: String?,
+    @SerializedName("approvedByBk") val approvedByBk: String?,
+    @SerializedName("checkoutSatpam") val checkoutSatpam: String?,
+    @SerializedName("singleUseCheckoutToken") val singleUseCheckoutToken: String? = null,
+    @SerializedName("createdAt") val createdAt: String?,
+    @SerializedName("verifiedAt") val verifiedAt: String?,
+    @SerializedName("exitTimestamp") val exitTimestamp: String?
 )

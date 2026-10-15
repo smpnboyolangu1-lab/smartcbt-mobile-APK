@@ -39,7 +39,10 @@ data class UserDto(
     val classRole: String? = null,
     val profilePicUrl: String? = null,
     val tugasTambahan: String? = null,
-    val availableRoles: List<String>? = null
+    val isBk: Boolean? = false,
+    val isSecurity: Boolean? = false,
+    val availableRoles: List<String>? = null,
+    val gender: String? = null
 )
 
 data class GateScanRequest(
@@ -52,7 +55,9 @@ data class GateScanRequest(
     val isFakeGps: Boolean = false,
     val method: String? = null,
     val accuracy: Float? = null,
-    val deviceTime: String? = null
+    val deviceTime: String? = null,
+    val isSpecialCheckoutWithoutIn: Boolean? = false,
+    val clientScanTime: Long? = null
 )
 
 
@@ -67,5 +72,6 @@ data class AppVersionConfig(
     val downloadUrl: String,
     val fileSizeMb: Double,
     val releaseNotes: String,
-    val isForceUpdate: Boolean
+    val isForceUpdate: Boolean,
+    val sha256: String? = null
 )

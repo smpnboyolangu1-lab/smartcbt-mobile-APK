@@ -29,7 +29,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
             android:text="SMART SCHOOL MOBILE"
-            android:textColor="@color/elegant_blue_dark"
+            android:textColor="#FFFFFF"
             android:textSize="20sp"
             android:letterSpacing="0.04"
             android:textStyle="bold" />
@@ -39,7 +39,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="3dp"
             android:text="SMP NEGERI 1 BOYOLANGU"
-            android:textColor="@color/elegant_blue"
+            android:textColor="#38BDF8"
             android:textSize="14sp"
             android:textStyle="bold" />
 
@@ -48,7 +48,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="2dp"
             android:text="Padhanging Pujangga Hamanjing Bhumi"
-            android:textColor="@color/text_muted"
+            android:textColor="#94A3B8"
             android:textSize="11sp"
             android:textStyle="italic" />
 
@@ -57,8 +57,8 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="6dp"
-            android:text="Portal Layanan Terpadu Sekolah"
-            android:textColor="@color/text_muted"
+            android:text="Portal CBT &amp; Layanan Terpadu Sekolah"
+            android:textColor="#BAE6FD"
             android:textSize="12sp" />
 
         <!-- Live VPS Server Connection Status Indicator -->
@@ -88,7 +88,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Memeriksa Sambungan Server..."
-                android:textColor="#1E293B"
+                android:textColor="#0F172A"
                 android:textSize="11sp"
                 android:textStyle="bold" />
         </LinearLayout>
@@ -122,7 +122,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="🔐"
+                        android:text="🔍"
                         android:textSize="18sp"
                         android:layout_marginEnd="10dp" />
 
@@ -190,6 +190,17 @@
                         android:inputType="textPassword" />
                 </com.google.android.material.textfield.TextInputLayout>
 
+                <!-- Checkbox Ingat Saya di Perangkat Ini -->
+                <CheckBox
+                    android:id="@+id/cbRememberMe"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="Ingat Saya di Perangkat Ini"
+                    android:textColor="#475569"
+                    android:textSize="12.5sp"
+                    android:checked="true" />
+
                 <Button
                     android:id="@+id/btnLogin"
                     android:layout_width="match_parent"
@@ -212,14 +223,6 @@
             </LinearLayout>
         </androidx.cardview.widget.CardView>
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="14dp"
-            android:text="💡 Sistem otomatis mendeteksi role akun Anda"
-            android:textColor="@color/text_muted"
-            android:textSize="11sp" />
-
 
         <LinearLayout
             android:layout_width="wrap_content"
@@ -232,8 +235,8 @@
                 android:id="@+id/tvAppVersion"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Smart School CBT v2.8.88 • SMP Negeri 1 Boyolangu"
-                android:textColor="@color/text_muted"
+                android:text="Smart CBT v2.8.140 • SMP Negeri 1 Boyolangu"
+                android:textColor="#94A3B8"
                 android:textSize="11.5sp" />
         </LinearLayout>
     </LinearLayout>

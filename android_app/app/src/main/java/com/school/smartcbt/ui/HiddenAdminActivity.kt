@@ -58,6 +58,13 @@ class HiddenAdminActivity : AppCompatActivity() {
 
         sessionManager = SessionManager(this)
 
+        val role = sessionManager.getRole().uppercase()
+        if (role != "ADMIN" && role != "OPERATOR") {
+            Toast.makeText(this, "⛔ Akses Ditolak: Panel ini hanya dapat diakses oleh Administrator / Operator Sekolah.", Toast.LENGTH_LONG).show()
+            finish()
+            return
+        }
+
         setupListeners()
         checkAndRequestPermissions()
         loadDevices()

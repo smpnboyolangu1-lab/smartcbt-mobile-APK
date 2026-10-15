@@ -97,9 +97,12 @@ data class TeacherExamDto(
     val durationMinutes: Int,
     val assignedClasses: String?,
     val token: String?,
+    val isTokenActive: Boolean? = null,
     val executionDate: String?,
     val startTimeStr: String?,
     val endTimeStr: String?,
+    val passingGrade: Int? = 75,
+    val examType: String? = "UH",
     val subject: SubjectDto?,
     val _count: ExamCountDto?
 )
@@ -121,6 +124,40 @@ data class CreateExamRequest(
     val randomizeQuestions: Boolean = true,
     val randomizeOptions: Boolean = true,
     val showScoreToStudent: Boolean = true,
-    val maxStrikes: Int = 3
+    val maxStrikes: Int = 3,
+    val examType: String? = "UH",
+    val passingGrade: Int? = 75
+)
+
+data class CreateQuestionRequest(
+    val content: String,
+    val type: String = "MULTIPLE_CHOICE",
+    val correctOption: String = "A",
+    val options: Any,
+    val cognitiveLevel: String = "C3",
+    val explanation: String? = null,
+    val imageUrl: String? = null,
+    val audioUrl: String? = null
+)
+
+data class UpdateQuestionRequest(
+    val content: String,
+    val type: String = "MULTIPLE_CHOICE",
+    val correctOption: String = "A",
+    val options: Any,
+    val cognitiveLevel: String = "C3",
+    val explanation: String? = null,
+    val imageUrl: String? = null,
+    val audioUrl: String? = null,
+    val orderNum: Int? = null
+)
+
+data class AiGenerateQuestionsRequest(
+    val examId: String,
+    val subject: String,
+    val topic: String,
+    val grade: String? = "Kelas VII",
+    val count: Int = 5,
+    val difficulty: String = "Sedang"
 )
 

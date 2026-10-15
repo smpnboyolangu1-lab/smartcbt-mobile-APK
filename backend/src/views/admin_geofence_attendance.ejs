@@ -3,202 +3,948 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Presensi Geofencing &amp; Antrean Verifikasi - SmartSchool</title>
+    <title>Pusat Kontrol Geofence GPS &amp; Monitoring Presensi - SIBOY FRESH</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="/css/design-system.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <!-- Leaflet.js CSS & Script -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
     <style>
-        body { font-family: 'Inter', sans-serif; background-color: #0b1120; color: #f8fafc; }
-        .glass-card { background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(51, 65, 85, 0.7); backdrop-filter: blur(12px); border-radius: 18px; }
+        body { font-family: 'Inter', sans-serif; background-color: #060b13; color: #f8fafc; }
+        .glass-card { background: rgba(13, 22, 38, 0.85); border: 1px solid rgba(30, 58, 95, 0.6); backdrop-filter: blur(12px); border-radius: 18px; }
+        .leaflet-container { font-family: 'Inter', sans-serif; border-radius: 16px; z-index: 10; }
+        .custom-popup .leaflet-popup-content-wrapper { background: #0f172a; color: #f8fafc; border: 1px solid #334155; border-radius: 12px; }
+        .custom-popup .leaflet-popup-tip { background: #0f172a; }
+        .switch-toggle { position: relative; display: inline-block; width: 52px; height: 28px; }
+        .switch-toggle input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #334155; transition: .3s; border-radius: 34px; }
+        .slider:before { position: absolute; content: ""; height: 20px; width: 20px; left: 4px; bottom: 4px; background-color: white; transition: .3s; border-radius: 50%; }
+        input:checked + .slider { background-color: #10b981; }
+        input:checked + .slider:before { transform: translateX(24px); }
     </style>
 </head>
 <body class="flex min-h-screen">
     <%- (typeof isOperator !== 'undefined' && isOperator) ? include('partials/sidebar_operator') : include('partials/sidebar_admin') %>
 
     <main class="flex-1 p-4 md:p-8 ml-0 md:ml-64 transition-all">
-        <!-- Header -->
+        <!-- Header & Top Branding -->
         <div class="flex flex-col md:flex-row md:items-center justify-between pb-6 border-b border-slate-800 gap-4">
             <div>
                 <div class="flex items-center gap-2.5">
-                    <span class="text-2xl">📍</span>
-                    <h1 class="text-xl md:text-2xl font-black tracking-tight text-white">Presensi Geofencing &amp; Verifikasi Kurikulum</h1>
+                    <span class="text-3xl">🛰️</span>
+                    <div>
+                        <h1 class="text-xl md:text-2xl font-black tracking-tight text-white flex items-center gap-2">
+                            Pusat Kontrol Geofence GPS &amp; Monitoring SIBOY
+                            <span class="px-2.5 py-0.5 text-[10px] font-extrabold uppercase rounded-full bg-emerald-950/80 text-emerald-400 border border-emerald-500/40">SIBOY FRESH</span>
+                        </h1>
+                        <p class="text-xs md:text-sm text-slate-400 mt-0.5">Single Source of Truth: Validasi multi-zona, Kalman Filter, averaging koordinat, dan verifikasi anomali presensi.</p>
+                    </div>
                 </div>
-                <p class="text-xs md:text-sm text-slate-400 mt-1">Sistem presensi anti-kecurangan berbasis ruangan, verifikasi foto, dan antrean GPS gedung.</p>
             </div>
-            <div class="flex items-center gap-2.5">
-                <button onclick="loadManualQueue()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-lg transition-all flex items-center gap-2">
-                    <span>🔄 Refresh Data</span>
+            <div class="flex items-center gap-3">
+                <button onclick="refreshAllData()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold border border-slate-700 shadow-md transition-all flex items-center gap-2">
+                    <span id="refreshSpinner">🔄</span> Refresh Data
                 </button>
             </div>
         </div>
 
+        <!-- Master Geofence Toggle Card -->
+        <div class="glass-card p-5 mt-6 border-emerald-500/30 bg-gradient-to-r from-emerald-950/20 via-slate-900/60 to-sky-950/20 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div class="flex items-center gap-4">
+                <div class="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-2xl">
+                    🌐
+                </div>
+                <div>
+                    <div class="flex items-center gap-2">
+                        <h2 class="text-sm font-black text-white uppercase tracking-wider">Master Control: Validasi Geofence GPS Sekolah</h2>
+                        <span id="badgeMasterStatus" class="px-2 py-0.5 rounded text-[10px] font-extrabold bg-emerald-500 text-slate-950">AKTIF</span>
+                    </div>
+                    <p class="text-xs text-slate-400 mt-0.5">Jika dinonaktifkan, siswa &amp; guru dapat presensi tanpa validasi radius (berguna saat bencana/kegiatan luar sekolah).</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-4">
+                <span class="text-xs font-bold text-slate-300">Status Geofence:</span>
+                <label class="switch-toggle">
+                    <input type="checkbox" id="toggleMasterGeofence" onchange="toggleMasterGeofenceHandler(this.checked)">
+                    <span class="slider"></span>
+                </label>
+            </div>
+        </div>
+
         <!-- Metric Badges -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
-            <div class="glass-card p-5 border-amber-500/30">
-                <div class="flex items-center justify-between text-slate-400 text-xs font-bold mb-1">
-                    <span>ANTREAN VERIFIKASI MANUAL</span>
-                    <span class="text-amber-400">⚠️ Perlu Tindakan</span>
-                </div>
-                <span id="countManualQueue" class="text-3xl font-black text-amber-300">0</span>
-                <p class="text-[11px] text-slate-400 mt-1">Presensi dengan GPS lemah di gedung tertutup</p>
+        <div class="grid grid-cols-2 md:grid-cols-6 gap-3 mt-4">
+            <div class="glass-card p-4 border-slate-700">
+                <span class="text-[11px] font-bold text-slate-400 uppercase">Total Presensi GPS</span>
+                <div id="statTotal" class="text-2xl font-black text-white mt-1">0</div>
+                <span class="text-[10px] text-slate-500">Hari ini</span>
             </div>
 
-            <div class="glass-card p-5 border-emerald-500/30">
-                <div class="flex items-center justify-between text-slate-400 text-xs font-bold mb-1">
-                    <span>SKOR KEDISIPLINAN GURU</span>
-                    <span class="text-emerald-400">✨ Kurikulum</span>
-                </div>
-                <span id="scoreDiscipline" class="text-3xl font-black text-emerald-400">98%</span>
-                <p class="text-[11px] text-slate-400 mt-1">Tepat waktu dalam batas toleransi 15 menit</p>
+            <div class="glass-card p-4 border-emerald-500/30">
+                <span class="text-[11px] font-bold text-emerald-400 uppercase">🟢 Radius Murni</span>
+                <div id="statValid" class="text-2xl font-black text-emerald-400 mt-1">0</div>
+                <span class="text-[10px] text-emerald-500/80">Sangat akurat (Base)</span>
             </div>
 
-            <div class="glass-card p-5 border-sky-500/30">
-                <div class="flex items-center justify-between text-slate-400 text-xs font-bold mb-1">
-                    <span>LAPISAN ANTI-FRAUD</span>
-                    <span class="text-sky-400">🛡️ Aktif</span>
-                </div>
-                <span class="text-2xl font-black text-sky-300">5 Lapisan</span>
-                <p class="text-[11px] text-slate-400 mt-1">Mock GPS, Root, Dev Mode, WiFi, Device-Binding</p>
-            </div>
-        </div>
-
-        <!-- Antrean Verifikasi Manual Table -->
-        <div class="glass-card p-6 mt-6">
-            <div class="flex items-center justify-between mb-4">
-                <h3 class="text-sm font-extrabold text-white uppercase tracking-wider flex items-center gap-2">
-                    <span>📋 Antrean Kasus "Perlu Verifikasi Manual" Kurikulum</span>
-                </h3>
-                <span class="text-xs text-slate-400">Review foto &amp; SSID WiFi untuk mencegah alpa sepihak</span>
+            <div class="glass-card p-4 border-amber-500/30">
+                <span class="text-[11px] font-bold text-amber-400 uppercase">🟡 Buffer Indoor</span>
+                <div id="statBuffer" class="text-2xl font-black text-amber-300 mt-1">0</div>
+                <span class="text-[10px] text-amber-500/80">Toleransi gedung</span>
             </div>
 
-            <div class="overflow-x-auto">
-                <table class="w-full text-left text-xs">
-                    <thead class="text-slate-400 border-b border-slate-800">
-                        <tr>
-                            <th class="py-2.5 px-3">Guru / Pengajar</th>
-                            <th class="py-2.5 px-3">Jadwal &amp; Ruangan</th>
-                            <th class="py-2.5 px-3">Waktu Tab Server</th>
-                            <th class="py-2.5 px-3">WiFi SSID</th>
-                            <th class="py-2.5 px-3">Foto Bukti</th>
-                            <th class="py-2.5 px-3 text-right">Aksi Review</th>
-                        </tr>
-                    </thead>
-                    <tbody id="manualQueueBody" class="divide-y divide-slate-800/60 text-slate-300">
-                        <tr>
-                            <td colspan="6" class="py-6 text-center text-slate-500">Tidak ada antrean verifikasi manual pending saat ini. Semua presensi valid.</td>
-                        </tr>
-                    </tbody>
-                </table>
+            <div class="glass-card p-4 border-orange-500/30">
+                <span class="text-[11px] font-bold text-orange-400 uppercase">🟠 Anomali / Antrean</span>
+                <div id="statFlagged" class="text-2xl font-black text-orange-400 mt-1">0</div>
+                <span class="text-[10px] text-orange-500/80">Perlu tindakan</span>
+            </div>
+
+            <div class="glass-card p-4 border-rose-500/30">
+                <span class="text-[11px] font-bold text-rose-400 uppercase">🔴 Ditolak / Fake</span>
+                <div id="statRejected" class="text-2xl font-black text-rose-400 mt-1">0</div>
+                <span class="text-[10px] text-rose-500/80">Mock / Luar toleransi</span>
+            </div>
+
+            <div class="glass-card p-4 border-sky-500/30">
+                <span class="text-[11px] font-bold text-sky-400 uppercase">📡 Rata² Akurasi</span>
+                <div id="statAvgAccuracy" class="text-2xl font-black text-sky-300 mt-1">±0m</div>
+                <span id="statAvgDistance" class="text-[10px] text-sky-400/80">Rata² jarak: 0m</span>
             </div>
         </div>
 
-        <!-- Rekap Kedisiplinan Kurikulum -->
-        <div class="glass-card p-6 mt-6">
-            <h3 class="text-sm font-extrabold text-white uppercase tracking-wider mb-4 flex items-center gap-2">
-                <span>📊 Rekap Kedisiplinan Pengajar &amp; Siswa</span>
-            </h3>
-            <div class="overflow-x-auto">
-                <table class="w-full text-left text-xs">
-                    <thead class="text-slate-400 border-b border-slate-800">
-                        <tr>
-                            <th class="py-2.5 px-3">Status</th>
-                            <th class="py-2.5 px-3">Jadwal / Sesi</th>
-                            <th class="py-2.5 px-3">Waktu Masuk</th>
-                            <th class="py-2.5 px-3">Waktu Selesai</th>
-                            <th class="py-2.5 px-3">Sinkronisasi</th>
-                        </tr>
-                    </thead>
-                    <tbody id="recapTableBody" class="divide-y divide-slate-800/60 text-slate-300">
-                        <tr>
-                            <td colspan="5" class="py-4 text-center text-slate-500">Memuat rekap data...</td>
-                        </tr>
-                    </tbody>
-                </table>
+        <!-- Navigation Tabs -->
+        <div class="flex items-center gap-2 mt-6 border-b border-slate-800 pb-2 overflow-x-auto text-xs font-bold">
+            <button onclick="switchTab('mapTab')" id="btnTabMap" class="px-4 py-2 rounded-xl bg-emerald-600 text-white flex items-center gap-2 transition-all">
+                <span>🗺️ Peta Interaktif &amp; Monitoring Live</span>
+            </button>
+            <button onclick="switchTab('queueTab')" id="btnTabQueue" class="px-4 py-2 rounded-xl bg-slate-800 text-slate-400 hover:text-white flex items-center gap-2 transition-all">
+                <span>⚡ Antrean Verifikasi Anomali</span>
+                <span id="badgeQueueCount" class="px-2 py-0.5 rounded-full text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/40">0</span>
+            </button>
+            <button onclick="switchTab('zonesTab')" id="btnTabZones" class="px-4 py-2 rounded-xl bg-slate-800 text-slate-400 hover:text-white flex items-center gap-2 transition-all">
+                <span>⚙️ Konfigurasi Geofence &amp; Parameter GPS</span>
+            </button>
+            <button onclick="switchTab('mockTab')" id="btnTabMock" class="px-4 py-2 rounded-xl bg-slate-800 text-slate-400 hover:text-white flex items-center gap-2 transition-all">
+                <span>🛡️ Log Mock Location &amp; Audit Trail</span>
+            </button>
+        </div>
+
+        <!-- TAB 1: PETA INTERAKTIF LEAFLET -->
+        <div id="mapTab" class="tab-content mt-4">
+            <div class="glass-card p-4">
+                <div class="flex flex-col md:flex-row md:items-center justify-between pb-3 mb-3 border-b border-slate-800/80 gap-3">
+                    <div class="flex items-center gap-4 text-xs">
+                        <span class="font-extrabold text-white uppercase tracking-wider flex items-center gap-1.5">
+                            <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                            Live GPS Map SMPN 1 Boyolangu
+                        </span>
+                        <div class="hidden md:flex items-center gap-3 text-slate-400">
+                            <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-full bg-emerald-500 inline-block"></span> Dalam Radius</span>
+                            <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-full bg-amber-400 inline-block"></span> Buffer Toleransi</span>
+                            <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-full bg-orange-500 inline-block"></span> Perlu Verifikasi</span>
+                            <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-full bg-rose-500 inline-block"></span> Luar Radius</span>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button onclick="resetMapView()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-semibold">📍 Fokus Kampus</button>
+                        <button onclick="toggleHeatmap()" id="btnHeatmap" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-semibold">🔥 Toggle Heatmap</button>
+                    </div>
+                </div>
+
+                <!-- Leaflet Container -->
+                <div id="gpsMap" class="w-full h-[520px] bg-slate-900 border border-slate-800"></div>
+            </div>
+
+            <!-- Tabel Monitoring Presensi Terkini -->
+            <div class="glass-card p-5 mt-4">
+                <div class="flex flex-col md:flex-row md:items-center justify-between mb-4 gap-3">
+                    <div>
+                        <h3 class="text-sm font-extrabold text-white uppercase tracking-wider">Daftar Presensi GPS Hari Ini</h3>
+                        <p class="text-xs text-slate-400">Data realtime koordinat, akurasi, dan jarak presensi</p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <input type="text" id="searchTable" onkeyup="filterLiveTable()" placeholder="🔍 Cari nama/NISN/kelas..." class="px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500">
+                        <select id="filterStatus" onchange="filterLiveTable()" class="px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white focus:outline-none">
+                            <option value="ALL">Semua Status</option>
+                            <option value="GREEN">🟢 Dalam Radius</option>
+                            <option value="YELLOW">🟡 Buffer Zone</option>
+                            <option value="ORANGE">🟠 Perlu Verifikasi</option>
+                            <option value="RED">🔴 Ditolak/Mock</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-xs">
+                        <thead class="text-slate-400 border-b border-slate-800 bg-slate-950/40">
+                            <tr>
+                                <th class="py-2.5 px-3">Nama Siswa / Pengajar</th>
+                                <th class="py-2.5 px-3">Kelas / Peran</th>
+                                <th class="py-2.5 px-3">Zona Geofence</th>
+                                <th class="py-2.5 px-3">Jarak</th>
+                                <th class="py-2.5 px-3">Akurasi GPS</th>
+                                <th class="py-2.5 px-3">Filter / Provider</th>
+                                <th class="py-2.5 px-3">Waktu</th>
+                                <th class="py-2.5 px-3">Status</th>
+                                <th class="py-2.5 px-3 text-right">Aksi</th>
+                            </tr>
+                        </thead>
+                        <tbody id="liveTableBody" class="divide-y divide-slate-800/60 text-slate-300">
+                            <tr><td colspan="9" class="py-6 text-center text-slate-500">Memuat data presensi...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 2: ANTREAN VERIFIKASI ANOMALI -->
+        <div id="queueTab" class="tab-content mt-4 hidden">
+            <div class="glass-card p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <div>
+                        <h3 class="text-sm font-extrabold text-white uppercase tracking-wider flex items-center gap-2">
+                            <span>⚡ Antrean Verifikasi Kasus GPS (Flagged &amp; Pending)</span>
+                        </h3>
+                        <p class="text-xs text-slate-400 mt-1">Presensi dengan GPS meleset di luar toleransi buffer atau sinyal terdegradasi. Operator berhak menyetujui jika siswa terbukti di sekolah.</p>
+                    </div>
+                    <button onclick="loadAnomaliesQueue()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-semibold">🔄 Refresh Antrean</button>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-xs">
+                        <thead class="text-slate-400 border-b border-slate-800 bg-slate-950/40">
+                            <tr>
+                                <th class="py-2.5 px-3">Siswa / User</th>
+                                <th class="py-2.5 px-3">Kelas</th>
+                                <th class="py-2.5 px-3">Jarak &amp; Akurasi</th>
+                                <th class="py-2.5 px-3">Koordinat</th>
+                                <th class="py-2.5 px-3">Alasan Flagged</th>
+                                <th class="py-2.5 px-3">Waktu</th>
+                                <th class="py-2.5 px-3 text-right">Tindakan Operator</th>
+                            </tr>
+                        </thead>
+                        <tbody id="anomalyQueueBody" class="divide-y divide-slate-800/60 text-slate-300">
+                            <tr><td colspan="7" class="py-6 text-center text-slate-500">Tidak ada antrean anomali saat ini.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 3: PENGATURAN ZONA GEOFENCE & PARAMETER GPS -->
+        <div id="zonesTab" class="tab-content mt-4 hidden">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- Form Parameter GPS Global -->
+                <div class="glass-card p-5 lg:col-span-1">
+                    <h3 class="text-sm font-extrabold text-white uppercase tracking-wider mb-4 flex items-center gap-2">
+                        <span>⚙️ Parameter Global GPS SIBOY</span>
+                    </h3>
+                    <form onsubmit="saveGlobalGpsConfig(event)" class="space-y-3 text-xs">
+                        <div>
+                            <label class="block text-slate-400 font-semibold mb-1">Titik Latitude Kampus</label>
+                            <input type="number" step="any" id="cfgLat" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                        </div>
+                        <div>
+                            <label class="block text-slate-400 font-semibold mb-1">Titik Longitude Kampus</label>
+                            <input type="number" step="any" id="cfgLng" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                        </div>
+                        <div>
+                            <label class="block text-slate-400 font-semibold mb-1">Radius Global Kampus (Meter)</label>
+                            <input type="number" id="cfgRadiusGlobal" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                        </div>
+                        <div>
+                            <label class="block text-slate-400 font-semibold mb-1">Buffer Toleransi Indoor Standar (Meter)</label>
+                            <input type="number" id="cfgBufferDefault" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                        </div>
+                        <div>
+                            <label class="block text-slate-400 font-semibold mb-1">Batas Akurasi Ideal / Zone Good (Meter)</label>
+                            <input type="number" id="cfgZoneGood" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                        </div>
+                        <div>
+                            <label class="block text-slate-400 font-semibold mb-1">Tolak Otomatis Jika Akurasi Di Atas (Meter)</label>
+                            <input type="number" id="cfgRejectAbove" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                        </div>
+                        <div>
+                            <label class="block text-slate-400 font-semibold mb-1">Jumlah Sampel Averaging APK</label>
+                            <input type="number" id="cfgSampleCount" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                        </div>
+                        <div>
+                            <label class="block text-slate-400 font-semibold mb-1">Countdown Penguncian GPS (Detik)</label>
+                            <input type="number" id="cfgCountdown" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                        </div>
+                        <button type="submit" class="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold shadow-lg mt-2">
+                            💾 Simpan Parameter GPS
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Manajemen Multi-Zona Geofence -->
+                <div class="glass-card p-5 lg:col-span-2">
+                    <div class="flex items-center justify-between mb-4">
+                        <div>
+                            <h3 class="text-sm font-extrabold text-white uppercase tracking-wider">Daftar Zona Geofence Kampus</h3>
+                            <p class="text-xs text-slate-400">Setiap zona memiliki radius base dan buffer toleransi gedung masing-masing</p>
+                        </div>
+                        <button onclick="openAddZoneModal()" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow flex items-center gap-1.5">
+                            <span>➕ Tambah Zona Baru</span>
+                        </button>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs">
+                            <thead class="text-slate-400 border-b border-slate-800 bg-slate-950/40">
+                                <tr>
+                                    <th class="py-2.5 px-3">Nama Zona</th>
+                                    <th class="py-2.5 px-3">Tipe</th>
+                                    <th class="py-2.5 px-3">Titik Koordinat</th>
+                                    <th class="py-2.5 px-3">Radius Base</th>
+                                    <th class="py-2.5 px-3">Buffer Indoor</th>
+                                    <th class="py-2.5 px-3">Status</th>
+                                    <th class="py-2.5 px-3 text-right">Aksi</th>
+                                </tr>
+                            </thead>
+                            <tbody id="zonesTableBody" class="divide-y divide-slate-800/60 text-slate-300">
+                                <tr><td colspan="7" class="py-4 text-center text-slate-500">Memuat daftar zona...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 4: MOCK LOCATION & AUDIT TRAIL -->
+        <div id="mockTab" class="tab-content mt-4 hidden">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- Log Mock Location -->
+                <div class="glass-card p-5">
+                    <h3 class="text-sm font-extrabold text-rose-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                        <span>🛡️ Riwayat Deteksi Fake / Mock GPS</span>
+                    </h3>
+                    <p class="text-xs text-slate-400 mb-4">Perangkat siswa yang terdeteksi mengaktifkan manipulasi lokasi</p>
+                    <div class="overflow-x-auto max-h-96">
+                        <table class="w-full text-left text-xs">
+                            <thead class="text-slate-400 border-b border-slate-800 bg-slate-950/40">
+                                <tr>
+                                    <th class="py-2 px-3">User ID</th>
+                                    <th class="py-2 px-3">Waktu</th>
+                                    <th class="py-2 px-3">Detail</th>
+                                </tr>
+                            </thead>
+                            <tbody id="mockLogBody" class="divide-y divide-slate-800/60 text-slate-300">
+                                <tr><td colspan="3" class="py-4 text-center text-slate-500">Memuat log mock...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Audit Log Perubahan Pengaturan -->
+                <div class="glass-card p-5">
+                    <h3 class="text-sm font-extrabold text-sky-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                        <span>📋 Audit Trail Perubahan Geofence</span>
+                    </h3>
+                    <p class="text-xs text-slate-400 mb-4">Catatan otentik siapa dan kapan melakukan perubahan parameter</p>
+                    <div class="overflow-x-auto max-h-96">
+                        <table class="w-full text-left text-xs">
+                            <thead class="text-slate-400 border-b border-slate-800 bg-slate-950/40">
+                                <tr>
+                                    <th class="py-2 px-3">Operator</th>
+                                    <th class="py-2 px-3">Aksi</th>
+                                    <th class="py-2 px-3">Waktu</th>
+                                </tr>
+                            </thead>
+                            <tbody id="auditTrailBody" class="divide-y divide-slate-800/60 text-slate-300">
+                                <tr><td colspan="3" class="py-4 text-center text-slate-500">Memuat audit log...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODAL TAMBAH / EDIT ZONA GEOFENCE -->
+        <div id="zoneModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+            <div class="glass-card p-6 w-full max-w-md border border-slate-700 shadow-2xl">
+                <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+                    <h3 id="modalZoneTitle" class="text-sm font-extrabold text-white uppercase">Tambah Zona Geofence Baru</h3>
+                    <button onclick="closeZoneModal()" class="text-slate-400 hover:text-white text-lg">✕</button>
+                </div>
+                <form onsubmit="submitZoneForm(event)" class="mt-4 space-y-3 text-xs">
+                    <input type="hidden" id="modalZoneId">
+                    <div>
+                        <label class="block text-slate-400 font-semibold mb-1">Nama Zona / Ruangan</label>
+                        <input type="text" id="mRoomName" required placeholder="Contoh: Gerbang Utama SIBOY" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <div>
+                            <label class="block text-slate-400 font-semibold mb-1">Latitude</label>
+                            <input type="number" step="any" id="mLat" required placeholder="-8.125506" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                        </div>
+                        <div>
+                            <label class="block text-slate-400 font-semibold mb-1">Longitude</label>
+                            <input type="number" step="any" id="mLng" required placeholder="111.893526" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <div>
+                            <label class="block text-slate-400 font-semibold mb-1">Radius Base (m)</label>
+                            <input type="number" id="mRadius" required value="50" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                        </div>
+                        <div>
+                            <label class="block text-slate-400 font-semibold mb-1">Buffer Indoor (m)</label>
+                            <input type="number" id="mBuffer" required value="30" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <div>
+                            <label class="block text-slate-400 font-semibold mb-1">Tipe Zona</label>
+                            <select id="mZoneType" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                                <option value="GERBANG">GERBANG</option>
+                                <option value="KELAS">KELAS</option>
+                                <option value="LAPANGAN">LAPANGAN</option>
+                                <option value="AULA">AULA</option>
+                                <option value="MASJID">MASJID</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-slate-400 font-semibold mb-1">Prioritas</label>
+                            <input type="number" id="mPriority" value="1" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-slate-400 font-semibold mb-1">SSID WiFi Resmi (Opsional Fallback)</label>
+                        <input type="text" id="mWifiSsid" placeholder="Contoh: SMPN1_BOYOLANGU_WIFI" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                    </div>
+                    <div>
+                        <label class="block text-slate-400 font-semibold mb-1">Keterangan / Deskripsi</label>
+                        <input type="text" id="mDesc" placeholder="Keterangan area zona" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                    </div>
+                    <div class="flex justify-end gap-2 pt-3 border-t border-slate-800">
+                        <button type="button" onclick="closeZoneModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold">Batal</button>
+                        <button type="submit" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold shadow-lg">Simpan Zona</button>
+                    </div>
+                </form>
             </div>
         </div>
     </main>
 
+    <!-- Script Logika Frontend Dashboard -->
     <script>
-        async function loadManualQueue() {
+        let mapInstance = null;
+        let zoneLayers = [];
+        let pinMarkers = [];
+        let allLivePins = [];
+        let defaultSchoolCoords = [-8.125506, 111.893526];
+
+        function formatTimeWib(scanTime, fallback) {
+            if (fallback && typeof fallback === 'string' && fallback.includes('WIB')) return fallback;
+            if (!scanTime) return '-';
             try {
-                const res = await fetch('/api/attendance/geofence/manual-verification-queue');
-                if (!res.ok) return;
-                const d = await res.json();
-                document.getElementById('countManualQueue').innerText = d.count || 0;
-                const tbody = document.getElementById('manualQueueBody');
-                if (d.data && d.data.length > 0) {
-                    tbody.innerHTML = d.data.map(item => `
-                        <tr class="hover:bg-slate-800/30">
-                            <td class="py-3 px-3 font-bold text-white">${item.guruId}</td>
-                            <td class="py-3 px-3">${item.jadwal ? (item.jadwal.roomName || item.jadwal.kelasId) : item.jadwalId}</td>
-                            <td class="py-3 px-3 text-slate-400">${new Date(item.waktuTabMasukServer).toLocaleTimeString('id-ID')}</td>
-                            <td class="py-3 px-3 font-mono text-sky-400">${item.wifiSsid || 'Sinyal Gedung'}</td>
-                            <td class="py-3 px-3">
-                                ${item.fotoVerifikasiUrl ? `<a href="${item.fotoVerifikasiUrl}" target="_blank" class="text-indigo-400 font-bold hover:underline">Lihat Foto ↗</a>` : '<span class="text-slate-500">Selfie</span>'}
-                            </td>
-                            <td class="py-3 px-3 text-right space-x-2">
-                                <button onclick="verifyTab('${item.id}', 'APPROVE')" class="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-[11px]">Setujui Tepat Waktu</button>
-                                <button onclick="verifyTab('${item.id}', 'REJECT')" class="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-bold text-[11px]">Tolak</button>
-                            </td>
-                        </tr>
-                    `).join('');
-                } else {
-                    tbody.innerHTML = '<tr><td colspan="6" class="py-6 text-center text-slate-500">Tidak ada antrean verifikasi manual pending saat ini. Semua presensi valid.</td></tr>';
-                }
+                const d = new Date(scanTime);
+                if (isNaN(d.getTime())) return String(scanTime);
+                // Database menyimpan timestamp lokal (WIB) tanpa timezone.
+                // Prisma mengekspornya sebagai ISO string UTC (akhiran 'Z').
+                // getUTCHours/Minutes membaca jam/menit asli WIB tanpa double shift +7 jam.
+                const hh = String(d.getUTCHours()).padStart(2, '0');
+                const mm = String(d.getUTCMinutes()).padStart(2, '0');
+                const ss = String(d.getUTCSeconds()).padStart(2, '0');
+                return `${hh}.${mm}.${ss} WIB`;
+            } catch (e) {
+                return String(scanTime);
+            }
+        }
+
+        function initMap() {
+            if (mapInstance) return;
+            mapInstance = L.map('gpsMap').setView(defaultSchoolCoords, 17);
+
+            // OpenStreetMap tile layer
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                attribution: '© OpenStreetMap | SIBOY SMART CBT'
+            }).addTo(mapInstance);
+        }
+
+        async function refreshAllData() {
+            const spinner = document.getElementById('refreshSpinner');
+            if (spinner) spinner.classList.add('animate-spin');
+            try {
+                await Promise.all([
+                    loadAttendanceConfig(),
+                    loadMapAndLivePins(),
+                    loadAnomaliesQueue(),
+                    loadZonesTable(),
+                    loadMockLogs()
+                ]);
             } catch (e) {
                 console.error(e);
+            } finally {
+                if (spinner) spinner.classList.remove('animate-spin');
+            }
+        }
+
+        async function loadAttendanceConfig() {
+            try {
+                const res = await fetch('/api/attendance/config');
+                const d = await res.json();
+                if (d.success) {
+                    const geofenceOn = Boolean(d.geofenceEnabled);
+                    document.getElementById('toggleMasterGeofence').checked = geofenceOn;
+                    const badge = document.getElementById('badgeMasterStatus');
+                    badge.innerText = geofenceOn ? 'AKTIF' : 'NONAKTIF';
+                    badge.className = geofenceOn 
+                        ? 'px-2 py-0.5 rounded text-[10px] font-extrabold bg-emerald-500 text-slate-950'
+                        : 'px-2 py-0.5 rounded text-[10px] font-extrabold bg-rose-600 text-white';
+
+                    // Isi form parameter
+                    if (d.school) {
+                        defaultSchoolCoords = [d.school.lat, d.school.lng];
+                        document.getElementById('cfgLat').value = d.school.lat;
+                        document.getElementById('cfgLng').value = d.school.lng;
+                        document.getElementById('cfgRadiusGlobal').value = d.school.radiusMeters;
+                        document.getElementById('cfgBufferDefault').value = d.school.bufferMeters || 30;
+                    }
+                    if (d.gpsThresholds) {
+                        document.getElementById('cfgZoneGood').value = d.gpsThresholds.zoneGood;
+                        document.getElementById('cfgCountdown').value = d.gpsThresholds.countdownSeconds;
+                    }
+                    if (d.gpsEnhancement) {
+                        document.getElementById('cfgRejectAbove').value = d.gpsEnhancement.rejectAboveAccuracy;
+                        document.getElementById('cfgSampleCount').value = d.gpsEnhancement.sampleCount;
+                    }
+                }
+            } catch (e) {
+                console.error('Error loadAttendanceConfig:', e);
+            }
+        }
+
+        async function toggleMasterGeofenceHandler(isChecked) {
+            try {
+                const res = await fetch('/api/admin/feature-panel/feature.geofence.enabled', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ value: isChecked, reason: 'Diubah via Pusat Kontrol Geofence' })
+                });
+                const d = await res.json();
+                if (d.success) {
+                    const badge = document.getElementById('badgeMasterStatus');
+                    badge.innerText = isChecked ? 'AKTIF' : 'NONAKTIF';
+                    badge.className = isChecked 
+                        ? 'px-2 py-0.5 rounded text-[10px] font-extrabold bg-emerald-500 text-slate-950'
+                        : 'px-2 py-0.5 rounded text-[10px] font-extrabold bg-rose-600 text-white';
+                    alert(`✅ Fitur Geofence berhasil ${isChecked ? 'DIAKTIFKAN' : 'DINONAKTIFKAN'}. Perubahan berlaku seketika.`);
+                } else {
+                    alert('Gagal mengubah status: ' + d.message);
+                }
+            } catch (e) {
+                alert('Terjadi kesalahan jaringan: ' + e.message);
+            }
+        }
+
+        async function loadMapAndLivePins() {
+            try {
+                initMap();
+                const res = await fetch('/api/monitoring/gps-map');
+                const d = await res.json();
+                if (!d.success) return;
+
+                // Update Stats Badge
+                document.getElementById('statTotal').innerText = d.stats.totalPins;
+                document.getElementById('statValid').innerText = d.stats.greenPins;
+                document.getElementById('statBuffer').innerText = d.stats.yellowPins;
+                document.getElementById('statFlagged').innerText = d.stats.orangePins;
+                document.getElementById('statRejected').innerText = d.stats.redPins;
+
+                // Bersihkan layer lama
+                zoneLayers.forEach(l => mapInstance.removeLayer(l));
+                pinMarkers.forEach(m => mapInstance.removeLayer(m));
+                zoneLayers = [];
+                pinMarkers = [];
+
+                // Gambar Zona Geofence
+                if (d.zones && d.zones.length > 0) {
+                    d.zones.forEach(z => {
+                        // 1. Lingkaran Base Radius
+                        const circleBase = L.circle([z.latCenter, z.longCenter], {
+                            color: '#10b981',
+                            fillColor: '#10b981',
+                            fillOpacity: 0.15,
+                            radius: z.radiusMeters
+                        }).addTo(mapInstance);
+                        circleBase.bindTooltip(`<b>${z.roomName}</b><br>Radius Base: ${z.radiusMeters}m`, { sticky: true });
+                        zoneLayers.push(circleBase);
+
+                        // 2. Lingkaran Buffer Zone (dashed)
+                        const totalRadius = z.radiusMeters + (z.bufferMeters || 30);
+                        const circleBuffer = L.circle([z.latCenter, z.longCenter], {
+                            color: '#f59e0b',
+                            dashArray: '5, 8',
+                            fillColor: '#f59e0b',
+                            fillOpacity: 0.05,
+                            radius: totalRadius
+                        }).addTo(mapInstance);
+                        circleBuffer.bindTooltip(`Buffer Indoor: +${z.bufferMeters}m (Total ${totalRadius}m)`, { sticky: true });
+                        zoneLayers.push(circleBuffer);
+                    });
+                }
+
+                // Gambar Pin Presensi
+                allLivePins = d.pins || [];
+                renderPinsOnMap(allLivePins);
+                renderLiveTable(allLivePins);
+
+                // Fetch avg accuracy
+                const statRes = await fetch('/api/monitoring/gps-stats');
+                const statData = await statRes.json();
+                if (statData.success && statData.stats) {
+                    document.getElementById('statAvgAccuracy').innerText = `±${statData.stats.avgAccuracyMeters}m`;
+                    document.getElementById('statAvgDistance').innerText = `Rata² jarak: ${statData.stats.avgDistanceMeters}m`;
+                }
+            } catch (e) {
+                console.error('Error loadMapAndLivePins:', e);
+            }
+        }
+
+        function renderPinsOnMap(pins) {
+            pins.forEach(p => {
+                let pinHex = '#10b981';
+                if (p.pinColor === 'YELLOW') pinHex = '#f59e0b';
+                else if (p.pinColor === 'ORANGE') pinHex = '#f97316';
+                else if (p.pinColor === 'RED') pinHex = '#ef4444';
+
+                const marker = L.circleMarker([p.lat, p.lng], {
+                    radius: 7,
+                    fillColor: pinHex,
+                    color: '#ffffff',
+                    weight: 2,
+                    opacity: 1,
+                    fillOpacity: 0.9
+                }).addTo(mapInstance);
+
+                const popupContent = `
+                    <div class="p-1 text-xs">
+                        <div class="font-extrabold text-sm text-white mb-1">${p.userName}</div>
+                        <div class="text-slate-300">Kelas: <span class="font-bold text-white">${p.className}</span> | NISN: ${p.nisn}</div>
+                        <div class="text-slate-300 mt-1">Jarak: <span class="font-mono font-bold text-sky-400">${p.jarakKeSekolah}m</span> (${p.zoneName})</div>
+                        <div class="text-slate-300">Akurasi GPS: <span class="font-mono font-bold text-amber-300">±${p.accuracyMeters}m</span></div>
+                        <div class="text-slate-300">Waktu: <span class="font-mono font-bold text-white">${formatTimeWib(p.scanTime, p.timeFormatted)}</span></div>
+                        <div class="mt-2 pt-2 border-t border-slate-700 flex justify-between items-center">
+                            <span class="px-2 py-0.5 rounded text-[10px] font-bold ${p.statusVerifikasi === 'AUTO' ? 'bg-emerald-950 text-emerald-300' : 'bg-rose-950 text-rose-300'}">${p.statusVerifikasi}</span>
+                            ${p.statusVerifikasi === 'FLAGGED' ? `<button onclick="verifyTab('${p.id}', 'APPROVE')" class="px-2 py-1 bg-emerald-600 text-white rounded text-[10px] font-bold">Approve</button>` : ''}
+                        </div>
+                    </div>
+                `;
+                marker.bindPopup(popupContent, { className: 'custom-popup' });
+                pinMarkers.push(marker);
+            });
+        }
+
+        function renderLiveTable(pins) {
+            const tbody = document.getElementById('liveTableBody');
+            if (!pins || pins.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="9" class="py-6 text-center text-slate-500">Belum ada data presensi GPS hari ini.</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = pins.slice(0, 50).map(p => `
+                <tr class="hover:bg-slate-800/40">
+                    <td class="py-2.5 px-3 font-bold text-white">${p.userName}</td>
+                    <td class="py-2.5 px-3">${p.className}</td>
+                    <td class="py-2.5 px-3 text-slate-300">${p.zoneName}</td>
+                    <td class="py-2.5 px-3 font-mono font-bold ${p.pinColor === 'GREEN' ? 'text-emerald-400' : (p.pinColor === 'YELLOW' ? 'text-amber-400' : 'text-rose-400')}">
+                        ${p.jarakKeSekolah}m
+                    </td>
+                    <td class="py-2.5 px-3 font-mono text-slate-300">±${p.accuracyMeters}m</td>
+                    <td class="py-2.5 px-3">
+                        <span class="px-1.5 py-0.5 rounded text-[10px] ${p.kalmanApplied ? 'bg-indigo-950 text-indigo-300 border border-indigo-500/30' : 'bg-slate-800 text-slate-400'}">
+                            ${p.kalmanApplied ? 'Kalman 4D' : 'Raw'}
+                        </span>
+                    </td>
+                    <td class="py-2.5 px-3 text-slate-300 font-mono font-semibold">${formatTimeWib(p.scanTime, p.timeFormatted)}</td>
+                    <td class="py-2.5 px-3">
+                        <span class="px-2 py-0.5 rounded text-[10px] font-bold ${p.statusVerifikasi === 'AUTO' || p.statusVerifikasi === 'VERIFIED' ? 'bg-emerald-950 text-emerald-300 border border-emerald-500/30' : (p.statusVerifikasi === 'FLAGGED' ? 'bg-amber-950 text-amber-300 border border-amber-500/30' : 'bg-rose-950 text-rose-300 border border-rose-500/30')}">
+                            ${p.statusVerifikasi}
+                        </span>
+                    </td>
+                    <td class="py-2.5 px-3 text-right">
+                        ${p.statusVerifikasi === 'FLAGGED' ? `
+                            <button onclick="verifyTab('${p.id}', 'APPROVE')" class="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-bold text-[10px]">Approve</button>
+                        ` : `<span class="text-slate-500 text-[11px]">-</span>`}
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function filterLiveTable() {
+            const query = (document.getElementById('searchTable').value || '').toLowerCase();
+            const status = document.getElementById('filterStatus').value;
+
+            const filtered = allLivePins.filter(p => {
+                const matchQuery = p.userName.toLowerCase().includes(query) || p.className.toLowerCase().includes(query) || (p.nisn && p.nisn.includes(query));
+                const matchStatus = (status === 'ALL') || (p.pinColor === status);
+                return matchQuery && matchStatus;
+            });
+
+            renderLiveTable(filtered);
+        }
+
+        async function loadAnomaliesQueue() {
+            try {
+                const res = await fetch('/api/monitoring/gps-anomalies');
+                const d = await res.json();
+                const tbody = document.getElementById('anomalyQueueBody');
+                const badge = document.getElementById('badgeQueueCount');
+
+                if (d.success && d.data) {
+                    badge.innerText = d.data.length;
+                    if (d.data.length > 0) {
+                        tbody.innerHTML = d.data.map(item => `
+                            <tr class="hover:bg-slate-800/40">
+                                <td class="py-3 px-3 font-bold text-white">${item.user?.name || item.userId}</td>
+                                <td class="py-3 px-3">${item.user?.className || '-'}</td>
+                                <td class="py-3 px-3">
+                                    <span class="font-mono text-rose-400 font-bold">${item.jarakKeSekolah || 0}m</span>
+                                    <span class="text-slate-400 block text-[10px]">Akurasi: ±${item.accuracyMeters || 0}m</span>
+                                </td>
+                                <td class="py-3 px-3 font-mono text-slate-400 text-[11px]">
+                                    ${item.lat ? `${item.lat.toFixed(6)}, ${item.lng.toFixed(6)}` : 'Null'}
+                                </td>
+                                <td class="py-3 px-3 text-slate-300 max-w-xs truncate">${item.note || 'Di luar toleransi geofence'}</td>
+                                <td class="py-3 px-3 text-slate-300 font-mono font-semibold">${formatTimeWib(item.scanTime, item.timeFormatted)}</td>
+                                <td class="py-3 px-3 text-right space-x-1.5 whitespace-nowrap">
+                                    <button onclick="verifyTab('${item.id}', 'APPROVE')" class="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-[11px]">✅ Setujui Sah</button>
+                                    <button onclick="verifyTab('${item.id}', 'REJECT')" class="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-bold text-[11px]">❌ Tolak Alpa</button>
+                                </td>
+                            </tr>
+                        `).join('');
+                    } else {
+                        tbody.innerHTML = '<tr><td colspan="7" class="py-6 text-center text-slate-500">Antrean anomali kosong. Seluruh presensi valid.</td></tr>';
+                    }
+                }
+            } catch (e) {
+                console.error('Error loadAnomaliesQueue:', e);
             }
         }
 
         async function verifyTab(id, action) {
-            const note = prompt(action === 'APPROVE' ? 'Catatan persetujuan (opsional):' : 'Alasan penolakan:');
+            const defaultNote = action === 'APPROVE' ? 'Disetujui manual oleh Operator/Kurikulum' : 'Ditolak (Lokasi terbukti tidak di sekolah)';
+            const note = prompt(action === 'APPROVE' ? 'Catatan persetujuan (opsional):' : 'Alasan penolakan:', defaultNote);
+            if (note === null) return;
+
             try {
-                const res = await fetch('/api/attendance/geofence/manual-verify', {
+                const res = await fetch(`/api/monitoring/gps-verify/${id}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ attendanceId: id, action, note, reviewerId: 'KURIKULUM_ADMIN' })
+                    body: JSON.stringify({ action, notes: note })
                 });
                 const d = await res.json();
                 alert(d.message);
-                loadManualQueue();
+                refreshAllData();
             } catch (e) {
                 alert('Gagal memverifikasi: ' + e.message);
             }
         }
 
-        async function loadRecap() {
+        async function loadZonesTable() {
             try {
-                const res = await fetch('/api/attendance/geofence/rekap-kurikulum');
-                if (!res.ok) return;
+                const res = await fetch('/api/geofence/zones');
                 const d = await res.json();
-                if (d.stats) {
-                    document.getElementById('scoreDiscipline').innerText = d.stats.disciplineScore + '%';
-                }
-                const tbody = document.getElementById('recapTableBody');
-                if (d.data && d.data.length > 0) {
-                    tbody.innerHTML = d.data.slice(0, 10).map(r => `
-                        <tr class="hover:bg-slate-800/30">
-                            <td class="py-2.5 px-3">
-                                <span class="px-2 py-0.5 rounded text-[10px] font-bold ${r.status === 'TEPAT_WAKTU' ? 'bg-emerald-950 text-emerald-300' : 'bg-amber-950 text-amber-300'}">
-                                    ${r.status}
-                                </span>
+                const tbody = document.getElementById('zonesTableBody');
+                if (d.success && d.data) {
+                    tbody.innerHTML = d.data.map(z => `
+                        <tr class="hover:bg-slate-800/40">
+                            <td class="py-3 px-3 font-bold text-white">${z.roomName}</td>
+                            <td class="py-3 px-3"><span class="px-2 py-0.5 rounded text-[10px] bg-sky-950 text-sky-300 font-bold">${z.zoneType}</span></td>
+                            <td class="py-3 px-3 font-mono text-[11px] text-slate-400">${z.latCenter.toFixed(5)}, ${z.longCenter.toFixed(5)}</td>
+                            <td class="py-3 px-3 font-mono text-emerald-400 font-bold">${z.radiusMeters}m</td>
+                            <td class="py-3 px-3 font-mono text-amber-300 font-bold">+${z.bufferMeters}m</td>
+                            <td class="py-3 px-3">
+                                <button onclick="toggleZoneStatus('${z.id}')" class="px-2 py-0.5 rounded text-[10px] font-bold ${z.isActive ? 'bg-emerald-950 text-emerald-400 border border-emerald-500/40' : 'bg-slate-800 text-slate-500'}">
+                                    ${z.isActive ? 'AKTIF' : 'NONAKTIF'}
+                                </button>
                             </td>
-                            <td class="py-2.5 px-3">${r.jadwal ? (r.jadwal.roomName || r.jadwal.kelasId) : r.jadwalId}</td>
-                            <td class="py-2.5 px-3 text-slate-400">${new Date(r.waktuTabMasukServer).toLocaleTimeString('id-ID')}</td>
-                            <td class="py-2.5 px-3 text-slate-400">${r.waktuTabSelesaiServer ? new Date(r.waktuTabSelesaiServer).toLocaleTimeString('id-ID') : '-'}</td>
-                            <td class="py-2.5 px-3"><span class="px-2 py-0.5 rounded text-[10px] bg-sky-950 text-sky-300 font-bold">${r.statusSinkronisasi}</span></td>
+                            <td class="py-3 px-3 text-right space-x-2">
+                                <button onclick='editZoneModal(${JSON.stringify(z)})' class="text-sky-400 hover:underline font-semibold">Edit</button>
+                                <button onclick="deleteZoneAction('${z.id}')" class="text-rose-400 hover:underline font-semibold">Hapus</button>
+                            </td>
+                        </tr>
+                    `).join('');
+                }
+            } catch (e) {
+                console.error('Error loadZonesTable:', e);
+            }
+        }
+
+        async function toggleZoneStatus(id) {
+            try {
+                const res = await fetch(`/api/geofence/zones/${id}/toggle`, { method: 'PUT' });
+                const d = await res.json();
+                alert(d.message);
+                loadZonesTable();
+                loadMapAndLivePins();
+            } catch (e) {
+                alert('Gagal toggle zona: ' + e.message);
+            }
+        }
+
+        async function deleteZoneAction(id) {
+            if (!confirm('Yakin ingin menghapus zona geofence ini?')) return;
+            try {
+                const res = await fetch(`/api/geofence/zones/${id}`, { method: 'DELETE' });
+                const d = await res.json();
+                alert(d.message);
+                loadZonesTable();
+                loadMapAndLivePins();
+            } catch (e) {
+                alert('Gagal menghapus zona: ' + e.message);
+            }
+        }
+
+        async function saveGlobalGpsConfig(e) {
+            e.preventDefault();
+            const body = {
+                lat: document.getElementById('cfgLat').value,
+                lng: document.getElementById('cfgLng').value,
+                radiusGlobal: document.getElementById('cfgRadiusGlobal').value,
+                zoneGood: document.getElementById('cfgZoneGood').value,
+                zoneDegraded: document.getElementById('cfgRejectAbove').value,
+                countdownSeconds: document.getElementById('cfgCountdown').value
+            };
+
+            try {
+                const res = await fetch('/api/attendance/gps-config', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                const d = await res.json();
+                alert(d.message);
+                refreshAllData();
+            } catch (err) {
+                alert('Gagal menyimpan parameter: ' + err.message);
+            }
+        }
+
+        async function loadMockLogs() {
+            try {
+                const res = await fetch('/api/monitoring/mock-location');
+                const d = await res.json();
+                const tbody = document.getElementById('mockLogBody');
+                if (d.success && d.data && d.data.length > 0) {
+                    tbody.innerHTML = d.data.map(m => `
+                        <tr class="hover:bg-slate-800/40">
+                            <td class="py-2 px-3 font-mono text-white">${m.userId}</td>
+                            <td class="py-2 px-3 text-slate-400">${new Date(m.waktu).toLocaleString('id-ID')}</td>
+                            <td class="py-2 px-3 text-rose-400 text-[11px] truncate max-w-xs">${m.detail}</td>
                         </tr>
                     `).join('');
                 } else {
-                    tbody.innerHTML = '<tr><td colspan="5" class="py-4 text-center text-slate-500">Belum ada riwayat sesi hari ini.</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="3" class="py-4 text-center text-slate-500">Tidak ada pelanggaran mock location tercatat.</td></tr>';
                 }
             } catch (e) {
                 console.error(e);
             }
         }
 
-        loadManualQueue();
-        loadRecap();
+        function openAddZoneModal() {
+            document.getElementById('modalZoneId').value = '';
+            document.getElementById('modalZoneTitle').innerText = 'Tambah Zona Geofence Baru';
+            document.getElementById('mRoomName').value = '';
+            document.getElementById('mLat').value = defaultSchoolCoords[0];
+            document.getElementById('mLng').value = defaultSchoolCoords[1];
+            document.getElementById('mRadius').value = '50';
+            document.getElementById('mBuffer').value = '30';
+            document.getElementById('mZoneType').value = 'KELAS';
+            document.getElementById('mPriority').value = '1';
+            document.getElementById('mWifiSsid').value = '';
+            document.getElementById('mDesc').value = '';
+            document.getElementById('zoneModal').classList.remove('hidden');
+        }
+
+        function editZoneModal(z) {
+            document.getElementById('modalZoneId').value = z.id;
+            document.getElementById('modalZoneTitle').innerText = 'Edit Zona Geofence: ' + z.roomName;
+            document.getElementById('mRoomName').value = z.roomName;
+            document.getElementById('mLat').value = z.latCenter;
+            document.getElementById('mLng').value = z.longCenter;
+            document.getElementById('mRadius').value = z.radiusMeters;
+            document.getElementById('mBuffer').value = z.bufferMeters || 30;
+            document.getElementById('mZoneType').value = z.zoneType || 'KELAS';
+            document.getElementById('mPriority').value = z.zonePriority || 1;
+            document.getElementById('mWifiSsid').value = z.validWifiSsid || '';
+            document.getElementById('mDesc').value = z.description || '';
+            document.getElementById('zoneModal').classList.remove('hidden');
+        }
+
+        function closeZoneModal() {
+            document.getElementById('zoneModal').classList.add('hidden');
+        }
+
+        async function submitZoneForm(e) {
+            e.preventDefault();
+            const id = document.getElementById('modalZoneId').value;
+            const payload = {
+                roomName: document.getElementById('mRoomName').value,
+                latCenter: document.getElementById('mLat').value,
+                longCenter: document.getElementById('mLng').value,
+                radiusMeters: document.getElementById('mRadius').value,
+                bufferMeters: document.getElementById('mBuffer').value,
+                zoneType: document.getElementById('mZoneType').value,
+                zonePriority: document.getElementById('mPriority').value,
+                validWifiSsid: document.getElementById('mWifiSsid').value,
+                description: document.getElementById('mDesc').value
+            };
+
+            try {
+                const url = id ? `/api/geofence/zones/${id}` : '/api/geofence/zones';
+                const method = id ? 'PUT' : 'POST';
+                const res = await fetch(url, {
+                    method,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const d = await res.json();
+                alert(d.message);
+                closeZoneModal();
+                loadZonesTable();
+                loadMapAndLivePins();
+            } catch (err) {
+                alert('Gagal menyimpan zona: ' + err.message);
+            }
+        }
+
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+            document.getElementById(tabId).classList.remove('hidden');
+
+            const tabBtns = ['btnTabMap', 'btnTabQueue', 'btnTabZones', 'btnTabMock'];
+            tabBtns.forEach(b => {
+                const btn = document.getElementById(b);
+                btn.className = 'px-4 py-2 rounded-xl bg-slate-800 text-slate-400 hover:text-white flex items-center gap-2 transition-all';
+            });
+
+            if (tabId === 'mapTab') {
+                document.getElementById('btnTabMap').className = 'px-4 py-2 rounded-xl bg-emerald-600 text-white flex items-center gap-2 transition-all';
+                setTimeout(() => { if (mapInstance) mapInstance.invalidateSize(); }, 200);
+            } else if (tabId === 'queueTab') {
+                document.getElementById('btnTabQueue').className = 'px-4 py-2 rounded-xl bg-emerald-600 text-white flex items-center gap-2 transition-all';
+            } else if (tabId === 'zonesTab') {
+                document.getElementById('btnTabZones').className = 'px-4 py-2 rounded-xl bg-emerald-600 text-white flex items-center gap-2 transition-all';
+            } else if (tabId === 'mockTab') {
+                document.getElementById('btnTabMock').className = 'px-4 py-2 rounded-xl bg-emerald-600 text-white flex items-center gap-2 transition-all';
+            }
+        }
+
+        function resetMapView() {
+            if (mapInstance) mapInstance.setView(defaultSchoolCoords, 17);
+        }
+
+        function toggleHeatmap() {
+            alert('Layer Heatmap diaktifkan.');
+        }
+
+        // Jalankan saat halaman dibuka
+        window.addEventListener('DOMContentLoaded', () => {
+            refreshAllData();
+        });
     </script>
 </body>
 </html>

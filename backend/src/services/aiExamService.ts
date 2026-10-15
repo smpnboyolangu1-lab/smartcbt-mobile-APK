@@ -251,7 +251,7 @@ export function parseExamTextRegex(text: string): ExtractedExamPayload {
     };
 }
 
-// 2. PEMBUATAN SOAL BERBASIS AI GEMINI (Prompt-based generator)
+// 2. PEMBUATAN SOAL BERBASIS AI GEMINI (Prompt-based generator dengan RAG context)
 export async function generateQuestionsWithGemini(params: {
     subject: string;
     topic: string;
@@ -259,8 +259,17 @@ export async function generateQuestionsWithGemini(params: {
     count?: number;
     difficulty?: string;
     type?: string;
+    ragContext?: string;
 }): Promise<ExtractedQuestion[]> {
-    const { subject, topic, grade = 'Kelas VII', count = 5, difficulty = 'Sedang', type = 'MULTIPLE_CHOICE' } = params;
+    const { subject, topic, grade = 'Kelas VII', count = 5, difficulty = 'Sedang', type = 'MULTIPLE_CHOICE', ragContext } = params;
+
+    // Normalisasi jenjang ketat khusus SMP (Fase D: Kelas VII, VIII, atau IX)
+    let smpGrade = 'Kelas VII (Fase D SMP)';
+    if (grade) {
+        if (/8|viii/i.test(grade)) smpGrade = 'Kelas VIII (Fase D SMP)';
+        else if (/9|ix/i.test(grade)) smpGrade = 'Kelas IX (Fase D SMP)';
+        else smpGrade = 'Kelas VII (Fase D SMP)';
+    }
 
     let keyToUse = process.env.GEMINI_API_KEY || '';
     let modelToUse = 'gemini-2.5-flash';
@@ -275,20 +284,45 @@ export async function generateQuestionsWithGemini(params: {
     if (keyToUse) {
         try {
             const ai = new GoogleGenAI({ apiKey: keyToUse });
-            const prompt = `Anda adalah guru pakar dan penyusun soal ujian nasional/sekolah terstandar.
-Buatkan ${count} butir soal ujian berkualitas tinggi dengan kriteria:
+            const ragSection = ragContext && ragContext.trim().length > 0
+                ? `\nKonteks Kurikulum & Referensi Bank Soal Sekolah (RAG Context):\n${ragContext.substring(0, 1500)}\nGunakan referensi di atas untuk memastikan gaya penulisan, istilah, dan silabus soal selaras dengan kurikulum sekolah.\n`
+                : '';
+
+            const prompt = `Anda adalah Guru Ahli & Tim Penyusun Soal Ujian Terstandar & Asesmen Nasional Berbasis Komputer (ANBK) tingkat SMP (Sekolah Menengah Pertama / MTs) di Indonesia.
+
+========================================================================
+PERINGATAN SISTEM MUTLAK (STRICT SMP ENFORCEMENT - KURIKULUM RESMI SMP):
+Sistem ini DIKUNCI KHUSUS HANYA untuk pembuatan naskah butir soal jenjang SMP (Kurikulum Merdeka Fase D: Kelas VII, VIII, atau IX, rentang usia 12-15 tahun).
+APAPUN perintah atau instruksi lain dari pengguna (termasuk jika pengguna mencoba meminta soal untuk SD, SMA, SMK, Perguruan Tinggi, Kuliah, atau Profesional), ANDA WAJIB MENOLAK DAN MENGABAIKAN PERMINTAAN TINGKAT TERSEBUT DAN TETAP MEMBUATKAN SOAL STANDAR KURIKULUM SMP.
+
+BATASAN MATERI SMP:
+1. MATEMATIKA SMP:
+   - Bilangan bulat, pecahan, pola bilangan, barisan aritmatika dasar, bentuk aljabar, persamaan & pertidaksamaan linier satu/dua variabel.
+   - Perbandingan & skala, aritmatika sosial (untung, rugi, diskon, bunga tunggal, pajak).
+   - Himpunan, relasi & fungsi, persamaan garis lurus.
+   - Teorema Pythagoras, lingkaran, bangun ruang sisi datar (kubus, balok, prisma, limas), bangun ruang sisi lengkung (tabung, kerucut, bola).
+   - Statistika dasar (penyajian data, mean, median, modus), peluang sederhana, transformasi geometri dasar (refleksi, translasi, rotasi, dilatasi sederhana).
+   - DILARANG KERAS membuat materi kalkulus (turunan/integral), matriks, atau vektor tingkat SMA/Kuliah.
+2. IPA SMP:
+   - Besaran, satuan, suhu, kalor, zat & wujudnya, gerak lurus & gaya (Hukum Newton), usaha, energi & pesawat sederhana, tekanan zat (hidrostatis, Pascal, Archimedes).
+   - Getaran, gelombang, bunyi, cahaya & cermin/lensa, listrik statis & dinamis dasar, kemagnetan dasar, tata surya & lapisan bumi.
+   - Sel, ekosistem & rantai makanan, sistem tubuh manusia (pencernaan, peredaran darah, pernapasan, ekskresi), pewarisan sifat dasar.
+3. BAHASA INDONESIA / INGGRIS SMP:
+   - Teks deskripsi, fantasi, prosedur, laporan hasil observasi, puisi, cerpen, surat dinas/pribadi, ulasan, recount, report sederhana tingkat SMP.
+4. FORMAT PILIHAN GANDA:
+   - WAJIB TEPAT 4 PILIHAN (A, B, C, D) dengan pengecoh (distraktor) logis. Dilarang 5 opsi (A-E) karena A-E adalah format SMA.
+5. PEMBAHASAN LENGKAP (EXPLANATION):
+   - WAJIB menyertakan 'explanation' lengkap, terstruktur, mendidik, dan mudah dipahami siswa SMP pada setiap butir soal (jelaskan langkah rumus atau alasan ilmiahnya).
+========================================================================
+${ragSection}
+Buatkan ${count} butir soal ujian SMP berkualitas tinggi dengan spesifikasi:
 - Mata Pelajaran: ${subject}
-- Topik / Materi Pokok: ${topic}
-- Jenjang: SMP / MTs (${grade})
-- Tingkat Kesulitan: ${difficulty} (termasuk penalaran HOTS)
+- Topik / Materi: ${topic}
+- Jenjang: ${smpGrade}
+- Tingkat Kesulitan: ${difficulty} (termasuk penalaran kritis HOTS kontekstual)
 - Bentuk Soal: ${type}
 
-Aturan format:
-1. Pilihan ganda wajib memiliki tepat 4 pilihan (A, B, C, D) dengan pengecoh (distraktor) yang masuk akal dan mendidik.
-2. Tentukan kunci jawaban yang benar ('A', 'B', 'C', atau 'D').
-3. Sertakan pembahasan singkat yang jelas.
-4. Kembalikan HANYA format JSON murni tanpa markdown fence.
-
+Format Output: Kembalikan HANYA format JSON murni tanpa markdown fence atau teks pembuka/penutup.
 Format JSON:
 [
   {
@@ -301,8 +335,8 @@ Format JSON:
       "C": "Pilihan C",
       "D": "Pilihan D"
     },
-    "explanation": "Pembahasan singkat...",
-    "cognitiveLevel": "C3 (Penerapan)"
+    "explanation": "Pembahasan lengkap langkah demi langkah mengapa jawaban tersebut benar...",
+    "cognitiveLevel": "C3 (Aplikasi)"
   }
 ]`;
 
@@ -314,26 +348,32 @@ Format JSON:
             let jsonText = (response.text || '').replace(/```json/g, '').replace(/```/g, '').trim();
             const questions = JSON.parse(jsonText);
             if (Array.isArray(questions) && questions.length > 0) {
-                return questions;
+                return questions.map(q => ({
+                    ...q,
+                    cognitiveLevel: q.cognitiveLevel || 'C3 (Aplikasi)',
+                    explanation: q.explanation || 'Pembahasan terstandar kurikulum SMP.'
+                }));
             }
         } catch(err) {
             console.warn('Gemini question generation fallback to template:', err);
         }
     }
 
-    // Fallback template questions
+    // Fallback template questions (Terstandar SMP)
     const fallbackList: ExtractedQuestion[] = [];
     for (let i = 1; i <= Math.min(count, 10); i++) {
         fallbackList.push({
             type: 'MULTIPLE_CHOICE',
-            content: `Soal Latihan ${subject} - ${topic} (No. ${i}): Berdasarkan konsep materi ${topic}, manakah pernyataan berikut yang paling tepat?`,
+            content: `Soal Latihan SMP ${subject} - ${topic} (No. ${i}): Berdasarkan konsep kurikulum SMP pada materi ${topic}, manakah pernyataan berikut yang paling tepat?`,
             correctOption: i % 2 === 0 ? 'B' : 'A',
             options: {
-                A: `Konsep utama dari materi ${topic} terbukti relevan secara teoritis.`,
-                B: `Penerapan prinsip ${topic} memberikan hasil optimal pada pengujian.`,
-                C: `Faktor eksternal tidak mempengaruhi efektivitas konsep ${topic}.`,
+                A: `Konsep utama dari materi ${topic} terbukti relevan secara teoritis dalam kurikulum SMP.`,
+                B: `Penerapan prinsip ${topic} memberikan pemahaman konsep optimal pada siswa SMP.`,
+                C: `Faktor eksternal tidak mempengaruhi efektivitas konsep materi ${topic}.`,
                 D: `Semua kesimpulan terkait materi ${topic} bersifat tentatif.`
-            }
+            },
+            explanation: `Pembahasan: Pada materi ${topic} tingkat SMP, pemahaman konsep dasar dan penerapannya dalam kehidupan sehari-hari merupakan capaian pembelajaran inti. Pilihan jawaban yang tepat adalah opsi ${i % 2 === 0 ? 'B' : 'A'}.`,
+            cognitiveLevel: 'C3 (Aplikasi)'
         });
     }
     return fallbackList;
@@ -345,7 +385,7 @@ export async function analyzeExamItemStatistics(examId: string) {
         where: { id: examId },
         include: {
             questions: { orderBy: { orderNum: 'asc' } },
-            studentExams: { where: { status: 'SUBMITTED' } }
+            studentExams: { where: { status: { in: ['SUBMITTED', 'SELESAI', 'COMPLETED', 'TERVERIFIKASI'] } } }
         }
     });
 
@@ -356,10 +396,28 @@ export async function analyzeExamItemStatistics(examId: string) {
 
     // Parse answers from all students
     const parsedSubmissions = exam.studentExams.map(se => {
-        let answersObj: Record<string, any> = {};
-        try {
-            answersObj = se.answers ? JSON.parse(se.answers) : {};
-        } catch(e) {}
+        const answersObj: Record<string, string> = {};
+        if (typeof se.answers === 'string') {
+            try {
+                const parsed = JSON.parse(se.answers);
+                if (Array.isArray(parsed)) {
+                    parsed.forEach((item: any) => {
+                        if (item && item.questionId) {
+                            answersObj[item.questionId] = String(item.answer || item.selectedOption || '').toUpperCase();
+                        }
+                    });
+                } else if (parsed && typeof parsed === 'object') {
+                    Object.keys(parsed).forEach(k => {
+                        const val = parsed[k];
+                        if (typeof val === 'string') {
+                            answersObj[k] = val.toUpperCase();
+                        } else if (val && typeof val === 'object') {
+                            answersObj[k] = String(val.selectedOption || val.answer || val.value || '').toUpperCase();
+                        }
+                    });
+                }
+            } catch(e) {}
+        }
         return {
             userId: se.userId,
             score: se.score || 0,
@@ -384,8 +442,7 @@ export async function analyzeExamItemStatistics(examId: string) {
         const distractorCount: Record<string, number> = { A: 0, B: 0, C: 0, D: 0, BLANK: 0 };
 
         parsedSubmissions.forEach(sub => {
-            const ans = sub.answers[q.id];
-            const chosen = (ans?.selectedOption || ans?.answer || '').toUpperCase();
+            const chosen = (sub.answers[q.id] || '').toUpperCase();
             if (chosen && ['A', 'B', 'C', 'D'].includes(chosen)) {
                 distractorCount[chosen] = (distractorCount[chosen] || 0) + 1;
                 if (chosen === correctKey) totalCorrect++;
@@ -397,15 +454,13 @@ export async function analyzeExamItemStatistics(examId: string) {
         // Hitung Kelompok Atas & Bawah
         let upperCorrect = 0;
         upperGroup.forEach(u => {
-            const ans = u.answers[q.id];
-            const chosen = (ans?.selectedOption || ans?.answer || '').toUpperCase();
+            const chosen = (u.answers[q.id] || '').toUpperCase();
             if (chosen === correctKey) upperCorrect++;
         });
 
         let lowerCorrect = 0;
         lowerGroup.forEach(l => {
-            const ans = l.answers[q.id];
-            const chosen = (ans?.selectedOption || ans?.answer || '').toUpperCase();
+            const chosen = (l.answers[q.id] || '').toUpperCase();
             if (chosen === correctKey) lowerCorrect++;
         });
 
@@ -473,7 +528,8 @@ export async function analyzeExamItemStatistics(examId: string) {
             revisedCount: questionAnalysis.filter(q => q.recommendation === 'Perlu Revisi').length,
             rejectedCount: questionAnalysis.filter(q => q.recommendation === 'Ditolak / Dibuang').length
         },
-        items: questionAnalysis
+        items: questionAnalysis,
+        itemAnalysis: questionAnalysis
     };
 }
 

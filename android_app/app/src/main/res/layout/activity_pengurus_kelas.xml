@@ -1,0 +1,1089 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#F8FAFC"
+    android:orientation="vertical">
+
+    <!-- E-Commerce Style Top App Bar -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@drawable/bg_gradient_pengurus_kelas"
+        android:elevation="4dp"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <ImageButton
+                android:id="@+id/btnBackPengurus"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Kembali"
+                android:src="@android:drawable/ic_menu_revert"
+                app:tint="#FFFFFF" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/tvPengurusTitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="🎖️ RUANG PENGURUS KELAS"
+                    android:textColor="#FFFFFF"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvPengurusClassSubtitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Kelas VII-A • Ketua Kelas"
+                    android:textColor="#CBD5E1"
+                    android:textSize="11sp" />
+            </LinearLayout>
+
+            <ImageButton
+                android:id="@+id/btnRefreshPengurus"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Segarkan"
+                android:src="@android:drawable/ic_popup_sync"
+                app:tint="#FFFFFF" />
+
+            <Button
+                android:id="@+id/btnUpdatePengurus"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:text="🔄 Update"
+                android:textSize="11sp"
+                android:textColor="#0F172A"
+                android:textStyle="bold"
+                android:background="@drawable/bg_btn_amber_rounded"
+                android:layout_marginStart="6dp" />
+        </LinearLayout>
+
+        <!-- Ringkasan Statistik Siswa Sekelas (E-Commerce Style Cards) -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:orientation="vertical">
+
+            <!-- Row 1: Total, Hadir, Terlambat -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <!-- Card Total -->
+                <androidx.cardview.widget.CardView
+                    android:id="@+id/cardFilterTotal"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="4dp"
+                    android:layout_weight="1"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:foreground="?attr/selectableItemBackground"
+                    app:cardBackgroundColor="#33FFFFFF"
+                    app:cardCornerRadius="10dp"
+                    app:cardElevation="0dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:orientation="vertical"
+                        android:paddingVertical="6dp"
+                        android:paddingHorizontal="4dp">
+
+                        <TextView
+                            android:id="@+id/tvStatTotal"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="0"
+                            android:textColor="#FFFFFF"
+                            android:textSize="15sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Total Siswa"
+                            android:textColor="#CBD5E1"
+                            android:textSize="9.5sp" />
+                    </LinearLayout>
+                </androidx.cardview.widget.CardView>
+
+                <!-- Card Hadir -->
+                <androidx.cardview.widget.CardView
+                    android:id="@+id/cardFilterHadir"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginHorizontal="2dp"
+                    android:layout_weight="1"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:foreground="?attr/selectableItemBackground"
+                    app:cardBackgroundColor="#2610B981"
+                    app:cardCornerRadius="10dp"
+                    app:cardElevation="0dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:orientation="vertical"
+                        android:paddingVertical="6dp"
+                        android:paddingHorizontal="4dp">
+
+                        <TextView
+                            android:id="@+id/tvStatHadir"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="0"
+                            android:textColor="#FFFFFF"
+                            android:textSize="15sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Hadir Tepat"
+                            android:textColor="#A7F3D0"
+                            android:textSize="9.5sp" />
+                    </LinearLayout>
+                </androidx.cardview.widget.CardView>
+
+                <!-- Card Terlambat -->
+                <androidx.cardview.widget.CardView
+                    android:id="@+id/cardFilterTerlambat"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="4dp"
+                    android:layout_weight="1"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:foreground="?attr/selectableItemBackground"
+                    app:cardBackgroundColor="#26F59E0B"
+                    app:cardCornerRadius="10dp"
+                    app:cardElevation="0dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:orientation="vertical"
+                        android:paddingVertical="6dp"
+                        android:paddingHorizontal="4dp">
+
+                        <TextView
+                            android:id="@+id/tvStatTerlambat"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="0"
+                            android:textColor="#FFFFFF"
+                            android:textSize="15sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Terlambat"
+                            android:textColor="#FDE68A"
+                            android:textSize="9.5sp" />
+                    </LinearLayout>
+                </androidx.cardview.widget.CardView>
+            </LinearLayout>
+
+            <!-- Row 2: Belum, Izin/Sakit, L/P Demografi -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:orientation="horizontal">
+
+                <!-- Card Belum -->
+                <androidx.cardview.widget.CardView
+                    android:id="@+id/cardFilterBelum"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="4dp"
+                    android:layout_weight="1"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:foreground="?attr/selectableItemBackground"
+                    app:cardBackgroundColor="#33EF4444"
+                    app:cardCornerRadius="10dp"
+                    app:cardElevation="0dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:orientation="vertical"
+                        android:paddingVertical="6dp"
+                        android:paddingHorizontal="4dp">
+
+                        <TextView
+                            android:id="@+id/tvStatBelum"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="0"
+                            android:textColor="#FFFFFF"
+                            android:textSize="15sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Belum Masuk"
+                            android:textColor="#FED7AA"
+                            android:textSize="9.5sp" />
+                    </LinearLayout>
+                </androidx.cardview.widget.CardView>
+
+                <!-- Card Izin/Sakit -->
+                <androidx.cardview.widget.CardView
+                    android:id="@+id/cardFilterIzin"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginHorizontal="2dp"
+                    android:layout_weight="1"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:foreground="?attr/selectableItemBackground"
+                    app:cardBackgroundColor="#3338BDF8"
+                    app:cardCornerRadius="10dp"
+                    app:cardElevation="0dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:orientation="vertical"
+                        android:paddingVertical="6dp"
+                        android:paddingHorizontal="4dp">
+
+                        <TextView
+                            android:id="@+id/tvStatIzin"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="0"
+                            android:textColor="#FFFFFF"
+                            android:textSize="15sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Sakit / Izin"
+                            android:textColor="#BAE6FD"
+                            android:textSize="9.5sp" />
+                    </LinearLayout>
+                </androidx.cardview.widget.CardView>
+
+                <!-- Card Gender L / P -->
+                <androidx.cardview.widget.CardView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="4dp"
+                    android:layout_weight="1"
+                    app:cardBackgroundColor="#33FFFFFF"
+                    app:cardCornerRadius="10dp"
+                    app:cardElevation="0dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:orientation="vertical"
+                        android:paddingVertical="6dp"
+                        android:paddingHorizontal="4dp">
+
+                        <TextView
+                            android:id="@+id/tvStatDemography"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="- L • - P"
+                            android:textColor="#FFFFFF"
+                            android:textSize="13sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Laki • Perempuan"
+                            android:textColor="#CBD5E1"
+                            android:textSize="9.5sp" />
+                    </LinearLayout>
+                </androidx.cardview.widget.CardView>
+            </LinearLayout>
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- Navigation Segments / Tabs (High-Contrast Vibrant Menu Carousel) -->
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#FFFFFF"
+        android:elevation="4dp"
+        android:fillViewport="true"
+        android:paddingVertical="4dp"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:orientation="horizontal"
+            android:paddingHorizontal="6dp"
+            android:gravity="center_vertical">
+
+            <Button
+                android:id="@+id/btnTabMonitor"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1"
+                android:minWidth="110dp"
+                android:layout_marginHorizontal="3dp"
+                android:backgroundTint="#1D4ED8"
+                android:text="📋 Pantau Teman"
+                android:textAllCaps="false"
+                android:textColor="#FFFFFF"
+                android:textSize="11.5sp"
+                android:textStyle="bold"
+                android:paddingHorizontal="6dp"
+                app:cornerRadius="12dp" />
+
+            <Button
+                android:id="@+id/btnTabDynamicQr"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1"
+                android:minWidth="120dp"
+                android:layout_marginHorizontal="3dp"
+                android:backgroundTint="#D1FAE5"
+                android:text="⚡ QR Dinamis 10s"
+                android:textAllCaps="false"
+                android:textColor="#065F46"
+                android:textSize="11.5sp"
+                android:textStyle="bold"
+                android:paddingHorizontal="6dp"
+                app:cornerRadius="12dp" />
+
+            <Button
+                android:id="@+id/btnTabScan"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1"
+                android:minWidth="105dp"
+                android:layout_marginHorizontal="3dp"
+                android:backgroundTint="#EDE9FE"
+                android:text="📷 Bantu Scan"
+                android:textAllCaps="false"
+                android:textColor="#5B21B6"
+                android:textSize="11.5sp"
+                android:textStyle="bold"
+                android:paddingHorizontal="6dp"
+                app:cornerRadius="12dp" />
+
+            <Button
+                android:id="@+id/btnTabEmptyHour"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1"
+                android:minWidth="135dp"
+                android:layout_marginHorizontal="3dp"
+                android:backgroundTint="#FEE2E2"
+                android:text="📢 Lapor Jam Kosong"
+                android:textAllCaps="false"
+                android:textColor="#991B1B"
+                android:textSize="11.5sp"
+                android:textStyle="bold"
+                android:paddingHorizontal="6dp"
+                app:cornerRadius="12dp" />
+        </LinearLayout>
+    </HorizontalScrollView>
+
+    <!-- Tab 1: Layout Pantau Teman Sekelas -->
+    <LinearLayout
+        android:id="@+id/layoutMonitorContainer"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:visibility="visible">
+
+        <!-- Search Input -->
+        <EditText
+            android:id="@+id/etSearchClassmates"
+            android:layout_width="match_parent"
+            android:layout_height="42dp"
+            android:layout_margin="12dp"
+            android:background="@drawable/bg_chip_white_translucent"
+            android:backgroundTint="#E2E8F0"
+            android:drawableStart="@android:drawable/ic_menu_search"
+            android:drawablePadding="8dp"
+            android:hint="Cari nama teman atau NISN..."
+            android:paddingHorizontal="12dp"
+            android:textColor="#0F172A"
+            android:textColorHint="#94A3B8"
+            android:textSize="13sp" />
+
+        <ProgressBar
+            android:id="@+id/pbLoadingMonitor"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:layout_marginTop="24dp"
+            android:visibility="gone" />
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rvClassmates"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:clipToPadding="false"
+            android:paddingBottom="24dp" />
+    </LinearLayout>
+
+    <!-- Tab 2: Layout QR Dinamis 10 Detik Pengurus Kelas -->
+    <ScrollView
+        android:id="@+id/layoutDynamicQrContainer"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp"
+            android:gravity="center_horizontal">
+
+            <!-- Card QR Utama -->
+            <androidx.cardview.widget.CardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:cardBackgroundColor="#FFFFFF"
+                app:cardCornerRadius="20dp"
+                app:cardElevation="4dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="20dp"
+                    android:gravity="center_horizontal">
+
+                    <!-- Badge Header -->
+                    <LinearLayout
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:background="@drawable/bg_chip_white_translucent"
+                        android:backgroundTint="#EFF6FF"
+                        android:paddingHorizontal="12dp"
+                        android:paddingVertical="4dp"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="⚡ PRESENSI KELAS RESMI"
+                            android:textColor="#1D4ED8"
+                            android:textSize="11sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:id="@+id/tvDynamicQrClassName"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="QR Dinamis Kelas"
+                        android:textColor="#0F172A"
+                        android:textSize="18sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="Tunjukkan kode ini ke teman sekelas untuk presensi tanpa GPS"
+                        android:textColor="#64748B"
+                        android:textSize="12sp"
+                        android:gravity="center" />
+
+                    <!-- Countdown Status -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="16dp"
+                        android:orientation="vertical">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical">
+
+                            <TextView
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:text="🔄 Otomatis berganti tiap 10 detik"
+                                android:textColor="#475569"
+                                android:textSize="11sp" />
+
+                            <TextView
+                                android:id="@+id/tvDynamicQrCountdown"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="10s"
+                                android:textColor="#2563EB"
+                                android:textSize="14sp"
+                                android:textStyle="bold" />
+                        </LinearLayout>
+
+                        <ProgressBar
+                            android:id="@+id/pbDynamicQrTimer"
+                            style="?android:attr/progressBarStyleHorizontal"
+                            android:layout_width="match_parent"
+                            android:layout_height="8dp"
+                            android:layout_marginTop="6dp"
+                            android:max="100"
+                            android:progress="100"
+                            android:progressTint="#2563EB" />
+                    </LinearLayout>
+
+                    <!-- QR Code Frame -->
+                    <androidx.cardview.widget.CardView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="16dp"
+                        app:cardCornerRadius="16dp"
+                        app:cardElevation="2dp"
+                        app:cardBackgroundColor="#F8FAFC">
+
+                        <LinearLayout
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:padding="16dp"
+                            android:gravity="center">
+
+                            <ImageView
+                                android:id="@+id/ivDynamicQrCode"
+                                android:layout_width="220dp"
+                                android:layout_height="220dp"
+                                android:contentDescription="QR Code Dinamis" />
+                        </LinearLayout>
+                    </androidx.cardview.widget.CardView>
+
+                    <!-- Tombol Refresh Manual -->
+                    <Button
+                        android:id="@+id/btnRefreshDynamicQr"
+                        android:layout_width="match_parent"
+                        android:layout_height="44dp"
+                        android:layout_marginTop="18dp"
+                        android:backgroundTint="#2563EB"
+                        android:text="🔄 Perbarui Barcode Sekarang"
+                        android:textColor="#FFFFFF"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        app:cornerRadius="12dp" />
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
+
+            <!-- Card Panduan Keamanan -->
+            <androidx.cardview.widget.CardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                app:cardBackgroundColor="#FEF3C7"
+                app:cardCornerRadius="14dp"
+                app:cardElevation="0dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:padding="14dp"
+                    android:gravity="center_vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="🛡️"
+                        android:textSize="22sp"
+                        android:layout_marginEnd="10dp" />
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Perlindungan Anti-Joki: Barcode dinamis ini hanya berlaku selama 10 detik. Siswa tidak dapat memfoto atau membagikan barcode ke luar kelas."
+                        android:textColor="#92400E"
+                        android:textSize="11.5sp" />
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
+        </LinearLayout>
+    </ScrollView>
+
+    <!-- Tab 2: Layout Bantu Presensi Beruntun (Continuous Scanner) -->
+    <LinearLayout
+        android:id="@+id/layoutScanContainer"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <!-- Banner Info Kuota & Panduan -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="#FDF2F8"
+            android:padding="12dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="⚡"
+                android:textSize="20sp" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/tvQuotaInfo"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Kuota Bantu Presensi: 0 / 5 Siswa Hari Ini"
+                    android:textColor="#BE185D"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Kamera scan aktif beruntun. Arahkan ke barcode kartu teman."
+                    android:textColor="#831843"
+                    android:textSize="10.5sp" />
+            </LinearLayout>
+
+            <ImageButton
+                android:id="@+id/btnToggleFlashPengurus"
+                android:layout_width="38dp"
+                android:layout_height="38dp"
+                android:background="@drawable/bg_chip_white_translucent"
+                android:backgroundTint="#BE185D"
+                android:src="@android:drawable/ic_menu_camera"
+                app:tint="#FFFFFF" />
+        </LinearLayout>
+
+        <!-- Area Kamera Pemindai Continuous -->
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1">
+
+            <androidx.camera.view.PreviewView
+                android:id="@+id/previewViewPengurus"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent" />
+
+            <!-- Frame Target Scanner Guide Overlay -->
+            <View
+                android:layout_width="260dp"
+                android:layout_height="260dp"
+                android:layout_gravity="center"
+                android:background="@drawable/bg_scan_frame" />
+
+            <TextView
+                android:id="@+id/tvScannerStatusPengurus"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="bottom|center_horizontal"
+                android:layout_marginBottom="32dp"
+                android:background="#CC000000"
+                android:paddingHorizontal="16dp"
+                android:paddingVertical="8dp"
+                android:text="📷 Arahkan kamera ke Barcode Kartu Pelajar Teman"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp" />
+        </FrameLayout>
+    </LinearLayout>
+
+    <!-- Tab 3: Layout Lapor Jam Kosong (Full-Screen Elegant Rose Design) -->
+    <ScrollView
+        android:id="@+id/layoutEmptyHourContainer"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <!-- Card 1: Live Status Guru Mapel Saat Ini (Netral) -->
+            <androidx.cardview.widget.CardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:cardBackgroundColor="#FFFFFF"
+                app:cardCornerRadius="14dp"
+                app:cardElevation="2dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="📡 STATUS KELAS &amp; GURU SAAT INI"
+                            android:textColor="#BE185D"
+                            android:textSize="12sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:id="@+id/tvEmptyHourBadgeStatus"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:background="@drawable/bg_chip_white_translucent"
+                            android:backgroundTint="#FCE7F3"
+                            android:paddingHorizontal="10dp"
+                            android:paddingVertical="4dp"
+                            android:text="⏳ Belum Masuk Kelas"
+                            android:textColor="#BE185D"
+                            android:textSize="11sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:layout_marginVertical="10dp"
+                        android:background="#F1F5F9" />
+
+                    <!-- Guru Pengampu -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:layout_width="110dp"
+                            android:layout_height="wrap_content"
+                            android:text="Guru Pengampu:"
+                            android:textColor="#64748B"
+                            android:textSize="12sp" />
+
+                        <TextView
+                            android:id="@+id/tvEmptyHourTeacherName"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Memuat data..."
+                            android:textColor="#0F172A"
+                            android:textSize="12.5sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+
+                    <!-- Mata Pelajaran -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:layout_width="110dp"
+                            android:layout_height="wrap_content"
+                            android:text="Mata Pelajaran:"
+                            android:textColor="#64748B"
+                            android:textSize="12sp" />
+
+                        <TextView
+                            android:id="@+id/tvEmptyHourSubjectName"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Memuat data..."
+                            android:textColor="#0F172A"
+                            android:textSize="12.5sp" />
+                    </LinearLayout>
+
+                    <!-- Jam Pelajaran -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:layout_width="110dp"
+                            android:layout_height="wrap_content"
+                            android:text="Jam Pelajaran:"
+                            android:textColor="#64748B"
+                            android:textSize="12sp" />
+
+                        <TextView
+                            android:id="@+id/tvEmptyHourPeriodLesson"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Jam KBM Berjalan"
+                            android:textColor="#0F172A"
+                            android:textSize="12.5sp" />
+                    </LinearLayout>
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
+
+            <!-- Card 2: Form Lapor Jam Kosong -->
+            <androidx.cardview.widget.CardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                app:cardBackgroundColor="#FFFFFF"
+                app:cardCornerRadius="14dp"
+                app:cardElevation="2dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="🚨 LAPOR JAM KELAS KOSONG (PIKET &amp; KURIKULUM)"
+                        android:textColor="#DC2626"
+                        android:textSize="12sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:text="1 Sentuhan Lapor: Jika guru belum hadir atau meninggalkan tugas, laporkan serentak ke Posko Piket &amp; Kurikulum"
+                        android:textColor="#64748B"
+                        android:textSize="11sp" />
+
+                    <!-- Keterangan Pelapor Atas Nama Rombel -->
+                    <TextView
+                        android:id="@+id/tvEmptyHourReporterInfo"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:background="#EFF6FF"
+                        android:padding="8dp"
+                        android:text="Pelapor: Pengurus Kelas (Otomatis tercatat resmi atas nama kelas)"
+                        android:textColor="#1E40AF"
+                        android:textSize="11sp" />
+
+                    <!-- Jam Ke- / Sesi KBM -->
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:text="Jam Ke- / Sesi KBM:"
+                        android:textColor="#334155"
+                        android:textSize="11.5sp"
+                        android:textStyle="bold" />
+
+                    <EditText
+                        android:id="@+id/etEmptyHourPeriodInput"
+                        android:layout_width="match_parent"
+                        android:layout_height="44dp"
+                        android:layout_marginTop="4dp"
+                        android:background="#F1F5F9"
+                        android:hint="Otomatis terisi jika ada jadwal (misal: Jam ke-1)"
+                        android:paddingHorizontal="10dp"
+                        android:textColor="#0F172A"
+                        android:textColorHint="#94A3B8"
+                        android:textSize="12sp" />
+
+                    <!-- Mata Pelajaran -->
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="Mata Pelajaran:"
+                        android:textColor="#334155"
+                        android:textSize="11.5sp"
+                        android:textStyle="bold" />
+
+                    <EditText
+                        android:id="@+id/etEmptyHourSubjectInput"
+                        android:layout_width="match_parent"
+                        android:layout_height="44dp"
+                        android:layout_marginTop="4dp"
+                        android:background="#F1F5F9"
+                        android:hint="Otomatis terisi jika ada jadwal (misal: Matematika)"
+                        android:paddingHorizontal="10dp"
+                        android:textColor="#0F172A"
+                        android:textColorHint="#94A3B8"
+                        android:textSize="12sp" />
+
+                    <!-- Nama Guru Pengajar -->
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="Nama Guru Pengajar:"
+                        android:textColor="#334155"
+                        android:textSize="11.5sp"
+                        android:textStyle="bold" />
+
+                    <EditText
+                        android:id="@+id/etEmptyHourTeacherInput"
+                        android:layout_width="match_parent"
+                        android:layout_height="44dp"
+                        android:layout_marginTop="4dp"
+                        android:background="#F1F5F9"
+                        android:hint="Otomatis terisi jika ada jadwal (atau ketik nama guru)"
+                        android:paddingHorizontal="10dp"
+                        android:textColor="#0F172A"
+                        android:textColorHint="#94A3B8"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:text="Status Kehadiran Guru:"
+                        android:textColor="#334155"
+                        android:textSize="11.5sp"
+                        android:textStyle="bold" />
+
+                    <Spinner
+                        android:id="@+id/spinnerEmptyHourStatus"
+                        android:layout_width="match_parent"
+                        android:layout_height="44dp"
+                        android:layout_marginTop="4dp"
+                        android:background="#F1F5F9"
+                        android:paddingHorizontal="10dp" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:text="Catatan / Keterangan (Opsional):"
+                        android:textColor="#334155"
+                        android:textSize="11.5sp"
+                        android:textStyle="bold" />
+
+                    <EditText
+                        android:id="@+id/etEmptyHourNotes"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:background="#F1F5F9"
+                        android:gravity="top"
+                        android:hint="Contoh: Belum hadir setelah 15 menit pergantian jam / ada lembar tugas di meja"
+                        android:minLines="2"
+                        android:padding="10dp"
+                        android:textColor="#0F172A"
+                        android:textColorHint="#94A3B8"
+                        android:textSize="12sp" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="14dp"
+                        android:orientation="vertical">
+
+                        <Button
+                            android:id="@+id/btnSubmitEmptyHourReport"
+                            android:layout_width="match_parent"
+                            android:layout_height="48dp"
+                            android:backgroundTint="#DC2626"
+                            android:text="🚨 Lapor Jam Kelas Kosong (Piket &amp; Kurikulum)"
+                            android:textColor="#FFFFFF"
+                            android:textSize="12.5sp"
+                            android:textStyle="bold"
+                            app:cornerRadius="12dp" />
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="6dp"
+                            android:gravity="center"
+                            android:text="⚡ 1 Tombol Praktis: Laporan otomatis terkirim serentak ke Guru Piket &amp; Tim Kurikulum"
+                            android:textColor="#64748B"
+                            android:textSize="10.5sp" />
+                    </LinearLayout>
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
+
+            <!-- Card 3: Riwayat Laporan Hari Ini -->
+            <androidx.cardview.widget.CardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                app:cardBackgroundColor="#FFFFFF"
+                app:cardCornerRadius="14dp"
+                app:cardElevation="2dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="📋 RIWAYAT LAPORAN KELAS HARI INI"
+                        android:textColor="#334155"
+                        android:textSize="12sp"
+                        android:textStyle="bold" />
+
+                    <LinearLayout
+                        android:id="@+id/llRecentEmptyHourReports"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:orientation="vertical" />
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
+        </LinearLayout>
+    </ScrollView>
+</LinearLayout>

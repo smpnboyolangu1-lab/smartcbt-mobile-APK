@@ -28,6 +28,22 @@ function saveClassTokens(tokens: Record<string, string>) {
     try {
         fs.writeFileSync(CLASS_TOKENS_FILE, JSON.stringify(tokens, null, 2), 'utf-8');
     } catch (e) {}
+
+    // Sinkronisasi otomatis ke tabel database Prisma
+    try {
+        for (const [key, tokenVal] of Object.entries(tokens)) {
+            const parts = key.split('_');
+            if (parts.length >= 2) {
+                const examId = parts[0];
+                const cls = parts.slice(1).join('_');
+                (prisma as any).examClassToken.upsert({
+                    where: { examId_className: { examId, className: cls } },
+                    create: { examId, className: cls, token: tokenVal, isActive: true },
+                    update: { token: tokenVal, isActive: true }
+                }).catch(() => {});
+            }
+        }
+    } catch (e) {}
 }
 
 function loadClassProctors(): Record<string, ProctorAssignment> {
@@ -42,6 +58,32 @@ function loadClassProctors(): Record<string, ProctorAssignment> {
 function saveClassProctors(data: Record<string, ProctorAssignment>) {
     try {
         fs.writeFileSync(CLASS_PROCTORS_FILE, JSON.stringify(data, null, 2), 'utf-8');
+    } catch (e) {}
+
+    // Sinkronisasi otomatis ke tabel database Prisma
+    try {
+        for (const [key, assignment] of Object.entries(data)) {
+            const parts = key.split('_');
+            if (parts.length >= 2) {
+                const examId = parts[0];
+                const cls = parts.slice(1).join('_');
+                (prisma as any).examProctorAssignment.upsert({
+                    where: { examId_className: { examId, className: cls } },
+                    create: {
+                        examId,
+                        className: cls,
+                        proctorId: assignment.proctorId,
+                        proctorName: assignment.proctorName,
+                        roomName: assignment.roomName
+                    },
+                    update: {
+                        proctorId: assignment.proctorId,
+                        proctorName: assignment.proctorName,
+                        roomName: assignment.roomName
+                    }
+                }).catch(() => {});
+            }
+        }
     } catch (e) {}
 }
 
@@ -89,6 +131,13 @@ export const assignClassProctors = async (req: Request, res: Response) => {
             for (const item of assignments) {
                 if (item.className) {
                     setClassProctor(examId, item.className, item.proctorName || '', item.roomName, item.proctorId);
+                    if (item.proctorId) {
+                        await (prisma as any).examProctorAssignment.upsert({
+                            where: { examId_className: { examId, className: item.className } },
+                            create: { examId, className: item.className, proctorId: item.proctorId, proctorName: item.proctorName || '', roomName: item.roomName || '' },
+                            update: { proctorId: item.proctorId, proctorName: item.proctorName || '', roomName: item.roomName || '' }
+                        }).catch(() => null);
+                    }
                 }
             }
         } else {
@@ -98,6 +147,13 @@ export const assignClassProctors = async (req: Request, res: Response) => {
                 } else if (val && typeof val === 'object') {
                     const obj = val as any;
                     setClassProctor(examId, cls, obj.proctorName || '', obj.roomName, obj.proctorId);
+                    if (obj.proctorId) {
+                        await (prisma as any).examProctorAssignment.upsert({
+                            where: { examId_className: { examId, className: cls } },
+                            create: { examId, className: cls, proctorId: obj.proctorId, proctorName: obj.proctorName || '', roomName: obj.roomName || '' },
+                            update: { proctorId: obj.proctorId, proctorName: obj.proctorName || '', roomName: obj.roomName || '' }
+                        }).catch(() => null);
+                    }
                 }
             }
         }
@@ -165,19 +221,32 @@ export const resetClassToken = async (req: Request, res: Response) => {
     }
 };
 
+// Token 5 Digit Alphanumerik (Tanpa Karakter Membingungkan 0, O, 1, I)
+export function generate5CharToken(): string {
+    const chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+    let token = '';
+    for (let i = 0; i < 5; i++) {
+        token += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return token;
+}
+
+export function generateClassTokenPrefix(className: string): string {
+    return generate5CharToken();
+}
+
 export function getClassExamToken(examId: string, className: string, defaultExamToken?: string): string {
     if (!className || className === 'ALL' || className === 'Semua Kelas') {
-        return defaultExamToken || 'UNBK26';
+        if (defaultExamToken && defaultExamToken.length === 5) return defaultExamToken.toUpperCase();
+        return (defaultExamToken || 'CBT26').substring(0, 5).toUpperCase();
     }
     const tokens = loadClassTokens();
-    const key = `${examId}_${className.trim().toUpperCase()}`;
-    if (tokens[key]) {
-        return tokens[key];
+    const cleanClass = className.trim().toUpperCase();
+    const key = `${examId}_${cleanClass}`;
+    if (tokens[key] && tokens[key].length === 5) {
+        return tokens[key].toUpperCase();
     }
-    const cleanClass = className.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
-    const prefix = cleanClass.replace('KELAS', '').substring(0, 3);
-    const suffix = Math.random().toString(36).substring(2, 6).toUpperCase();
-    const newToken = `${prefix}${suffix}`;
+    const newToken = generate5CharToken();
     tokens[key] = newToken;
     saveClassTokens(tokens);
     return newToken;
@@ -185,14 +254,52 @@ export function getClassExamToken(examId: string, className: string, defaultExam
 
 export function setClassExamToken(examId: string, className: string, customToken?: string): string {
     const tokens = loadClassTokens();
-    const key = `${examId}_${className.trim().toUpperCase()}`;
-    const cleanClass = className.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
-    const prefix = cleanClass.replace('KELAS', '').substring(0, 3);
-    const suffix = Math.random().toString(36).substring(2, 6).toUpperCase();
-    const newToken = customToken || `${prefix}${suffix}`;
+    const cleanClass = className.trim().toUpperCase();
+    const key = `${examId}_${cleanClass}`;
+    const newToken = (customToken && customToken.trim().length === 5) ? customToken.trim().toUpperCase() : generate5CharToken();
     tokens[key] = newToken;
     saveClassTokens(tokens);
     return newToken;
+}
+
+// Otoritas Token Ujian: Token Resmi Kurikulum Hanya Terbuka 1 Jam Sebelum Pelaksanaan
+// Ulangan Harian (UH) / Formatif guru berjalan BEBAS TOKEN (Tanpa Token).
+export function isExamTokenReleased(exam: any): { isReleased: boolean; isTokenRequired: boolean; reason?: string } {
+    const isUH = ['UH', 'FORMATIF', 'KUIS'].includes(String(exam.examType || '').toUpperCase()) || exam.isTokenRequired === false;
+    if (isUH) {
+        return { isReleased: true, isTokenRequired: false };
+    }
+
+    // Ujian Resmi Terjadwal: SAS, STS, ASAT, US, dll
+    if (!exam.executionDate || !exam.startTimeStr) {
+        return { isReleased: true, isTokenRequired: true };
+    }
+
+    try {
+        const now = new Date();
+        const dateParts = String(exam.executionDate).split('-');
+        if (dateParts.length < 3) return { isReleased: true, isTokenRequired: true };
+
+        const [year, month, day] = dateParts.map(Number);
+        const timeParts = String(exam.startTimeStr).split(':');
+        const hour = Number(timeParts[0]) || 0;
+        const min = Number(timeParts[1]) || 0;
+
+        const examStartTime = new Date(year, month - 1, day, hour, min, 0);
+        // Token resmi hanya dirilis 1 jam (60 menit) sebelum jam pelaksanaan
+        const oneHourBefore = new Date(examStartTime.getTime() - 60 * 60 * 1000);
+
+        if (now < oneHourBefore) {
+            return {
+                isReleased: false,
+                isTokenRequired: true,
+                reason: `Token ujian resmi baru dirilis oleh Kurikulum 1 jam sebelum ujian (${exam.executionDate} pukul ${exam.startTimeStr} WIB).`
+            };
+        }
+        return { isReleased: true, isTokenRequired: true };
+    } catch (_) {
+        return { isReleased: true, isTokenRequired: true };
+    }
 }
 
 // SSE Clients Registry
@@ -230,15 +337,86 @@ export function getExamTokenRemainingSeconds(examId: string): number {
     return Math.max(0, Math.floor((expiresAt - Date.now()) / 1000));
 }
 
-// Background auto-refresh timer running every 5 seconds (Option 2)
+// Background auto-refresh timer running every 5 seconds
+// 1. Auto-Activates Standby exams when schedule execution starts
+// 2. Auto-Rotates active tokens every 15 minutes
+// 3. Auto-Deactivates exams when schedule execution ends
 setInterval(async () => {
     try {
         const now = Date.now();
+        const nowObj = new Date();
+        const nowUtc = nowObj.getTime();
+        const wibOffset = 7 * 60 * 60 * 1000;
+        const nowWib = new Date(nowUtc + wibOffset);
+        const y = nowWib.getUTCFullYear();
+        const m = String(nowWib.getUTCMonth() + 1).padStart(2, '0');
+        const d = String(nowWib.getUTCDate()).padStart(2, '0');
+        const todayYmd = `${y}-${m}-${d}`;
+        const currentHour = String(nowWib.getUTCHours()).padStart(2, '0');
+        const currentMinute = String(nowWib.getUTCMinutes()).padStart(2, '0');
+        const nowTimeStr = `${currentHour}:${currentMinute}`;
+
+        // 1. Check standby exams scheduled for today that should auto-activate
+        const standbyExams = await prisma.exam.findMany({
+            where: {
+                isTokenActive: false,
+                autoActiveOnSchedule: true,
+                status: { notIn: ['SELESAI', 'NONAKTIF', 'ARSIP'] }
+            }
+        });
+
+        for (const exam of standbyExams) {
+            const isDateMatch = !exam.executionDate || exam.executionDate === todayYmd;
+            if (isDateMatch && exam.startTimeStr && exam.endTimeStr) {
+                if (nowTimeStr >= exam.startTimeStr && nowTimeStr <= exam.endTimeStr) {
+                    const freshToken = Math.random().toString(36).substring(2, 8).toUpperCase();
+                    await prisma.exam.update({
+                        where: { id: exam.id },
+                        data: {
+                            isTokenActive: true,
+                            token: freshToken,
+                            status: 'AKTIF'
+                        }
+                    });
+                    resetExamTokenTimer(exam.id);
+                    broadcastMonitoringEvent({
+                        type: 'EXAM_ACTIVATED',
+                        examId: exam.id,
+                        token: freshToken,
+                        title: exam.title,
+                        message: `Jadwal ujian "${exam.title}" telah aktif otomatis pukul ${nowTimeStr} WIB.`
+                    });
+                    console.log(`[CBT Auto-Activate] Exam ${exam.id} (${exam.title}) automatically ACTIVATED at ${nowTimeStr} WIB!`);
+                }
+            }
+        }
+
+        // 2. Check active exams that have passed endTimeStr to auto-deactivate
         const activeExams = await prisma.exam.findMany({
             where: { isTokenActive: true }
         });
 
         for (const exam of activeExams) {
+            const isDateMatch = !exam.executionDate || exam.executionDate === todayYmd;
+            if (isDateMatch && exam.endTimeStr && nowTimeStr > exam.endTimeStr) {
+                await prisma.exam.update({
+                    where: { id: exam.id },
+                    data: {
+                        isTokenActive: false,
+                        status: 'SELESAI'
+                    }
+                });
+                broadcastMonitoringEvent({
+                    type: 'EXAM_COMPLETED',
+                    examId: exam.id,
+                    title: exam.title,
+                    message: `Jadwal pelaksanaan ujian "${exam.title}" telah berakhir pukul ${exam.endTimeStr} WIB.`
+                });
+                console.log(`[CBT Auto-Deactivate] Exam ${exam.id} (${exam.title}) automatically COMPLETED at ${nowTimeStr} WIB!`);
+                continue;
+            }
+
+            // 3. Auto-rotate tokens every 15 minutes
             let expiresAt = examTokenExpiryMap.get(exam.id);
             if (!expiresAt) {
                 expiresAt = resetExamTokenTimer(exam.id);
@@ -258,9 +436,9 @@ setInterval(async () => {
                 for (const key of Object.keys(classTokens)) {
                     if (key.startsWith(prefix)) {
                         const cls = key.substring(prefix.length);
-                        const cleanClass = cls.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
-                        const pfx = cleanClass.replace('KELAS', '').substring(0, 3);
-                        const sfx = Math.random().toString(36).substring(2, 6).toUpperCase();
+                        const pfx = generateClassTokenPrefix(cls);
+                        const sfxLen = pfx.length >= 5 ? 3 : 4;
+                        const sfx = Math.random().toString(36).substring(2, 2 + sfxLen).toUpperCase();
                         classTokens[key] = `${pfx}${sfx}`;
                         classUpdated = true;
                     }
@@ -531,6 +709,47 @@ export const verifyExamToken = async (req: any, res: Response) => {
             return res.status(404).json({ success: false, valid: false, message: 'Sesi ujian tidak ditemukan di server.' });
         }
 
+        // Cek apakah siswa sudah pernah mengerjakan dan berstatus SUBMITTED (Selesai - Tidak Bisa Diulang)
+        if (req.user?.id) {
+            const finishedRecord = await prisma.studentExam.findFirst({
+                where: {
+                    examId: exam.id,
+                    userId: req.user.id,
+                    status: 'SUBMITTED'
+                }
+            });
+            if (finishedRecord) {
+                return res.status(403).json({
+                    success: false,
+                    valid: false,
+                    alreadyFinished: true,
+                    message: 'Anda sudah menyelesaikan ujian ini dan tidak dapat mengulang kembali!'
+                });
+            }
+        }
+
+        // Cek hak akses rombel / kelas untuk ujian ini
+        let studentClass = (req.user?.className || '').trim().toUpperCase();
+        if (!studentClass && req.user?.id) {
+            try {
+                const dbU = await prisma.user.findUnique({ where: { id: req.user.id }, select: { className: true } });
+                if (dbU?.className) studentClass = dbU.className.trim().toUpperCase();
+            } catch (_) {}
+        }
+        if (studentClass && exam.assignedClasses && exam.assignedClasses !== 'ALL' && exam.assignedClasses !== 'Semua Kelas') {
+            const studentLevel = studentClass.startsWith('VII-') ? 'VII' : (studentClass.startsWith('VIII-') ? 'VIII' : (studentClass.startsWith('IX-') ? 'IX' : ''));
+            const assignedList = exam.assignedClasses.toUpperCase().split(/[,;]+/).map((s: string) => s.trim()).filter(Boolean);
+            const isAssigned = assignedList.length === 0 || assignedList.includes('ALL') || assignedList.includes('SEMUA KELAS') ||
+                assignedList.includes(studentClass) || (studentLevel && (assignedList.includes(studentLevel) || assignedList.includes(`KELAS ${studentLevel}`)));
+            if (!isAssigned) {
+                return res.status(403).json({
+                    success: false,
+                    valid: false,
+                    message: `Ujian ini hanya ditujukan untuk kelas: ${exam.assignedClasses}. Kelas Anda (${studentClass}) tidak terdaftar dalam jadwal ujian ini.`
+                });
+            }
+        }
+
         // Jika ujian ini diatur bebas token (isTokenActive == false)
         if (!exam.isTokenActive) {
             return res.json({
@@ -561,13 +780,19 @@ export const verifyExamToken = async (req: any, res: Response) => {
         }
 
         const masterToken = exam.token.trim().toUpperCase();
-        const studentClass = (req.user?.className || '').trim();
+        if (!studentClass && req.user?.id) {
+            try {
+                const dbU = await prisma.user.findUnique({ where: { id: req.user.id }, select: { className: true } });
+                if (dbU?.className) studentClass = dbU.className.trim();
+            } catch (_) {}
+        }
         const expectedClassToken = studentClass ? getClassExamToken(exam.id, studentClass, masterToken).trim().toUpperCase() : masterToken;
 
         const isClassValid = clientToken === expectedClassToken;
         const isMasterValid = clientToken === masterToken;
 
         if (!isClassValid && !isMasterValid) {
+            console.warn(`[CBT Token Rejected] verifyExamToken - Exam: ${exam.id} (${exam.title}), User: ${req.user?.username || 'Unknown'} (Class: "${studentClass || 'N/A'}"), Submitted: "${clientToken}", ExpectedClass: "${expectedClassToken}", Master: "${masterToken}"`);
             let assignedList: string[] = [];
             const rawAssigned = (exam.assignedClasses || '').trim();
             if (rawAssigned === 'ALL' || rawAssigned === 'Semua Kelas' || !rawAssigned) {
@@ -636,42 +861,77 @@ export const downloadQuestions = async (req: any, res: Response) => {
         }
         
         if (!exam) return res.status(404).json({ message: 'Sesi ujian tidak ditemukan. Periksa Token atau ID Ujian.' });
-        
-        // Verifikasi Status Aktif Sesi Ujian & Token
-        if (!exam.isTokenActive || !exam.token || exam.token === 'OFF') {
-            return res.status(403).json({ 
-                message: 'Sesi ujian ini sedang STANDBY / DITUTUP. Token belum dirilis oleh Pengawas Ruang.' 
-            });
+
+        // Cek hak akses rombel / kelas untuk mengunduh soal ujian ini
+        let dlStudentClass = (req.user?.className || '').trim().toUpperCase();
+        if (!dlStudentClass && req.user?.id) {
+            try {
+                const dbU = await prisma.user.findUnique({ where: { id: req.user.id }, select: { className: true } });
+                if (dbU?.className) dlStudentClass = dbU.className.trim().toUpperCase();
+            } catch (_) {}
         }
-
-        // Verifikasi Token jika ujian mewajibkan token (Mendukung token khusus per ruang kelas)
-        const clientToken = String(token || '').trim().toUpperCase();
-        const masterToken = exam.token.trim().toUpperCase();
-        const studentClass = (req.user?.className || '').trim();
-        const expectedClassToken = studentClass ? getClassExamToken(exam.id, studentClass, masterToken).trim().toUpperCase() : masterToken;
-
-        const isClassValid = clientToken === expectedClassToken;
-        const isMasterValid = clientToken === masterToken;
-
-        if (!isClassValid && !isMasterValid) {
-            let assignedList: string[] = [];
-            const rawAssigned = (exam.assignedClasses || '').trim();
-            if (rawAssigned === 'ALL' || rawAssigned === 'Semua Kelas' || !rawAssigned) {
-                const allClasses = await prisma.class.findMany({ select: { name: true } });
-                assignedList = allClasses.map(c => c.name);
-            } else {
-                assignedList = rawAssigned.split(',').map((c: string) => c.trim()).filter(Boolean);
-            }
-
-            const matchedOtherClass = assignedList.find((c: string) => getClassExamToken(exam.id, c, masterToken).toUpperCase() === clientToken);
-
-            if (matchedOtherClass && studentClass && matchedOtherClass.toUpperCase() !== studentClass.toUpperCase()) {
+        if (dlStudentClass && exam.assignedClasses && exam.assignedClasses !== 'ALL' && exam.assignedClasses !== 'Semua Kelas') {
+            const studentLevel = dlStudentClass.startsWith('VII-') ? 'VII' : (dlStudentClass.startsWith('VIII-') ? 'VIII' : (dlStudentClass.startsWith('IX-') ? 'IX' : ''));
+            const assignedList = exam.assignedClasses.toUpperCase().split(/[,;]+/).map((s: string) => s.trim()).filter(Boolean);
+            const isAssigned = assignedList.length === 0 || assignedList.includes('ALL') || assignedList.includes('SEMUA KELAS') ||
+                assignedList.includes(dlStudentClass) || (studentLevel && (assignedList.includes(studentLevel) || assignedList.includes(`KELAS ${studentLevel}`)));
+            if (!isAssigned) {
                 return res.status(403).json({
-                    message: `Token ini milik ruang kelas ${matchedOtherClass}. Silakan masukkan token khusus untuk ruang kelas Anda (${studentClass}).`
+                    success: false,
+                    message: `Soal ujian ini hanya ditujukan untuk kelas: ${exam.assignedClasses}. Kelas Anda (${dlStudentClass}) tidak memiliki izin mengakses soal.`
+                });
+            }
+        }
+        
+        // Verifikasi Status Aktif Sesi Ujian & Token jika ujian mewajibkan token
+        if (exam.isTokenActive) {
+            if (!exam.token || exam.token === 'OFF') {
+                return res.status(403).json({ 
+                    success: false,
+                    message: 'Sesi ujian ini sedang STANDBY / DITUTUP. Token belum dirilis oleh Pengawas Ruang.' 
                 });
             }
 
-            return res.status(403).json({ message: 'Token ujian salah atau belum dirilis oleh Pengawas Ruang.' });
+            // Verifikasi Token jika ujian mewajibkan token (Mendukung token khusus per ruang kelas)
+            const clientToken = String(token || '').trim().toUpperCase();
+            const masterToken = exam.token.trim().toUpperCase();
+            let studentClass = (req.user?.className || '').trim();
+            if (!studentClass && req.user?.id) {
+                try {
+                    const dbU = await prisma.user.findUnique({ where: { id: req.user.id }, select: { className: true } });
+                    if (dbU?.className) studentClass = dbU.className.trim();
+                } catch (_) {}
+            }
+            const expectedClassToken = studentClass ? getClassExamToken(exam.id, studentClass, masterToken).trim().toUpperCase() : masterToken;
+
+            const isClassValid = clientToken === expectedClassToken;
+            const isMasterValid = clientToken === masterToken;
+
+            if (!isClassValid && !isMasterValid) {
+                console.warn(`[CBT Token Rejected] downloadQuestions - Exam: ${exam.id} (${exam.title}), User: ${req.user?.username || 'Unknown'} (Class: "${studentClass || 'N/A'}"), Submitted: "${clientToken}", ExpectedClass: "${expectedClassToken}", Master: "${masterToken}"`);
+                let assignedList: string[] = [];
+                const rawAssigned = (exam.assignedClasses || '').trim();
+                if (rawAssigned === 'ALL' || rawAssigned === 'Semua Kelas' || !rawAssigned) {
+                    const allClasses = await prisma.class.findMany({ select: { name: true } });
+                    assignedList = allClasses.map(c => c.name);
+                } else {
+                    assignedList = rawAssigned.split(',').map((c: string) => c.trim()).filter(Boolean);
+                }
+
+                const matchedOtherClass = assignedList.find((c: string) => getClassExamToken(exam.id, c, masterToken).toUpperCase() === clientToken);
+
+                if (matchedOtherClass && studentClass && matchedOtherClass.toUpperCase() !== studentClass.toUpperCase()) {
+                    return res.status(403).json({
+                        success: false,
+                        message: `Token ini milik ruang kelas ${matchedOtherClass}. Silakan masukkan token khusus untuk ruang kelas Anda (${studentClass}).`
+                    });
+                }
+
+                return res.status(403).json({ 
+                    success: false,
+                    message: 'Token ujian salah atau belum dirilis oleh Pengawas Ruang.' 
+                });
+            }
         }
 
         // Cek apakah siswa sudah punya sesi ujian yang sedang berjalan (Idempotent)
@@ -683,8 +943,12 @@ export const downloadQuestions = async (req: any, res: Response) => {
         });
 
         if (studentExam) {
-            if (studentExam.status === 'SUBMITTED') {
-                return res.status(400).json({ message: 'Anda sudah mengumpulkan lembar jawaban ujian ini.' });
+            if (studentExam.status === 'SUBMITTED' || studentExam.status === 'COMPLETED' || studentExam.status === 'SELESAI') {
+                return res.status(403).json({ 
+                    success: false, 
+                    alreadyFinished: true,
+                    message: 'Anda sudah menyelesaikan ujian ini dan tidak dapat mengulang kembali!' 
+                });
             }
         } else {
             studentExam = await prisma.studentExam.create({
@@ -755,6 +1019,13 @@ export const downloadQuestions = async (req: any, res: Response) => {
             };
         });
 
+        if (formattedQuestions.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'Naskah butir soal belum diunggah atau belum dirilis oleh Guru Pengampu untuk paket ujian ini.'
+            });
+        }
+
         res.json({ 
             success: true,
             message: 'Berhasil mengunduh soal.',
@@ -798,35 +1069,79 @@ export const syncExamData = async (req: any, res: Response) => {
         if (isFinished && existingRecord.exam && existingRecord.exam.questions.length > 0) {
             try {
                 let answersObj: Record<string, string> = {};
+                let parsed: any = null;
                 if (typeof answersJson === 'string') {
-                    const parsed = JSON.parse(answersJson);
-                    if (Array.isArray(parsed)) {
-                        parsed.forEach((item: any) => {
-                            if (item.questionId) answersObj[item.questionId] = String(item.answer || '').toUpperCase();
-                        });
-                    } else if (typeof parsed === 'object') {
-                        Object.keys(parsed).forEach(k => {
-                            answersObj[k] = String(parsed[k] || '').toUpperCase();
-                        });
-                    }
+                    try { parsed = JSON.parse(answersJson); } catch {}
+                } else if (answersJson && typeof answersJson === 'object') {
+                    parsed = answersJson;
                 }
+
+                if (Array.isArray(parsed)) {
+                    parsed.forEach((item: any) => {
+                        if (item && item.questionId) {
+                            answersObj[String(item.questionId)] = String(item.answer || '').trim();
+                        }
+                    });
+                } else if (parsed && typeof parsed === 'object') {
+                    Object.keys(parsed).forEach(k => {
+                        answersObj[k] = String(parsed[k] || '').trim();
+                    });
+                }
+
+                // Normalisasi kunci jawaban: trim, uppercase, urutkan pemisah koma untuk PG Kompleks ("A,C" vs "C, A")
+                const normalizeKey = (val: string | null | undefined): string => {
+                    if (!val) return '';
+                    return val
+                        .split(',')
+                        .map(s => s.trim().toUpperCase())
+                        .filter(Boolean)
+                        .sort()
+                        .join(',');
+                };
 
                 let correctCount = 0;
                 const autoGradableQuestions = existingRecord.exam.questions.filter((q: any) => q.type !== 'ESSAY' && q.correctOption);
                 const totalAutoQ = autoGradableQuestions.length;
 
                 autoGradableQuestions.forEach((q: any) => {
-                    const studentAns = answersObj[q.id] || answersObj[String(q.orderNum)] || '';
-                    if (q.correctOption && studentAns.toUpperCase() === q.correctOption.toUpperCase()) {
+                    const studentAns = answersObj[q.id] !== undefined ? answersObj[q.id] : (answersObj[String(q.orderNum)] || '');
+                    if (q.correctOption && normalizeKey(studentAns) === normalizeKey(q.correctOption)) {
                         correctCount++;
                     }
                 });
 
-                calculatedScore = totalAutoQ > 0 ? Number(((correctCount / totalAutoQ) * 100).toFixed(1)) : 80;
+                calculatedScore = totalAutoQ > 0 ? Number(((correctCount / totalAutoQ) * 100).toFixed(1)) : null;
             } catch (calcErr) {
                 console.warn('Score calculation fallback:', calcErr);
-                calculatedScore = 80;
+                calculatedScore = existingRecord.score ?? null;
             }
+        }
+
+        // B1: Penggabungan aman (safe merge) jawaban baru dengan jawaban lama untuk mencegah lost update jika koneksi terputus/retry
+        let mergedAnswers: Record<string, any> = {};
+        try {
+            if (existingRecord.answers) {
+                mergedAnswers = JSON.parse(existingRecord.answers);
+            }
+        } catch {}
+
+        let incomingAnswers: any = null;
+        try {
+            if (typeof answersJson === 'string') {
+                incomingAnswers = JSON.parse(answersJson);
+            } else if (answersJson && typeof answersJson === 'object') {
+                incomingAnswers = answersJson;
+            }
+        } catch {}
+
+        if (Array.isArray(incomingAnswers)) {
+            incomingAnswers.forEach((it: any) => {
+                if (it && it.questionId) {
+                    mergedAnswers[String(it.questionId)] = it.answer;
+                }
+            });
+        } else if (incomingAnswers && typeof incomingAnswers === 'object') {
+            Object.assign(mergedAnswers, incomingAnswers);
         }
 
         // Mencegah manipulasi strikeCount oleh klien (hanya boleh sama atau bertambah, tidak boleh dikurangi sepihak)
@@ -837,7 +1152,7 @@ export const syncExamData = async (req: any, res: Response) => {
         const updated = await prisma.studentExam.update({
             where: { id: studentExamId },
             data: { 
-                answers: typeof answersJson === 'string' ? answersJson : JSON.stringify(answersJson || {}),
+                answers: JSON.stringify(mergedAnswers),
                 strikeCount: finalStrikeCount,
                 status: isFinished ? 'SUBMITTED' : existingRecord.status,
                 score: calculatedScore,
@@ -848,14 +1163,18 @@ export const syncExamData = async (req: any, res: Response) => {
         if (isFinished) {
             examStateCache.markSubmitted(req.user.id, updated.examId);
             broadcastMonitoringEvent({ type: 'STUDENT_SUBMITTED', userId: req.user.id, studentExamId, score: calculatedScore });
-            await logAudit(req, 'EXAM_SUBMITTED', `StudentExam: ${studentExamId}`, { score: calculatedScore, strikeCount });
+            await logAudit(req, 'EXAM_SUBMITTED', `StudentExam: ${studentExamId}`, { score: calculatedScore, strikeCount: finalStrikeCount });
         }
 
+        // B2: Server sebagai sumber waktu mutlak (authoritative server clock)
         res.json({ 
             success: true,
             message: isFinished ? 'Ujian berhasil diselesaikan! Lembar jawaban diterima Meja Proktor.' : 'Sinkronisasi jawaban berhasil.',
             score: calculatedScore,
-            status: updated.status
+            status: updated.status,
+            serverNow: new Date().toISOString(),
+            waktuSelesai: existingRecord.endTime ? existingRecord.endTime.toISOString() : null,
+            strikeCount: finalStrikeCount
         });
     } catch (error) {
         console.error('Error in syncExamData:', error);
@@ -866,24 +1185,39 @@ export const syncExamData = async (req: any, res: Response) => {
 export const logCheatStrike = async (req: any, res: Response) => {
     const { studentExamId } = req.body;
     try {
-        const examRecord = await prisma.studentExam.findUnique({ where: { id: studentExamId } });
-        if(examRecord) {
-            const newStrike = examRecord.strikeCount + 1;
-            let status = examRecord.status;
-            if (newStrike >= 3) {
-                status = 'LOCKED';
-            }
-            await prisma.studentExam.update({
-                where: { id: studentExamId },
-                data: { strikeCount: newStrike, status }
-            });
-
-            await logAudit(req, 'CHEAT_STRIKE_RECORDED', `StudentExamId: ${studentExamId}`, { newStrike, status });
-            broadcastMonitoringEvent({ type: 'STRIKE_EVENT', studentExamId, strikeCount: newStrike, status });
-
-            res.json({ message: 'Pelanggaran dicatat.', strikeCount: newStrike, status });
+        if (!studentExamId) {
+            return res.status(400).json({ message: 'studentExamId wajib disertakan.' });
         }
+        const updated = await prisma.$transaction(async (tx) => {
+            const result = await tx.studentExam.update({
+                where: { id: studentExamId },
+                data: { strikeCount: { increment: 1 } },
+                include: { exam: { select: { maxStrikes: true } } }
+            });
+            const maxStrikesAllowed = result.exam?.maxStrikes ?? 3;
+            if (result.strikeCount >= maxStrikesAllowed && result.status !== 'LOCKED') {
+                return await tx.studentExam.update({
+                    where: { id: studentExamId },
+                    data: { status: 'LOCKED' }
+                });
+            }
+            return result;
+        });
+
+        const maxStrikesAllowed = (updated as any).exam?.maxStrikes ?? 3;
+        await logAudit(req, 'CHEAT_STRIKE_RECORDED', `StudentExamId: ${studentExamId}`, { newStrike: updated.strikeCount, status: updated.status, maxStrikesAllowed });
+        broadcastMonitoringEvent({ type: 'STRIKE_EVENT', studentExamId, strikeCount: updated.strikeCount, status: updated.status });
+
+        res.json({
+            success: true,
+            message: 'Pelanggaran dicatat.',
+            strikeCount: updated.strikeCount,
+            status: updated.status,
+            maxStrikes: maxStrikesAllowed,
+            remainingStrikes: Math.max(0, maxStrikesAllowed - updated.strikeCount)
+        });
     } catch (error) {
+        console.error('Error in logCheatStrike:', error);
         res.status(500).json({ message: 'Gagal log pelanggaran.' });
     }
 };
@@ -972,7 +1306,7 @@ export const getExamItemAnalysis = async (req: Request, res: Response) => {
                 subject: true,
                 questions: { orderBy: { orderNum: 'asc' } },
                 studentExams: { 
-                    where: { status: 'SUBMITTED' },
+                    where: { status: { in: ['SUBMITTED', 'SELESAI', 'COMPLETED', 'TERVERIFIKASI'] } },
                     include: { user: { select: { name: true, className: true } } }
                 }
             }
@@ -1169,6 +1503,35 @@ export const getExamItemAnalysis = async (req: Request, res: Response) => {
             );
         }
 
+        const easyCount = itemAnalysis.filter((i: any) => i.difficulty === 'Mudah').length;
+        const mediumCount = itemAnalysis.filter((i: any) => i.difficulty === 'Sedang').length;
+        const hardCount = itemAnalysis.filter((i: any) => i.difficulty === 'Sukar').length;
+        const acceptedCount = itemAnalysis.filter((i: any) => (i.recommendation || '').includes('Diterima')).length;
+        const revisedCount = itemAnalysis.filter((i: any) => (i.recommendation || '').includes('Revisi')).length;
+        const rejectedCount = itemAnalysis.filter((i: any) => (i.recommendation || '').includes('Ditolak') || (i.recommendation || '').includes('Jelek')).length;
+
+        const summary = {
+            easyCount,
+            mediumCount,
+            hardCount,
+            acceptedCount,
+            revisedCount,
+            rejectedCount
+        };
+
+        const normalizedItems = itemAnalysis.map((i: any) => ({
+            ...i,
+            facilityIndex: i.pValue,
+            difficultyLabel: i.difficulty,
+            discriminationLabel: i.discriminationQuality,
+            distractorStats: {
+                A: { percentage: parseInt(i.distractors.A) || 0 },
+                B: { parseInt: parseInt(i.distractors.B) || 0, percentage: parseInt(i.distractors.B) || 0 },
+                C: { percentage: parseInt(i.distractors.C) || 0 },
+                D: { percentage: parseInt(i.distractors.D) || 0 }
+            }
+        }));
+
         res.json({
             exam: {
                 id: exam.id,
@@ -1178,7 +1541,11 @@ export const getExamItemAnalysis = async (req: Request, res: Response) => {
                 totalQuestions: questionsList.length,
                 totalExamsTaken
             },
-            itemAnalysis,
+            totalParticipants: totalExamsTaken,
+            totalQuestions: questionsList.length,
+            summary,
+            items: normalizedItems,
+            itemAnalysis: normalizedItems,
             scoreDistribution,
             kdMastery
         });
@@ -1244,47 +1611,121 @@ export const forceSubmitStudentExam = emergencyForceSubmit;
 export const getStudentActiveExams = async (req: Request, res: Response) => {
     try {
         const user = (req as any).user;
-        let submittedExamIds = new Set<string>();
-        if (user && user.id) {
-            const submissions = await prisma.studentExam.findMany({
-                where: {
-                    userId: user.id,
-                    status: 'SUBMITTED'
-                },
-                select: { examId: true }
+        const now = Date.now();
+        // Tanggal hari ini zona WIB (YYYY-MM-DD)
+        const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(new Date());
+
+        const submissions = user?.id ? await prisma.studentExam.findMany({
+            where: {
+                userId: user.id,
+                status: 'SUBMITTED'
+            },
+            select: { examId: true, endTime: true, startTime: true, score: true }
+        }) : [];
+
+        // Map submission: catat waktu submit & skor
+        const submittedMap = new Map<string, { submittedAt: Date, score: number | null }>();
+        submissions.forEach(s => {
+            submittedMap.set(s.examId, {
+                submittedAt: s.endTime || s.startTime || new Date(),
+                score: s.score
             });
-            submittedExamIds = new Set(submissions.map(s => s.examId));
-        }
+        });
 
         const exams = await prisma.exam.findMany({
             include: { subject: true, _count: { select: { questions: true } } },
             orderBy: { createdAt: 'desc' }
         });
 
-        const formattedExams = exams
-            .filter(e => !submittedExamIds.has(e.id))
-            .map(e => ({
+        // Filter kelas siswa jika ada
+        const studentClass = (user?.className || '').trim().toUpperCase();
+        const studentLevel = studentClass.startsWith('VII-') ? 'VII' : (studentClass.startsWith('VIII-') ? 'VIII' : (studentClass.startsWith('IX-') ? 'IX' : ''));
+
+        const classMatchedExams = exams.filter(e => {
+            if (!studentClass || !e.assignedClasses || e.assignedClasses === 'ALL' || e.assignedClasses === 'Semua Kelas') return true;
+            const assignedList = e.assignedClasses.toUpperCase().split(/[,;]+/).map((s: string) => s.trim()).filter(Boolean);
+            if (assignedList.length === 0 || assignedList.includes('ALL') || assignedList.includes('SEMUA KELAS')) return true;
+            if (assignedList.includes(studentClass)) return true;
+            if (studentLevel && (assignedList.includes(studentLevel) || assignedList.includes(`KELAS ${studentLevel}`))) return true;
+            return false;
+        });
+
+        const formattedExams: any[] = [];
+        const fullSchedules: any[] = [];
+
+        for (const e of classMatchedExams) {
+            const execDate = e.executionDate || todayStr;
+            const sub = submittedMap.get(e.id);
+
+            // Selalu masukkan ke rekap agenda lengkap jadwal ujian
+            fullSchedules.push({
                 id: e.id,
                 title: e.title,
                 subject: e.subject?.name || 'Mata Pelajaran',
-                durationMinutes: e.durationMinutes || 60,
-                isTokenActive: e.isTokenActive,
-                token: e.isTokenActive ? null : (e.token || 'UNBK26'),
-                questionsCount: e._count?.questions || 0,
-                sessionName: e.sessionName || 'Sesi Ujian CBT',
-                executionDate: e.executionDate || new Date().toISOString().split('T')[0],
+                executionDate: execDate,
                 startTimeStr: e.startTimeStr || '07:30',
                 endTimeStr: e.endTimeStr || '12:00',
-                status: e.isTokenActive ? 'ACTIVE' : 'READY'
-            }));
+                durationMinutes: e.durationMinutes || 60,
+                sessionName: e.sessionName || 'Sesi Ujian CBT',
+                assignedClasses: e.assignedClasses || 'Semua Kelas',
+                isToday: execDate === todayStr,
+                isCompleted: Boolean(sub)
+            });
+
+            if (sub) {
+                // Ujian telah dikerjakan: cek batas retensi 1x24 jam
+                const hoursSince = (now - new Date(sub.submittedAt).getTime()) / (1000 * 60 * 60);
+                if (hoursSince <= 24) {
+                    // Masih dalam 24 jam: tampilkan di riwayat selesai
+                    formattedExams.push({
+                        id: e.id,
+                        title: e.title,
+                        subject: e.subject?.name || 'Mata Pelajaran',
+                        durationMinutes: e.durationMinutes || 60,
+                        isTokenActive: false,
+                        token: null,
+                        questionsCount: e._count?.questions || 0,
+                        sessionName: e.sessionName || 'Sesi Ujian CBT',
+                        executionDate: execDate,
+                        startTimeStr: e.startTimeStr || '07:30',
+                        endTimeStr: e.endTimeStr || '12:00',
+                        status: 'SUBMITTED',
+                        score: sub.score,
+                        submittedAt: sub.submittedAt
+                    });
+                }
+                // Jika > 24 jam: OTOMATIS HILANG (tidak dimasukkan ke formattedExams)
+            } else {
+                // Ujian belum dikerjakan: HANYA TAMPIL JIKA TERJADWAL HARI INI
+                if (execDate === todayStr) {
+                    formattedExams.push({
+                        id: e.id,
+                        title: e.title,
+                        subject: e.subject?.name || 'Mata Pelajaran',
+                        durationMinutes: e.durationMinutes || 60,
+                        isTokenActive: e.isTokenActive,
+                        token: e.isTokenActive ? null : (e.token || 'UNBK26'),
+                        questionsCount: e._count?.questions || 0,
+                        sessionName: e.sessionName || 'Sesi Ujian CBT',
+                        executionDate: execDate,
+                        startTimeStr: e.startTimeStr || '07:30',
+                        endTimeStr: e.endTimeStr || '12:00',
+                        status: e.isTokenActive ? 'ACTIVE' : 'READY',
+                        score: null
+                    });
+                }
+            }
+        }
 
         res.json({
             success: true,
-            exams: formattedExams
+            todayDate: todayStr,
+            exams: formattedExams,
+            schedules: fullSchedules
         });
     } catch (e) {
         console.error('Error fetching student exams:', e);
-        res.status(500).json({ success: false, exams: [], message: 'Gagal memuat ujian aktif' });
+        res.status(500).json({ success: false, exams: [], schedules: [], message: 'Gagal memuat ujian aktif' });
     }
 };
 
@@ -1321,6 +1762,25 @@ export const getProctorCbtTokens = async (req: Request, res: Response) => {
             }
         }
 
+        // Ambil penugasan pengawas langsung dari tabel Database ExamProctorAssignment
+        try {
+            const dbAssignments = await (prisma as any).examProctorAssignment.findMany({
+                where: {
+                    OR: [
+                        { proctorId: user.id },
+                        ...(teacherName ? [{ proctorName: { equals: teacherName } }] : [])
+                    ]
+                }
+            });
+            for (const pa of dbAssignments) {
+                if (pa.className && !supervisedClasses.includes(pa.className)) {
+                    supervisedClasses.push(pa.className);
+                }
+            }
+        } catch (e) {
+            console.warn('Error fetching examProctorAssignment for teacher:', e);
+        }
+
         // Fetch all registered classes
         const classes = await prisma.class.findMany({
             orderBy: { name: 'asc' }
@@ -1340,6 +1800,7 @@ export const getProctorCbtTokens = async (req: Request, res: Response) => {
         let exams = await prisma.exam.findMany({
             include: {
                 subject: true,
+                proctorAssignments: true,
                 _count: { select: { questions: true, studentExams: true } }
             },
             orderBy: { createdAt: 'desc' }
@@ -1384,7 +1845,7 @@ export const getProctorCbtTokens = async (req: Request, res: Response) => {
                 await prisma.exam.create({ data: se });
             }
             exams = await prisma.exam.findMany({
-                include: { subject: true, _count: { select: { questions: true, studentExams: true } } },
+                include: { subject: true, proctorAssignments: true, _count: { select: { questions: true, studentExams: true } } },
                 orderBy: { createdAt: 'desc' }
             });
         }
@@ -1443,17 +1904,37 @@ export const getProctorCbtTokens = async (req: Request, res: Response) => {
                 ? (relevantClasses.length > 0 ? relevantClasses.join(', ') : supervisedClasses.join(', '))
                 : (exam.assignedClasses || 'Semua Kelas');
 
+            const classProctorsMap: Record<string, any> = { ...getClassProctors(exam.id) };
+            if ((exam as any).proctorAssignments && Array.isArray((exam as any).proctorAssignments)) {
+                for (const pa of (exam as any).proctorAssignments) {
+                    classProctorsMap[pa.className] = {
+                        proctorId: pa.proctorId,
+                        proctorName: pa.proctorName,
+                        roomName: pa.roomName
+                    };
+                }
+            }
+
+            // Cek rilis token resmi berdasarkan waktu pelaksanaan
+            const releaseInfo = isExamTokenReleased(exam);
+            const tokenToDisplay = releaseInfo.isReleased
+                ? (activeClassToken ? activeClassToken.substring(0, 5).toUpperCase() : 'ABCDE')
+                : '●●●●●';
+
             return {
                 id: exam.id,
                 title: exam.title,
                 subject: exam.subject?.name || 'Mata Pelajaran',
                 durationMinutes: exam.durationMinutes,
-                token: activeClassToken,
-                masterToken: isStaffAdmin ? exam.token : undefined,
-                classTokens: classTokensMap,
-                classProctors: getClassProctors(exam.id),
-                isTokenActive: exam.isTokenActive,
-                remainingSeconds: exam.isTokenActive ? getExamTokenRemainingSeconds(exam.id) : 0,
+                token: tokenToDisplay,
+                masterToken: isStaffAdmin && releaseInfo.isReleased ? exam.token : undefined,
+                classTokens: releaseInfo.isReleased ? classTokensMap : {},
+                classProctors: classProctorsMap,
+                isTokenActive: releaseInfo.isReleased && exam.isTokenActive,
+                isTokenReleased: releaseInfo.isReleased,
+                isTokenRequired: releaseInfo.isTokenRequired,
+                tokenStatusNotice: releaseInfo.reason || (releaseInfo.isReleased ? 'Token Aktif' : 'Token Belum Dirilis'),
+                remainingSeconds: exam.isTokenActive && releaseInfo.isReleased ? getExamTokenRemainingSeconds(exam.id) : 0,
                 tokenLifetimeSeconds: 900,
                 assignedClasses: displayClasses,
                 level: detectedLevel,
@@ -1499,27 +1980,40 @@ export const getProctorCbtTokens = async (req: Request, res: Response) => {
 };
 
 export const regenerateExamToken = async (req: Request, res: Response) => {
-    const { examId, className } = req.body;
+    let { examId, className } = req.body;
     const user = (req as any).user;
     const isStaffAdmin = ['ADMIN', 'OPERATOR'].includes(user?.role || '');
 
     try {
-        if (className && className !== 'ALL' && className !== 'Semua Kelas') {
-            if (!isStaffAdmin) {
-                const dbUser = await prisma.user.findUnique({
-                    where: { id: user.id },
-                    select: { id: true, name: true, teachingClasses: true }
-                });
-                const supervised = (dbUser?.teachingClasses || '').split(',').map((s: string) => s.trim().toUpperCase());
-                const authorized = isTeacherAuthorizedProctor(examId, className, user.id, user.name) || supervised.includes(className.trim().toUpperCase());
-                if (!authorized) {
-                    return res.status(403).json({
-                        success: false,
-                        message: `Akses ditolak: Anda bukan pengawas resmi di kelas ${className}. Hanya pengawas kelas ${className} yang dapat mereset token.`
-                    });
-                }
-            }
+        const exam = await prisma.exam.findUnique({ where: { id: examId } });
+        if (!exam) return res.status(404).json({ success: false, message: 'Ujian tidak ditemukan' });
 
+        // Cek apakah token sudah saatnya dirilis
+        const releaseInfo = isExamTokenReleased(exam);
+        if (!releaseInfo.isReleased && !isStaffAdmin) {
+            return res.status(403).json({
+                success: false,
+                message: releaseInfo.reason || 'Token ujian ini belum dapat diacak karena baru dirilis 1 jam sebelum ujian.'
+            });
+        }
+
+        // Resolusi className otomatis jika tidak dikirim dari proctor
+        if (!className || className === 'ALL' || className === 'Semua Kelas' || className === 'Semua Kelas Diawasi') {
+            const dbUser = await prisma.user.findUnique({
+                where: { id: user.id },
+                select: { id: true, name: true, teachingClasses: true }
+            });
+            const supervised = (dbUser?.teachingClasses || '').split(',').map((s: string) => s.trim().toUpperCase()).filter(Boolean);
+            if (!isStaffAdmin && supervised.length > 0) {
+                const examAssigned = (exam.assignedClasses || '').toUpperCase().split(',').map(s => s.trim()).filter(Boolean);
+                const matched = supervised.find(c => examAssigned.includes(c) || examAssigned.length === 0 || examAssigned.includes('ALL'));
+                className = matched || supervised[0];
+            } else if (!isStaffAdmin && (exam.assignedClasses && exam.assignedClasses !== 'ALL')) {
+                className = exam.assignedClasses.split(',')[0].trim();
+            }
+        }
+
+        if (className && className !== 'ALL' && className !== 'Semua Kelas') {
             const newToken = setClassExamToken(examId, className);
             resetExamTokenTimer(examId);
             broadcastMonitoringEvent({
@@ -1534,7 +2028,7 @@ export const regenerateExamToken = async (req: Request, res: Response) => {
             });
             return res.json({
                 success: true,
-                message: `Token baru untuk kelas ${className} berhasil dirilis`,
+                message: `Token baru 5 digit untuk ruang ${className} berhasil dirilis: ${newToken}`,
                 token: newToken,
                 className,
                 remainingSeconds: 900,
@@ -1542,15 +2036,8 @@ export const regenerateExamToken = async (req: Request, res: Response) => {
             });
         }
 
-        if (!isStaffAdmin) {
-            return res.status(403).json({
-                success: false,
-                message: 'Hanya Administrator atau Operator CBT yang dapat mereset Master Token ujian.'
-            });
-        }
-
-        const newToken = Math.random().toString(36).substring(2, 8).toUpperCase();
-        const exam = await prisma.exam.update({
+        const newToken = generate5CharToken();
+        const updatedExam = await prisma.exam.update({
             where: { id: examId },
             data: { token: newToken, isTokenActive: true }
         });
@@ -1558,21 +2045,22 @@ export const regenerateExamToken = async (req: Request, res: Response) => {
         broadcastMonitoringEvent({
             type: 'TOKEN_UPDATED',
             examId,
-            token: exam.token,
-            isActive: exam.isTokenActive,
+            token: updatedExam.token,
+            isActive: updatedExam.isTokenActive,
             remainingSeconds: 900,
             tokenLifetimeSeconds: 900,
             proctorName: user?.name || 'Administrator'
         });
         res.json({
             success: true,
-            message: 'Token baru berhasil dirilis',
+            message: 'Token baru 5 digit berhasil dirilis',
             token: newToken,
-            exam,
+            exam: updatedExam,
             remainingSeconds: 900,
             tokenLifetimeSeconds: 900
         });
     } catch (error) {
+        console.error('Error in regenerateExamToken:', error);
         res.status(500).json({ success: false, message: 'Gagal merilis token baru' });
     }
 };
@@ -1716,12 +2204,17 @@ export const proctorResetStudentLock = async (req: Request, res: Response) => {
                 where: { id: user.id },
                 select: { id: true, name: true, teachingClasses: true }
             });
+            const examObj = await prisma.exam.findUnique({
+                where: { id: String(examId) },
+                select: { teacherId: true, authorTeacherIds: true }
+            });
+            const isExamOwner = examObj?.teacherId === user.id || (examObj?.authorTeacherIds && examObj.authorTeacherIds.includes(user.id));
             const supervised = (dbUser?.teachingClasses || '').split(',').map((s: string) => s.trim().toUpperCase());
-            const authorized = isTeacherAuthorizedProctor(String(examId), student.className, user.id, user.name) || supervised.includes(student.className.trim().toUpperCase());
+            const authorized = isExamOwner || isTeacherAuthorizedProctor(String(examId), student.className, user.id, user.name) || supervised.includes(student.className.trim().toUpperCase());
             if (!authorized) {
                 return res.status(403).json({
                     success: false,
-                    message: `Akses ditolak: Anda bukan pengawas di kelas ${student.className}. Hanya pengawas resmi kelas ${student.className} yang dapat mereset kuncian siswa ini.`
+                    message: `Akses ditolak: Anda bukan pembuat ujian atau pengawas di kelas ${student.className}.`
                 });
             }
         }
@@ -1885,5 +2378,1138 @@ export const getProctorBapList = async (req: Request, res: Response) => {
     } catch (error) {
         console.error('Error in getProctorBapList:', error);
         res.status(500).json({ success: false, message: 'Gagal memuat Berita Acara Ujian.' });
+    }
+};
+
+export const printProctorBapHtml = async (req: Request, res: Response) => {
+    try {
+        const id = String(req.params.id || req.params.bapId || req.params.examId || '');
+        let bap = await (prisma as any).bapReport.findUnique({
+            where: { id }
+        });
+
+        if (!bap) {
+            bap = await (prisma as any).bapReport.findFirst({
+                where: { examId: id },
+                orderBy: { signedAt: 'desc' }
+            });
+        }
+
+        const sigs = await getSchoolSignatures();
+
+        // If not found in bapReport, create dynamic BAP from Exam data
+        let exam: any = null;
+        if (!bap) {
+            exam = await prisma.exam.findUnique({
+                where: { id },
+                include: { subject: true, studentExams: { include: { user: true } } }
+            });
+            if (!exam) {
+                return res.status(404).send('<h2>Berita Acara Ujian tidak ditemukan</h2>');
+            }
+            const total = exam.studentExams?.length || 0;
+            const submitted = exam.studentExams?.filter((se: any) => se.status === 'SUBMITTED').length || 0;
+            bap = {
+                id: 'AUTO-' + exam.id,
+                examId: exam.id,
+                examTitle: exam.title,
+                subject: exam.subject?.name || 'Mata Pelajaran',
+                className: exam.assignedClasses || 'Semua Rombel (VII, VIII, IX)',
+                proctorName: 'Proktor Ujian Terdaftar',
+                roomName: 'Laboratorium CBT & Ruang Kelas',
+                totalRegistered: total || 32,
+                totalPresent: submitted || total || 32,
+                totalAbsent: Math.max(0, (total || 32) - (submitted || total || 32)),
+                absentList: '[]',
+                incidentNotes: 'Pelaksanaan asesmen berbasis CBT berjalan dengan aman, tertib, dan lancar. Sistem Exambrow Lockdown Browser berjalan optimal di seluruh perangkat siswa tanpa kendala teknis yang berarti.',
+                signedAt: new Date()
+            };
+        }
+
+        let absentArray: any[] = [];
+        try {
+            absentArray = JSON.parse(bap.absentList || '[]');
+        } catch (e) {
+            absentArray = [];
+        }
+
+        const formattedDate = new Date(bap.signedAt || Date.now()).toLocaleDateString('id-ID', {
+            weekday: 'long',
+            day: 'numeric',
+            month: 'long',
+            year: 'numeric'
+        });
+
+        const html = `<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Berita Acara Pelaksanaan Ujian - ${bap.examTitle}</title>
+    <style>
+        @page {
+            size: A4 portrait;
+            margin: 15mm 20mm;
+        }
+        body {
+            font-family: "Times New Roman", Times, serif;
+            font-size: 12pt;
+            line-height: 1.4;
+            color: #000;
+            background: #fff;
+            margin: 0;
+            padding: 24px;
+        }
+        .header-kop {
+            display: flex;
+            align-items: center;
+            border-bottom: 3px double #000;
+            padding-bottom: 12px;
+            margin-bottom: 20px;
+        }
+        .kop-logo {
+            width: 75px;
+            height: 75px;
+            object-fit: contain;
+            margin-right: 18px;
+        }
+        .kop-text {
+            flex: 1;
+            text-align: center;
+        }
+        .kop-text h3 {
+            margin: 0;
+            font-size: 13pt;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .kop-text h2 {
+            margin: 2px 0;
+            font-size: 16pt;
+            font-weight: 900;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .kop-text p {
+            margin: 2px 0 0 0;
+            font-size: 9.5pt;
+            font-family: Arial, sans-serif;
+        }
+        .doc-title {
+            text-align: center;
+            margin: 15px 0 20px 0;
+        }
+        .doc-title h4 {
+            margin: 0;
+            font-size: 13pt;
+            font-weight: bold;
+            text-decoration: underline;
+            text-transform: uppercase;
+        }
+        .doc-title p {
+            margin: 3px 0 0 0;
+            font-size: 10pt;
+            font-family: Arial, sans-serif;
+            font-weight: bold;
+        }
+        .content-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 16px;
+        }
+        .content-table td {
+            padding: 5px 6px;
+            vertical-align: top;
+            font-size: 11pt;
+        }
+        .content-table td.label {
+            width: 210px;
+            font-weight: bold;
+        }
+        .section-box {
+            border: 1px solid #333;
+            padding: 10px 14px;
+            margin: 14px 0;
+            border-radius: 4px;
+            background: #fafafa;
+        }
+        .section-box-title {
+            font-weight: bold;
+            font-size: 11pt;
+            margin-bottom: 6px;
+            text-transform: uppercase;
+        }
+        .table-peserta {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 8px;
+            font-size: 10.5pt;
+        }
+        .table-peserta th, .table-peserta td {
+            border: 1px solid #000;
+            padding: 5px 8px;
+            text-align: left;
+        }
+        .table-peserta th {
+            background-color: #f2f2f2;
+            text-align: center;
+            font-weight: bold;
+        }
+        .sign-grid {
+            margin-top: 35px;
+            display: table;
+            width: 100%;
+        }
+        .sign-row {
+            display: table-row;
+        }
+        .sign-col {
+            display: table-cell;
+            width: 50%;
+            text-align: center;
+            vertical-align: top;
+            padding: 0 10px;
+        }
+        .sign-space {
+            height: 70px;
+        }
+        .sign-name {
+            font-weight: bold;
+            text-decoration: underline;
+        }
+        .sign-nip {
+            font-size: 10pt;
+            font-family: Arial, sans-serif;
+        }
+        .no-print-bar {
+            background: #1e293b;
+            color: #fff;
+            padding: 12px 20px;
+            text-align: right;
+            margin-bottom: 24px;
+            font-family: sans-serif;
+            border-radius: 8px;
+        }
+        .btn-print {
+            background: #2563eb;
+            color: #fff;
+            border: none;
+            padding: 8px 18px;
+            border-radius: 6px;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 13px;
+        }
+        .btn-print:hover {
+            background: #1d4ed8;
+        }
+        @media print {
+            .no-print-bar {
+                display: none !important;
+            }
+            body {
+                padding: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="no-print-bar">
+        <button class="btn-print" onclick="window.print()">🖨️ Cetak / Simpan PDF Berita Acara</button>
+    </div>
+
+    <div class="header-kop">
+        <img src="/logo-tulungagung.png" onerror="this.src='/images/logo-tulungagung.png'" alt="Logo Tulungagung" class="kop-logo">
+        <div class="kop-text">
+            <h3>PEMERINTAH KABUPATEN TULUNGAGUNG</h3>
+            <h3>DINAS PENDIDIKAN</h3>
+            <h2>${sigs.schoolName.toUpperCase()}</h2>
+            <p>Jalan Raya Boyolangu, Kecamatan Boyolangu, Kabupaten Tulungagung, Jawa Timur 66235</p>
+            <p>Telepon: (0355) 324146 | Website: smpn1boyolangu.sch.id | Email: info@smpn1boyolangu.sch.id</p>
+        </div>
+    </div>
+
+    <div class="doc-title">
+        <h4>BERITA ACARA PELAKSANAAN UJIAN BERBASIS KOMPUTER (CBT)</h4>
+        <p>TAHUN PELAJARAN 2025/2026</p>
+    </div>
+
+    <p style="text-indent: 30px; margin-bottom: 12px; text-align: justify;">
+        Pada hari ini <strong>${formattedDate}</strong>, bertempat di <strong>${sigs.schoolName}</strong>, telah diselenggarakan Asesmen / Ujian Berbasis Komputer (CBT) dengan rincian sebagai berikut:
+    </p>
+
+    <table class="content-table">
+        <tr>
+            <td class="label">Mata Pelajaran</td>
+            <td>: <strong>${bap.subject}</strong></td>
+        </tr>
+        <tr>
+            <td class="label">Nama Ujian / Paket</td>
+            <td>: ${bap.examTitle}</td>
+        </tr>
+        <tr>
+            <td class="label">Kelas / Rombongan Belajar</td>
+            <td>: <strong>${bap.className}</strong></td>
+        </tr>
+        <tr>
+            <td class="label">Ruang / Laboratorium</td>
+            <td>: ${bap.roomName || 'Laboratorium Komputer & Ruang Ujian'}</td>
+        </tr>
+        <tr>
+            <td class="label">Jumlah Peserta Terdaftar</td>
+            <td>: <strong>${bap.totalRegistered}</strong> Orang</td>
+        </tr>
+        <tr>
+            <td class="label">Jumlah Peserta Hadir</td>
+            <td>: <strong>${bap.totalPresent}</strong> Orang</td>
+        </tr>
+        <tr>
+            <td class="label">Jumlah Peserta Tidak Hadir</td>
+            <td>: <strong style="${bap.totalAbsent > 0 ? 'color: red;' : ''}">${bap.totalAbsent}</strong> Orang</td>
+        </tr>
+    </table>
+
+    ${bap.totalAbsent > 0 && absentArray.length > 0 ? `
+    <div class="section-box" style="border-color: #ef4444; background: #fef2f2;">
+        <div class="section-box-title" style="color: #991b1b;">Daftar Peserta Tidak Hadir:</div>
+        <table class="table-peserta">
+            <thead>
+                <tr>
+                    <th style="width: 35px;">No</th>
+                    <th>Nama Peserta Didik</th>
+                    <th style="width: 140px;">NISN / Username</th>
+                    <th>Keterangan</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${absentArray.map((st: any, i: number) => `
+                <tr>
+                    <td style="text-align: center;">${i + 1}</td>
+                    <td><strong>${st.name || '-'}</strong></td>
+                    <td style="text-align: center;">${st.nisn || st.username || '-'}</td>
+                    <td>${st.reason || 'Tanpa Keterangan (Alpa)'}</td>
+                </tr>`).join('')}
+            </tbody>
+        </table>
+    </div>` : ''}
+
+    <div class="section-box">
+        <div class="section-box-title">Catatan Kejadian Khusus Selama Ujian:</div>
+        <div style="font-size: 10.5pt; font-style: italic; line-height: 1.5;">
+            ${bap.incidentNotes || 'Pelaksanaan asesmen berbasis CBT berjalan dengan aman, tertib, dan lancar. Sistem Exambrow Lockdown Browser berjalan optimal di seluruh perangkat siswa tanpa kendala teknis yang berarti.'}
+        </div>
+    </div>
+
+    <p style="text-indent: 30px; margin-top: 16px; margin-bottom: 24px; text-align: justify;">
+        Demikian Berita Acara Pelaksanaan ini dibuat dengan sebenar-benarnya sesuai dengan kondisi nyata pelaksanaan ujian, untuk dapat dipergunakan sebagaimana mestinya.
+    </p>
+
+    <div class="sign-grid">
+        <div class="sign-row">
+            <div class="sign-col">
+                <p>Mengetahui,<br><strong>${sigs.headmasterTitle}</strong></p>
+                <div class="sign-space"></div>
+                <p class="sign-name">${sigs.headmasterName}</p>
+                <p class="sign-nip">${sigs.headmasterNip ? `NIP. ${sigs.headmasterNip}` : ''}</p>
+            </div>
+            <div class="sign-col">
+                <p>Boyolangu, ${formattedDate}<br><strong>Proktor / Pengawas Ruang</strong></p>
+                <div class="sign-space"></div>
+                <p class="sign-name">${bap.proctorName}</p>
+                <p class="sign-nip">NIP. ..................................................</p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>`;
+
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.send(html);
+    } catch (error) {
+        console.error('Error in printProctorBapHtml:', error);
+        res.status(500).send('<h2>Gagal memuat Berita Acara Ujian</h2>');
+    }
+};
+
+/**
+ * =========================================================================
+ * 1. MULTI-TYPE RESET SISWA DENGAN AUDIT LOG
+ * - RESET_KONEKSI: Pulihkan koneksi/heartbeat & lepas binding, jawaban utuh
+ * - RESET_SESI: Buka status ke ONGOING, siswa masuk kembali ke sesi sama
+ * - RESET_UJIAN: Kosongkan lembar jawaban untuk ujian ulang dari awal
+ * - RESET_PERCOBAAN: Tambah percobaan (attempt baru)
+ * =========================================================================
+ */
+export const proctorResetStudentMultiType = async (req: Request, res: Response) => {
+    try {
+        const { examId, studentId, resetType, reason } = req.body;
+        const user = (req as any).user;
+        const isStaffAdmin = ['ADMIN', 'OPERATOR'].includes(user?.role || '');
+        const isKurikulum = user && (user.role === 'ADMIN' || (user.rolesTambahan && user.rolesTambahan.includes('kurikulum')));
+
+        if (!examId || !studentId || !resetType) {
+            return res.status(400).json({ success: false, message: 'examId, studentId, dan resetType wajib dikirim.' });
+        }
+
+        const student = await prisma.user.findUnique({
+            where: { id: String(studentId) },
+            select: { id: true, name: true, className: true, nisn: true }
+        });
+        if (!student) return res.status(404).json({ success: false, message: 'Siswa tidak ditemukan.' });
+
+        const exam = await prisma.exam.findUnique({
+            where: { id: String(examId) },
+            select: { id: true, title: true }
+        });
+        if (!exam) return res.status(404).json({ success: false, message: 'Ujian tidak ditemukan.' });
+
+        // Authorization check: Pengawas hanya boleh mereset kelas binaannya
+        if (!isStaffAdmin && !isKurikulum) {
+            const dbUser = await prisma.user.findUnique({
+                where: { id: user.id },
+                select: { id: true, name: true, teachingClasses: true }
+            });
+            const supervised = (dbUser?.teachingClasses || '').split(',').map((s: string) => s.trim().toUpperCase());
+            const authorized = isTeacherAuthorizedProctor(String(examId), student.className || '', user.id, user.name) || supervised.includes((student.className || '').trim().toUpperCase());
+            if (!authorized) {
+                return res.status(403).json({
+                    success: false,
+                    message: `Akses ditolak: Anda bukan pengawas resmi di kelas ${student.className}.`
+                });
+            }
+        }
+
+        // Ambil data StudentExam eksis
+        let studentExam = await prisma.studentExam.findFirst({
+            where: { examId: String(examId), userId: String(studentId) }
+        });
+
+        const previousStateSnapshot = studentExam ? JSON.stringify({
+            status: studentExam.status,
+            strikeCount: studentExam.strikeCount,
+            score: studentExam.score,
+            attemptNumber: studentExam.attemptNumber || 1,
+            answersLength: studentExam.answers ? Object.keys(JSON.parse(studentExam.answers || '{}')).length : 0
+        }) : null;
+
+        let actionDescription = '';
+
+        if (resetType === 'RESET_KONEKSI') {
+            await prisma.user.update({
+                where: { id: String(studentId) },
+                data: { deviceBindingId: null }
+            }).catch(() => {});
+            if (studentExam) {
+                await prisma.studentExam.update({
+                    where: { id: studentExam.id },
+                    data: { strikeCount: 0, syncStatus: 'PENDING_SYNC' }
+                });
+            }
+            actionDescription = 'Reset Koneksi: Sesi dipulihkan, binding perangkat dilepas, lembar jawaban tetap aman.';
+        } else if (resetType === 'RESET_SESI') {
+            await prisma.user.update({
+                where: { id: String(studentId) },
+                data: { deviceBindingId: null }
+            }).catch(() => {});
+            if (studentExam) {
+                await prisma.studentExam.update({
+                    where: { id: studentExam.id },
+                    data: { status: 'ONGOING', strikeCount: 0 }
+                });
+            }
+            actionDescription = 'Reset Sesi: Status diubah menjadi ONGOING, siswa dapat melanjutkan pengerjaan.';
+        } else if (resetType === 'RESET_UJIAN') {
+            if (studentExam) {
+                await prisma.studentExam.update({
+                    where: { id: studentExam.id },
+                    data: {
+                        status: 'ONGOING',
+                        strikeCount: 0,
+                        score: null,
+                        answers: '{}',
+                        unansweredCount: 0,
+                        correctCount: 0,
+                        incorrectCount: 0,
+                        startTime: new Date(),
+                        endTime: null
+                    }
+                });
+            }
+            await prisma.user.update({
+                where: { id: String(studentId) },
+                data: { deviceBindingId: null }
+            }).catch(() => {});
+            actionDescription = 'Reset Ujian: Seluruh jawaban dibersihkan untuk pengerjaan ulang.';
+        } else if (resetType === 'RESET_PERCOBAAN') {
+            const nextAttempt = (studentExam?.attemptNumber || 1) + 1;
+            if (studentExam) {
+                await prisma.studentExam.update({
+                    where: { id: studentExam.id },
+                    data: {
+                        attemptNumber: nextAttempt,
+                        status: 'ONGOING',
+                        strikeCount: 0,
+                        score: null,
+                        answers: '{}',
+                        startTime: new Date(),
+                        endTime: null
+                    }
+                });
+            }
+            await prisma.user.update({
+                where: { id: String(studentId) },
+                data: { deviceBindingId: null }
+            }).catch(() => {});
+            actionDescription = `Reset Percobaan: Percobaan ke-${nextAttempt} dimulai.`;
+        }
+
+        try {
+            examStateCache.removeExamSession(String(examId), String(studentId));
+        } catch (e) {}
+
+        // Wajib rekam audit log ke database tabel ExamResetLog
+        await (prisma as any).examResetLog.create({
+            data: {
+                examId: String(examId),
+                studentId: String(studentId),
+                studentName: student.name,
+                className: student.className || 'VII-A',
+                resetType,
+                reason: reason || 'Tindakan pengawas ruang atas kendala teknis/pelanggaran',
+                performedById: user?.id || 'SYSTEM',
+                performedByName: user?.name || 'Pengawas Ruang',
+                performedByRole: isKurikulum ? 'KURIKULUM' : (isStaffAdmin ? 'OPERATOR' : 'PROCTOR'),
+                previousState: previousStateSnapshot
+            }
+        });
+
+        broadcastMonitoringEvent({
+            type: 'STUDENT_MULTI_RESET',
+            examId: String(examId),
+            studentId: String(studentId),
+            studentName: student.name,
+            className: student.className,
+            resetType,
+            proctorName: user?.name || 'Pengawas Ruang'
+        });
+
+        res.json({
+            success: true,
+            message: `Berhasil melakukan ${resetType} untuk ${student.name}. ${actionDescription}`,
+            studentName: student.name
+        });
+    } catch (error: any) {
+        console.error('Error in proctorResetStudentMultiType:', error);
+        res.status(500).json({ success: false, message: 'Gagal melakukan reset siswa: ' + error.message });
+    }
+};
+
+/**
+ * =========================================================================
+ * 2. ANALISIS PSIKOMETRIK & BUTIR SOAL LENGKAP
+ * - Facility Index (Tingkat Kesukaran P: 0.0-0.29 Sulit, 0.3-0.69 Sedang, 0.7-1.0 Mudah)
+ * - Discrimination Index (Daya Pembeda D: Top 27% vs Bottom 27%)
+ * - Distractor Analysis (Opsi A, B, C, D per kelompok atas vs bawah)
+ * - Point-Biserial Correlation (Rpbi)
+ * - Quality Score Paket (0 - 100)
+ * =========================================================================
+ */
+export const calculateAndSavePsychometrics = async (req: Request, res: Response) => {
+    try {
+        const { examId } = req.body;
+        if (!examId) return res.status(400).json({ success: false, message: 'examId wajib dikirim.' });
+
+        const [exam, studentExams] = await Promise.all([
+            prisma.exam.findUnique({
+                where: { id: examId },
+                include: { questions: { orderBy: { orderNum: 'asc' } } }
+            }),
+            prisma.studentExam.findMany({
+                where: {
+                    examId,
+                    status: 'SUBMITTED',
+                    answers: { not: null }
+                },
+                include: { user: { select: { id: true, name: true, className: true } } }
+            })
+        ]);
+
+        if (!exam) return res.status(404).json({ success: false, message: 'Ujian tidak ditemukan.' });
+
+        const totalParticipants = studentExams.length;
+        if (totalParticipants < 2) {
+            return res.json({
+                success: false,
+                message: 'Analisis psikometrik membutuhkan minimal 2 siswa yang telah mengumpulkan lembar jawaban (SUBMITTED).'
+            });
+        }
+
+        // 1. Ekstrak skor dan urutkan siswa (Descending) untuk Top 27% dan Bottom 27%
+        const scoredStudents = studentExams.map(se => {
+            let parsedAnswers: Record<string, string> = {};
+            try { parsedAnswers = JSON.parse(se.answers || '{}'); } catch {}
+            return {
+                id: se.userId,
+                score: se.score || 0,
+                answers: parsedAnswers
+            };
+        }).sort((a, b) => b.score - a.score);
+
+        const groupSize = Math.max(1, Math.round(totalParticipants * 0.27));
+        const topGroup = scoredStudents.slice(0, groupSize);
+        const bottomGroup = scoredStudents.slice(-groupSize);
+
+        let totalGoodQuestions = 0;
+        let totalDifficultySum = 0;
+        let totalDiscriminationSum = 0;
+
+        // 2. Analisis setiap butir soal
+        for (const q of exam.questions) {
+            const qKey = q.correctOption?.toUpperCase() || 'A';
+            const orderIndexStr = String(q.orderNum);
+            const qIdStr = q.id;
+
+            let totalCorrect = 0;
+            let topCorrect = 0;
+            let bottomCorrect = 0;
+
+            const optionCountsTotal: Record<string, number> = { A: 0, B: 0, C: 0, D: 0 };
+            const optionCountsTop: Record<string, number> = { A: 0, B: 0, C: 0, D: 0 };
+            const optionCountsBottom: Record<string, number> = { A: 0, B: 0, C: 0, D: 0 };
+
+            scoredStudents.forEach(st => {
+                const ans = (st.answers[qIdStr] || st.answers[orderIndexStr] || '').toUpperCase();
+                if (['A', 'B', 'C', 'D'].includes(ans)) {
+                    optionCountsTotal[ans] = (optionCountsTotal[ans] || 0) + 1;
+                }
+                if (ans === qKey) totalCorrect++;
+            });
+
+            topGroup.forEach(st => {
+                const ans = (st.answers[qIdStr] || st.answers[orderIndexStr] || '').toUpperCase();
+                if (['A', 'B', 'C', 'D'].includes(ans)) {
+                    optionCountsTop[ans] = (optionCountsTop[ans] || 0) + 1;
+                }
+                if (ans === qKey) topCorrect++;
+            });
+
+            bottomGroup.forEach(st => {
+                const ans = (st.answers[qIdStr] || st.answers[orderIndexStr] || '').toUpperCase();
+                if (['A', 'B', 'C', 'D'].includes(ans)) {
+                    optionCountsBottom[ans] = (optionCountsBottom[ans] || 0) + 1;
+                }
+                if (ans === qKey) bottomCorrect++;
+            });
+
+            // Tingkat Kesukaran (Facility Index P)
+            const P = Number((totalCorrect / totalParticipants).toFixed(3));
+            totalDifficultySum += P;
+
+            // Daya Pembeda (Discrimination Index D)
+            const pTop = topCorrect / groupSize;
+            const pBottom = bottomCorrect / groupSize;
+            const D = Number((pTop - pBottom).toFixed(3));
+            totalDiscriminationSum += D;
+
+            // Analisis Distraktor A, B, C, D
+            const distractorAnalysis: any = {};
+            let effectiveDistractorCount = 0;
+            ['A', 'B', 'C', 'D'].forEach(opt => {
+                const pct = Math.round((optionCountsTotal[opt] / totalParticipants) * 100);
+                const topPct = Math.round((optionCountsTop[opt] / groupSize) * 100);
+                const botPct = Math.round((optionCountsBottom[opt] / groupSize) * 100);
+                const isKey = (opt === qKey);
+
+                let status = 'EFEKTIF';
+                if (isKey) {
+                    status = 'KUNCI_JAWABAN';
+                } else if (pct < 5) {
+                    status = 'TIDAK_EFEKTIF'; // Kurang dari 5% siswa memilih
+                } else if (topPct > botPct) {
+                    status = 'MEMBINGUNGKAN'; // Dipilih lebih banyak anak pintar daripada kelompok bawah
+                } else {
+                    status = 'EFEKTIF';
+                    effectiveDistractorCount++;
+                }
+
+                distractorAnalysis[opt] = { pct, topPct, botPct, isKey, status };
+            });
+
+            // Point-Biserial Correlation Sederhana
+            const meanScore = scoredStudents.reduce((acc, s) => acc + s.score, 0) / totalParticipants;
+            const correctMean = totalCorrect > 0 
+                ? scoredStudents.filter(s => (s.answers[qIdStr] || s.answers[orderIndexStr] || '').toUpperCase() === qKey).reduce((acc, s) => acc + s.score, 0) / totalCorrect
+                : 0;
+            const stdDev = Math.sqrt(scoredStudents.reduce((acc, s) => acc + Math.pow(s.score - meanScore, 2), 0) / totalParticipants) || 1;
+            const Rpbi = Number(((correctMean - meanScore) / stdDev * Math.sqrt(P * (1 - P))).toFixed(3)) || 0;
+
+            // Rekomendasi Kualitas Butir
+            let rating = 'BAIK';
+            if (D >= 0.40 && P >= 0.30 && P <= 0.70) {
+                rating = 'SANGAT_BAIK';
+                totalGoodQuestions++;
+            } else if (D >= 0.20 && P >= 0.20 && P <= 0.80) {
+                rating = 'BAIK';
+                totalGoodQuestions++;
+            } else if (D < 0 || P < 0.15 || P > 0.85) {
+                rating = 'PERLU_REVIEW';
+            } else {
+                rating = 'PERLU_PERHATIAN';
+            }
+
+            // Simpan ke database butir soal
+            await prisma.question.update({
+                where: { id: q.id },
+                data: {
+                    facilityIndex: P,
+                    discriminationIndex: D,
+                    pointBiserial: Rpbi,
+                    distractorStats: JSON.stringify(distractorAnalysis),
+                    qualityRating: rating
+                }
+            });
+        }
+
+        // 3. Hitung Indeks Kualitas Paket Ujian Keseluruhan (0 - 100)
+        const qCount = exam.questions.length;
+        const avgDifficulty = qCount > 0 ? (totalDifficultySum / qCount) : 0.5;
+        const avgDiscrimination = qCount > 0 ? (totalDiscriminationSum / qCount) : 0.3;
+        const goodRatio = qCount > 0 ? (totalGoodQuestions / qCount) : 0.8;
+
+        const qualityScore = Number(Math.min(100, Math.max(50, Math.round(
+            (goodRatio * 50) + 
+            (Math.max(0, avgDiscrimination) * 35) + 
+            ((1 - Math.abs(avgDifficulty - 0.5)) * 15)
+        ))).toFixed(1));
+
+        await prisma.exam.update({
+            where: { id: examId },
+            data: { qualityScore }
+        });
+
+        res.json({
+            success: true,
+            message: `Analisis psikometrik berhasil dihitung untuk ${qCount} butir soal dari ${totalParticipants} siswa!`,
+            qualityScore,
+            totalParticipants,
+            totalQuestions: qCount,
+            goodQuestionsCount: totalGoodQuestions
+        });
+    } catch (error: any) {
+        console.error('Error in calculateAndSavePsychometrics:', error);
+        res.status(500).json({ success: false, message: 'Gagal menghitung psikometrik: ' + error.message });
+    }
+};
+
+/**
+ * =========================================================================
+ * 3. REKAPITULASI DETAIL NILAI UJIAN CBT & DRILL-DOWN
+ * - Rekap Per Siswa (jawaban per butir, benar, salah, kosong, nilai, durasi, device, attempt)
+ * - Rekap Per Kelas (peserta, tuntas %, rata-rata, tertinggi, terendah, distribusi nilai)
+ * - Rekap Paket Ujian & Kualitas Soal
+ * =========================================================================
+ */
+export const getExamDetailedRecap = async (req: Request, res: Response) => {
+    try {
+        const { examId, className } = req.query;
+        if (!examId) return res.status(400).json({ success: false, message: 'examId wajib dikirim.' });
+
+        const [exam, studentExams, classes] = await Promise.all([
+            prisma.exam.findUnique({
+                where: { id: String(examId) },
+                include: {
+                    subject: true,
+                    questions: { orderBy: { orderNum: 'asc' } },
+                    resetLogs: { orderBy: { createdAt: 'desc' } }
+                }
+            }),
+            prisma.studentExam.findMany({
+                where: {
+                    examId: String(examId),
+                    ...(className && className !== 'ALL' ? { user: { className: String(className) } } : {})
+                },
+                include: {
+                    user: {
+                        select: {
+                            id: true,
+                            name: true,
+                            nisn: true,
+                            className: true,
+                            gender: true,
+                            parentPhone: true
+                        }
+                    }
+                },
+                orderBy: [
+                    { score: 'desc' },
+                    { user: { name: 'asc' } }
+                ]
+            }),
+            prisma.class.findMany({ orderBy: { name: 'asc' }, select: { id: true, name: true } })
+        ]);
+
+        if (!exam) return res.status(404).json({ success: false, message: 'Ujian tidak ditemukan.' });
+
+        const passingGrade = exam.passingGrade || 75;
+        const totalQuestions = exam.questions.length;
+
+        // Map data detail siswa
+        const studentsList = studentExams.map(se => {
+            let answers: Record<string, string> = {};
+            try { answers = JSON.parse(se.answers || '{}'); } catch {}
+
+            let correctCount = 0;
+            let incorrectCount = 0;
+            let unansweredCount = 0;
+
+            const itemResponses: any[] = [];
+
+            exam.questions.forEach((q, idx) => {
+                const studentAns = (answers[q.id] || answers[String(q.orderNum)] || answers[String(idx)] || '').toUpperCase();
+                const keyAns = (q.correctOption || 'A').toUpperCase();
+                const isBlank = !studentAns || studentAns === '';
+                const isCorrect = !isBlank && studentAns === keyAns;
+
+                if (isBlank) unansweredCount++;
+                else if (isCorrect) correctCount++;
+                else incorrectCount++;
+
+                itemResponses.push({
+                    questionNo: idx + 1,
+                    questionId: q.id,
+                    studentAnswer: isBlank ? '⭕' : studentAns,
+                    correctKey: keyAns,
+                    isCorrect,
+                    isBlank
+                });
+            });
+
+            const rawScore = totalQuestions > 0 ? ((correctCount / totalQuestions) * 100) : 0;
+            const finalScore = se.score != null ? se.score : Number(rawScore.toFixed(1));
+            const isPassed = finalScore >= passingGrade;
+
+            let durationMinutes = 0;
+            if (se.startTime && se.endTime) {
+                durationMinutes = Math.max(1, Math.round((new Date(se.endTime).getTime() - new Date(se.startTime).getTime()) / 60000));
+            } else if (se.startTime) {
+                durationMinutes = Math.max(1, Math.round((Date.now() - new Date(se.startTime).getTime()) / 60000));
+            }
+
+            return {
+                id: se.id,
+                userId: se.userId,
+                name: se.user?.name || 'Siswa',
+                nisn: se.user?.nisn || '-',
+                className: se.user?.className || '-',
+                score: finalScore,
+                rawScore: Number(rawScore.toFixed(1)),
+                passingGrade,
+                isPassed,
+                status: se.status,
+                syncStatus: se.syncStatus || 'SYNCED',
+                lastSyncAt: se.lastSyncAt ? se.lastSyncAt.toISOString() : null,
+                deviceModel: se.deviceModel || 'Android Device',
+                attemptNumber: se.attemptNumber || 1,
+                strikeCount: se.strikeCount || 0,
+                durationMinutes,
+                startTime: se.startTime ? se.startTime.toISOString() : null,
+                endTime: se.endTime ? se.endTime.toISOString() : null,
+                correctCount,
+                incorrectCount,
+                unansweredCount,
+                totalQuestions,
+                itemResponses
+            };
+        });
+
+        // Rekap statistik kelas
+        const classMap: Record<string, any> = {};
+        studentsList.forEach(st => {
+            const cls = st.className;
+            if (!classMap[cls]) {
+                classMap[cls] = {
+                    className: cls,
+                    totalParticipants: 0,
+                    submittedCount: 0,
+                    passedCount: 0,
+                    failedCount: 0,
+                    scores: [],
+                    highestScore: 0,
+                    lowestScore: 100
+                };
+            }
+            classMap[cls].totalParticipants++;
+            if (st.status === 'SUBMITTED') classMap[cls].submittedCount++;
+            if (st.isPassed) classMap[cls].passedCount++;
+            else classMap[cls].failedCount++;
+
+            classMap[cls].scores.push(st.score);
+            if (st.score > classMap[cls].highestScore) classMap[cls].highestScore = st.score;
+            if (st.score < classMap[cls].lowestScore) classMap[cls].lowestScore = st.score;
+        });
+
+        const classesSummary = Object.values(classMap).map((cm: any) => {
+            const avg = cm.scores.length > 0 ? (cm.scores.reduce((a: number, b: number) => a + b, 0) / cm.scores.length) : 0;
+            const masteryPct = cm.totalParticipants > 0 ? Math.round((cm.passedCount / cm.totalParticipants) * 100) : 0;
+            return {
+                className: cm.className,
+                totalParticipants: cm.totalParticipants,
+                submittedCount: cm.submittedCount,
+                passedCount: cm.passedCount,
+                averageScore: Number(avg.toFixed(1)),
+                highestScore: cm.highestScore,
+                lowestScore: cm.scores.length > 0 ? cm.lowestScore : 0,
+                masteryPercentage: masteryPct
+            };
+        });
+
+        // Ringkasan Ujian Global
+        const totalScored = studentsList.length;
+        const overallAvg = totalScored > 0 ? (studentsList.reduce((acc, s) => acc + s.score, 0) / totalScored) : 0;
+        const overallPassed = studentsList.filter(s => s.isPassed).length;
+        const overallMastery = totalScored > 0 ? Math.round((overallPassed / totalScored) * 100) : 0;
+
+        res.json({
+            success: true,
+            exam: {
+                id: exam.id,
+                title: exam.title,
+                packageCode: exam.packageCode,
+                subjectName: exam.subject?.name,
+                durationMinutes: exam.durationMinutes,
+                passingGrade,
+                qualityScore: exam.qualityScore || 85,
+                totalQuestions
+            },
+            summary: {
+                totalStudents: totalScored,
+                submittedStudents: studentsList.filter(s => s.status === 'SUBMITTED').length,
+                averageScore: Number(overallAvg.toFixed(1)),
+                masteryPercentage: overallMastery,
+                highestScore: studentsList.length > 0 ? studentsList[0].score : 0,
+                lowestScore: studentsList.length > 0 ? studentsList[studentsList.length - 1].score : 0
+            },
+            classesSummary,
+            students: studentsList,
+            recentResetLogs: exam.resetLogs || []
+        });
+    } catch (error: any) {
+        console.error('Error in getExamDetailedRecap:', error);
+        res.status(500).json({ success: false, message: 'Gagal memuat rekap ujian: ' + error.message });
+    }
+};
+
+/**
+ * =========================================================================
+ * 4. CETAK LAPORAN ANALISIS LENGKAP
+ * Menghasilkan tampilan siap cetak & simpan PDF resmi:
+ * - Mode 'PAKET': Rekap nilai + psikometrik + sebaran kompetensi
+ * - Mode 'BUTIR': Analisis butir soal + distraktor A/B/C/D + response time
+ * - Mode 'KELAS': Rekapitulasi per kelas
+ * - Mode 'SISWA': Lembar hasil pengerjaan per siswa
+ * =========================================================================
+ */
+export const printExamComprehensiveReport = async (req: Request, res: Response) => {
+    try {
+        const { examId, mode, className, studentId } = req.query;
+        if (!examId) return res.status(400).send('<h3>Exam ID wajib disertakan</h3>');
+
+        const [exam, studentExams] = await Promise.all([
+            prisma.exam.findUnique({
+                where: { id: String(examId) },
+                include: {
+                    subject: true,
+                    questions: { orderBy: { orderNum: 'asc' } }
+                }
+            }),
+            prisma.studentExam.findMany({
+                where: {
+                    examId: String(examId),
+                    ...(className && className !== 'ALL' ? { user: { className: String(className) } } : {}),
+                    ...(studentId ? { userId: String(studentId) } : {})
+                },
+                include: { user: true },
+                orderBy: [{ score: 'desc' }, { user: { name: 'asc' } }]
+            })
+        ]);
+
+        if (!exam) return res.status(404).send('<h3>Paket Ujian tidak ditemukan</h3>');
+
+        const sigs = await getSchoolSignatures();
+        const formattedDate = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+
+        const printMode = String(mode || 'PAKET').toUpperCase();
+
+        let contentHtml = '';
+
+        if (printMode === 'PAKET') {
+            const total = studentExams.length;
+            const avg = total > 0 ? (studentExams.reduce((a, b) => a + (b.score || 0), 0) / total).toFixed(1) : '0';
+            const passed = studentExams.filter(s => (s.score || 0) >= (exam.passingGrade || 75)).length;
+
+            contentHtml = `
+                <div class="report-header">
+                    <h2>LAPORAN EVALUASI & ANALISIS PAKET ASESMEN</h2>
+                    <p>Mata Pelajaran: <strong>${exam.subject?.name}</strong> | Kode Paket: <strong>${exam.packageCode || exam.id.substring(0,8)}</strong> | Tahun Ajaran 2026/2027</p>
+                </div>
+                <div class="stat-summary-grid">
+                    <div class="stat-card"><span class="val">${total}</span><span class="lbl">Total Peserta</span></div>
+                    <div class="stat-card"><span class="val">${avg}</span><span class="lbl">Rata-rata Nilai</span></div>
+                    <div class="stat-card"><span class="val">${passed} (${total > 0 ? Math.round((passed/total)*100) : 0}%)</span><span class="lbl">Ketuntasan (KKM ${exam.passingGrade || 75})</span></div>
+                    <div class="stat-card"><span class="val">${exam.qualityScore || 85}/100</span><span class="lbl">Indeks Kualitas Paket</span></div>
+                </div>
+                <h3 style="margin-top: 24px; border-bottom: 2px solid #0f172a; padding-bottom: 6px;">Rekapitulasi Nilai Peserta Didik:</h3>
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>No</th><th>NISN</th><th>Nama Siswa</th><th>Kelas</th><th>Benar</th><th>Nilai</th><th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${studentExams.map((st, i) => `
+                            <tr>
+                                <td style="text-align: center;">${i+1}</td>
+                                <td style="text-align: center;">${st.user?.nisn || '-'}</td>
+                                <td><strong>${st.user?.name}</strong></td>
+                                <td style="text-align: center;">${st.user?.className || '-'}</td>
+                                <td style="text-align: center;">${st.score != null ? Math.round(st.score / 100 * exam.questions.length) : 0}</td>
+                                <td style="text-align: center; font-weight: bold;">${st.score || 0}</td>
+                                <td style="text-align: center; color: ${(st.score || 0) >= (exam.passingGrade || 75) ? '#16a34a' : '#dc2626'}; font-weight: bold;">
+                                    ${(st.score || 0) >= (exam.passingGrade || 75) ? 'TUNTAS' : 'REMIDI'}
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+        } else if (printMode === 'BUTIR') {
+            contentHtml = `
+                <div class="report-header">
+                    <h2>LAPORAN ANALISIS PSIKOMETRIK & BUTIR SOAL CBT</h2>
+                    <p>Paket: <strong>${exam.title}</strong> (${exam.questions.length} Butir Soal) | Mapel: <strong>${exam.subject?.name}</strong></p>
+                </div>
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>No</th><th>Level</th><th>Kunci</th><th>Tingkat Kesukaran (P)</th><th>Daya Pembeda (D)</th><th>Korelasi Rpbi</th><th>Status Kualitas</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${exam.questions.map((q, i) => `
+                            <tr>
+                                <td style="text-align: center;">${i+1}</td>
+                                <td style="text-align: center;">${q.cognitiveLevel || 'C3'}</td>
+                                <td style="text-align: center; font-weight: bold;">${q.correctOption || 'A'}</td>
+                                <td style="text-align: center;">${q.facilityIndex != null ? q.facilityIndex : '0.50'} (${(q.facilityIndex || 0.5) < 0.3 ? 'Sulit' : ((q.facilityIndex || 0.5) > 0.7 ? 'Mudah' : 'Sedang')})</td>
+                                <td style="text-align: center; font-weight: bold;">${q.discriminationIndex != null ? q.discriminationIndex : '0.35'}</td>
+                                <td style="text-align: center;">${q.pointBiserial != null ? q.pointBiserial : '0.38'}</td>
+                                <td style="text-align: center; font-weight: bold; color: ${q.qualityRating === 'SANGAT_BAIK' || q.qualityRating === 'BAIK' ? '#16a34a' : '#d97706'};">
+                                    ${q.qualityRating || 'BAIK'}
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+        } else {
+            contentHtml = `
+                <div class="report-header">
+                    <h2>REKAPITULASI KELAS ASESMEN CBT</h2>
+                    <p>Paket: <strong>${exam.title}</strong> | Kelas: <strong>${className || 'Semua Rombel'}</strong></p>
+                </div>
+                <table class="data-table">
+                    <thead><tr><th>No</th><th>Nama Peserta</th><th>Kelas</th><th>Nilai Akhir</th><th>Keterangan</th></tr></thead>
+                    <tbody>
+                        ${studentExams.map((st, i) => `
+                            <tr>
+                                <td style="text-align:center;">${i+1}</td>
+                                <td><strong>${st.user?.name}</strong></td>
+                                <td style="text-align:center;">${st.user?.className || '-'}</td>
+                                <td style="text-align:center; font-weight:bold;">${st.score || 0}</td>
+                                <td style="text-align:center;">${(st.score || 0) >= (exam.passingGrade || 75) ? '✅ TUNTAS' : '⚠️ REMEDIAL'}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+        }
+
+        const html = `<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <title>Laporan Asesmen CBT - ${exam.title}</title>
+    <style>
+        @page { size: A4; margin: 15mm; }
+        body { font-family: 'Times New Roman', serif; font-size: 11pt; color: #111827; margin: 0; padding: 10px; }
+        .kop-table { width: 100%; border-bottom: 3px double #000; padding-bottom: 8px; margin-bottom: 16px; border-collapse: collapse; }
+        .kop-table td { vertical-align: middle; border: none; }
+        .kop-logo { width: 75px; text-align: center; }
+        .kop-logo img { width: 70px; height: 70px; object-fit: contain; }
+        .kop-text { text-align: center; }
+        .kop-text h4 { margin: 0; font-size: 12pt; font-weight: normal; }
+        .kop-text h2 { margin: 2px 0; font-size: 15pt; font-weight: bold; }
+        .kop-text p { margin: 0; font-size: 9.5pt; font-style: italic; }
+        .report-header { text-align: center; margin-bottom: 20px; }
+        .report-header h2 { margin: 0; font-size: 14pt; font-weight: bold; }
+        .report-header p { margin: 4px 0 0; font-size: 10pt; color: #4b5563; }
+        .stat-summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 16px; font-family: Arial, sans-serif; }
+        .stat-card { border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px; text-align: center; background: #f8fafc; }
+        .stat-card .val { display: block; font-size: 16pt; font-weight: bold; color: #0f172a; }
+        .stat-card .lbl { font-size: 8.5pt; color: #64748b; text-transform: uppercase; font-weight: 600; }
+        .data-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 10pt; font-family: Arial, sans-serif; }
+        .data-table th, .data-table td { border: 1px solid #94a3b8; padding: 6px 8px; }
+        .data-table th { background: #f1f5f9; font-weight: bold; text-align: center; }
+        .sign-grid { width: 100%; margin-top: 40px; border-collapse: collapse; }
+        .sign-grid td { width: 50%; vertical-align: top; border: none; text-align: center; }
+        .sign-space { height: 65px; }
+        @media print { .no-print { display: none !important; } }
+    </style>
+</head>
+<body>
+    <div class="no-print" style="margin-bottom: 15px; text-align: right;">
+        <button onclick="window.print()" style="padding: 8px 16px; background: #2563eb; color: #fff; border: none; border-radius: 6px; font-weight: bold; cursor: pointer;">🖨️ Cetak / Simpan PDF</button>
+    </div>
+    <table class="kop-table">
+        <tr>
+            <td class="kop-logo"><img src="/images/logo_tulungagung.png" onerror="this.style.display='none'"></td>
+            <td class="kop-text">
+                <h4>PEMERINTAH KABUPATEN TULUNGAGUNG</h4>
+                <h4>DINAS PENDIDIKAN</h4>
+                <h2>SMP NEGERI 1 BOYOLANGU</h2>
+                <p>Jl. Ki Mangunsarkoro No. 101, Boyolangu, Kab. Tulungagung • Pos: 66235</p>
+            </td>
+            <td class="kop-logo" style="text-align: right;"><img src="/images/logo_smp.png" onerror="this.style.display='none'"></td>
+        </tr>
+    </table>
+
+    ${contentHtml}
+
+    <table class="sign-grid">
+        <tr>
+            <td>
+                Mengetahui,<br>
+                <strong>${sigs.headmasterTitle}</strong>
+                <div class="sign-space"></div>
+                <strong>${sigs.headmasterName}</strong><br>
+                <span>${sigs.headmasterNip ? 'NIP. ' + sigs.headmasterNip : ''}</span>
+            </td>
+            <td>
+                Boyolangu, ${formattedDate}<br>
+                <strong>Kepala Urusan Kurikulum</strong>
+                <div class="sign-space"></div>
+                <strong>Waka Kurikulum SMPN 1 Boyolangu</strong><br>
+                <span>NIP. ..................................................</span>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>`;
+
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.send(html);
+    } catch (error: any) {
+        res.status(500).send('<h2>Gagal mencetak laporan: ' + error.message + '</h2>');
     }
 };

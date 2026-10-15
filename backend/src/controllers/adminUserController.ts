@@ -18,6 +18,15 @@ export const getAllUsers = async (req: Request, res: Response) => {
             // Sembunyikan siswa dari manajemen user (siswa dikelola terpisah di Manajemen Siswa)
             whereClause.role = { not: 'STUDENT' };
         }
+
+        // PENGAMANAN KHUSUS SUPER ADMIN:
+        // Akun Super Admin Utama (username 'admin', 'superadmin', role 'SUPERADMIN') disembunyikan
+        // dari daftar user agar tidak dapat dilihat, diubah, atau dihapus oleh pihak lain.
+        whereClause.AND = [
+            { username: { notIn: ['admin', 'superadmin', 'administrator'] } },
+            { role: { notIn: ['SUPERADMIN'] } }
+        ];
+
         if (search && typeof search === 'string') {
             whereClause.OR = [
                 { name: { contains: search } },
@@ -34,6 +43,11 @@ export const getAllUsers = async (req: Request, res: Response) => {
                 name: true,
                 role: true,
                 isActive: true,
+                isBk: true,
+                isSecurity: true,
+                tugasTambahan: true,
+                rolesTambahan: true,
+                teachingClasses: true,
                 className: true,
                 nis: true,
                 nisn: true,
@@ -47,7 +61,12 @@ export const getAllUsers = async (req: Request, res: Response) => {
             ]
         });
 
-        res.json(users);
+        const safeUsers = users.filter(u => 
+            !['admin', 'superadmin', 'administrator'].includes((u.username || '').toLowerCase().trim()) && 
+            (u.role || '').toUpperCase() !== 'SUPERADMIN'
+        );
+
+        res.json(safeUsers);
     } catch (error) {
         console.error('Error fetching users:', error);
         res.status(500).json({ message: 'Gagal mengambil data pengguna' });
@@ -56,7 +75,7 @@ export const getAllUsers = async (req: Request, res: Response) => {
 
 export const createUser = async (req: Request, res: Response) => {
     try {
-        const { username, name, password, role, className, parentPhone, nisn, nis } = req.body;
+        const { username, name, password, role, className, parentPhone, nisn, nis, isBk, isSecurity, tugasTambahan, teachingClasses } = req.body;
 
         if (!username || !name || !role) {
             return res.status(400).json({ message: 'Username, Nama, dan Role wajib diisi' });
@@ -67,15 +86,34 @@ export const createUser = async (req: Request, res: Response) => {
             return res.status(400).json({ message: 'Username sudah digunakan oleh akun lain' });
         }
 
-        const hashedPassword = await bcrypt.hash(password || 'password123', 10);
-        const studentNisn = (role === 'STUDENT') ? (nisn || username) : (nisn || null);
+        const normalizedRole = (String(role).toUpperCase() === 'SATPAM') ? 'SECURITY' : role;
+        const defaultPass = (normalizedRole === 'SECURITY') ? 'satpam123' : 'password123';
+        const hashedPassword = await bcrypt.hash(password || defaultPass, 10);
+        const studentNisn = (normalizedRole === 'STUDENT') ? (nisn || username) : (nisn || null);
+
+        const isKurikulum = Boolean(req.body.isKurikulum || normalizedRole === 'KURIKULUM' || (tugasTambahan && String(tugasTambahan).toUpperCase().includes('KURIKULUM')));
+        const initialRolesTambahan: string[] = [];
+        if (isKurikulum) initialRolesTambahan.push('kurikulum');
+        if (normalizedRole === 'COUNSELOR' || isBk) initialRolesTambahan.push('bk');
+        if (normalizedRole === 'SECURITY' || isSecurity) initialRolesTambahan.push('satpam');
+
+        let finalTugasTambahan = tugasTambahan || (normalizedRole === 'SECURITY' ? 'SATPAM' : null);
+        if (isKurikulum) {
+            if (!finalTugasTambahan) finalTugasTambahan = 'KURIKULUM';
+            else if (!finalTugasTambahan.toUpperCase().includes('KURIKULUM')) finalTugasTambahan += ',KURIKULUM';
+        }
 
         const newUser = await prisma.user.create({
             data: {
                 username,
                 password: hashedPassword,
                 name,
-                role,
+                role: normalizedRole,
+                isBk: normalizedRole === 'COUNSELOR' || Boolean(isBk),
+                isSecurity: normalizedRole === 'SECURITY' || Boolean(isSecurity),
+                tugasTambahan: finalTugasTambahan,
+                rolesTambahan: initialRolesTambahan.length > 0 ? JSON.stringify(initialRolesTambahan) : null,
+                teachingClasses: teachingClasses || null,
                 className: className || null,
                 parentPhone: parentPhone || null,
                 nisn: studentNisn ? String(studentNisn) : null,
@@ -85,7 +123,7 @@ export const createUser = async (req: Request, res: Response) => {
         });
 
         // Otomatis buat akun orang tua jika pengguna baru adalah Siswa dan memiliki NISN
-        if (role === 'STUDENT' && studentNisn) {
+        if (normalizedRole === 'STUDENT' && studentNisn) {
             await syncParentAccountForStudent(newUser);
         }
 
@@ -99,16 +137,54 @@ export const createUser = async (req: Request, res: Response) => {
 export const updateUserRoleAndStatus = async (req: Request, res: Response) => {
     try {
         const id = req.params.id as string;
-        const { role, isActive, name, username, className, nisn, profilePicBase64, profilePicUrl, password } = req.body;
+        const { role, isActive, name, username, className, nisn, profilePicBase64, profilePicUrl, password, isBk, isSecurity, tugasTambahan, teachingClasses } = req.body;
 
         const oldUser = await prisma.user.findUnique({ where: { id } });
+        if (!oldUser) {
+            return res.status(404).json({ success: false, message: 'Pengguna tidak ditemukan' });
+        }
+        if (oldUser.username === 'admin' || oldUser.role === 'SUPERADMIN' || oldUser.username.toLowerCase() === 'admin') {
+            return res.status(403).json({ success: false, message: '⛔ Akun Super Admin Utama dilindungi dan tidak dapat diubah melalui panel ini!' });
+        }
         const oldNisn = oldUser?.nisn;
 
         const dataToUpdate: any = {};
-        if (role) dataToUpdate.role = role;
+        if (role) {
+            const normRole = String(role).toUpperCase() === 'SATPAM' ? 'SECURITY' : role;
+            dataToUpdate.role = normRole;
+            if (normRole === 'SECURITY') dataToUpdate.isSecurity = true;
+            if (normRole === 'COUNSELOR') dataToUpdate.isBk = true;
+        }
+        if (typeof isBk === 'boolean') dataToUpdate.isBk = isBk;
+        if (typeof isSecurity === 'boolean') dataToUpdate.isSecurity = isSecurity;
+        if (tugasTambahan !== undefined) dataToUpdate.tugasTambahan = tugasTambahan || null;
+        if (teachingClasses !== undefined) dataToUpdate.teachingClasses = teachingClasses || null;
         if (typeof isActive === 'boolean') dataToUpdate.isActive = isActive;
         if (name) dataToUpdate.name = name;
         if (username) dataToUpdate.username = username;
+
+        // Sinkronisasi peran kurikulum
+        const isKurikulum = req.body.isKurikulum || String(role).toUpperCase() === 'KURIKULUM' || (tugasTambahan && String(tugasTambahan).toUpperCase().includes('KURIKULUM'));
+        if (isKurikulum) {
+            let rolesArr: string[] = [];
+            try {
+                if (oldUser.rolesTambahan) rolesArr = JSON.parse(oldUser.rolesTambahan);
+            } catch(e) {}
+            if (!rolesArr.includes('kurikulum')) rolesArr.push('kurikulum');
+            dataToUpdate.rolesTambahan = JSON.stringify(rolesArr);
+            if (!dataToUpdate.tugasTambahan) dataToUpdate.tugasTambahan = 'KURIKULUM';
+            else if (!dataToUpdate.tugasTambahan.includes('KURIKULUM')) dataToUpdate.tugasTambahan += ',KURIKULUM';
+        } else if (req.body.isKurikulum === false) {
+            let rolesArr: string[] = [];
+            try {
+                if (oldUser.rolesTambahan) rolesArr = JSON.parse(oldUser.rolesTambahan);
+            } catch(e) {}
+            rolesArr = rolesArr.filter(r => r !== 'kurikulum');
+            dataToUpdate.rolesTambahan = JSON.stringify(rolesArr);
+            if (dataToUpdate.tugasTambahan) {
+                dataToUpdate.tugasTambahan = dataToUpdate.tugasTambahan.split(',').map((s: string) => s.trim()).filter((s: string) => s !== 'KURIKULUM').join(',');
+            }
+        }
         if (nisn !== undefined) dataToUpdate.nisn = nisn ? String(nisn) : null;
         if (className !== undefined) dataToUpdate.className = className || null;
         if (password && String(password).trim().length > 0) {
@@ -243,6 +319,9 @@ export const resetUserPassword = async (req: Request, res: Response) => {
         const user = await prisma.user.findUnique({ where: { id } });
         if (!user) {
             return res.status(404).json({ message: 'Pengguna tidak ditemukan' });
+        }
+        if (user.username === 'admin' || user.role === 'SUPERADMIN' || user.username.toLowerCase() === 'admin') {
+            return res.status(403).json({ success: false, message: '⛔ Password Super Admin Utama dilindungi dan tidak dapat di-reset melalui panel ini!' });
         }
 
         let pwdToSet = newPassword;
@@ -415,13 +494,36 @@ export const cascadeDeleteUserData = async (userId: string) => {
         await (prisma as any).deviceFile?.deleteMany({ where: { userId } });
     } catch (devE) {}
 
+    // Bersihkan relasi tambahan yang merujuk ke User id
+    try { await (prisma as any).studentPrayerAttendance?.deleteMany({ where: { studentId: userId } }); } catch(e) {}
+    try { await (prisma as any).studentSubjectAttendance?.deleteMany({ where: { studentId: userId } }); } catch(e) {}
+    try { await (prisma as any).electionAttendance?.deleteMany({ where: { studentId: userId } }); } catch(e) {}
+    try { await (prisma as any).studentBookAssignment?.deleteMany({ where: { studentId: userId } }); } catch(e) {}
+    try { await (prisma as any).studentLeave?.deleteMany({ where: { studentId: userId } }); } catch(e) {}
+    try { await (prisma as any).studentProfileSubmission?.deleteMany({ where: { OR: [{ studentId: userId }, { parentId: userId }] } }); } catch(e) {}
+    try { await (prisma as any).teachingSession?.deleteMany({ where: { teacherId: userId } }); } catch(e) {}
+    try { await (prisma as any).gatepassRequest?.deleteMany({ where: { OR: [{ studentId: userId }, { approvedByBkId: userId }, { checkoutSatpamId: userId }] } }); } catch(e) {}
+    try { await (prisma as any).bkActiveToken?.deleteMany({ where: { bkUserId: userId } }); } catch(e) {}
+    try { await (prisma as any).bkKelasPlot?.deleteMany({ where: { guruBkId: userId } }); } catch(e) {}
+    try { await (prisma as any).examParticipant?.deleteMany({ where: { userId } }); } catch(e) {}
+    try { await (prisma as any).examSeating?.deleteMany({ where: { userId } }); } catch(e) {}
+    try { await (prisma as any).attendanceAnomalyLog?.deleteMany({ where: { userId } }); } catch(e) {}
+    try { await (prisma as any).vote?.deleteMany({ where: { studentId: userId } }); } catch(e) {}
+    try { await (prisma as any).packageBookBorrowing?.deleteMany({ where: { studentId: userId } }); } catch(e) {}
+
+    try { await (prisma as any).copyRequest?.deleteMany({ where: { device: { userId } } }); } catch(e) {}
+    try { await (prisma as any).deviceFile?.deleteMany({ where: { device: { userId } } }); } catch(e) {}
     await prisma.deviceSession.deleteMany({ where: { userId } }).catch(() => {});
     try {
         await (prisma as any).refreshToken?.deleteMany({ where: { userId } });
     } catch(tokErr) {}
 
-    // 10. Hapus akun pengguna utama
-    await prisma.user.delete({ where: { id: userId } });
+    // 10. Hapus akun pengguna utama secara aman
+    try {
+        await prisma.user.delete({ where: { id: userId } });
+    } catch (delErr: any) {
+        await prisma.user.deleteMany({ where: { id: userId } });
+    }
 };
 
 export const deleteUser = async (req: Request, res: Response) => {
@@ -431,11 +533,35 @@ export const deleteUser = async (req: Request, res: Response) => {
         if (!user) {
             return res.status(404).json({ success: false, message: 'Pengguna tidak ditemukan' });
         }
+        if (user.username === 'admin' || user.role === 'SUPERADMIN' || user.username.toLowerCase() === 'admin') {
+            return res.status(403).json({ success: false, message: '⛔ Akun Super Admin Utama dilindungi dan tidak dapat dihapus!' });
+        }
 
         // Cegah menghapus akun sendiri yang sedang login
         const loggedInUser = (req as any).user;
         if (loggedInUser && loggedInUser.id === id) {
             return res.status(400).json({ success: false, message: 'Anda tidak dapat menghapus akun Anda sendiri saat sedang login.' });
+        }
+
+        // Cegah menghapus siswa yang masih memiliki saldo kantin
+        if (Number(user.canteenBalance || 0) > 0) {
+            return res.status(400).json({
+                success: false,
+                code: 'CANTEEN_BALANCE_REMAINING',
+                message: `⛔ Siswa ${user.name} masih memiliki saldo E-Kantin sebesar Rp ${Number(user.canteenBalance).toLocaleString('id-ID')}. Selesaikan penarikan/refund saldo terlebih dahulu sebelum menghapus akun.`
+            });
+        }
+
+        // Cegah menghapus siswa yang memiliki gatepass aktif berjalan
+        const activeGatepass = await (prisma as any).gatepassRequest.findFirst({
+            where: { studentId: id, status: { in: ['PENDING', 'ACTIVE_APPROVED', 'WAITING_BK_SCAN'] } }
+        });
+        if (activeGatepass) {
+            return res.status(400).json({
+                success: false,
+                code: 'ACTIVE_GATEPASS_EXISTS',
+                message: `⛔ Siswa ${user.name} memiliki izin keluar gerbang (Gatepass) yang masih aktif. Selesaikan izin terlebih dahulu.`
+            });
         }
 
         // Bersihkan seluruh relasi foreign key & hapus user
@@ -473,6 +599,11 @@ export const bulkDeleteUsers = async (req: Request, res: Response) => {
             try {
                 const user = await prisma.user.findUnique({ where: { id } });
                 if (!user) continue;
+
+                if (Number(user.canteenBalance || 0) > 0) {
+                    errors.push(`Pengguna ${user.name} (${user.username}) dilewati karena masih memiliki saldo E-Kantin Rp ${Number(user.canteenBalance).toLocaleString('id-ID')}.`);
+                    continue;
+                }
 
                 await cascadeDeleteUserData(id);
                 deletedCount++;
@@ -714,12 +845,12 @@ export const updateSchoolSettings = async (req: Request, res: Response) => {
             });
         }
 
-        const updatedHeadmaster = (await prisma.settings.findUnique({ where: { key: 'HEADMASTER_NAME' } }))?.value || 'Drs. H. SUKIRNO, M.Pd.';
-        const updatedNip = (await prisma.settings.findUnique({ where: { key: 'HEADMASTER_NIP' } }))?.value || '';
+        const updatedHeadmaster = (await prisma.settings.findUnique({ where: { key: 'HEADMASTER_NAME' } }))?.value || 'ADI SUTIGNYO, S.Pd.';
+        const updatedNip = (await prisma.settings.findUnique({ where: { key: 'HEADMASTER_NIP' } }))?.value || '196801211991031004';
         const updatedSchool = (await prisma.settings.findUnique({ where: { key: 'SCHOOL_NAME' } }))?.value || 'SMPN 1 Boyolangu';
-        const updatedBkName = (await prisma.settings.findUnique({ where: { key: 'BK_COORDINATOR_NAME' } }))?.value || 'Dra. NURUL HIDAYATI';
+        const updatedBkName = (await prisma.settings.findUnique({ where: { key: 'BK_COORDINATOR_NAME' } }))?.value || '';
         const updatedBkNip = (await prisma.settings.findUnique({ where: { key: 'BK_COORDINATOR_NIP' } }))?.value || '';
-        const updatedBkTitle = (await prisma.settings.findUnique({ where: { key: 'BK_COORDINATOR_TITLE' } }))?.value || 'Guru BK / Koordinator Presensi';
+        const updatedBkTitle = (await prisma.settings.findUnique({ where: { key: 'BK_COORDINATOR_TITLE' } }))?.value || '';
 
         res.json({
             success: true,
@@ -987,4 +1118,59 @@ export const promoteStudentsGrade = async (req: Request, res: Response) => {
         res.status(500).json({ success: false, message: 'Gagal memproses kenaikan kelas.' });
     }
 };
+
+// Operator membuka kunci formulir biodata siswa agar bisa diedit kembali tanpa mengisi dari nol
+export const unlockStudentBiodata = async (req: Request, res: Response) => {
+    try {
+        const { query } = req.body;
+        if (!query) return res.status(400).json({ success: false, message: 'Harap masukkan NISN atau Username siswa' });
+
+        const trimmed = String(query).trim();
+        const student = await prisma.user.findFirst({
+            where: {
+                role: 'STUDENT',
+                OR: [
+                    { nisn: trimmed },
+                    { username: trimmed },
+                    { name: { contains: trimmed } }
+                ]
+            }
+        });
+
+        if (!student) {
+            return res.status(404).json({ success: false, message: `Siswa dengan NISN/Username "${trimmed}" tidak ditemukan.` });
+        }
+
+        // Cari atau update submission biodata siswa di kedua tabel
+        await (prisma as any).studentProfileSubmission.updateMany({
+            where: { studentId: student.id },
+            data: {
+                status: 'REVISION',
+                rejectionReason: 'Kunci pengisian dibuka oleh Tim Kesiswaan / Operator untuk pemutakhiran data.'
+            }
+        });
+
+        await (prisma as any).biodataSubmission.updateMany({
+            where: { studentId: student.id },
+            data: {
+                status: 'REVISION',
+                notes: 'Kunci pengisian dibuka oleh Tim Kesiswaan / Operator untuk perbaikan/pemutakhiran data.'
+            }
+        }).catch(() => {});
+
+        await logAudit(req, 'UNLOCK_STUDENT_BIODATA', `Buka kunci biodata: ${student.name} (${student.nisn})`, {
+            studentId: student.id,
+            nisn: student.nisn
+        });
+
+        res.json({
+            success: true,
+            message: `✅ Kunci pengisian biodata untuk ${student.name} (NISN: ${student.nisn || student.username}) berhasil dibuka! Orang tua dapat mengoreksi data langsung di aplikasi tanpa mengisi ulang dari nol.`
+        });
+    } catch (error: any) {
+        console.error('Error in unlockStudentBiodata:', error);
+        res.status(500).json({ success: false, message: 'Gagal membuka kunci biodata: ' + (error.message || 'Error server') });
+    }
+};
+
 

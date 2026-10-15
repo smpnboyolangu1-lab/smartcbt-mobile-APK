@@ -59,6 +59,17 @@
             android:padding="4dp"
             android:src="@drawable/ic_refresh"
             app:tint="#FFFFFF" />
+
+        <Button
+            android:id="@+id/btnUpdateAnnouncement"
+            android:layout_width="wrap_content"
+            android:layout_height="34dp"
+            android:text="🔄 Update"
+            android:textSize="11sp"
+            android:textColor="#1E3A8A"
+            android:textStyle="bold"
+            android:background="@drawable/bg_btn_amber_rounded"
+            android:layout_marginStart="6dp" />
     </LinearLayout>
 
     <!-- Search Input & Filter Bar -->

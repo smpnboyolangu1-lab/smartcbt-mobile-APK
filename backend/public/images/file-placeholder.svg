@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300" viewBox="0 0 300 300">
+  <defs>
+    <linearGradient id="phGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+  </defs>
+  <rect width="100%" height="100%" fill="url(#phGrad)"/>
+  <circle cx="150" cy="125" r="42" fill="#334155" opacity="0.8"/>
+  <path d="M130 145 L145 125 L158 138 L168 120 L185 145 Z" fill="#94a3b8"/>
+  <circle cx="142" cy="112" r="5" fill="#e2e8f0"/>
+  <text x="150" y="200" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif" font-size="14" font-weight="bold" fill="#94a3b8" text-anchor="middle">BERKAS BELUM DITARIK</text>
+  <text x="150" y="222" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif" font-size="11" fill="#64748b" text-anchor="middle">Klik tombol Salin untuk mengunduh asli</text>
+</svg>

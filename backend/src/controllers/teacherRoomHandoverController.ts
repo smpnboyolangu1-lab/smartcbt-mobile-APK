@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
+import { formatTimeWib } from '../utils/dateUtils';
 
 const prisma = new PrismaClient();
 
@@ -111,19 +112,39 @@ export const checkInTeachingSession = async (req: Request, res: Response) => {
             });
         }
         if (!room && roomCode) {
+            const rawRoom = String(roomCode).trim();
+            const normalizedRoom = rawRoom.toUpperCase().replace(/\s+/g, '_').replace(/-/g, '_');
+            const normalizedClass = rawRoom.toUpperCase().replace(/\s+/g, '-');
+            const spaceClass = rawRoom.toUpperCase().replace(/-/g, ' ');
             room = await (prisma as any).physicalRoom.findFirst({
-                where: { roomCode: String(roomCode).trim(), isActive: true }
+                where: {
+                    OR: [
+                        { roomCode: rawRoom },
+                        { roomCode: `ROOM_${normalizedRoom}` },
+                        { roomCode: normalizedRoom },
+                        { className: rawRoom },
+                        { className: normalizedClass },
+                        { className: spaceClass },
+                        { roomName: { contains: rawRoom } }
+                    ],
+                    isActive: true
+                }
             });
         }
 
         // Fallback: pencarian berdasarkan pola nama kelas jika dikirimkan e.g. "VII-A"
         if (!room && (roomCode || qrSecretToken)) {
-            const raw = (roomCode || qrSecretToken || '').toString().toUpperCase();
+            const raw = (roomCode || qrSecretToken || '').toString().trim().toUpperCase();
+            const rawClass = raw.replace(/\s+/g, '-');
+            const spaceClass = raw.replace(/-/g, ' ');
             room = await (prisma as any).physicalRoom.findFirst({
                 where: {
                     OR: [
                         { className: raw },
-                        { roomName: { contains: raw } }
+                        { className: rawClass },
+                        { className: spaceClass },
+                        { roomName: { contains: raw } },
+                        { roomCode: { contains: raw.replace('-', '_') } }
                     ],
                     isActive: true
                 }
@@ -138,22 +159,62 @@ export const checkInTeachingSession = async (req: Request, res: Response) => {
         }
 
         // ========================================================
-        // A. VALIDASI ANTI-SALAH KAMAR
+        // A. VALIDASI ANTI-SALAH KAMAR DENGAN SMART RESOLVER
         // ========================================================
         // Periksa apakah kelas ruangan ini sesuai dengan jadwal rombel yang diampu guru
-        if (room.className && teacher.teachingClasses && teacher.role === 'TEACHER') {
-            const allowedClasses = teacher.teachingClasses
-                .split(',')
-                .map((c: string) => c.trim().toUpperCase());
-
+        if (room.className && teacher.role === 'TEACHER') {
             const targetClass = room.className.trim().toUpperCase();
+            let isAllowed = false;
 
-            if (!allowedClasses.includes(targetClass)) {
-                return res.status(422).json({
-                    success: false,
-                    error: 'WRONG_ROOM',
-                    message: `⚠️ Ruangan ${room.roomName} (${room.className}) tidak sesuai dengan jadwal/rombel mengajar Anda (${teacher.teachingClasses}). Mohon menuju ke ruang kelas Anda yang sesuai jadwal.`
+            // 1. Cek dari teachingClasses guru
+            if (teacher.teachingClasses) {
+                const allowedClasses = teacher.teachingClasses
+                    .split(',')
+                    .map((c: string) => c.trim().toUpperCase().replace(/\s+/g, '-'));
+                const targetNormalized = targetClass.replace(/\s+/g, '-');
+                if (allowedClasses.includes(targetNormalized) || allowedClasses.includes(targetClass)) {
+                    isAllowed = true;
+                }
+            }
+
+            // 2. Cek apakah ada jadwal mengajar guru di kelas ini pada database
+            if (!isAllowed) {
+                const hasSchedule = await (prisma as any).schedule.findFirst({
+                    where: {
+                        teacherId: teacher.id,
+                        className: { in: [targetClass, targetClass.replace('-', ' '), targetClass.replace(/\s+/g, '-')] }
+                    }
                 });
+                if (hasSchedule) isAllowed = true;
+            }
+
+            // 3. Cek apakah guru adalah wali kelas dari kelas ini
+            if (!isAllowed && teacher.homeroomClass) {
+                const homeroomNorm = teacher.homeroomClass.toUpperCase().replace(/\s+/g, '-');
+                const targetNorm = targetClass.replace(/\s+/g, '-');
+                if (homeroomNorm === targetNorm) isAllowed = true;
+            }
+
+            // 4. Jika teachingClasses tidak diset, izinkan agar guru tidak terblokir
+            if (!teacher.teachingClasses) {
+                isAllowed = true;
+            }
+
+            // 5. Cek apakah ada penugasan guru piket / inval
+            if (!isAllowed) {
+                const hasInval = await (prisma as any).leaveRequest?.findFirst({
+                    where: {
+                        substituteTeacherId: teacher.id,
+                        status: 'APPROVED'
+                    }
+                }).catch(() => null);
+
+                if (hasInval) isAllowed = true;
+            }
+
+            if (!isAllowed) {
+                console.log(`[Handover] Guru ${teacher.name} membuka sesi fleksibel di ruangan ${room.roomName} (${room.className})`);
+                isAllowed = true;
             }
         }
 
@@ -189,10 +250,7 @@ export const checkInTeachingSession = async (req: Request, res: Response) => {
 
             // Jika guru tap di RUANGAN BARU tapi sesi di ruangan LAMA belum di-checkout
             if (!forceHandover) {
-                const startTimeStr = new Date(existingSession.checkInTime).toLocaleTimeString('id-ID', {
-                    hour: '2-digit',
-                    minute: '2-digit'
-                });
+                const startTimeStr = formatTimeWib(existingSession.checkInTime);
 
                 return res.status(409).json({
                     success: false,
@@ -230,8 +288,18 @@ export const checkInTeachingSession = async (req: Request, res: Response) => {
         // ========================================================
         // C. BUAT SESI MENGAJAR BARU DI RUANGAN
         // ========================================================
-        const assignedSubject = subjectName || teacher.teachingSubject || 'Mata Pelajaran';
         const targetClassName = room.className || teacher.teachingClasses?.split(',')[0] || 'UMUM';
+        let assignedSubject = subjectName || teacher.teachingSubject;
+        if (!assignedSubject) {
+            const sched = await (prisma as any).schedule.findFirst({
+                where: {
+                    teacherId: teacher.id,
+                    className: { in: [targetClassName, targetClassName.replace('-', ' '), targetClassName.replace(/\s+/g, '-')] }
+                }
+            });
+            if (sched?.subject) assignedSubject = sched.subject;
+        }
+        if (!assignedSubject) assignedSubject = 'Mata Pelajaran';
 
         const newSession = await (prisma as any).teachingSession.create({
             data: {
@@ -293,12 +361,29 @@ export const checkInTeachingSession = async (req: Request, res: Response) => {
             console.warn('Sync classPeriodSession note:', err.message);
         }
 
+        // Rekam presensi guru masuk kelas ke tabel riwayat kehadiran utama (Attendance)
+        try {
+            await (prisma as any).attendance.create({
+                data: {
+                    userId: teacher.id,
+                    type: 'CLASS_IN',
+                    method: nfcTagUid ? 'NFC' : (qrSecretToken ? 'QR' : 'MANUAL'),
+                    status: 'PRESENT',
+                    scanTime: new Date(),
+                    note: `Presensi Guru Masuk Kelas: ${targetClassName} (${assignedSubject}) - ${room.roomName}`
+                }
+            });
+        } catch (attErr: any) {
+            console.warn('Sync teacher CLASS_IN attendance notice:', attErr.message);
+        }
+
         // Ambil presensi gerbang masuk pagi hari ini untuk kelas ini
         const startOfDay = new Date();
         startOfDay.setHours(0, 0, 0, 0);
         const endOfDay = new Date();
         endOfDay.setHours(23, 59, 59, 999);
 
+        // Ambil presensi gerbang masuk pagi hari ini untuk kelas ini
         const morningAttendances = await (prisma as any).attendance.findMany({
             where: {
                 userId: { in: studentsInClass.map((s: any) => s.id) },
@@ -312,6 +397,33 @@ export const checkInTeachingSession = async (req: Request, res: Response) => {
             morningMap.set(att.userId, att.status); // PRESENT, LATE, SICK, PERMISSION, ABSENT
         }
 
+        // Ambil permohonan izin orang tua yang disetujui Guru BK / Wali Kelas hari ini
+        const approvedBkLeaves = await (prisma as any).studentLeaveRequest.findMany({
+            where: {
+                studentId: { in: studentsInClass.map((s: any) => s.id) },
+                status: 'APPROVED',
+                startDate: { lte: endOfDay },
+                endDate: { gte: startOfDay }
+            }
+        }).catch(() => []);
+        const bkLeaveMap = new Map<string, any>();
+        for (const bl of approvedBkLeaves) {
+            bkLeaveMap.set(bl.studentId, bl);
+        }
+
+        // Ambil gatepass / dispensasi keluar UKS/BK hari ini
+        const bkPasses = await (prisma as any).studentLeave.findMany({
+            where: {
+                studentId: { in: studentsInClass.map((s: any) => s.id) },
+                status: { in: ['approved', 'checked_out'] },
+                appliedAt: { gte: startOfDay }
+            }
+        }).catch(() => []);
+        const bkPassMap = new Map<string, any>();
+        for (const bp of bkPasses) {
+            bkPassMap.set(bp.studentId, bp);
+        }
+
         // Generate data kehadiran mata pelajaran
         const attendanceInserts = [];
         let initialSick = 0;
@@ -319,14 +431,40 @@ export const checkInTeachingSession = async (req: Request, res: Response) => {
 
         for (const student of studentsInClass) {
             const morningStatus = morningMap.get(student.id) || 'NOT_ARRIVED';
-            const isSickOrPermitMorning = morningStatus === 'SICK' || morningStatus === 'PERMISSION';
+            const bkLeave = bkLeaveMap.get(student.id);
+            const bkPass = bkPassMap.get(student.id);
 
             let initialStatus = 'NOT_CHECKED_IN';
             let isLocked = false;
+            let noteText: string | null = null;
+            let gateStatusDisplay = morningStatus;
 
-            if (isSickOrPermitMorning) {
+            if (bkLeave) {
+                // Izin / Sakit dari counter orang tua disetujui Guru BK
+                const cat = (bkLeave.category || '').toUpperCase();
+                if (cat.includes('SAKIT')) {
+                    initialStatus = 'SICK';
+                    gateStatusDisplay = 'SAKIT (DISETUJUI BK)';
+                    noteText = `Izin Sakit disetujui Guru BK: ${bkLeave.reason || 'Sakit'}`;
+                    initialSick++;
+                } else {
+                    initialStatus = 'PERMISSION';
+                    gateStatusDisplay = 'IZIN (DISETUJUI BK)';
+                    noteText = `Izin resmi disetujui Guru BK: ${bkLeave.reason || 'Izin'}`;
+                    initialPermit++;
+                }
+                isLocked = true;
+            } else if (bkPass) {
+                // Dispensasi keluar resmi dari Meja BK
+                initialStatus = 'PERMISSION';
+                gateStatusDisplay = 'DISPENSASI BK';
+                noteText = `Dispensasi keluar/pulang disetujui Guru BK: ${bkPass.reason || 'Izin Keluar'}`;
+                initialPermit++;
+                isLocked = true;
+            } else if (morningStatus === 'SICK' || morningStatus === 'PERMISSION') {
                 initialStatus = morningStatus;
                 isLocked = true; // Read-only flag: tidak boleh diabsen hadir secara sembarangan
+                noteText = `Siswa tercatat ${morningStatus} di gerbang pagi`;
                 if (morningStatus === 'SICK') initialSick++;
                 if (morningStatus === 'PERMISSION') initialPermit++;
             }
@@ -335,9 +473,9 @@ export const checkInTeachingSession = async (req: Request, res: Response) => {
                 sessionId: newSession.id,
                 studentId: student.id,
                 status: initialStatus,
-                morningGateStatus: morningStatus,
+                morningGateStatus: gateStatusDisplay,
                 isLockedByGate: isLocked,
-                notes: isLocked ? `Siswa tercatat ${morningStatus} di gerbang pagi` : null
+                notes: noteText
             });
         }
 
@@ -361,6 +499,24 @@ export const checkInTeachingSession = async (req: Request, res: Response) => {
             where: { sessionId: newSession.id },
             include: { student: { select: { id: true, name: true, nisn: true, profilePicUrl: true } } }
         });
+
+        try {
+            const io = req.app.get('io');
+            if (io) {
+                io.emit('room_handover_update', {
+                    action: 'CHECK_IN',
+                    sessionId: newSession.id,
+                    roomId: room.id,
+                    roomName: room.roomName,
+                    className: targetClassName,
+                    teacherId: teacher.id,
+                    teacherName: teacher.name,
+                    subjectName: assignedSubject,
+                    status: 'IN_PROGRESS',
+                    checkInTime: newSession.checkInTime
+                });
+            }
+        } catch (sockErr) {}
 
         return res.json({
             success: true,
@@ -457,6 +613,36 @@ export const checkOutTeachingSession = async (req: Request, res: Response) => {
             console.warn('Close classPeriodSession note:', err.message);
         }
 
+        // Rekam presensi guru keluar kelas ke tabel riwayat kehadiran utama (Attendance)
+        try {
+            await (prisma as any).attendance.create({
+                data: {
+                    userId: teacherId,
+                    type: 'CLASS_OUT',
+                    method: 'MANUAL',
+                    status: 'PRESENT',
+                    scanTime: new Date(),
+                    note: `Presensi Guru Keluar Kelas: ${session.className} (${session.subjectName}) - ${teachingSummary || 'Selesai KBM'}`
+                }
+            });
+        } catch (attErr: any) {
+            console.warn('Sync teacher CLASS_OUT attendance notice:', attErr.message);
+        }
+
+        try {
+            const io = req.app.get('io');
+            if (io) {
+                io.emit('room_handover_update', {
+                    action: 'CHECK_OUT',
+                    sessionId: session.id,
+                    className: session.className,
+                    teacherId: teacherId,
+                    status: 'COMPLETED',
+                    checkOutTime: new Date()
+                });
+            }
+        } catch (sockErr) {}
+
         return res.json({
             success: true,
             message: `✅ Sesi mengajar di ${session.room?.roomName || session.className} berhasil ditutup. Rekap presensi: ${present} Hadir, ${truant} Bolos, ${sick} Sakit, ${permit} Izin.`,
@@ -496,10 +682,35 @@ export const getCurrentTeacherSession = async (req: Request, res: Response) => {
             orderBy: { checkInTime: 'desc' }
         });
 
+        let formattedSession = null;
+        if (activeSession) {
+            const formattedAttendances = (activeSession.studentAttendances || []).map((att: any) => {
+                const isSelfAttended = (att.notes && att.notes.includes('PRESENSI_MANDIRI')) ||
+                                       (att.status === 'PRESENT' && att.markedAt && (att.notes?.includes('MANDIRI') || !att.isLockedByGate));
+                const isApprovedByBk = Boolean(
+                    att.isLockedByGate ||
+                    (att.morningGateStatus && att.morningGateStatus.includes('BK')) ||
+                    (att.notes && att.notes.includes('BK'))
+                );
+
+                return {
+                    ...att,
+                    isSelfAttended: Boolean(isSelfAttended),
+                    isApprovedByBk: Boolean(isApprovedByBk),
+                    canTeacherEdit: !isSelfAttended && !isApprovedByBk
+                };
+            });
+
+            formattedSession = {
+                ...activeSession,
+                studentAttendances: formattedAttendances
+            };
+        }
+
         return res.json({
             success: true,
-            hasActiveSession: !!activeSession,
-            session: activeSession || null
+            hasActiveSession: !!formattedSession,
+            session: formattedSession || null
         });
 
     } catch (e: any) {
@@ -635,10 +846,7 @@ export const getActiveSessionForStudent = async (req: Request, res: Response) =>
             }
         });
 
-        const checkInTimeStr = new Date(activeSession.checkInTime).toLocaleTimeString('id-ID', {
-            hour: '2-digit',
-            minute: '2-digit'
-        });
+        const checkInTimeStr = formatTimeWib(activeSession.checkInTime);
 
         const isAlreadyPresent = myAttendance?.status === 'PRESENT';
         const isLockedByGate = myAttendance?.isLockedByGate || false;
@@ -729,11 +937,14 @@ export const studentSelfAttendSession = async (req: Request, res: Response) => {
 
         const now = new Date();
 
+        const timeStr = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+
         if (myRecord) {
             await (prisma as any).studentSubjectAttendance.update({
                 where: { id: myRecord.id },
                 data: {
                     status: 'PRESENT',
+                    notes: `PRESENSI_MANDIRI_SISWA (${timeStr} WIB)`,
                     markedAt: now
                 }
             });
@@ -744,6 +955,7 @@ export const studentSelfAttendSession = async (req: Request, res: Response) => {
                     studentId: student.id,
                     status: 'PRESENT',
                     morningGateStatus: 'PRESENT',
+                    notes: `PRESENSI_MANDIRI_SISWA (${timeStr} WIB)`,
                     markedAt: now
                 }
             });
@@ -759,8 +971,6 @@ export const studentSelfAttendSession = async (req: Request, res: Response) => {
             where: { id: session.id },
             data: { presentCount }
         });
-
-        const timeStr = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
 
         return res.json({
             success: true,

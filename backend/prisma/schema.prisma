@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -40,11 +40,13 @@ model User {
   homeroomTeacher  String?
   counselorTeacher String?
   classRole        String?      // Ketua Kelas, Wakil, Sekretaris, Bendahara
+  hasNoSmartphone  Boolean      @default(false) @map("has_no_smartphone")
 
   // Teacher Specific (Classes & Subject Taught)
   teachingClasses  String?      // e.g. "VII-A,VII-B" (Only classes taught by this teacher)
   teachingSubject  String?      // e.g. "Matematika"
   tugasTambahan    String?      // e.g. "OPERATOR,WALI_KELAS,PIKET,PAI"
+  rolesTambahan    String?      @map("roles_tambahan") // JSON array string e.g. '["kurikulum", "wali_kelas", "piket"]'
 
   // Anthropometry / Health Snapshot
   latestHeightCm   Float?
@@ -83,6 +85,24 @@ model User {
   bkApprovedGatepasses        GatepassRequest[]          @relation("BkApprovedGatepasses")
   satpamGatepasses            GatepassRequest[]          @relation("SatpamGatepasses")
   bkActiveTokens              BkActiveToken[]
+  bkKelasPlots                BkKelasPlot[]              @relation("BkBinaanPlots")
+  examParticipants            ExamParticipant[]
+  extracurricularMembers      ExtracurricularMember[]
+  pmrProfile                  UksPmrMember?
+  wifiSessions                WifiSession[]
+
+  // E-Kantin & Midtrans Top-Up
+  canteenBalance              Int                        @default(0)
+  canteenTransactions         CanteenTransaction[]
+  topupsAsParent              CanteenTopup[]             @relation("ParentTopups")
+  topupsAsStudent             CanteenTopup[]             @relation("StudentTopups")
+
+  // Parent Specific Profile & Phone Verification
+  relationship                String?                    @default("IBU") // IBU, AYAH, WALI
+  phone                       String?                    // Nomor telepon aktif orang tua
+  phoneVerifiedAt             DateTime?                  // Kapan nomor telepon diverifikasi
+  phoneUpdatedAt              DateTime?                  // Kapan terakhir nomor diupdate
+  parentPhoneChangeLogs       ParentPhoneChangeLog[]
 
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
@@ -103,6 +123,7 @@ model Class {
   officers        String?  // JSON string storing class officer assignments
   users           User[]
   homeworks       Homework[]
+  bkKelasPlots    BkKelasPlot[]
 }
 
 model SchoolHoliday {
@@ -132,18 +153,34 @@ model GateSetting {
 }
 
 model Attendance {
-  id              String   @id @default(uuid())
-  userId          String
-  user            User     @relation(fields: [userId], references: [id])
-  type            String   // GATE_IN, GATE_OUT
-  method          String   // RFID, BARCODE, GPS
-  status          String   // PRESENT, LATE, ABSENT, SICK, PERMISSION
-  scanTime        DateTime @default(now())
-  lat             Float?
-  lng             Float?
-  isFakeGps       Boolean  @default(false)
-  photoUrl        String?
-  note            String?
+  id                 String    @id @default(uuid())
+  userId             String
+  user               User      @relation(fields: [userId], references: [id])
+  type               String    // GATE_IN, GATE_OUT
+  method             String    // RFID, BARCODE, GPS
+  status             String    // PRESENT, LATE, ABSENT, SICK, PERMISSION
+  scanTime           DateTime  @default(now())
+  lat                Float?
+  lng                Float?
+  isFakeGps          Boolean   @default(false)
+  photoUrl           String?
+  note               String?
+  accuracyMeters     Float?    // Akurasi GPS dari device (meter)
+  jarakKeSekolah     Float?    // Jarak hasil Haversine ke titik pusat terdekat (meter)
+  gpsProvider        String?   // GPS_SATELLITE, NETWORK, FUSED, WIFI
+  geofenceZoneId     String?   // ID zona geofence yang match
+  geofenceZoneName   String?   // Nama zona (Gerbang Utama, Lapangan, dst)
+  statusVerifikasi   String    @default("AUTO") // AUTO, VERIFIED, REJECTED, PENDING, FLAGGED
+  verifiedBy         String?   // ID/Username operator yang verifikasi
+  verifiedAt         DateTime?
+  catatanVerifikasi  String?   // Alasan approve/reject
+  sampelKoordinat    String?   // JSON: [{lat,lng,acc,ts},...] raw samples sebelum averaging
+  kalmanApplied      Boolean   @default(false) // Apakah Kalman Filter diterapkan di client
+  deviceAndroidId    String?   // Cross-reference ke device binding
+
+  @@index([userId, scanTime])
+  @@index([scanTime])
+  @@index([statusVerifikasi, scanTime])
 }
 
 model Subject {
@@ -179,64 +216,109 @@ model Exam {
   passingGrade        Int?     @default(75)
   level               String?  @default("ALL") // VII, VIII, IX, ALL
   teacherId           String?  // Guru pembuat ujian
+  packageCode         String?  // Cth: "TRYOUT-A-MAT-IX"
+  status              String?  @default("DIRILIS") // DRAFT, DIAJUKAN, REVIEW_KURIKULUM, REVISI, REVIEW_ULANG, DISETUJUI, SIAP_RILIS, DIRILIS, AKTIF, SELESAI, NONAKTIF, ARSIP
+  version             Int      @default(1)
+  authorTeacherIds    String?  // JSON string e.g. '["id1", "id2"]'
+  reviewerTeacherIds  String?  // JSON string e.g. '["id3"]'
+  curriculumNotes     String?  // Catatan review kurikulum
+  qualityScore        Float?   @default(85.0) // 0-100
+  isOptionDOnly       Boolean  @default(true) // Acak Opsi sampai D (A, B, C, D)
+  isSpecialExam       Boolean  @default(false) // Ujian Khusus / Soal Khusus
+  autoActiveOnSchedule Boolean @default(true) // Otomatis aktif saat jam pelaksanaan
   questions           Question[]
   studentExams        StudentExam[]
+  classTokens         ExamClassToken[]
+  examRooms           ExamRoom[]
+  participants        ExamParticipant[]
+  proctorAssignments ExamProctorAssignment[]
+  incidentLogs        ExamIncidentLog[]
+  approvalWorkflow    ExamApprovalWorkflow?
+  resetLogs           ExamResetLog[]
+  packageVersions     ExamPackageVersion[]
   createdAt           DateTime @default(now())
 }
 
 model Question {
-  id              String   @id @default(uuid())
-  examId          String
-  exam            Exam     @relation(fields: [examId], references: [id])
-  type            String   // MULTIPLE_CHOICE, ESSAY
-  content         String
-  imageUrl        String?  // Media gambar (Diagram/Foto)
-  audioUrl        String?  // Media suara (Listening/Audio Quran/Dikte)
-  mediaType       String?  // IMAGE, AUDIO, BOTH, NONE
-  correctOption   String?  // A, B, C, D
-  options         String?  // JSON string
-  orderNum        Int
-  cognitiveLevel  String?  @default("C3") // C1, C2, C3, C4, C5, C6
-  kdTag           String?  // e.g. "KD 3.1"
+  id                  String   @id @default(uuid())
+  examId              String
+  exam                Exam     @relation(fields: [examId], references: [id])
+  type                String   // MULTIPLE_CHOICE, ESSAY
+  content             String
+  imageUrl            String?  // Media gambar (Diagram/Foto)
+  audioUrl            String?  // Media suara (Listening/Audio Quran/Dikte)
+  mediaType           String?  // IMAGE, AUDIO, BOTH, NONE
+  correctOption       String?  // A, B, C, D
+  options             String?  // JSON string
+  orderNum            Int
+  cognitiveLevel      String?  @default("C3") // C1, C2, C3, C4, C5, C6
+  kdTag               String?  // e.g. "KD 3.1"
+  explanation         String?  // Pembahasan soal terperinci
+  facilityIndex       Float?   // Tingkat Kesukaran (P) 0.0 - 1.0
+  discriminationIndex Float?   // Daya Pembeda (D) -1.0 - 1.0
+  pointBiserial       Float?   // Korelasi Point-Biserial
+  distractorStats     String?  // JSON statistik opsi A, B, C, D
+  qualityRating       String?  @default("BAIK") // SANGAT_BAIK, BAIK, PERLU_PERHATIAN, PERLU_REVIEW
+  avgResponseSeconds  Float?   // Rata-rata waktu pengerjaan detik
 }
 
 model StudentExam {
-  id               String   @id @default(uuid())
-  examId           String
-  exam             Exam     @relation(fields: [examId], references: [id])
-  userId           String
-  user             User     @relation(fields: [userId], references: [id])
-  startTime        DateTime @default(now())
-  endTime          DateTime?
-  status           String   // ONGOING, SUBMITTED, LOCKED
-  strikeCount      Int      @default(0) // Fraud detection
-  score            Float?
-  answers          String?  // JSON string of StudentAnswers
+  id                String   @id @default(uuid())
+  examId            String
+  exam              Exam     @relation(fields: [examId], references: [id])
+  userId            String
+  user              User     @relation(fields: [userId], references: [id])
+  startTime         DateTime @default(now())
+  endTime           DateTime?
+  status            String   // ONGOING, SUBMITTED, LOCKED
+  strikeCount       Int      @default(0) // Fraud detection
+  score             Float?
+  answers           String?  // JSON string of StudentAnswers
+  deviceModel       String?
+  appVersion        String?
+  ipAddress         String?
+  syncStatus        String?  @default("SYNCED") // SYNCED, SYNCING, PENDING_SYNC, CONFLICT, DISCONNECTED
+  lastSyncAt        DateTime?
+  unansweredCount   Int?     @default(0)
+  correctCount      Int?     @default(0)
+  incorrectCount    Int?     @default(0)
+  attemptNumber     Int      @default(1)
+  itemResponseTimes String?  // JSON map questionId -> responseSeconds
 }
 
 model Homework {
-  id           String   @id @default(uuid())
-  title        String
-  description  String
-  subjectId    String
-  subject      Subject  @relation(fields: [subjectId], references: [id])
-  classId      String
-  class        Class    @relation(fields: [classId], references: [id])
-  startTime    DateTime? // Waktu mulai pengerjaan tugas dibuka
-  endTime      DateTime? // Batas akhir pengerjaan tugas
-  deadline     DateTime
-  type         String?  @default("ESSAY") // ESSAY, MULTIPLE_CHOICE, MIXED
-  questions    String?  // JSON string butir soal CBT sederhana: [{ id, question, options: ["A", "B", "C", "D"], correctOption: "A", type: "PG" | "ESSAY" }]
-  fileUrl      String?  // Dokumen / Gambar lampiran tugas
-  audioUrl     String?  // Instruksi audio / Listening tugas
-  weight       Int?     @default(100) // Bobot nilai
-  category     String?  @default("PR") // PR, TUGAS_HARIAN, PROYEK, ULANGAN_HARIAN
-  isTemplate   Boolean  @default(false)
-  allowUpload  Boolean? @default(true) // Izin upload bukti foto / dokumen fisik
-  uploadInstructions String? // Petunjuk unggah berkas
-  teacherId    String?  // Guru pemberi tugas
-  submissions  HomeworkSubmission[]
-  createdAt    DateTime @default(now())
+  id                  String   @id @default(uuid())
+  title               String
+  description         String
+  subjectId           String
+  subject             Subject  @relation(fields: [subjectId], references: [id])
+  classId             String
+  class               Class    @relation(fields: [classId], references: [id])
+  startTime           DateTime? // Waktu mulai pengerjaan tugas dibuka
+  endTime             DateTime? // Batas akhir pengerjaan tugas
+  deadline            DateTime
+  publishAt           DateTime? // Waktu otomatis tugas dipublikasikan ke siswa
+  autoCloseAt         DateTime? // Waktu penutupan final setelah grace period
+  gracePeriodMinutes  Int? @default(60) // Masa toleransi menit
+  status              String?  @default("PUBLISHED") // DRAFT, SCHEDULED, PUBLISHED, CLOSED
+  type                String?  @default("ESSAY") // ESSAY, MULTIPLE_CHOICE, MIXED
+  questions           String?  // JSON string butir soal CBT sederhana: [{ id, question, options: ["A", "B", "C", "D"], correctOption: "A", type: "PG" | "ESSAY" }]
+  fileUrl             String?  // Dokumen / Gambar lampiran tugas
+  audioUrl            String?  // Instruksi audio / Listening tugas
+  weight              Int?     @default(100) // Bobot nilai
+  category            String?  @default("PR") // PR, TUGAS_HARIAN, PROYEK, ULANGAN_HARIAN
+  isTemplate          Boolean  @default(false)
+  allowUpload         Boolean? @default(true) // Izin upload bukti foto / dokumen fisik
+  uploadInstructions  String? // Petunjuk unggah berkas
+  teacherId           String?  // Guru pemberi tugas
+  level               String?  @default("VII") // VII, VIII, IX
+  subjectName         String?  // e.g. "PAI"
+  sharedScope         String?  @default("LEVEL_SUBJECT") // PRIVATE, LEVEL_SUBJECT, CUSTOM, SCHOOL
+  originalHomeworkId  String?  // ID tugas asli jika disalin
+  originalTeacherName String?
+  cloneCount          Int      @default(0)
+  submissions         HomeworkSubmission[]
+  createdAt           DateTime @default(now())
 }
 
 model BankSoal {
@@ -416,6 +498,19 @@ model UksVisit {
   counselorAlerted   Boolean  @default(false)
   checkInTime        DateTime @default(now())
   checkOutTime       DateTime?
+  visitStatus        String   @default("AT_UKS") // WAITING, HEADING, AT_UKS, IN_TREATMENT, RESTING, BACK_TO_CLASS, WAITING_PICKUP, PICKED_UP, NEED_FOLLOWUP, REFERRED, FINISHED
+  urgencyLevel       String   @default("NORMAL") // NORMAL, ALERT, URGENT, CRITICAL
+  pickupRequestedAt  DateTime?
+  pickupParentPhone  String?
+  pickupNotes        String?
+  pickupCompletedAt  DateTime?
+  pmrOfficerId       String?
+  pmrOfficerName     String?
+  supervisorId       String?
+
+  @@index([userId])
+  @@index([visitStatus])
+  @@index([checkInTime])
 }
 
 model StudentHealthMeasurement {
@@ -589,7 +684,6 @@ model DeviceFile {
   thumbnailBase64 String?  // Base64 mini thumbnail untuk instant visual preview
 
   @@unique([deviceId, filePath])
-  @@index([deviceId])
   @@index([deviceId, category])
   @@index([lastModified])
 }
@@ -738,7 +832,11 @@ model DisciplineWarningLetter {
   totalPoints Int
   letterNo    String   @unique // e.g. "421.3/SP-01/SMP1/IX/2026"
   pdfUrl      String?
-  issuedAt    DateTime @default(now())
+  issuedAt             DateTime  @default(now())
+  acknowledgedByParent Boolean?  @default(false)
+  acknowledgedAt       DateTime?
+  parentNote           String?
+  parentSignature      String?
 }
 
 model OfficialLetter {
@@ -927,8 +1025,12 @@ model RoomGeofence {
   roomName        String   // Nama ruangan/gedung
   latCenter       Float    // Koordinat Latitude pusat ruangan
   longCenter      Float    // Koordinat Longitude pusat ruangan
-  radiusMeters    Float    @default(30.0) // Radius geofence (20 - 50m default)
+  radiusMeters    Float    @default(50.0) // Radius geofence base (default 50m)
+  bufferMeters    Float    @default(30.0) // Buffer toleransi indoor drift (default 30m)
   validWifiSsid   String?  // SSID WiFi resmi di ruangan/gedung ini
+  zonePriority    Int      @default(1)     // Prioritas zona (1 = utama)
+  zoneType        String   @default("KELAS") // KELAS, GERBANG, LAPANGAN, AULA, MASJID
+  description     String?  // Deskripsi zona
   isActive        Boolean  @default(true)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -1519,7 +1621,7 @@ model BallotBox {
   candidateId String
   candidate   Candidate @relation(fields: [candidateId], references: [id], onDelete: Restrict)
   ballotHash  String    @unique // Anonymous random token
-  createdAt   DateTime  @default(now())
+  createdAt   DateTime? @default(now())
 
   @@index([candidateId])
 }
@@ -1848,4 +1950,1210 @@ model AppClientErrorLog {
   @@index([role])
   @@index([resolved])
   @@map("app_client_error_logs")
+}
+
+// ==========================================
+// 1. MODUL CBT MASTER MODELS
+// ==========================================
+
+model ExamClassToken {
+  id            String    @id @default(uuid())
+  examId        String
+  exam          Exam      @relation(fields: [examId], references: [id], onDelete: Cascade)
+  className     String
+  token         String
+  isActive      Boolean   @default(false)
+  generatedAt   DateTime  @default(now())
+  expiresAt     DateTime?
+  rotationCount Int       @default(0)
+
+  @@unique([examId, className])
+  @@index([examId, isActive])
+  @@map("exam_class_tokens")
+}
+
+model ExamRoom {
+  id                String            @id @default(uuid())
+  examId            String
+  exam              Exam              @relation(fields: [examId], references: [id], onDelete: Cascade)
+  roomName          String
+  capacity          Int               @default(30)
+  proctorId         String?
+  proctorName       String?
+  backupProctorId   String?
+  backupProctorName String?
+  participants      ExamParticipant[]
+
+  @@index([examId])
+  @@map("exam_rooms")
+}
+
+model ExamParticipant {
+  id            String    @id @default(uuid())
+  examId        String
+  exam          Exam      @relation(fields: [examId], references: [id], onDelete: Cascade)
+  roomId        String
+  room          ExamRoom  @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User      @relation(fields: [userId], references: [id])
+  participantNo String
+  seatNumber    Int?
+  createdAt     DateTime  @default(now())
+
+  @@unique([examId, userId])
+  @@unique([examId, participantNo])
+  @@index([roomId])
+  @@map("exam_participants")
+}
+
+model ExamProctorAssignment {
+  id          String    @id @default(uuid())
+  examId      String
+  exam        Exam      @relation(fields: [examId], references: [id], onDelete: Cascade)
+  className   String
+  roomName    String?
+  proctorId   String?
+  proctorName String
+  isBackup    Boolean   @default(false)
+  assignedAt  DateTime  @default(now())
+
+  @@unique([examId, className])
+  @@map("exam_proctor_assignments")
+}
+
+model ExamIncidentLog {
+  id             String    @id @default(uuid())
+  examId         String
+  exam           Exam      @relation(fields: [examId], references: [id], onDelete: Cascade)
+  studentId      String?
+  studentName    String?
+  roomName       String?
+  incidentType   String    // CHEAT_STRIKE, APP_BLUR, NETWORK_DROP, DEVICE_LOCK
+  severity       String    @default("MEDIUM") // LOW, MEDIUM, HIGH, CRITICAL
+  description    String
+  resolvedAt     DateTime?
+  resolutionNote String?
+  createdAt      DateTime  @default(now())
+
+  @@index([examId, severity])
+  @@map("exam_incident_logs")
+}
+
+model ExamApprovalWorkflow {
+  id          String    @id @default(uuid())
+  examId      String    @unique
+  exam        Exam      @relation(fields: [examId], references: [id], onDelete: Cascade)
+  status      String    @default("DRAFT") // DRAFT, PENDING_REVIEW, APPROVED, REJECTED
+  submittedBy String?
+  reviewedBy  String?
+  reviewNotes String?
+  updatedAt   DateTime  @updatedAt
+
+  @@map("exam_approval_workflows")
+}
+
+model ExamResetLog {
+  id              String   @id @default(uuid())
+  examId          String
+  exam            Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+  studentId       String
+  studentName     String
+  className       String
+  resetType       String   // RESET_KONEKSI, RESET_SESI, RESET_UJIAN, RESET_PERCOBAAN
+  reason          String
+  performedById   String
+  performedByName String
+  performedByRole String   // OPERATOR, KURIKULUM, PROCTOR
+  previousState   String?  // JSON snapshot
+  createdAt       DateTime @default(now())
+
+  @@index([examId, studentId])
+  @@map("exam_reset_logs")
+}
+
+model TeacherFileTransfer {
+  id              String    @id @default(uuid())
+  senderId        String
+  senderName      String
+  receiverId      String?   // null jika ke seluruh guru mapel level sama
+  receiverName    String?
+  targetSubject   String?   // e.g. "PAI"
+  targetLevel     String?   // e.g. "VII"
+  transferType    String    @default("FILE") // FILE, QUESTION_ITEMS, QUESTION_PACKAGE
+  fileName        String?
+  fileUrl         String?
+  fileSize        Int?
+  fileType        String?   // Word, Excel, PDF, ZIP, Gambar
+  questionPayload String?   // JSON paket / butir soal
+  questionCount   Int?      @default(0)
+  status          String    @default("PENDING") // PENDING, ACCEPTED, REJECTED, DOWNLOADED
+  notes           String?
+  createdAt       DateTime  @default(now())
+  respondedAt     DateTime?
+
+  @@index([senderId])
+  @@index([receiverId])
+  @@index([targetSubject, targetLevel])
+  @@map("teacher_file_transfers")
+}
+
+model ExamPackageVersion {
+  id          String   @id @default(uuid())
+  examId      String
+  exam        Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+  version     Int      @default(1)
+  title       String
+  packageCode String
+  snapshot    String   // JSON snapshot lengkap paket ujian & butir soal
+  notes       String?  // Alasan perubahan versi
+  createdBy   String
+  createdAt   DateTime @default(now())
+
+  @@index([examId, version])
+  @@map("exam_package_versions")
+}
+
+// ==========================================
+// 2. MODUL TUGAS & PR SCHEDULER & LOAD POLICY
+// ==========================================
+
+model HomeworkRecurringPlan {
+  id            String    @id @default(uuid())
+  title         String
+  subjectId     String
+  classId       String
+  teacherId     String
+  pattern       String    // DAILY, WEEKLY, MONTHLY
+  intervalDays  Int       @default(7)
+  publishTime   String    // "07:00"
+  deadlineHours Int       @default(24)
+  isActive      Boolean   @default(true)
+  nextTriggerAt DateTime
+  createdAt     DateTime  @default(now())
+
+  @@map("homework_recurring_plans")
+}
+
+model HomeworkLoadPolicy {
+  id              String    @id @default("default")
+  maxHomeworksDay Int       @default(3)
+  minGapHours     Int       @default(2)
+  blackoutDates   String?
+  updatedAt       DateTime  @updatedAt
+
+  @@map("homework_load_policies")
+}
+
+model AiGenerationLog {
+  id             String    @id @default(uuid())
+  userId         String
+  feature        String    // CBT_EXTRACT, QUESTION_GENERATE, ESSAY_GRADE
+  promptTokens   Int?
+  responseTokens Int?
+  modelUsed      String?
+  durationMs     Int?
+  status         String    // SUCCESS, FAILED
+  createdAt      DateTime  @default(now())
+
+  @@index([userId, createdAt])
+  @@map("ai_generation_logs")
+}
+
+// ==========================================
+// 3. MODUL BK PLOT KELAS KETAT & SAW RANKING
+// ==========================================
+
+model BkKelasPlot {
+  id          String    @id @default(uuid())
+  guruBkId    String    @map("guru_bk_id")
+  kelasId     String    @map("kelas_id")
+  tahunAjaran String    @default("2026/2027") @map("tahun_ajaran")
+  semester    String    @default("GANJIL")
+  isActive    Boolean   @default(true) @map("is_active")
+  assignedAt  DateTime  @default(now()) @map("assigned_at")
+
+  guruBk      User      @relation("BkBinaanPlots", fields: [guruBkId], references: [id])
+  kelas       Class     @relation(fields: [kelasId], references: [id])
+
+  @@unique([guruBkId, kelasId, tahunAjaran, semester])
+  @@index([guruBkId, isActive])
+  @@index([kelasId])
+  @@map("bk_kelas_plots")
+}
+
+model BkKonselingKelompokSession {
+  id           String    @id @default(uuid())
+  guruBkId     String    @map("guru_bk_id")
+  namaKelompok String    @map("nama_kelompok")
+  tema         String
+  tanggal      DateTime
+  hasil        String?
+  status       String    @default("TERJADWAL") // TERJADWAL, SELESAI, DIBATALKAN
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  members      BkKonselingKelompokMember[]
+  @@map("bk_konseling_kelompok_sessions")
+}
+
+model BkKonselingKelompokMember {
+  sessionId String                      @map("session_id")
+  siswaId   String                      @map("siswa_id")
+  session   BkKonselingKelompokSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@id([sessionId, siswaId])
+  @@map("bk_konseling_kelompok_members")
+}
+
+model BkHomeVisitRecord {
+  id           String    @id @default(uuid())
+  siswaId      String    @map("siswa_id")
+  guruBkId     String    @map("guru_bk_id")
+  tanggal      DateTime
+  tujuan       String
+  hasil        String?
+  fotoUrl      String?   @map("foto_url")
+  tindakLanjut String?   @map("tindak_lanjut")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  @@index([siswaId])
+  @@index([guruBkId])
+  @@map("bk_home_visit_records")
+}
+
+model BkKonferensiKasusRecord {
+  id           String    @id @default(uuid())
+  siswaId      String    @map("siswa_id")
+  guruBkId     String    @map("guru_bk_id")
+  tanggal      DateTime
+  pesertaJson  String?   @map("peserta_json")
+  agenda       String
+  notulen      String?
+  keputusan    String?
+  tindakLanjut String?   @map("tindak_lanjut")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  @@index([siswaId])
+  @@map("bk_konferensi_kasus_records")
+}
+
+model BkReferralRecord {
+  id           String    @id @default(uuid())
+  siswaId      String    @map("siswa_id")
+  guruBkId     String    @map("guru_bk_id")
+  lembagaTujuan String   @map("lembaga_tujuan")
+  alasanRujukan String   @map("alasan_rujukan")
+  tanggal      DateTime  @default(now())
+  suratUrl     String?   @map("surat_url")
+  status       String    @default("DIAJUKAN") // DIAJUKAN, DIPROSES, SELESAI
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  @@index([siswaId])
+  @@map("bk_referral_records")
+}
+
+model BkSawRankingCache {
+  id             String    @id @default(uuid())
+  siswaId        String    @unique @map("siswa_id")
+  totalPoin      Int       @default(0) @map("total_poin")
+  skorTertib     Float     @default(1.0) @map("skor_tertib")
+  skorDisiplin   Float     @default(1.0) @map("skor_disiplin")
+  skorEtika      Float     @default(1.0) @map("skor_etika")
+  skorAkademik   Float     @default(1.0) @map("skor_akademik")
+  skorEstetika   Float     @default(1.0) @map("skor_estetika")
+  skorFinalSaw   Float     @default(1.0) @map("skor_final_saw")
+  rekomendasiSp  String    @default("NONE") @map("rekomendasi_sp")
+  lastCalculated DateTime  @default(now()) @map("last_calculated")
+
+  @@index([rekomendasiSp])
+  @@map("bk_saw_ranking_caches")
+}
+
+// ==========================================
+// MODUL KURIKULUM SIBOY FRESH
+// ==========================================
+
+model IzinGuru {
+  id               String    @id @default(uuid())
+  guruId           String    @map("guru_id")
+  guruNama         String?   @map("guru_nama")
+  jenis            String    // SAKIT, IZIN, DINAS_LUAR, CUTI
+  tanggalMulai     DateTime  @map("tanggal_mulai")
+  tanggalSelesai   DateTime  @map("tanggal_selesai")
+  alasan           String?
+  lampiranUrl      String?   @map("lampiran_url")
+  status           String    @default("PENDING") // PENDING, APPROVED, REJECTED, ACTIVE, EXPIRED
+  approvedBy       String?   @map("approved_by")
+  approvedAt       DateTime? @map("approved_at")
+  catatanKurikulum String?   @map("catatan_kurikulum")
+  jadwalTerdampak  String?   @map("jadwal_terdampak") // JSON array of affected schedules
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  @@map("izin_guru")
+  @@index([status])
+  @@index([guruId])
+}
+
+model AbsensiGuru {
+  id               String    @id @default(uuid())
+  guruId           String    @map("guru_id")
+  jadwalId         String?   @map("jadwal_id")
+  kelasId          String?   @map("kelas_id")
+  mapelId          String?   @map("mapel_id")
+  status           String    @default("HADIR") // HADIR, IZIN, SAKIT, ALFA, TERLAMBAT
+  waktuMasuk       DateTime? @map("waktu_masuk")
+  waktuSelesai     DateTime? @map("waktu_selesai")
+  metode           String    @default("APK") // APK, MANUAL, SISTEM
+  catatan          String?
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  @@map("absensi_guru")
+  @@index([guruId])
+  @@index([jadwalId])
+  @@index([kelasId])
+}
+
+model KelasKosongLog {
+  id               Int       @id @default(autoincrement())
+  jadwalId         String?   @map("jadwal_id")
+  kelasId          String?   @map("kelas_id")
+  kelasNama        String?   @map("kelas_nama")
+  guruId           String?   @map("guru_id")
+  guruNama         String?   @map("guru_nama")
+  mapelId          String?   @map("mapel_id")
+  tanggal          DateTime?
+  jamMulai         String?   @map("jam_mulai")
+  jamSelesai       String?   @map("jam_selesai")
+  menitKosong      Int?      @default(0) @map("menit_kosong")
+  status           String    @default("KOSONG") // KOSONG, TERLAMBAT, TERISI
+  resolvedBy       String?   @map("resolved_by")
+  resolvedAt       DateTime? @map("resolved_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  @@map("kelas_kosong_log")
+  @@index([status])
+}
+
+model KurikulumConfig {
+  id               Int       @id @default(autoincrement())
+  keyName          String    @unique @map("key_name")
+  value            String?
+  deskripsi        String?
+
+  @@map("kurikulum_config")
+}
+
+model BiodataSiswa {
+  id                    String    @id @default(uuid())
+  studentId             String    @unique @map("student_id")
+  parentId              String?   @map("parent_id")
+  namaPanggilan         String?   @map("nama_panggilan")
+  anakKe                Int?      @default(1) @map("anak_ke")
+  jumlahSaudaraKandung  Int?      @default(0) @map("jumlah_saudara_kandung")
+  jumlahSaudaraTiri     Int?      @default(0) @map("jumlah_saudara_tiri")
+  jumlahSaudaraAngkat   Int?      @default(0) @map("jumlah_saudara_angkat")
+  statusOrangTua        String?   @default("Lengkap") @map("status_orang_tua")
+  bahasaSehariHari      String?   @default("Bahasa Indonesia") @map("bahasa_sehari_hari")
+  alamatLengkap         String?   @map("alamat_lengkap")
+  rt                    String?
+  rw                    String?
+  dusun                 String?
+  desaKelurahan         String?   @map("desa_kelurahan")
+  kecamatan             String?
+  kabupaten             String?   @default("Tulungagung")
+  kodePos               String?   @map("kode_pos")
+  latitude              Float?
+  longitude             Float?
+  lokasiTerkonfirmasi   Boolean   @default(false) @map("lokasi_terkonfirmasi")
+  jarakKm               Float?    @map("jarak_km")
+  waktuTempuhMenit      Int?      @map("waktu_tempuh_menit")
+  modaTransportasi      String?   @map("moda_transportasi")
+  jenisTinggal          String?   @map("jenis_tinggal")
+  noHpSiswa             String?   @map("no_hp_siswa")
+  emailSiswa            String?   @map("email_siswa")
+  beratBadan            Int?      @map("berat_badan")
+  tinggiBadan           Int?      @map("tinggi_badan")
+  golonganDarah         String?   @map("golongan_darah")
+  riwayatPenyakit       String?   @map("riwayat_penyakit")
+  kelainanFisik         String?   @map("kelainan_fisik")
+  berkebutuhanKhusus    String?   @map("berkebutuhan_khusus") // JSON string multi-select siswa
+  hobi                  String?
+  citaCita              String?   @map("cita_cita")
+  fotoUrl               String?   @map("foto_url")
+  pdfUrl                String?   @map("pdf_url")
+  status                String    @default("DRAFT") // DRAFT, PENDING, REVISI, APPROVED, REJECTED
+  catatanRevisi         String?   @map("catatan_revisi") // JSON per field
+  kelengkapanPersen     Int       @default(0) @map("kelengkapan_persen")
+  konfirmasiAkhir       Boolean   @default(false) @map("konfirmasi_akhir")
+  verifiedBy            String?   @map("verified_by")
+  verifiedAt            DateTime? @map("verified_at")
+  statusDalamKeluarga   String?   @default("Anak Kandung") @map("status_dalam_keluarga")
+  sekolahAsal           String?   @map("sekolah_asal")
+  diterimaKelas         String?   @map("diterima_kelas")
+  diterimaTanggal       String?   @map("diterima_tanggal")
+  teleponRumah          String?   @map("telepon_rumah")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  @@map("biodata_siswa")
+  @@index([status])
+}
+
+model BiodataAyah {
+  id           String    @id @default(uuid())
+  studentId    String    @unique @map("student_id")
+  nama         String
+  nik          String?
+  tahunLahir   Int?      @map("tahun_lahir")
+  pendidikan   String?
+  pekerjaan    String?
+  penghasilan  String?
+  statusHidup  String?   @default("Masih Hidup") @map("status_hidup")
+  noHp         String?   @map("no_hp")
+  alamat       String?
+  updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  @@map("biodata_ayah")
+}
+
+model BiodataIbu {
+  id           String    @id @default(uuid())
+  studentId    String    @unique @map("student_id")
+  nama         String
+  nik          String?
+  tahunLahir   Int?      @map("tahun_lahir")
+  pendidikan   String?
+  pekerjaan    String?
+  penghasilan  String?
+  statusHidup  String?   @default("Masih Hidup") @map("status_hidup")
+  noHp         String?   @map("no_hp")
+  alamat       String?
+  updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  @@map("biodata_ibu")
+}
+
+model BiodataWali {
+  id           String    @id @default(uuid())
+  studentId    String    @unique @map("student_id")
+  nama         String?
+  nik          String?
+  tahunLahir   Int?      @map("tahun_lahir")
+  hubungan     String?
+  pendidikan   String?
+  pekerjaan    String?
+  penghasilan  String?
+  alamat       String?
+  noHp         String?   @map("no_hp")
+  updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  @@map("biodata_wali")
+}
+
+model BiodataAfirmasi {
+  id            String    @id @default(uuid())
+  studentId     String    @unique @map("student_id")
+  punyaAfirmasi Boolean   @default(false) @map("punya_afirmasi")
+  jenisKartu    String?   @map("jenis_kartu") // JSON: ["KIP", "PIP"]
+  kartuUrl      String?   @map("kartu_url")
+  dtksUrl       String?   @map("dtks_url")
+  desilDtks     Int?      @map("desil_dtks")
+  updatedAt     DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  @@map("biodata_afirmasi")
+}
+
+model DokumenSiswa {
+  id          String    @id @default(uuid())
+  studentId   String    @map("student_id")
+  jenis       String    // KK, AKTA, FOTO, KARTU_BANTUAN, DTKS, SURAT_PINDAH
+  fileUrl     String    @map("file_url")
+  fileSize    Int?      @map("file_size")
+  uploadedBy  String?   @map("uploaded_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@map("dokumen_siswa")
+  @@index([studentId, jenis])
+}
+
+model PdfConfig {
+  keyName     String    @id @map("key_name")
+  value       String
+  deskripsi   String?
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  @@map("pdf_config")
+}
+
+model GenerateNisLog {
+  id          String    @id @default(uuid())
+  tahunAjaran String    @map("tahun_ajaran")
+  tingkat     Int
+  totalSiswa  Int       @map("total_siswa")
+  generatedBy String    @map("generated_by")
+  detail      String?   // JSON
+  timestamp   DateTime  @default(now())
+
+  @@map("generate_nis_log")
+}
+
+model MutasiSiswa {
+  id            String    @id @default(uuid())
+  studentId     String    @map("student_id")
+  jenis         String    // MASUK, KELUAR, LULUS
+  tanggalMutasi DateTime  @map("tanggal_mutasi")
+  sekolahTujuan String?   @map("sekolah_tujuan")
+  alasan        String?
+  nomorSurat    String?   @map("nomor_surat")
+  suratUrl      String?   @map("surat_url")
+  diprosesOleh  String?   @map("diproses_oleh")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  @@map("mutasi_siswa")
+  @@index([studentId, jenis])
+}
+
+model ArsipDriveLog {
+  id           String    @id @default(uuid())
+  tahunAjaran  String    @map("tahun_ajaran")
+  angkatan     String    // VII, VIII, IX
+  driveFileId  String?   @map("drive_file_id")
+  namaBerkas   String    @map("nama_berkas") // e.g. arsip_2026-2027_angkatan-VII.zip.enc
+  jumlahSiswa  Int       @map("jumlah_siswa")
+  jumlahBerkas Int       @map("jumlah_berkas")
+  ukuranByte   BigInt?   @map("ukuran_byte")
+  sha256       String
+  status       String    @default("MENUNGGU") // MENUNGGU, TERUNGGAH, GAGAL
+  diunggahOleh String    @default("SISTEM") @map("diunggah_oleh")
+  diunggahPada DateTime? @map("diunggah_pada")
+  catatan      String?
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  @@map("arsip_drive_log")
+  @@index([tahunAjaran, angkatan])
+}
+
+model AuditDokumenAkses {
+  id           String    @id @default(uuid())
+  userId       String    @map("user_id")
+  userName     String    @map("user_name")
+  userRole     String    @map("user_role")
+  studentId    String    @map("student_id")
+  studentName  String?   @map("student_name")
+  dokumenJenis String    @map("dokumen_jenis") // KK, AKTA, KARTU_AFIRMASI, RAPORT
+  aksi         String    // VIEW, DOWNLOAD, EXPORT
+  alasan       String?
+  ipAddress    String?   @map("ip_address")
+  userAgent    String?   @map("user_agent")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  @@map("audit_dokumen_akses")
+  @@index([studentId, dokumenJenis])
+  @@index([userId, createdAt])
+}
+
+// ==========================================
+// MODUL ULANGAN HARIAN (UH SIBOY FRESH)
+// 3 MODE: KILAT (15 MNT), STANDAR (30 MNT), CBT MINI (TOKEN + ANTI-CHEAT)
+// ==========================================
+model UlanganHarian {
+  id              String   @id @default(uuid())
+  guruId          String   @map("guru_id")
+  guruName        String   @map("guru_name")
+  mapelId         String   @map("mapel_id") // Nama Mapel: Matematika, IPA, dll
+  kelasId         String   @map("kelas_id") // 7A, 8B, atau "ALL"
+  topik           String
+  mode            String   @default("KILAT") // KILAT, STANDAR, CBT_MINI
+  durasiMenit     Int      @default(15) @map("durasi_menit")
+  totalSoal       Int      @default(10) @map("total_soal")
+  bobotNilai      Int      @default(100) @map("bobot_nilai")
+  waktuMulai      DateTime @default(now()) @map("waktu_mulai")
+  waktuSelesai    DateTime? @map("waktu_selesai")
+  status          String   @default("AKTIF") // DRAFT, AKTIF, SELESAI
+  tokenAktif      String?  @map("token_aktif")
+  tokenExpiresAt  DateTime? @map("token_expires_at")
+  soalJson        String?  @map("soal_json") // JSON Array: [{id, content, options, correctOption, type, explanation, points}]
+  hasilRekap      String?  @map("hasil_rekap") // JSON Cache statistik cepat
+  createdAt       DateTime @default(now()) @map("created_at")
+  submissions     UlanganHarianSubmission[]
+
+  @@map("ulangan_harian")
+}
+
+model UlanganHarianSubmission {
+  id              String   @id @default(uuid())
+  ulanganId       String   @map("ulangan_id")
+  ulangan         UlanganHarian @relation(fields: [ulanganId], references: [id], onDelete: Cascade)
+  siswaId         String   @map("siswa_id")
+  siswaName       String   @map("siswa_name")
+  kelasId         String   @map("kelas_id")
+  jawabanJson     String?  @map("jawaban_json") // JSON: { "soal_1": "B", "soal_2": "C" }
+  raguRaguJson    String?  @map("ragu_ragu_json") // JSON Array: ["soal_1"]
+  nilai           Float?   @default(0)
+  totalBenar      Int      @default(0) @map("total_benar")
+  totalSalah      Int      @default(0) @map("total_salah")
+  status          String   @default("MENGERJAKAN") // MENGERJAKAN, SELESAI, TIDAK_HADIR, TERKUNCI_CURANG
+  waktuMulai      DateTime @default(now()) @map("waktu_mulai")
+  waktuSelesai    DateTime? @map("waktu_selesai")
+  insidenCount    Int      @default(0) @map("insiden_count") // Jumlah keluar aplikasi
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@unique([ulanganId, siswaId], name: "uniq_ulangan_siswa")
+  @@map("ulangan_harian_jawaban")
+}
+
+model UserFcmToken {
+  id              String   @id @default(uuid())
+  userId          String
+  token           String   @unique
+  deviceAndroidId String?
+  role            String?
+  updatedAt       DateTime @default(now()) @updatedAt
+}
+
+model ActivityEventLog {
+  id           String    @id @default(uuid())
+  createdAt    DateTime  @default(now())
+  source       String    @default("SERVER") // SERVER | APK
+  module       String    // ATTENDANCE | CBT | HOMEWORK | EKANTIN | AUTH
+  action       String    // SCAN_GATE_OUT, SCAN_GATE_IN, VERIFY_TOKEN, SUBMIT_HOMEWORK, PAYMENT, etc.
+  outcome      String    // SUCCESS | REJECTED | ERROR
+  httpStatus   Int?      // 200, 400, 403, 500, etc.
+  message      String?   // Pesan alasan atau ringkasan error
+  userId       String?
+  username     String?
+  name         String?
+  className    String?
+  role         String?
+  deviceId     String?
+  appVersion   String?
+  ip           String?
+  durationMs   Int?
+  payload      String?   // JSON sanitized (tanpa password, token, PIN)
+  anomalyFlag  Boolean   @default(false)
+
+  @@index([createdAt])
+  @@index([module])
+  @@index([outcome])
+  @@index([userId])
+  @@index([className])
+  @@index([action])
+}
+
+model ActivityAnomaly {
+  id             String    @id @default(uuid())
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  code           String    // GATEOUT_REJECT_BUT_HAS_IN, REPEATED_REJECT, MASS_REJECT, SERVER_ERROR_SPIKE, CBT_SYNC_FAIL, CBT_STRIKE_BURST, HOMEWORK_SUBMIT_FAIL, EKANTIN_PAYMENT_FAIL, MISSING_GATE_OUT_MASS, MISSING_GATE_IN_ON_OUT
+  level          String    @default("TINGGI") // INFO | SEDANG | TINGGI | KRITIS
+  module         String    // ATTENDANCE | CBT | HOMEWORK | EKANTIN | AUTH
+  summary        String
+  count          Int       @default(1)
+  sampleStudents String?   // JSON string of array: [{ id, name, className, reason, time }]
+  status         String    @default("OPEN") // OPEN | RESOLVED
+  resolvedAt     DateTime?
+  resolvedBy     String?
+  notes          String?
+
+  @@index([createdAt])
+  @@index([level])
+  @@index([module])
+  @@index([status])
+}
+
+// ==========================================
+// MODUL EKSTRAKURIKULER LENGKAP
+// ==========================================
+model Extracurricular {
+  id                 String   @id @default(uuid())
+  name               String   @unique
+  slug               String   @unique
+  category           String   @default("OLAHRAGA") // OLAHRAGA, SENI, AKADEMIK, KEPEMIMPINAN, KEAGAMAAN
+  logoUrl            String?
+  bannerUrl          String?
+  description        String?
+  coachName          String?  // Nama Pelatih
+  instructorName     String?  // Nama Pembina Guru
+  supervisorId       String?  // ID Guru Pembina di sistem User
+  practiceDay        String?  // Contoh: "Kamis, Sabtu"
+  practiceTime       String?  // Contoh: "15:30 - 17:00"
+  location           String?  // Contoh: "Lapangan Utama"
+  quota              Int      @default(30)
+  allowedGrades      String   @default("VII,VIII,IX") // Jenjang yang boleh mendaftar
+  registrationStatus String   @default("OPEN") // OPEN, CLOSED, SELECTION
+  requirements       String?  // Syarat pendaftaran
+  trainingTarget     String?  // Target kompetensi / pembinaan
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  members            ExtracurricularMember[]
+  sessions           ExtracurricularAttendanceSession[]
+  journals           ExtracurricularJournal[]
+  curriculums        ExtracurricularCurriculum[]
+  achievements       ExtracurricularAchievement[]
+  events             ExtracurricularEvent[]
+  announcements      ExtracurricularAnnouncement[]
+}
+
+model ExtracurricularMember {
+  id                 String   @id @default(uuid())
+  extracurricularId  String
+  extracurricular    Extracurricular @relation(fields: [extracurricularId], references: [id], onDelete: Cascade)
+  studentId          String
+  student            User     @relation(fields: [studentId], references: [id])
+  academicYear       String   @default("2026/2027")
+  status             String   @default("PENDING") // PENDING, SELECTION, ACCEPTED, ACTIVE, INACTIVE, ON_LEAVE, EXPELLED, COMPLETED, RESIGNED
+  registeredAt       DateTime @default(now())
+  verifiedAt         DateTime?
+  verifiedBy         String?
+  notes              String?
+  developmentLevel   String   @default("PEMULA") // PEMULA, BERKEMBANG, BAIK, MAHIR, UNGGUL
+
+  attendances        ExtracurricularAttendance[]
+  assessments        ExtracurricularAssessment[]
+
+  @@unique([extracurricularId, studentId, academicYear])
+  @@index([studentId])
+  @@index([status])
+}
+
+model ExtracurricularAttendanceSession {
+  id                 String   @id @default(uuid())
+  extracurricularId  String
+  extracurricular    Extracurricular @relation(fields: [extracurricularId], references: [id], onDelete: Cascade)
+  date               DateTime @default(now())
+  title              String   @default("Latihan Rutin")
+  startTime          String?
+  endTime            String?
+  location           String?
+  coachName          String?
+  qrToken            String?
+  status             String   @default("OPEN") // OPEN, CLOSED
+  createdAt          DateTime @default(now())
+
+  attendances        ExtracurricularAttendance[]
+
+  @@index([extracurricularId, date])
+}
+
+model ExtracurricularAttendance {
+  id                 String   @id @default(uuid())
+  sessionId          String
+  session            ExtracurricularAttendanceSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  extracurricularId  String
+  memberId           String?
+  member             ExtracurricularMember? @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  studentId          String
+  status             String   @default("HADIR") // HADIR, IZIN, SAKIT, ALPA, TERLAMBAT
+  checkInTime        DateTime @default(now())
+  notes              String?
+  recordedBy         String?
+
+  @@unique([sessionId, studentId])
+  @@index([studentId])
+  @@index([status])
+}
+
+model ExtracurricularJournal {
+  id                 String   @id @default(uuid())
+  extracurricularId  String
+  extracurricular    Extracurricular @relation(fields: [extracurricularId], references: [id], onDelete: Cascade)
+  date               DateTime @default(now())
+  material           String   // Materi kegiatan
+  objectives         String?  // Tujuan kegiatan
+  activities         String?  // Kegiatan yang dilakukan
+  presentCount       Int      @default(0)
+  absentCount        Int      @default(0)
+  evaluation         String?  // Evaluasi pembina
+  notes              String?
+  photoUrl           String?
+  coachName          String?
+  createdAt          DateTime @default(now())
+
+  @@index([extracurricularId, date])
+}
+
+model ExtracurricularCurriculum {
+  id                 String   @id @default(uuid())
+  extracurricularId  String
+  extracurricular    Extracurricular @relation(fields: [extracurricularId], references: [id], onDelete: Cascade)
+  topic              String
+  description        String?
+  sequence           Int      @default(1)
+  isCompleted        Boolean  @default(false)
+  completedAt        DateTime?
+
+  @@index([extracurricularId])
+}
+
+model ExtracurricularAssessment {
+  id                 String   @id @default(uuid())
+  extracurricularId  String
+  memberId           String
+  member             ExtracurricularMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  studentId          String
+  semester           String   @default("Ganjil")
+  academicYear       String   @default("2026/2027")
+  indicators         String   // JSON map aspek nilai, e.g. {"Teknik": 85, "Disiplin": 90, ...}
+  finalScore         Float    @default(0)
+  developmentLevel   String   @default("BERKEMBANG") // PEMULA, BERKEMBANG, BAIK, MAHIR, UNGGUL
+  notes              String?
+  assessedBy         String?
+  assessedAt         DateTime @default(now())
+
+  @@index([extracurricularId, studentId])
+}
+
+model ExtracurricularAchievement {
+  id                 String   @id @default(uuid())
+  extracurricularId  String
+  extracurricular    Extracurricular @relation(fields: [extracurricularId], references: [id], onDelete: Cascade)
+  competitionName    String
+  level              String   @default("KABUPATEN") // KABUPATEN, PROVINSI, NASIONAL, INTERNASIONAL
+  rank               String   @default("JUARA_1") // JUARA_1, JUARA_2, JUARA_3, HARAPAN_1, FINALIS, PESERTA
+  organizer          String?
+  date               DateTime
+  participantIds     String?  // JSON array of student IDs
+  participantNames   String?  // String list of participant names
+  certificateUrl     String?
+  photoUrl           String?
+  notes              String?
+  createdAt          DateTime @default(now())
+
+  @@index([extracurricularId])
+}
+
+model ExtracurricularEvent {
+  id                 String   @id @default(uuid())
+  extracurricularId  String
+  extracurricular    Extracurricular @relation(fields: [extracurricularId], references: [id], onDelete: Cascade)
+  title              String
+  type               String   @default("LATIHAN") // LATIHAN, LOMBA, PERTANDINGAN, KEMAH, PENTAS, SEMINAR, SELEKSI
+  date               DateTime
+  location           String?
+  description        String?
+  quota              Int?
+  requirements       String?
+  status             String   @default("OPEN") // OPEN, ONGOING, COMPLETED
+  registeredCount    Int      @default(0)
+  createdAt          DateTime @default(now())
+
+  @@index([extracurricularId, date])
+}
+
+model ExtracurricularAnnouncement {
+  id                 String   @id @default(uuid())
+  extracurricularId  String
+  extracurricular    Extracurricular @relation(fields: [extracurricularId], references: [id], onDelete: Cascade)
+  title              String
+  content            String
+  priority           String   @default("NORMAL") // NORMAL, IMPORTANT, URGENT
+  authorName         String?
+  createdAt          DateTime @default(now())
+
+  @@index([extracurricularId, createdAt])
+}
+
+// ==========================================
+// MODUL UKS & PMR TERPADU
+// ==========================================
+model UksPmrDutySchedule {
+  id                 String   @id @default(uuid())
+  dayOfWeek          String   // SENIN, SELASA, RABU, KAMIS, JUMAT, SABTU
+  shiftName          String   // "Shift 1 (07:00 - 10:00)", "Shift 2 (10:00 - 13:00)"
+  startTime          String   // "07:00"
+  endTime            String   // "10:00"
+  roomLocation       String   @default("Ruang UKS Utama")
+  memberIds          String   // JSON array studentIds
+  memberNames        String   // JSON array student names
+  isActive           Boolean  @default(true)
+  supervisorId       String?
+  createdAt          DateTime @default(now())
+
+  @@index([dayOfWeek])
+}
+
+model UksPmrMember {
+  id                 String   @id @default(uuid())
+  studentId          String   @unique
+  student            User     @relation(fields: [studentId], references: [id])
+  roleTitle          String   @default("KADER_UKS") // KADER_UKS, KETUA_PMR, SEKRETARIS_PMR, ANGGOTA_PMR
+  joinDate           DateTime @default(now())
+  competencies       String?  // JSON array or string list: ["Pertolongan Pertama", "Tandu", "Triase", "Perawatan Keluarga"]
+  certificates       String?  // JSON array of certificate URLs or titles
+  status             String   @default("ACTIVE") // ACTIVE, INACTIVE, ALUMNI
+  createdAt          DateTime @default(now())
+
+  @@index([status])
+}
+
+model UksEmergencyCall {
+  id                 String   @id @default(uuid())
+  studentId          String
+  callerName         String
+  location           String
+  reason             String
+  status             String   @default("ACTIVE") // ACTIVE, RESPONDED, RESOLVED
+  respondedBy        String?
+  respondedAt        DateTime?
+  resolvedAt         DateTime?
+  createdAt          DateTime @default(now())
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+// ==========================================
+// MODUL MASTER DAPODIK & BUKU INDUK RAPORT (KEMENDIKBUD)
+// Terpisah total dari Formulir Isian Biodata Orang Tua
+// ==========================================
+model DapodikRaportRecord {
+  id                  String   @id @default(uuid())
+  nisn                String   @unique
+  studentId           String?  @map("student_id")
+  nis                 String?  // NIS Sekolah
+  namaLengkap         String   @map("nama_lengkap")
+  rombelKelas         String?  @map("rombel_kelas") // misal "VII-A"
+  tempatLahir         String?  @map("tempat_lahir")
+  tanggalLahir        String?  @map("tanggal_lahir") // YYYY-MM-DD atau format teks
+  jenisKelamin        String?  @map("jenis_kelamin") // Laki-laki / Perempuan
+  agama               String?  @default("Islam")
+  statusDalamKeluarga String?  @default("Anak Kandung") @map("status_dalam_keluarga")
+  anakKe              String?  @default("1") @map("anak_ke")
+  alamatPesertaDidik  String?  @map("alamat_peserta_didik")
+  rt                  String?
+  rw                  String?
+  dusun               String?
+  desaKelurahan       String?  @map("desa_kelurahan")
+  kecamatan           String?
+  kabupaten           String?  @default("Tulungagung")
+  kodePos             String?  @map("kode_pos")
+  teleponRumah        String?  @map("telepon_rumah")
+  sekolahAsal         String?  @map("sekolah_asal")
+  diterimaKelas       String?  @default("VII") @map("diterima_kelas")
+  diterimaTanggal     String?  @map("diterima_tanggal")
+  namaAyah            String?  @map("nama_ayah")
+  namaIbu             String?  @map("nama_ibu")
+  alamatOrangTua      String?  @map("alamat_orang_tua")
+  teleponOrangTua     String?  @map("telepon_orang_tua")
+  pekerjaanAyah       String?  @map("pekerjaan_ayah")
+  pekerjaanIbu        String?  @map("pekerjaan_ibu")
+  namaWali            String?  @map("nama_wali")
+  alamatWali          String?  @map("alamat_wali")
+  teleponWali         String?  @map("telepon_wali")
+  pekerjaanWali       String?  @map("pekerjaan_wali")
+  sourceFile          String?  @map("source_file")
+  importedBy          String?  @map("imported_by")
+  catatanOperator     String?  @map("catatan_operator")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  @@map("dapodik_raport_records")
+  @@index([nisn])
+  @@index([studentId])
+  @@index([rombelKelas])
+}
+
+// ==========================================
+// MODUL WI-FI SEKOLAH & MIKROTIK (REST API v7)
+// ==========================================
+
+model WifiSession {
+  id            String    @id @default(uuid())
+  studentId     String
+  user          User      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  studentName   String
+  nisn          String
+  className     String
+  deviceMac     String    // Format MAC: AA:BB:CC:DD:EE:FF
+  deviceName    String?
+  ipAddress     String?   // IP perangkat saat scan
+  activatedAt   DateTime  @default(now())
+  expiresAt     DateTime  // Default: jam 17:00 hari tersebut
+  status        String    @default("ACTIVE") // ACTIVE, EXPIRED, REVOKED
+  revokedAt     DateTime?
+  revokedBy     String?   // ID Admin/Operator yang mencabut
+  revokedReason String?
+  mikrotikId    String?   // ID binding MikroTik (.id) untuk penghapusan cepat
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([studentId])
+  @@index([status])
+  @@index([deviceMac])
+  @@index([activatedAt])
+}
+
+model WifiConfig {
+  id                 String   @id @default("default")
+  ssidName           String   @default("SMPN 1 BOYOLANGU - RESMI")
+  hotspotServer      String   @default("Hotspot-SMPN1")
+  activeUntilTime    String   @default("17:00") // Format HH:mm
+  gracePeriodHours   Int      @default(2)       // Jika scan lewat jam aktif, berlaku X jam
+  isEnabled          Boolean  @default(true)    // Master switch fitur WiFi
+  maxDevicesPerUser  Int      @default(1)       // Batas perangkat per siswa per hari
+
+  // Konfigurasi Router MikroTik
+  mikrotikHost       String?  @default("192.168.88.1")
+  mikrotikPort       Int      @default(8728)    // 8728 (API) / 443 (REST API v7)
+  mikrotikUser       String?  @default("admin")
+  mikrotikPassword   String?  @default("")
+  mikrotikUseTls     Boolean  @default(false)
+  mikrotikCommentTag String   @default("SMARTCBT-WIFI")
+
+  updatedBy          String?
+  updatedAt          DateTime @updatedAt
+}
+
+model WifiBlacklist {
+  id          String   @id @default(uuid())
+  macAddress  String   @unique // Normalisasi huruf kapital e.g. "AA:BB:CC:DD:EE:FF"
+  reason      String?  // Alasan pemblokiran (e.g. "Penyalahgunaan bandwidth", "Perangkat kloning")
+  blockedBy   String?  // Username admin
+  createdAt   DateTime @default(now())
+}
+
+// ==========================================
+// MODUL E-KANTIN: TOP-UP SALDO VIA MIDTRANS
+// ==========================================
+
+model CanteenTopup {
+  id              String   @id @default(uuid())
+  parentId        String                        // User.id orang tua yang bayar
+  studentId       String                        // User.id siswa yang saldo-nya ditambah
+  amount          Int                           // Nominal dalam Rupiah (10000 - 100000)
+  
+  // Data Midtrans
+  orderId         String   @unique              // Format: TOPUP-{studentId}-{timestamp}
+  midtransToken   String?                       // Snap token dari Midtrans
+  midtransUrl     String?                       // URL redirect halaman bayar
+  paymentMethod   String?                       // "gopay", "qris", "bca_va", dll
+  midtransStatus  String   @default("PENDING")  // PENDING | SUCCESS | FAILED | EXPIRED | CANCEL
+  
+  // Waktu
+  createdAt       DateTime @default(now())
+  paidAt          DateTime?                     // Kapan pembayaran dikonfirmasi Midtrans
+  expiredAt       DateTime?                     // Kapan transaksi kedaluwarsa (default: +24 jam)
+  
+  // Relasi
+  parent          User     @relation("ParentTopups", fields: [parentId], references: [id])
+  student         User     @relation("StudentTopups", fields: [studentId], references: [id])
+
+  @@index([studentId])
+  @@index([parentId])
+  @@index([midtransStatus])
+  @@index([orderId])
+}
+
+model CanteenTransaction {
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id])
+  type          String   // TOPUP | EXPENSE | REFUND
+  amount        Int
+  description   String?
+  balanceBefore Int      @default(0)
+  balanceAfter  Int      @default(0)
+  referenceId   String?
+  merchant      String?
+  item          String?
+  idempotencyKey String?  @unique
+  createdAt     DateTime @default(now())
+
+  @@index([userId])
+  @@index([type])
+  @@index([createdAt])
+}
+
+// ==========================================
+// MODUL PRESENSI KELAS MANDIRI & PROXY PENGURUS
+// ==========================================
+
+model ClassAttendanceSession {
+  id        String   @id @default(uuid())
+  classId   String
+  dateKey   String                      // "YYYY-MM-DD" dalam WIB
+  type      String                      // MASUK | PULANG
+  openedBy  String
+  opensAt   DateTime
+  closesAt  DateTime?
+  status    String   @default("OPEN")   // OPEN | CLOSED
+  qrToken   String?
+  createdAt DateTime @default(now())
+
+  records   ClassAttendanceRecord[]
+
+  @@unique([classId, dateKey, type])
+  @@index([classId, dateKey])
+}
+
+model ClassAttendanceRecord {
+  id            String   @id @default(uuid())
+  sessionId     String
+  session       ClassAttendanceSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  studentId     String
+  status        String                  // PRESENT | LATE | PULANG | PULANG_AWAL ...
+  source        String   @default("STUDENT_SELF_QR") // STUDENT_SELF_QR | OFFICER_PROXY | MANUAL_WALI | KIOSK
+  scannedBy     String?                 // userId pelaku jika proxy
+  reason        String?
+  deviceId      String?
+  bssid         String?
+  lat           Float?
+  lng           Float?
+  flags         String?
+  verifiedBy    String?
+  verifiedAt    DateTime?
+  scannedAt     DateTime @default(now())
+
+  @@unique([sessionId, studentId])
+  @@index([studentId, scannedAt])
+}
+
+model ParentPhoneChangeLog {
+  id           String    @id @default(uuid())
+  parentId     String
+  oldPhone     String?   // Masked e.g. 0812****789
+  newPhone     String
+  status       String    @default("VERIFIED") // PENDING_VERIFICATION | VERIFIED | REJECTED
+  otpCode      String?
+  otpExpiresAt DateTime?
+  ipAddress    String?
+  userAgent    String?
+  createdAt    DateTime  @default(now())
+
+  parent       User      @relation(fields: [parentId], references: [id], onDelete: Cascade)
+
+  @@map("parent_phone_change_log")
+  @@index([parentId])
+}
+
+model TahfizSurahMaster {
+  id         Int     @id
+  number     Int     @unique
+  nameLatin  String  @map("name_latin")
+  nameArabic String  @map("name_arabic")
+  meaning    String
+  ayatCount  Int     @map("ayat_count")
+  place      String
+  audioUrl   String? @map("audio_url")
+
+  @@map("tahfiz_surah_master")
+}
+
+model TahfizRubrikConfig {
+  id                   String   @id
+  bobotKelancaran      Float    @default(25) @map("bobot_kelancaran")
+  bobotKetepatanAyat   Float    @default(25) @map("bobot_ketepatan_ayat")
+  bobotTajwid          Float    @default(20) @map("bobot_tajwid")
+  bobotMakharijulHuruf Float    @default(20) @map("bobot_makharijul_huruf")
+  bobotKemandirian     Float    @default(10) @map("bobot_kemandirian")
+  minLulusScore        Float    @default(75) @map("min_lulus_score")
+  updatedAt            DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@map("tahfiz_rubrik_config")
 }

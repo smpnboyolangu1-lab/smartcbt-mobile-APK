@@ -206,7 +206,10 @@ export const confirmAndSaveExam = async (req: Request, res: Response) => {
                     mediaType: q.imageUrl && q.audioUrl ? 'BOTH' : (q.imageUrl ? 'IMAGE' : (q.audioUrl ? 'AUDIO' : 'NONE')),
                     correctOption: q.correctOption || 'A',
                     options: q.options ? JSON.stringify(q.options) : null,
-                    orderNum: i + 1
+                    orderNum: i + 1,
+                    cognitiveLevel: q.cognitiveLevel || 'C3',
+                    kdTag: q.kdTag || null,
+                    explanation: q.explanation || null
                 }
             });
             createdQuestions.push(createdQ);
@@ -272,34 +275,154 @@ export const getMyTeachingClasses = async (req: Request, res: Response) => {
     }
 };
 
-// 4. PEMBUATAN SOAL OTOMATIS BERBASIS AI GEMINI
+// 4. PEMBUATAN SOAL OTOMATIS BERBASIS AI GEMINI (Gemini + RAG + Kuota Guru)
 export const generateQuestionsAiHandler = async (req: Request, res: Response) => {
+    const startTime = Date.now();
     try {
-        const { subject, topic, grade, count, difficulty, type } = req.body;
+        const user = (req as any).user;
+        const userId = user?.id || 'ANONYMOUS_TEACHER';
+        const { subject, topic, grade, count, difficulty, type, examId } = req.body;
+
         if (!subject || !topic) {
             return res.status(400).json({ message: 'Mata pelajaran dan topik materi wajib diisi' });
         }
 
+        // A. Cek Kuota Harian Guru (Maksimal 15 sesi / hari per guru)
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+
+        const usedToday = await (prisma as any).aiGenerationLog.count({
+            where: {
+                userId,
+                feature: 'QUESTION_GENERATE',
+                createdAt: { gte: todayStart }
+            }
+        });
+
+        const DAILY_LIMIT = 15;
+        if (usedToday >= DAILY_LIMIT) {
+            return res.status(429).json({
+                success: false,
+                message: `⚠️ Kuota Harian Terpenuhi: Anda telah mencapai batas kuota pembuatan soal AI hari ini (${usedToday}/${DAILY_LIMIT} kali). Kuota otomatis diperbarui besok pukul 00:00 WIB.`,
+                usedToday,
+                dailyLimit: DAILY_LIMIT
+            });
+        }
+
+        // B. RAG Context: Ambil referensi butir soal / materi dari Bank Soal SMPN 1 Boyolangu
+        let ragContext = '';
+        try {
+            const bankSoalRefs = await prisma.bankSoal.findMany({
+                where: {
+                    OR: [
+                        { subjectName: { contains: subject } },
+                        { content: { contains: topic } }
+                    ]
+                },
+                take: 3,
+                select: { subjectName: true, content: true }
+            });
+            if (bankSoalRefs.length > 0) {
+                ragContext = bankSoalRefs.map(b => b.content || b.subjectName).filter(Boolean).join('\n---\n');
+            }
+        } catch (_) {}
+
+        // C. Eksekusi Pembuatan Soal via Gemini AI
         const questions = await generateQuestionsWithGemini({
             subject,
             topic,
             grade: grade || 'Kelas VII',
             count: Number(count) || 5,
             difficulty: difficulty || 'Sedang',
-            type: type || 'MULTIPLE_CHOICE'
+            type: type || 'MULTIPLE_CHOICE',
+            ragContext
+        });
+
+        // Jika examId disertakan, otomatis tambahkan langsung ke butir soal ulangan tersebut
+        if (examId) {
+            const curCount = await prisma.question.count({ where: { examId: String(examId) } });
+            for (let i = 0; i < questions.length; i++) {
+                const q = questions[i];
+                await prisma.question.create({
+                    data: {
+                        examId: String(examId),
+                        type: q.type || 'MULTIPLE_CHOICE',
+                        content: q.content,
+                        imageUrl: q.imageUrl || null,
+                        audioUrl: q.audioUrl || null,
+                        mediaType: q.imageUrl && q.audioUrl ? 'BOTH' : (q.imageUrl ? 'IMAGE' : (q.audioUrl ? 'AUDIO' : 'NONE')),
+                        correctOption: q.correctOption || 'A',
+                        options: q.options ? (typeof q.options === 'string' ? q.options : JSON.stringify(q.options)) : null,
+                        orderNum: curCount + i + 1,
+                        cognitiveLevel: q.cognitiveLevel || 'C3',
+                        kdTag: q.kdTag || null,
+                        explanation: q.explanation || null
+                    }
+                }).catch(e => console.error('Error inserting generated question:', e));
+            }
+        }
+
+        // D. Catat Pemakaian Kuota ke ai_generation_logs
+        await (prisma as any).aiGenerationLog.create({
+            data: {
+                userId,
+                feature: 'QUESTION_GENERATE',
+                modelUsed: 'gemini-2.5-flash',
+                durationMs: Date.now() - startTime,
+                status: 'SUCCESS'
+            }
         });
 
         await logAudit(req, 'AI_GENERATE_QUESTIONS', `Subject: ${subject}, Topic: ${topic}`, {
-            count: questions.length
+            count: questions.length,
+            durationMs: Date.now() - startTime
         });
 
         res.json({
-            message: `✨ Berhasil men-generate ${questions.length} butir soal berkualitas tinggi dengan AI Gemini.`,
+            success: true,
+            message: `✨ Berhasil men-generate ${questions.length} butir soal berkualitas tinggi dengan AI Gemini (RAG terintegrasi).`,
+            quota: {
+                usedToday: usedToday + 1,
+                dailyLimit: DAILY_LIMIT,
+                remaining: Math.max(0, DAILY_LIMIT - (usedToday + 1))
+            },
             questions
         });
     } catch (error: any) {
         console.error('Error generating questions with AI:', error);
         res.status(500).json({ message: 'Gagal membuat soal dengan AI', error: error.message });
+    }
+};
+
+/**
+ * Cek Sisa Kuota Pembuatan Soal AI untuk Guru
+ * GET /api/soal/ai-quota
+ */
+export const getTeacherAiQuota = async (req: Request, res: Response) => {
+    try {
+        const user = (req as any).user;
+        const userId = user?.id || 'ANONYMOUS_TEACHER';
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+
+        const usedToday = await (prisma as any).aiGenerationLog.count({
+            where: {
+                userId,
+                feature: 'QUESTION_GENERATE',
+                createdAt: { gte: todayStart }
+            }
+        });
+
+        const dailyLimit = 15;
+        res.json({
+            success: true,
+            usedToday,
+            dailyLimit,
+            remainingQuota: Math.max(0, dailyLimit - usedToday),
+            resetTime: '00:00 WIB'
+        });
+    } catch (e: any) {
+        res.status(500).json({ success: false, message: e.message });
     }
 };
 

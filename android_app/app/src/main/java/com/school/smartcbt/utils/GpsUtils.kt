@@ -166,4 +166,52 @@ object GpsUtils {
         builder.setCancelable(false)
         builder.show()
     }
+
+    const val REQUEST_CHECK_SETTINGS_GPS = 9922
+
+    /**
+     * Meminta aktivasi GPS via Google Play Services One-Tap System Dialog (SIBOY FRESH).
+     * Jika GPS mati, Android memunculkan pop-up resmi sistem: [OK] / [Batal].
+     * Siswa cukup menekan [OK] dan GPS langsung menyala tanpa membuka Settings/bilah notifikasi.
+     */
+    fun checkAndRequestOneTapGps(
+        activity: android.app.Activity,
+        requestCode: Int = REQUEST_CHECK_SETTINGS_GPS,
+        onGpsAlreadyEnabled: () -> Unit,
+        onResolutionPrompted: () -> Unit = {},
+        onErrorFallback: () -> Unit
+    ) {
+        try {
+            val locationRequest = com.google.android.gms.location.LocationRequest.Builder(
+                com.google.android.gms.location.Priority.PRIORITY_HIGH_ACCURACY, 1000
+            ).setMinUpdateIntervalMillis(500).build()
+
+            val builder = com.google.android.gms.location.LocationSettingsRequest.Builder()
+                .addLocationRequest(locationRequest)
+                .setAlwaysShow(true)
+
+            val client = com.google.android.gms.location.LocationServices.getSettingsClient(activity)
+            val task = client.checkLocationSettings(builder.build())
+
+            task.addOnSuccessListener {
+                onGpsAlreadyEnabled()
+            }
+
+            task.addOnFailureListener { exception ->
+                if (exception is com.google.android.gms.common.api.ResolvableApiException) {
+                    try {
+                        onResolutionPrompted()
+                        exception.startResolutionForResult(activity, requestCode)
+                    } catch (sendEx: android.content.IntentSender.SendIntentException) {
+                        onErrorFallback()
+                    }
+                } else {
+                    onErrorFallback()
+                }
+            }
+        } catch (e: Exception) {
+            onErrorFallback()
+        }
+    }
 }
+

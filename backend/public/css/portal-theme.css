@@ -1,6 +1,6 @@
 /* ==========================================================================
-   SMART SCHOOL CBT - MODERN REFRESHED DESIGN SYSTEM
-   Clean, Fresh, Ergonomic, Softer Colors & Responsive Sidebar Collapsing
+   SMART SCHOOL CBT - MODERN REFRESHED DESIGN SYSTEM & THEME ENGINE
+   Fresh UI, Dark/Light Mode, Non-Crushing Responsive Tables, Smooth Pan
    ========================================================================== */
 
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
@@ -11,10 +11,15 @@
   --primary-sky: #0284c7;
   --primary-emerald: #059669;
   --primary-teal: #0d9488;
+  --primary-amber: #d97706;
+  --primary-rose: #e11d48;
   --primary-slate: #0f172a;
-  --sidebar-bg: #0f172a;
   --sidebar-width: 16rem;
   --bg-main: #f8fafc;
+  --card-bg: #ffffff;
+  --text-main: #0f172a;
+  --text-muted: #64748b;
+  --border-main: #e2e8f0;
   --font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
@@ -26,13 +31,14 @@ body {
   font-family: var(--font-family) !important;
   background-color: var(--bg-main) !important;
   -webkit-font-smoothing: antialiased;
-  color: #1e293b;
+  color: var(--text-main);
+  transition: background-color 0.25s ease, color 0.25s ease;
 }
 
 /* Custom sleek scrollbar */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
 }
 ::-webkit-scrollbar-track {
   background: #f1f5f9;
@@ -84,7 +90,7 @@ aside.portal-sidebar {
   }
 }
 
-/* Mobile & Tablet Layout (< 768px): default closed, full width main */
+/* Mobile & Tablet Layout (< 768px): Desktop-Preserving View (Do NOT squish tables) */
 @media (max-width: 767.98px) {
   #portalSidebar,
   aside.portal-sidebar {
@@ -94,17 +100,35 @@ aside.portal-sidebar {
   .portal-main-content {
     margin-left: 0 !important;
     width: 100% !important;
+    min-width: 100% !important;
+    padding: 1rem !important;
   }
   
   /* When opened on mobile */
   body.sidebar-mobile-open #portalSidebar,
   body.sidebar-mobile-open aside.portal-sidebar {
     transform: translateX(0) !important;
-    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5) !important;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6) !important;
+  }
+
+  /* Keep Wide Table Structure with Smooth Horizontal Pan on Mobile */
+  .overflow-x-auto,
+  .table-responsive {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    width: 100% !important;
+    border-radius: 0.75rem !important;
+  }
+  .overflow-x-auto > table,
+  .table-responsive > table,
+  #teacherTable,
+  #kelasTable,
+  #studentTable {
+    min-width: 900px !important;
   }
 }
 
-/* Enhanced Sidebar Typography (Enlarged & Highly Readable) */
+/* Enhanced Sidebar Typography */
 .sidebar-nav-link {
   display: flex;
   align-items: center;
@@ -113,7 +137,7 @@ aside.portal-sidebar {
   border-radius: 0.75rem;
   color: #cbd5e1;
   font-weight: 600;
-  font-size: 0.875rem; /* 14px */
+  font-size: 0.875rem;
   line-height: 1.25rem;
   transition: all 0.15s ease;
 }
@@ -129,7 +153,7 @@ aside.portal-sidebar {
 }
 
 .sidebar-section-title {
-  font-size: 0.75rem; /* 12px */
+  font-size: 0.75rem;
   font-weight: 800;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -154,7 +178,7 @@ aside.portal-sidebar {
   border-color: #cbd5e1;
 }
 
-/* Fresh Softer Badges */
+/* Softer Badges */
 .badge-soft-blue {
   background-color: #eff6ff;
   color: #1d4ed8;
@@ -225,4 +249,142 @@ aside.portal-sidebar {
     opacity: 1;
     transform: scale(1) translateX(0);
   }
+}
+
+/* ==========================================================================
+   DARK MODE ENGINE (Active when body has .dark-mode)
+   Rich slate-900 / slate-950, soft contrast, reduced eye strain
+   ========================================================================== */
+
+body.dark-mode {
+  --bg-main: #0b0f19;
+  --card-bg: #1e293b;
+  --text-main: #f8fafc;
+  --text-muted: #94a3b8;
+  --border-main: #334155;
+  background-color: #0b0f19 !important;
+  color: #f8fafc !important;
+}
+
+body.dark-mode main,
+body.dark-mode .portal-main-content {
+  background-color: #0f172a !important;
+  color: #f8fafc !important;
+}
+
+/* Cards & Containers in Dark Mode */
+body.dark-mode .bg-white,
+body.dark-mode .modern-card,
+body.dark-mode .fresh-card,
+body.dark-mode .stat-card {
+  background-color: #1e293b !important;
+  border-color: #334155 !important;
+  color: #f8fafc !important;
+}
+
+body.dark-mode .bg-gray-50,
+body.dark-mode .bg-slate-50,
+body.dark-mode .bg-gray-100 {
+  background-color: #0f172a !important;
+  border-color: #334155 !important;
+  color: #e2e8f0 !important;
+}
+
+body.dark-mode .bg-gray-200,
+body.dark-mode .bg-slate-200 {
+  background-color: #334155 !important;
+  color: #f1f5f9 !important;
+}
+
+/* Typography in Dark Mode */
+body.dark-mode .text-slate-800,
+body.dark-mode .text-gray-800,
+body.dark-mode .text-slate-900,
+body.dark-mode .text-gray-900,
+body.dark-mode h1,
+body.dark-mode h2,
+body.dark-mode h3 {
+  color: #f8fafc !important;
+}
+
+body.dark-mode .text-slate-700,
+body.dark-mode .text-gray-700 {
+  color: #e2e8f0 !important;
+}
+
+body.dark-mode .text-slate-600,
+body.dark-mode .text-gray-600 {
+  color: #cbd5e1 !important;
+}
+
+body.dark-mode .text-slate-500,
+body.dark-mode .text-gray-500 {
+  color: #94a3b8 !important;
+}
+
+/* Borders in Dark Mode */
+body.dark-mode .border,
+body.dark-mode .border-b,
+body.dark-mode .border-t,
+body.dark-mode .border-slate-200,
+body.dark-mode .border-gray-200,
+body.dark-mode .border-slate-100 {
+  border-color: #334155 !important;
+}
+
+/* Tables in Dark Mode */
+body.dark-mode table thead tr {
+  background-color: #0f172a !important;
+  color: #94a3b8 !important;
+}
+
+body.dark-mode table tbody tr {
+  background-color: #1e293b !important;
+  border-color: #334155 !important;
+  color: #f1f5f9 !important;
+}
+
+body.dark-mode table tbody tr:hover,
+body.dark-mode tr.hover\:bg-blue-50\/60:hover,
+body.dark-mode tr.hover\:bg-blue-50\/50:hover {
+  background-color: #334155 !important;
+}
+
+/* Form Controls in Dark Mode */
+body.dark-mode input[type="text"],
+body.dark-mode input[type="password"],
+body.dark-mode input[type="search"],
+body.dark-mode input[type="number"],
+body.dark-mode select,
+body.dark-mode textarea {
+  background-color: #0f172a !important;
+  color: #f8fafc !important;
+  border-color: #475569 !important;
+}
+
+body.dark-mode input::placeholder,
+body.dark-mode textarea::placeholder {
+  color: #64748b !important;
+}
+
+/* Modals in Dark Mode */
+body.dark-mode #modalTeacher > div,
+body.dark-mode #modalGps > div,
+body.dark-mode #modalClassOfficers > div,
+body.dark-mode #modalAdd > div,
+body.dark-mode #modalSendEFile > div {
+  background-color: #1e293b !important;
+  color: #f8fafc !important;
+  border-color: #334155 !important;
+}
+
+/* Dark Mode Scrollbar */
+body.dark-mode ::-webkit-scrollbar-track {
+  background: #0f172a;
+}
+body.dark-mode ::-webkit-scrollbar-thumb {
+  background: #334155;
+}
+body.dark-mode ::-webkit-scrollbar-thumb:hover {
+  background: #475569;
 }

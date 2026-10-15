@@ -31,6 +31,10 @@ class AnnouncementActivity : AppCompatActivity() {
 
         binding.btnBackAnnouncement.setOnClickListener { finish() }
         binding.btnRefreshAnnouncement.setOnClickListener { loadAnnouncements() }
+        binding.btnUpdateAnnouncement.setOnClickListener {
+            com.school.smartcbt.utils.AppUpdateChecker.checkForUpdates(this, showToastIfLatest = true)
+        }
+        com.school.smartcbt.utils.AppUpdateChecker.checkForUpdates(this)
 
         setupCategoryFilters()
         setupSearch()
@@ -257,29 +261,153 @@ class AnnouncementActivity : AppCompatActivity() {
     }
 
     private fun showFullAnnouncementDialog(item: AnnouncementItemDto) {
-        val dateStr = if (item.createdAt.length >= 10) item.createdAt.substring(0, 10) else item.createdAt
-        val sb = StringBuilder()
-        sb.append("📅 Tanggal Terbit: $dateStr\n")
-        if (!item.letterNo.isNullOrEmpty()) {
-            sb.append("📜 No. Surat: ${item.letterNo}\n")
-        }
-        if (!item.author.isNullOrEmpty()) {
-            sb.append("✍️ Rilis: ${item.author}\n")
-        }
-        sb.append("🏷️ Kategori / Sasaran: ${item.category ?: "UMUM"}\n\n")
-        sb.append(item.content)
+        val density = resources.displayMetrics.density
+        fun dp(v: Int): Int = (v * density).toInt()
 
-        val builder = AlertDialog.Builder(this)
-            .setTitle(item.title)
-            .setMessage(sb.toString())
-            .setPositiveButton("Tutup", null)
+        val dialog = android.app.Dialog(this)
+        dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
+
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val shape = android.graphics.drawable.GradientDrawable().apply {
+                setColor(Color.WHITE)
+                cornerRadius = dp(20).toFloat()
+            }
+            background = shape
+            clipToOutline = true
+        }
+
+        // ================= HEADER BERWARNA GRADIEN INDIGO - BLUE =================
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val grad = android.graphics.drawable.GradientDrawable(
+                android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT,
+                intArrayOf(Color.parseColor("#1E3A8A"), Color.parseColor("#2563EB"), Color.parseColor("#4F46E5"))
+            )
+            background = grad
+            setPadding(dp(18), dp(16), dp(18), dp(16))
+        }
+
+        // Top Row: Tag & Close Button
+        val topRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+        }
+
+        val tvCatBadge = TextView(this).apply {
+            val catText = (item.category ?: "PENGUMUMAN RESMI").uppercase()
+            text = "📢 $catText"
+            textSize = 10f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            setTextColor(Color.parseColor("#1E3A8A"))
+            val badgeBg = android.graphics.drawable.GradientDrawable().apply {
+                setColor(Color.parseColor("#FEF08A"))
+                cornerRadius = dp(6).toFloat()
+            }
+            background = badgeBg
+            setPadding(dp(8), dp(3), dp(8), dp(3))
+        }
+        topRow.addView(tvCatBadge)
+
+        val spacer = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(0, 1, 1f)
+        }
+        topRow.addView(spacer)
+
+        val btnCloseX = TextView(this).apply {
+            text = "✕"
+            setTextColor(Color.WHITE)
+            textSize = 14f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            gravity = android.view.Gravity.CENTER
+            val closeShape = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.OVAL
+                setColor(Color.parseColor("#33FFFFFF"))
+            }
+            background = closeShape
+            val s = dp(28)
+            layoutParams = LinearLayout.LayoutParams(s, s)
+            isClickable = true
+            setOnClickListener { dialog.dismiss() }
+        }
+        topRow.addView(btnCloseX)
+        header.addView(topRow)
+
+        val tvTitle = TextView(this).apply {
+            text = item.title
+            textSize = 16.5f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+            setPadding(0, dp(10), 0, dp(2))
+        }
+        header.addView(tvTitle)
+
+        val dateStr = if (item.createdAt.length >= 10) item.createdAt.substring(0, 10) else item.createdAt
+        val tvMeta = TextView(this).apply {
+            val auth = item.author ?: "Humas & Kurikulum"
+            val letNo = if (!item.letterNo.isNullOrEmpty()) " • No: ${item.letterNo}" else ""
+            text = "📅 $dateStr • ✍️ $auth$letNo"
+            textSize = 11f
+            setTextColor(Color.parseColor("#BFDBFE"))
+        }
+        header.addView(tvMeta)
+        root.addView(header)
+
+        // Content Scroll
+        val scroll = ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(260))
+            setPadding(dp(18), dp(14), dp(18), dp(14))
+        }
+
+        val tvContent = TextView(this).apply {
+            text = item.content
+            textSize = 12.5f
+            setTextColor(Color.parseColor("#1E293B"))
+            setLineSpacing(4f, 1.25f)
+        }
+        scroll.addView(tvContent)
+        root.addView(scroll)
+
+        // Bottom Actions Row
+        val bottomBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(dp(18), dp(10), dp(18), dp(14))
+            setBackgroundColor(Color.parseColor("#F8FAFC"))
+        }
 
         if (!item.fileUrl.isNullOrEmpty()) {
-            builder.setNeutralButton("📄 Buka File PDF") { _, _ ->
-                openPdfFile(item.fileUrl)
+            val btnPdf = Button(this).apply {
+                text = "📄 Unduh / Buka PDF"
+                setTextColor(Color.WHITE)
+                setBackgroundColor(Color.parseColor("#059669"))
+                textSize = 12f
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                layoutParams = LinearLayout.LayoutParams(0, dp(44), 1.2f).apply {
+                    marginEnd = dp(6)
+                }
+                setOnClickListener { openPdfFile(item.fileUrl) }
             }
+            bottomBar.addView(btnPdf)
         }
-        builder.show()
+
+        val btnClose = Button(this).apply {
+            text = "Tutup"
+            setTextColor(Color.parseColor("#334155"))
+            setBackgroundColor(Color.parseColor("#E2E8F0"))
+            textSize = 12f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            layoutParams = LinearLayout.LayoutParams(0, dp(44), 1f)
+            setOnClickListener { dialog.dismiss() }
+        }
+        bottomBar.addView(btnClose)
+        root.addView(bottomBar)
+
+        dialog.setContentView(root)
+        dialog.window?.apply {
+            setLayout((resources.displayMetrics.widthPixels * 0.92).toInt(), android.view.WindowManager.LayoutParams.WRAP_CONTENT)
+            setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
+        }
+        dialog.show()
     }
 
     private fun openPdfFile(rawUrl: String) {

@@ -48,27 +48,42 @@ export const createTeacherLeave = async (req: Request, res: Response) => {
                 endDate: endDate ? new Date(endDate) : new Date(startDate),
                 reason,
                 affectedSchedules: typeof affectedSchedules === 'object' ? JSON.stringify(affectedSchedules) : affectedSchedules,
-                assignmentDetails: assignmentDetails || null,
+                assignmentDetails: assignmentDetails || req.body.assignmentForStudents || null,
                 attachmentUrl: finalAttachmentUrl,
                 status: 'PENDING'
             }
         });
 
-        // Notifikasi ke seluruh operator sekolah
+        // Notifikasi ke seluruh Kurikulum dan Operator sekolah (SIBOY A1 & A5)
         try {
-            await (prisma as any).notificationMessage.create({
-                data: {
-                    recipientRole: 'OPERATOR',
-                    title: `📝 Pengajuan Izin Guru: ${user.name}`,
-                    message: `Bpk/Ibu ${user.name} mengajukan izin (${category}) tanggal ${startDate}. Menunggu verifikasi operator.`,
-                    category: 'TEACHER_LEAVE'
-                }
+            const kurikulumUsers = await (prisma as any).user.findMany({
+                where: {
+                    OR: [
+                        { role: 'KURIKULUM' },
+                        { role: 'ADMIN' },
+                        { role: 'OPERATOR' },
+                        { tugasTambahan: { contains: 'KURIKULUM' } }
+                    ]
+                },
+                select: { id: true }
             });
+
+            for (const kur of kurikulumUsers) {
+                await (prisma as any).notificationMessage.create({
+                    data: {
+                        recipientId: kur.id,
+                        recipientRole: 'TEACHER',
+                        title: `📝 Pengajuan Izin Guru: ${user.name}`,
+                        message: `Bpk/Ibu ${user.name} mengajukan izin (${category}) tanggal ${startDate}. Menunggu verifikasi & persetujuan Tim Kurikulum.`,
+                        category: 'KURIKULUM_APPROVAL'
+                    }
+                });
+            }
         } catch (notifErr) {}
 
         res.json({
             success: true,
-            message: 'Permohonan izin berhasil diajukan dan sedang menunggu persetujuan Operator.',
+            message: 'Permohonan izin berhasil diajukan dan sedang menunggu persetujuan Kurikulum / Operator.',
             leave
         });
     } catch (error: any) {
@@ -178,19 +193,48 @@ export const approveTeacherLeave = async (req: Request, res: Response) => {
                     recipientId: leave.teacherId,
                     recipientRole: 'TEACHER',
                     title: `✅ Izin Disetujui: ${leave.category}`,
-                    message: `Permohonan izin Anda telah disetujui oleh Operator (${user.name}). Tugas telah diteruskan ke Posko Guru Piket.`,
+                    message: `Permohonan izin Anda telah disetujui oleh Kurikulum/Operator (${user.name}). Tugas & jadwal telah didisposisikan ke Posko Guru Piket.`,
                     category: 'TEACHER_LEAVE'
                 }
             });
-            // Notifikasi ke Posko Piket
-            await (prisma as any).notificationMessage.create({
-                data: {
-                    recipientRole: 'TEACHER',
-                    title: `📋 Disposisi Piket: Bpk/Ibu ${leave.teacherName} Izin`,
-                    message: `Bpk/Ibu ${leave.teacherName} izin (${leave.category}). Tugas mandiri: "${leave.assignmentDetails || '-'}" siap dibagikan ke kelas.`,
-                    category: 'PIKET_ALERT'
+
+            // Format Notifikasi ke Piket sesuai Standar SIBOY A5:
+            // Guru: [Nama]
+            // Jenis: Sakit/Izin/Dinas Luar
+            // Jadwal Terdampak:
+            // - 08:00 | 7A | Matematika
+            // Aksi: Klik "Ambil Tugas" untuk dampingi kelas kosong
+            let scheduleLines = '- Jadwal belum dispesifikasikan';
+            try {
+                let parsed = [];
+                if (typeof leave.affectedSchedules === 'string') parsed = JSON.parse(leave.affectedSchedules);
+                else if (Array.isArray(leave.affectedSchedules)) parsed = leave.affectedSchedules;
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                    scheduleLines = parsed.map((p: any) => `- ${p.periodLesson || p.timeRange || 'Jam Mengajar'} | ${p.className || '-'} | ${p.subjectName || 'Mapel'}`).join('\n');
                 }
+            } catch {
+                if (leave.affectedSchedules) scheduleLines = `- ${leave.affectedSchedules}`;
+            }
+
+            const piketMessage = `Guru: ${leave.teacherName}\nJenis: ${leave.category}\nJadwal Terdampak:\n${scheduleLines}\nAksi: Klik "Ambil Tugas" untuk dampingi kelas kosong.`;
+
+            // Cari seluruh guru piket yang bertugas hari ini
+            const todayDayOfWeek = new Date().getDay();
+            const todayPiketSchedules = await prisma.piketSchedule.findMany({
+                where: { dayOfWeek: todayDayOfWeek, isActive: true }
             });
+
+            for (const piket of todayPiketSchedules) {
+                await (prisma as any).notificationMessage.create({
+                    data: {
+                        recipientId: piket.teacherId,
+                        recipientRole: 'TEACHER',
+                        title: `📋 Disposisi Piket: Bpk/Ibu ${leave.teacherName} Izin`,
+                        message: piketMessage,
+                        category: 'PIKET_ALERT'
+                    }
+                });
+            }
         } catch (nErr) {}
 
         res.json({
@@ -300,5 +344,179 @@ export const getPiketTodayFeed = async (req: Request, res: Response) => {
         });
     } catch (error: any) {
         res.status(500).json({ success: false, message: 'Gagal memuat feed posko piket: ' + error.message });
+    }
+};
+
+// 7. KURIKULUM: Mengambil Seluruh Izin Pending untuk Approval Center (SIBOY A1, A5, B4)
+export const getKurikulumPendingLeaves = async (req: Request, res: Response) => {
+    try {
+        const pendingLeaves = await (prisma as any).teacherLeaveRequest.findMany({
+            where: { status: 'PENDING' },
+            orderBy: { createdAt: 'desc' }
+        });
+
+        // Enrich dengan parsing jadwal terdampak
+        const enriched = pendingLeaves.map((l: any) => {
+            let parsedSchedules = [];
+            try {
+                if (typeof l.affectedSchedules === 'string') parsedSchedules = JSON.parse(l.affectedSchedules);
+                else if (Array.isArray(l.affectedSchedules)) parsedSchedules = l.affectedSchedules;
+            } catch {
+                if (l.affectedSchedules) parsedSchedules = [{ periodLesson: l.affectedSchedules, className: '-', subjectName: '-' }];
+            }
+            return {
+                ...l,
+                schedulesList: parsedSchedules
+            };
+        });
+
+        res.json({
+            success: true,
+            count: enriched.length,
+            leaves: enriched
+        });
+    } catch (error: any) {
+        res.status(500).json({ success: false, message: 'Gagal memuat daftar izin kurikulum: ' + error.message });
+    }
+};
+
+// 8. GURU PIKET: "Ambil Tugas" Dampingi Kelas Kosong (SIBOY A4 & A5)
+// Guru piket klik "Ambil Tugas" / "Approve" -> status kelas berubah HIJAU dengan nama guru piket
+export const claimEmptyClassByPiket = async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+        const user = (req as any).user;
+
+        if (!user) {
+            return res.status(401).json({ success: false, message: 'Autentikasi guru piket diperlukan.' });
+        }
+
+        const reportId = String(id);
+        const report = await prisma.emptyClassReport.findUnique({ where: { id: reportId } });
+        if (!report) {
+            return res.status(404).json({ success: false, message: 'Laporan kelas kosong tidak ditemukan.' });
+        }
+
+        const piketDisplayName = `${user.name} (Guru Piket)`;
+
+        // Update laporan kelas kosong menjadi tertangani
+        const updatedReport = await prisma.emptyClassReport.update({
+            where: { id: reportId },
+            data: {
+                status: 'GURU_INVAL_ASSIGNED',
+                substituteTeacher: piketDisplayName,
+                handledBy: user.name,
+                handledAt: new Date(),
+                substituteNotes: `Didampingi langsung oleh Guru Piket ${user.name}`
+            }
+        });
+
+        // Buat atau update sesi KBM aktif agar monitoring langsung berubah HIJAU 🟢
+        const now = new Date();
+        const todayStart = new Date(now);
+        todayStart.setHours(0, 0, 0, 0);
+
+        try {
+            await (prisma as any).classPeriodSession.create({
+                data: {
+                    teacherId: user.id,
+                    teacherName: piketDisplayName,
+                    className: report.className,
+                    subjectName: `${report.subjectName} (Pendampingan Piket)`,
+                    periodIndex: 1,
+                    timeRange: report.periodLesson,
+                    inTime: now,
+                    status: 'ACTIVE'
+                }
+            });
+        } catch (sessErr) {
+            console.warn('ClassPeriodSession create notice:', sessErr);
+        }
+
+        // Broadcast perubahan live ke seluruh client (TV Display, Web Admin, APK)
+        if (typeof (global as any).emitEmptyClassUpdate === 'function') {
+            (global as any).emitEmptyClassUpdate({
+                type: 'EMPTY_CLASS_HANDLED',
+                className: report.className,
+                teacherName: piketDisplayName,
+                status: 'GREEN',
+                badge: 'TERISI (DIDAMPINGI PIKET)',
+                report: updatedReport
+            });
+        }
+
+        res.json({
+            success: true,
+            message: `✅ Tugas berhasil diambil! Anda kini tercatat mendampingi kelas ${report.className}. Status kelas di monitoring telah berubah HIJAU 🟢.`,
+            report: updatedReport
+        });
+    } catch (error: any) {
+        console.error('Error claimEmptyClassByPiket:', error);
+        res.status(500).json({ success: false, message: 'Gagal mengambil tugas: ' + error.message });
+    }
+};
+
+// 9. WALI KELAS & KURIKULUM: Simpan dan Rekap Laporan Bulanan Rombel (SIBOY A6)
+export const submitMonthlyReportFromWali = async (req: Request, res: Response) => {
+    try {
+        const user = (req as any).user;
+        const { className, month, year, summaryText, attendancePct, problemStudentsCount } = req.body;
+
+        if (!className) {
+            return res.status(400).json({ success: false, message: 'Nama kelas wajib disertakan.' });
+        }
+
+        // Catat sebagai notifikasi prioritas tinggi ke Tim Kurikulum
+        const kurikulumUsers = await (prisma as any).user.findMany({
+            where: {
+                OR: [
+                    { role: 'KURIKULUM' },
+                    { role: 'ADMIN' },
+                    { tugasTambahan: { contains: 'KURIKULUM' } }
+                ]
+            },
+            select: { id: true }
+        });
+
+        const reportTitle = `📊 Laporan Bulanan Rombel ${className} (${month || 'Bulan Ini'} ${year || 2026})`;
+        const reportMsg = `Wali Kelas ${user.name} telah mengirim laporan bulanan untuk rombel ${className}.\nKehadiran Rata-rata: ${attendancePct || '-'}% • Siswa Perhatian: ${problemStudentsCount || 0} anak.\nCatatan: ${summaryText || 'Pembelajaran dan kedisiplinan rombel berjalan kondusif.'}`;
+
+        for (const kur of kurikulumUsers) {
+            await (prisma as any).notificationMessage.create({
+                data: {
+                    recipientId: kur.id,
+                    recipientRole: 'TEACHER',
+                    title: reportTitle,
+                    message: reportMsg,
+                    className: className,
+                    category: 'KURIKULUM_REPORT'
+                }
+            });
+        }
+
+        res.json({
+            success: true,
+            message: `Laporan bulanan rombel ${className} berhasil dikirim ke Kurikulum.`
+        });
+    } catch (error: any) {
+        res.status(500).json({ success: false, message: 'Gagal mengirim laporan bulanan: ' + error.message });
+    }
+};
+
+// 10. KURIKULUM: Melihat Daftar Laporan Bulanan Seluruh Wali Kelas
+export const getKurikulumMonthlyReports = async (req: Request, res: Response) => {
+    try {
+        const reports = await (prisma as any).notificationMessage.findMany({
+            where: { category: 'KURIKULUM_REPORT' },
+            orderBy: { createdAt: 'desc' },
+            take: 50
+        });
+
+        res.json({
+            success: true,
+            reports
+        });
+    } catch (error: any) {
+        res.status(500).json({ success: false, message: 'Gagal memuat laporan bulanan: ' + error.message });
     }
 };

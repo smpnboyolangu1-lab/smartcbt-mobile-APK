@@ -5,15 +5,17 @@
     android:layout_height="match_parent"
     android:background="#F8FAFC">
 
-    <!-- Top Header Navy Bar -->
+    <!-- Top Header ANBK Navy Bar -->
     <LinearLayout
         android:id="@+id/headerBar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="#0A2E5C"
+        android:background="#0A2540"
+        android:elevation="6dp"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:padding="14dp">
+        android:paddingHorizontal="14dp"
+        android:paddingVertical="10dp">
 
         <LinearLayout
             android:layout_width="0dp"
@@ -21,10 +23,40 @@
             android:layout_weight="1"
             android:orientation="vertical">
 
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:background="#1E3A8A"
+                    android:paddingHorizontal="6dp"
+                    android:paddingVertical="2dp"
+                    android:text="ANBK CBT"
+                    android:textColor="#93C5FD"
+                    android:textSize="9sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvStudentNisn"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="6dp"
+                    android:text="Peserta: 0081234567"
+                    android:textColor="#CBD5E1"
+                    android:textSize="10.5sp" />
+            </LinearLayout>
+
             <TextView
                 android:id="@+id/tvStudentName"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:ellipsize="end"
+                android:maxLines="1"
                 android:text="Nama Siswa"
                 android:textColor="#FFFFFF"
                 android:textSize="15sp"
@@ -34,39 +66,99 @@
                 android:id="@+id/tvExamTitle"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="2dp"
+                android:layout_marginTop="1dp"
+                android:ellipsize="end"
+                android:maxLines="1"
                 android:text="Matematika (90 Menit)"
-                android:textColor="#BBDEFB"
-                android:textSize="12sp" />
+                android:textColor="#93C5FD"
+                android:textSize="11.5sp" />
         </LinearLayout>
 
-        <!-- Sisa Waktu Ujian Box -->
+        <!-- Kontrol Ukuran Font Soal ANBK [A-] [A] [A+] -->
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:background="#1565C0"
-            android:gravity="center"
-            android:orientation="vertical"
-            android:paddingHorizontal="12dp"
-            android:paddingVertical="5dp">
+            android:layout_marginEnd="8dp"
+            android:background="#0F172A"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:padding="2dp">
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="SISA WAKTU"
-                android:textColor="#BBDEFB"
-                android:textSize="8sp"
+            <Button
+                android:id="@+id/btnFontSmall"
+                style="@style/Widget.MaterialComponents.Button.TextButton"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:padding="0dp"
+                android:text="A-"
+                android:textColor="#94A3B8"
+                android:textSize="11sp"
                 android:textStyle="bold" />
 
-            <TextView
-                android:id="@+id/tvTimer"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="01:30:00"
+            <Button
+                android:id="@+id/btnFontNormal"
+                style="@style/Widget.MaterialComponents.Button.TextButton"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:backgroundTint="#1E293B"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:padding="0dp"
+                android:text="A"
                 android:textColor="#FFFFFF"
-                android:textSize="15sp"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+            <Button
+                android:id="@+id/btnFontLarge"
+                style="@style/Widget.MaterialComponents.Button.TextButton"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:padding="0dp"
+                android:text="A+"
+                android:textColor="#94A3B8"
+                android:textSize="13sp"
                 android:textStyle="bold" />
         </LinearLayout>
+
+        <!-- Sisa Waktu Ujian Box ANBK -->
+        <androidx.cardview.widget.CardView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            app:cardBackgroundColor="#1E40AF"
+            app:cardCornerRadius="10dp"
+            app:cardElevation="0dp">
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:orientation="vertical"
+                android:paddingHorizontal="10dp"
+                android:paddingVertical="6dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="SISA WAKTU"
+                    android:textColor="#BFDBFE"
+                    android:textSize="8.5sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvTimer"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="01:30:00"
+                    android:textColor="#FFFFFF"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+        </androidx.cardview.widget.CardView>
     </LinearLayout>
 
     <!-- UNBK Status & Quick Navigation Bar -->
@@ -75,25 +167,28 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_below="@id/headerBar"
-        android:background="#1E293B"
+        android:background="#0F172A"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:paddingHorizontal="14dp"
-        android:paddingVertical="8dp">
+        android:paddingHorizontal="12dp"
+        android:paddingVertical="7dp">
 
         <Button
             android:id="@+id/btnDaftarSoal"
             style="@style/Widget.MaterialComponents.Button.UnelevatedButton"
             android:layout_width="wrap_content"
-            android:layout_height="34dp"
-            android:backgroundTint="#3B82F6"
-            android:paddingHorizontal="10dp"
-            android:text="📋 Daftar Soal"
+            android:layout_height="36dp"
+            android:backgroundTint="#2563EB"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:paddingHorizontal="12dp"
+            android:text="📋 DAFTAR SOAL"
             android:textColor="#FFFFFF"
             android:textSize="11sp"
-            android:textStyle="bold" />
+            android:textStyle="bold"
+            app:cornerRadius="8dp" />
 
-        <!-- Status Counters -->
+        <!-- Status Counters ANBK -->
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
@@ -102,45 +197,63 @@
             android:orientation="horizontal">
 
             <!-- Terjawab Badge -->
-            <TextView
-                android:id="@+id/tvAnsweredCount"
+            <androidx.cardview.widget.CardView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:background="#10B981"
-                android:paddingHorizontal="8dp"
-                android:paddingVertical="3dp"
-                android:text="🟢 Terjawab: 0"
-                android:textColor="#FFFFFF"
-                android:textSize="10sp"
-                android:textStyle="bold" />
+                app:cardBackgroundColor="#059669"
+                app:cardCornerRadius="8dp"
+                app:cardElevation="0dp">
+                <TextView
+                    android:id="@+id/tvAnsweredCount"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingHorizontal="8dp"
+                    android:paddingVertical="3dp"
+                    android:text="🟢 0"
+                    android:textColor="#FFFFFF"
+                    android:textSize="10.5sp"
+                    android:textStyle="bold" />
+            </androidx.cardview.widget.CardView>
 
             <!-- Ragu Badge -->
-            <TextView
-                android:id="@+id/tvDoubtCount"
+            <androidx.cardview.widget.CardView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="6dp"
-                android:background="#F59E0B"
-                android:paddingHorizontal="8dp"
-                android:paddingVertical="3dp"
-                android:text="🟡 Ragu: 0"
-                android:textColor="#FFFFFF"
-                android:textSize="10sp"
-                android:textStyle="bold" />
+                app:cardBackgroundColor="#D97706"
+                app:cardCornerRadius="8dp"
+                app:cardElevation="0dp">
+                <TextView
+                    android:id="@+id/tvDoubtCount"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingHorizontal="8dp"
+                    android:paddingVertical="3dp"
+                    android:text="🟡 0"
+                    android:textColor="#FFFFFF"
+                    android:textSize="10.5sp"
+                    android:textStyle="bold" />
+            </androidx.cardview.widget.CardView>
 
             <!-- Belum Badge -->
-            <TextView
-                android:id="@+id/tvUnansweredCount"
+            <androidx.cardview.widget.CardView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="6dp"
-                android:background="#64748B"
-                android:paddingHorizontal="8dp"
-                android:paddingVertical="3dp"
-                android:text="⚪ Belum: 4"
-                android:textColor="#FFFFFF"
-                android:textSize="10sp"
-                android:textStyle="bold" />
+                app:cardBackgroundColor="#475569"
+                app:cardCornerRadius="8dp"
+                app:cardElevation="0dp">
+                <TextView
+                    android:id="@+id/tvUnansweredCount"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingHorizontal="8dp"
+                    android:paddingVertical="3dp"
+                    android:text="⚪ 0"
+                    android:textColor="#FFFFFF"
+                    android:textSize="10.5sp"
+                    android:textStyle="bold" />
+            </androidx.cardview.widget.CardView>
         </LinearLayout>
     </LinearLayout>
 
@@ -155,14 +268,14 @@
         <androidx.cardview.widget.CardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            app:cardCornerRadius="14dp"
-            app:cardElevation="3dp">
+            app:cardCornerRadius="20dp"
+            app:cardElevation="4dp">
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:padding="18dp">
+                android:padding="20dp">
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -170,30 +283,42 @@
                     android:gravity="center_vertical"
                     android:orientation="horizontal">
 
-                    <TextView
-                        android:id="@+id/tvQuestionNumber"
+                    <androidx.cardview.widget.CardView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:background="#E3F2FD"
-                        android:paddingHorizontal="10dp"
-                        android:paddingVertical="4dp"
-                        android:text="Soal No. 1 dari 4"
-                        android:textColor="#1565C0"
-                        android:textSize="12sp"
-                        android:textStyle="bold" />
+                        app:cardBackgroundColor="#EFF6FF"
+                        app:cardCornerRadius="12dp"
+                        app:cardElevation="0dp">
+                        <TextView
+                            android:id="@+id/tvQuestionNumber"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:paddingHorizontal="12dp"
+                            android:paddingVertical="6dp"
+                            android:text="Soal No. 1 dari 4"
+                            android:textColor="#1565C0"
+                            android:textSize="13sp"
+                            android:textStyle="bold" />
+                    </androidx.cardview.widget.CardView>
 
-                    <TextView
-                        android:id="@+id/tvQuestionStatusBadge"
+                    <androidx.cardview.widget.CardView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginStart="8dp"
-                        android:background="#E2E8F0"
-                        android:paddingHorizontal="8dp"
-                        android:paddingVertical="3dp"
-                        android:text="Belum Dijawab"
-                        android:textColor="#64748B"
-                        android:textSize="10sp"
-                        android:textStyle="bold" />
+                        app:cardBackgroundColor="#E2E8F0"
+                        app:cardCornerRadius="10dp"
+                        app:cardElevation="0dp">
+                        <TextView
+                            android:id="@+id/tvQuestionStatusBadge"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:paddingHorizontal="8dp"
+                            android:paddingVertical="3dp"
+                            android:text="Belum Dijawab"
+                            android:textColor="#64748B"
+                            android:textSize="11sp"
+                            android:textStyle="bold" />
+                    </androidx.cardview.widget.CardView>
                 </LinearLayout>
 
                 <!-- 🎧 LISTENING AUDIO PLAYER (Untuk Soal Listening / Dikte / Audio Quran) -->
@@ -203,8 +328,8 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="10dp"
                     android:visibility="gone"
-                    app:cardCornerRadius="12dp"
-                    app:cardElevation="2dp"
+                    app:cardCornerRadius="16dp"
+                    app:cardElevation="3dp"
                     app:cardBackgroundColor="#F5F3FF">
 
                     <LinearLayout
@@ -217,8 +342,8 @@
                         <Button
                             android:id="@+id/btnPlayAudio"
                             style="@style/Widget.MaterialComponents.Button.UnelevatedButton"
-                            android:layout_width="44dp"
-                            android:layout_height="44dp"
+                            android:layout_width="48dp"
+                            android:layout_height="48dp"
                             android:backgroundTint="#7C3AED"
                             android:insetTop="0dp"
                             android:insetBottom="0dp"
@@ -227,7 +352,7 @@
                             android:textColor="#FFFFFF"
                             android:textSize="18sp"
                             android:textStyle="bold"
-                            app:cornerRadius="22dp" />
+                            app:cornerRadius="24dp" />
 
                         <LinearLayout
                             android:layout_width="0dp"
@@ -275,15 +400,21 @@
                 </androidx.cardview.widget.CardView>
 
                 <!-- 🖼️ GAMBAR LAMPIRAN SOAL (Diagram / Bagan / Foto) -->
-                <ImageView
-                    android:id="@+id/ivQuestionImage"
+                <androidx.cardview.widget.CardView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
-                    android:adjustViewBounds="true"
-                    android:maxHeight="260dp"
-                    android:scaleType="fitCenter"
-                    android:visibility="gone" />
+                    android:layout_marginTop="12dp"
+                    app:cardCornerRadius="12dp"
+                    app:cardElevation="0dp">
+                    <ImageView
+                        android:id="@+id/ivQuestionImage"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:adjustViewBounds="true"
+                        android:maxHeight="260dp"
+                        android:scaleType="fitCenter"
+                        android:visibility="gone" />
+                </androidx.cardview.widget.CardView>
 
                 <!-- 📄 TEKS SOAL (Biasa) -->
                 <TextView
@@ -291,10 +422,10 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="14dp"
-                    android:lineSpacingExtra="3dp"
+                    android:lineSpacingExtra="5dp"
                     android:text="Berapakah hasil dari 15 x 12 - 50?"
-                    android:textColor="#1E293B"
-                    android:textSize="16sp"
+                    android:textColor="#0F172A"
+                    android:textSize="17sp"
                     android:textStyle="bold" />
 
                 <!-- 🧮 WEBVIEW KATEX (Rumus Matematika & Rich HTML) -->
@@ -306,120 +437,200 @@
                     android:visibility="gone" />
 
                 <!-- ✍️ KOTAK LEMBAR JAWABAN ESSAI / URAIAN SISWA -->
-                <LinearLayout
-                    android:id="@+id/layoutEssayContainer"
+                <androidx.cardview.widget.CardView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="14dp"
-                    android:background="#F8FAFC"
-                    android:orientation="vertical"
-                    android:padding="14dp"
-                    android:visibility="gone">
-
+                    app:cardBackgroundColor="#F8FAFC"
+                    app:cardCornerRadius="16dp"
+                    app:cardElevation="0dp">
+                    
                     <LinearLayout
+                        android:id="@+id/layoutEssayContainer"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:gravity="center_vertical"
-                        android:orientation="horizontal">
+                        android:orientation="vertical"
+                        android:padding="14dp"
+                        android:visibility="gone">
 
-                        <TextView
-                            android:layout_width="0dp"
+                        <LinearLayout
+                            android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="✍️ Lembar Jawaban Uraian / Essai Siswa:"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal">
+
+                            <TextView
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:text="✍️ Lembar Jawaban Uraian / Essai Siswa:"
+                                android:textColor="#0F172A"
+                                android:textSize="13sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:id="@+id/tvEssayCharCounter"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="0 kata • 0 karakter"
+                                android:textColor="#64748B"
+                                android:textSize="10sp" />
+                        </LinearLayout>
+
+                        <EditText
+                            android:id="@+id/etEssayAnswer"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:background="@drawable/bg_dialog_input"
+                            android:gravity="top|start"
+                            android:hint="Tuliskan jawaban uraian Anda secara runtut dan lengkap di sini..."
+                            android:lineSpacingExtra="3dp"
+                            android:minLines="6"
+                            android:padding="16dp"
                             android:textColor="#0F172A"
-                            android:textSize="13sp"
-                            android:textStyle="bold" />
+                            android:textColorHint="#94A3B8"
+                            android:textSize="14sp" />
 
                         <TextView
-                            android:id="@+id/tvEssayCharCounter"
+                            android:id="@+id/tvEssayAutoSaveNotice"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="0 kata • 0 karakter"
-                            android:textColor="#64748B"
+                            android:layout_marginTop="4dp"
+                            android:text="💾 Jawaban tersimpan otomatis ke lembar ujian"
+                            android:textColor="#10B981"
                             android:textSize="10sp" />
                     </LinearLayout>
-
-                    <EditText
-                        android:id="@+id/etEssayAnswer"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
-                        android:background="@drawable/bg_profile_card"
-                        android:gravity="top|start"
-                        android:hint="Tuliskan jawaban uraian Anda secara runtut dan lengkap di sini..."
-                        android:lineSpacingExtra="3dp"
-                        android:minLines="5"
-                        android:padding="14dp"
-                        android:textColor="#0F172A"
-                        android:textColorHint="#94A3B8"
-                        android:textSize="14sp" />
-
-                    <TextView
-                        android:id="@+id/tvEssayAutoSaveNotice"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="4dp"
-                        android:text="💾 Jawaban tersimpan otomatis ke lembar ujian"
-                        android:textColor="#10B981"
-                        android:textSize="10sp" />
-                </LinearLayout>
+                </androidx.cardview.widget.CardView>
 
                 <!-- 🔘 PILIHAN GANDA (A, B, C, D) -->
                 <RadioGroup
                     android:id="@+id/rgOptions"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="14dp" />
+                    android:layout_marginTop="16dp" />
             </LinearLayout>
         </androidx.cardview.widget.CardView>
     </ScrollView>
 
-    <!-- Bottom Navigation Bar for Exam -->
+    <!-- Bottom Navigation Bar for Exam (Standar ANBK Pusmendik Kemendikdasmen) -->
     <LinearLayout
         android:id="@+id/bottomNav"
         android:layout_width="match_parent"
         android:layout_height="64dp"
         android:layout_alignParentBottom="true"
-        android:background="#FFFFFF"
-        android:elevation="8dp"
+        android:background="#0F172A"
+        android:elevation="12dp"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:paddingHorizontal="12dp">
+        android:paddingHorizontal="12dp"
+        android:paddingVertical="8dp">
 
         <Button
             android:id="@+id/btnPrev"
             android:layout_width="0dp"
-            android:layout_height="44dp"
+            android:layout_height="46dp"
             android:layout_weight="1"
-            android:backgroundTint="#64748B"
-            android:text="❮ Sebelumnya"
+            android:backgroundTint="#334155"
+            android:text="◀ SEBELUMNYA"
             android:textColor="#FFFFFF"
-            android:textSize="11sp"
-            android:textStyle="bold" />
+            android:textSize="11.5sp"
+            android:textStyle="bold"
+            app:cornerRadius="8dp" />
 
         <Button
             android:id="@+id/btnDoubt"
             android:layout_width="0dp"
-            android:layout_height="44dp"
+            android:layout_height="46dp"
             android:layout_marginHorizontal="6dp"
-            android:layout_weight="1"
+            android:layout_weight="0.95"
             android:backgroundTint="#F59E0B"
-            android:text="🟡 Ragu-Ragu"
+            android:text="🟨 RAGU-RAGU"
             android:textColor="#FFFFFF"
-            android:textSize="11sp"
-            android:textStyle="bold" />
+            android:textSize="11.5sp"
+            android:textStyle="bold"
+            app:cornerRadius="8dp" />
 
         <Button
             android:id="@+id/btnNext"
             android:layout_width="0dp"
-            android:layout_height="44dp"
-            android:layout_weight="1.2"
-            android:backgroundTint="#1565C0"
-            android:text="Selanjutnya ❯"
+            android:layout_height="46dp"
+            android:layout_weight="1.1"
+            android:backgroundTint="#2563EB"
+            android:text="BERIKUTNYA ▶"
             android:textColor="#FFFFFF"
-            android:textSize="11sp"
-            android:textStyle="bold" />
+            android:textSize="11.5sp"
+            android:textStyle="bold"
+            app:cornerRadius="8dp" />
+    </LinearLayout>
+
+    <!-- 🏷️ SUBTLE FORENSIC WATERMARK (Melacak kepemilikan gawai jika difoto) -->
+    <TextView
+        android:id="@+id/tvExamWatermark"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_centerInParent="true"
+        android:rotation="-25"
+        android:text="SMPN 1 BOYOLANGU • PESERTA CBT"
+        android:textColor="#10000000"
+        android:textSize="22sp"
+        android:textStyle="bold"
+        android:letterSpacing="0.08"
+        android:clickable="false"
+        android:focusable="false"
+        android:elevation="1dp" />
+
+    <!-- 🛡️ DYNAMIC ANTI-PHOTO SHIELD (BLUR OVERLAY SETELAH 5 DETIK TANPA SENTUHAN) -->
+    <LinearLayout
+        android:id="@+id/layoutAntiPhotoBlurShield"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_below="@id/unbkStatusBar"
+        android:layout_above="@id/bottomNav"
+        android:background="#EE0F172A"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:padding="24dp"
+        android:visibility="gone"
+        android:elevation="12dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="🛡️"
+            android:textSize="50sp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="PROTEKSI ANTI-FOTO AI AKTIF"
+            android:textColor="#FFFFFF"
+            android:textSize="17sp"
+            android:textStyle="bold"
+            android:gravity="center" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Layar soal dikaburkan otomatis setelah 5 detik tanpa sentuhan untuk menjaga integritas ujian.\n\nKetuk tombol di bawah atau sentuh layar untuk melanjutkan membaca."
+            android:textColor="#94A3B8"
+            android:textSize="12.5sp"
+            android:gravity="center"
+            android:lineSpacingExtra="2dp" />
+
+        <Button
+            android:id="@+id/btnUnblurQuestion"
+            android:layout_width="wrap_content"
+            android:layout_height="48dp"
+            android:layout_marginTop="18dp"
+            android:backgroundTint="#2563EB"
+            android:text="👆 Ketuk untuk Melanjutkan Membaca"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            app:cornerRadius="12dp" />
     </LinearLayout>
 
 </RelativeLayout>

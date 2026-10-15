@@ -72,23 +72,28 @@ export const teacherInClassSession = async (req: Request, res: Response) => {
             });
         }
 
-        // Validasi Geofence Koordinat Ruang Kelas: Toleransi Maksimal 10 Meter
+        // Validasi Geofence Koordinat Ruang Kelas & Lingkungan Sekolah Resmi
         const classInfo = await prisma.class.findFirst({
             where: { name: className }
         });
-        const targetLat = classInfo?.lat ?? -8.125506;
-        const targetLng = classInfo?.lng ?? 111.893526;
-        const baseRadius = classInfo?.radiusMeters ?? 15;
-        const maxRadius = baseRadius + 15; // Toleransi buffer 15 meter untuk akurasi GPS indoor/jitter laptop & HP
+        const targetLat = classInfo?.lat ?? -8.125157;
+        const targetLng = classInfo?.lng ?? 111.893912;
+        const baseRadius = classInfo?.radiusMeters ?? 65;
+        const maxRadius = Math.max(baseRadius + 20, 85); // Toleransi lingkungan sekolah & kelas (85m)
 
-        if (lat !== undefined && lng !== undefined && lat !== null && lng !== null && String(lat) !== '' && String(lng) !== '') {
-            const distanceMeters = calculateDistanceMeters(Number(lat), Number(lng), targetLat, targetLng);
-            if (distanceMeters > maxRadius) {
-                return res.status(403).json({
-                    success: false,
-                    message: `📍 Presensi Ditolak! Anda terdeteksi berada di luar ruang kelas ${className} (Jarak: ${distanceMeters} meter). Batas toleransi maksimal ${maxRadius} meter dari ruang kelas untuk konfirmasi kehadiran guru.`
-                });
-            }
+        if (lat === undefined || lng === undefined || lat === null || lng === null || String(lat).trim() === '' || String(lng).trim() === '' || Number(lat) === 0 || Number(lng) === 0) {
+            return res.status(403).json({
+                success: false,
+                message: `📍 Presensi Kelas Ditolak! Koordinat GPS tidak terdeteksi. Aktifkan GPS lokasi HP Anda dan pastikan berada di dalam ruang kelas ${className}.`
+            });
+        }
+
+        const distanceMeters = calculateDistanceMeters(Number(lat), Number(lng), targetLat, targetLng);
+        if (distanceMeters > maxRadius) {
+            return res.status(403).json({
+                success: false,
+                message: `📍 Presensi Kelas Ditolak! Anda terdeteksi berada di luar area kelas / lingkungan sekolah ${className} (Jarak: ${distanceMeters} meter). Batas toleransi maksimal ${maxRadius} meter untuk konfirmasi kehadiran guru.`
+            });
         }
 
         const now = new Date();
@@ -244,6 +249,21 @@ export const teacherEndClassSession = async (req: Request, res: Response) => {
             }
         });
 
+        // Broadcast ke TV Monitoring / Command Center agar status kelas tercatat selesai KBM
+        if ((global as any).emitEmptyClassUpdate) {
+            (global as any).emitEmptyClassUpdate({
+                type: 'TEACHER_OUT_CLASS',
+                className: session.className,
+                teacherName: session.teacherName,
+                subjectName: session.subjectName,
+                periodIndex: session.periodIndex,
+                status: 'CLOSED',
+                sessionId: session.id,
+                outTime: now,
+                message: `Kelas ${session.className} guru ${session.teacherName} mata pelajaran ${session.subjectName} telah selesai KBM pukul ${now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}`
+            });
+        }
+
         return res.json({
             success: true,
             message: `✔ SELESAI MENGAJAR! Sesi kelas ${session.className} mata pelajaran ${session.subjectName} resmi ditutup. Durasi: ${durationMinutes} menit.`,
@@ -324,16 +344,24 @@ export const getActiveClassSession = async (req: Request, res: Response) => {
                     status: { in: ['PULANG', 'PERLU_DIJEMPUT', 'DIRUJUK_RS'] }
                 }
             });
+            const bkGatepassToday = await prisma.gatepassRequest.findFirst({
+                where: {
+                    studentId: user.id,
+                    status: { in: ['APPROVED', 'COMPLETED'] },
+                    verifiedAt: { gte: startOfDay, lte: endOfDay }
+                }
+            });
             const leaveApproved = await prisma.studentLeaveRequest.findFirst({
                 where: {
                     studentId: user.id,
                     status: 'APPROVED',
-                    startDate: { lte: now },
+                    startDate: { lte: endOfDay },
                     endDate: { gte: startOfDay }
                 }
             });
-            const isHomeViaBk = !!(uksHomeEvent || leaveApproved);
-            const homeBkReason = uksHomeEvent ? `UKS: ${uksHomeEvent.keluhan}` : (leaveApproved?.reason || null);
+            const isHomeViaBk = !!(uksHomeEvent || bkGatepassToday || (!gateInToday && leaveApproved));
+            const homeBkReason = uksHomeEvent ? `UKS: ${uksHomeEvent.keluhan}` :
+                (bkGatepassToday ? `Gatepass BK: ${bkGatepassToday.reason}` : (leaveApproved?.reason || null));
 
             // Cek kehadiran guru pengampu di sekolah hari ini
             let teacherPresenceStatus = 'UNKNOWN';
@@ -464,7 +492,7 @@ export const studentOutClassSession = async (req: Request, res: Response) => {
             return res.status(403).json({
                 success: false,
                 notGateIn: true,
-                message: '🚨 Presensi Jam Pelajaran Ditolak!\n\nAnda belum melakukan presensi masuk gerbang sekolah (Gate In) hari ini. Presensi mata pelajaran hanya berlaku bagi siswa yang telah hadir di sekolah.'
+                message: '🚨 Presensi Jam Pelajaran Ditolak!\n\nAnda belum melakukan presensi masuk di SMP Negeri 1 Boyolangu hari ini. Presensi mata pelajaran hanya berlaku bagi siswa yang telah tercatat hadir di kelas.'
             });
         }
 
@@ -477,11 +505,19 @@ export const studentOutClassSession = async (req: Request, res: Response) => {
             }
         });
 
+        const bkGatepassToday = await prisma.gatepassRequest.findFirst({
+            where: {
+                studentId: user.id,
+                status: { in: ['APPROVED', 'COMPLETED'] },
+                verifiedAt: { gte: startOfDay, lte: endOfDay }
+            }
+        });
+
         const leaveApproved = await prisma.studentLeaveRequest.findFirst({
             where: {
                 studentId: user.id,
                 status: 'APPROVED',
-                startDate: { lte: now },
+                startDate: { lte: endOfDay },
                 endDate: { gte: startOfDay }
             }
         });
@@ -494,9 +530,11 @@ export const studentOutClassSession = async (req: Request, res: Response) => {
             }
         });
 
-        if (uksHome || leaveApproved || permitApproved) {
+        // Hanya kecualikan jika siswa benar-benar dipulangkan via UKS/BK hari ini ATAU belum pernah Gate-In masuk hari ini
+        if (uksHome || bkGatepassToday || (!gateInToday && (leaveApproved || permitApproved))) {
             const reason = uksHome ? `Rujukan Pulang UKS (${uksHome.keluhan})` :
-                           (leaveApproved ? `Izin BK/Sekolah (${leaveApproved.reason})` : 'Izin Pulang Resmi via BK');
+                           (bkGatepassToday ? `Gatepass Pulang BK (${bkGatepassToday.reason})` :
+                           (leaveApproved ? `Izin BK/Sekolah (${leaveApproved.reason})` : 'Izin Pulang Resmi via BK'));
             return res.status(403).json({
                 success: false,
                 isHomeViaBk: true,
@@ -581,6 +619,9 @@ export const studentOutClassSession = async (req: Request, res: Response) => {
                 studentOutCount: { increment: 1 }
             }
         });
+
+        // 7. Notifikasi ke orang tua untuk presensi matpel ditiadakan sesuai kebijakan sekolah (tidak spamming setiap JP)
+        // Notifikasi orang tua hanya untuk presensi gerbang pagi/sore, keterlambatan, atau dispensasi keluar BK.
 
         const outTimeStr = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
 
@@ -777,6 +818,13 @@ export const createOperatorSchedule = async (req: Request, res: Response) => {
             }
         });
 
+        try {
+            const io = req.app.get('io');
+            if (io) {
+                io.emit('schedule_updated', { action: 'create', schedule });
+            }
+        } catch (sockErr) {}
+
         res.json({ success: true, message: 'Jadwal pelajaran berhasil ditambahkan', schedule });
     } catch (error: any) {
         res.status(500).json({ message: 'Gagal membuat jadwal pelajaran: ' + error.message });
@@ -803,6 +851,13 @@ export const updateOperatorSchedule = async (req: Request, res: Response) => {
             }
         });
 
+        try {
+            const io = req.app.get('io');
+            if (io) {
+                io.emit('schedule_updated', { action: 'update', schedule: updated });
+            }
+        } catch (sockErr) {}
+
         res.json({ success: true, message: 'Jadwal berhasil diperbarui', schedule: updated });
     } catch (error: any) {
         res.status(500).json({ message: 'Gagal memperbarui jadwal: ' + error.message });
@@ -813,6 +868,14 @@ export const deleteOperatorSchedule = async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
         await (prisma as any).classPeriodSchedule.delete({ where: { id } });
+
+        try {
+            const io = req.app.get('io');
+            if (io) {
+                io.emit('schedule_updated', { action: 'delete', id });
+            }
+        } catch (sockErr) {}
+
         res.json({ success: true, message: 'Jadwal berhasil dihapus' });
     } catch (error: any) {
         res.status(500).json({ message: 'Gagal menghapus jadwal: ' + error.message });
@@ -822,33 +885,90 @@ export const deleteOperatorSchedule = async (req: Request, res: Response) => {
 export const generateDefaultSchedules = async (req: Request, res: Response) => {
     try {
         const days = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat'];
-        const allDbClasses = await prisma.class.findMany({ select: { name: true } });
+        const allDbClasses = await prisma.class.findMany({ select: { id: true, name: true } });
         const sampleClasses = allDbClasses.length > 0
             ? allDbClasses.map(c => c.name)
             : ['VII-A', 'VII-B', 'VII-C', 'VII-D', 'VII-E', 'VII-F', 'VII-G', 'VII-H', 'VII-I', 'VII-J', 'VII-K',
                'VIII-A', 'VIII-B', 'VIII-C', 'VIII-D', 'VIII-E', 'VIII-F', 'VIII-G', 'VIII-H', 'VIII-I', 'VIII-J', 'VIII-K',
                'IX-A', 'IX-B', 'IX-C', 'IX-D', 'IX-E', 'IX-F', 'IX-G', 'IX-H', 'IX-I', 'IX-J', 'IX-K'];
+
+        // Ambil daftar guru riil dari database
+        const realTeachers = await prisma.user.findMany({
+            where: { role: 'TEACHER' },
+            select: { id: true, name: true, teachingSubject: true, teachingClasses: true, className: true }
+        });
+
+        // Ambil mapel riil dari database
+        const dbSubjects = await prisma.subject.findMany({ select: { id: true, name: true } });
+        const subjectNames = dbSubjects.length > 0
+            ? dbSubjects.map(s => s.name)
+            : ['Matematika', 'Bahasa Indonesia', 'Ilmu Pengetahuan Alam (IPA)', 'Bahasa Inggris', 'Pendidikan Agama Islam (PAI)', 'Informatika', 'PPKn', 'Seni Budaya', 'PJOK'];
+
         const periods = [
             { idx: 1, start: '07:00', end: '07:45', name: 'Matematika' },
             { idx: 2, start: '07:45', end: '08:30', name: 'Matematika' },
             { idx: 3, start: '08:30', end: '09:15', name: 'Bahasa Indonesia' },
             { idx: 4, start: '09:15', end: '10:00', name: 'Bahasa Indonesia' },
             { idx: 5, start: '10:00', end: '10:30', name: 'Istirahat Pertama', isBreak: true },
-            { idx: 6, start: '10:30', end: '11:15', name: 'IPA Terpadu' },
-            { idx: 7, start: '11:15', end: '12:00', name: 'IPA Terpadu' },
+            { idx: 6, start: '10:30', end: '11:15', name: 'Ilmu Pengetahuan Alam (IPA)' },
+            { idx: 7, start: '11:15', end: '12:00', name: 'Ilmu Pengetahuan Alam (IPA)' },
             { idx: 8, start: '12:00', end: '12:45', name: 'Istirahat & Sholat', isBreak: true },
             { idx: 9, start: '12:45', end: '13:30', name: 'Bahasa Inggris' },
             { idx: 10, start: '13:30', end: '14:15', name: 'Bahasa Inggris' }
         ];
 
         let createdCount = 0;
+        let teacherCursor = 0;
+
         for (const day of days) {
-            for (const cls of sampleClasses) {
+            for (let cIdx = 0; cIdx < sampleClasses.length; cIdx++) {
+                const cls = sampleClasses[cIdx];
                 for (const p of periods) {
                     const exists = await (prisma as any).classPeriodSchedule.findFirst({
                         where: { day, className: cls, periodIndex: p.idx }
                     });
+
                     if (!exists) {
+                        let assignedTeacherId: string | null = null;
+                        let assignedTeacherName = '-';
+
+                        if (!p.isBreak) {
+                            if (realTeachers.length > 0) {
+                                const getSubjectKey = (s: string) => {
+                                    if (!s) return '';
+                                    const lower = s.toLowerCase();
+                                    if (lower.includes('matematika')) return 'matematika';
+                                    if (lower.includes('indonesia')) return 'indonesia';
+                                    if (lower.includes('inggris')) return 'inggris';
+                                    if (lower.includes('ipa') || lower.includes('alam')) return 'ipa';
+                                    if (lower.includes('ips') || lower.includes('sosial')) return 'ips';
+                                    if (lower.includes('pai') || lower.includes('agama islam') || lower.includes('islam')) return 'pai';
+                                    if (lower.includes('kristen')) return 'kristen';
+                                    if (lower.includes('pjok') || lower.includes('penjas') || lower.includes('olahraga')) return 'pjok';
+                                    if (lower.includes('seni') || lower.includes('budaya')) return 'seni';
+                                    if (lower.includes('prakarya') || lower.includes('kewirausahaan')) return 'prakarya';
+                                    if (lower.includes('jawa')) return 'jawa';
+                                    if (lower.includes('informatika') || lower.includes('tik') || lower.includes('komputer')) return 'informatika';
+                                    if (lower.includes('ppkn') || lower.includes('pancasila') || lower.includes('pkn')) return 'ppkn';
+                                    if (lower.includes('bk') || lower.includes('konseling') || lower.includes('bimbingan')) return 'bk';
+                                    return lower.replace(/[^a-z0-9]/g, '');
+                                };
+                                const sKey = getSubjectKey(p.name);
+                                const matchedTeacher = realTeachers.find(t => {
+                                    const tKey = getSubjectKey(t.teachingSubject || '');
+                                    if (tKey !== sKey) return false;
+                                    if (!t.teachingClasses) return false;
+                                    return t.teachingClasses.split(',').map((c: string) => c.trim()).includes(cls);
+                                }) || realTeachers.find(t => getSubjectKey(t.teachingSubject || '') === sKey) || realTeachers[teacherCursor % realTeachers.length];
+
+                                assignedTeacherId = matchedTeacher.id;
+                                assignedTeacherName = matchedTeacher.name;
+                                teacherCursor++;
+                            } else {
+                                assignedTeacherName = 'Bpk. Guru Pengampu';
+                            }
+                        }
+
                         await (prisma as any).classPeriodSchedule.create({
                             data: {
                                 day,
@@ -857,7 +977,8 @@ export const generateDefaultSchedules = async (req: Request, res: Response) => {
                                 endTime: p.end,
                                 className: cls,
                                 subjectName: p.name,
-                                teacherName: p.isBreak ? '-' : 'Bpk. Guru Pengampu',
+                                teacherId: assignedTeacherId,
+                                teacherName: assignedTeacherName,
                                 roomName: `Ruang Kelas ${cls}`,
                                 isBreak: Boolean(p.isBreak)
                             }
@@ -868,8 +989,13 @@ export const generateDefaultSchedules = async (req: Request, res: Response) => {
             }
         }
 
-        res.json({ success: true, message: `Berhasil meng-generate ${createdCount} data jadwal standar`, createdCount });
+        res.json({
+            success: true,
+            message: `Berhasil meng-generate ${createdCount} data jadwal standar dengan pemetaan guru riil SMPN 1 Boyolangu`,
+            createdCount
+        });
     } catch (error: any) {
+        console.error('Error generateDefaultSchedules:', error);
         res.status(500).json({ message: 'Gagal generate jadwal: ' + error.message });
     }
 };
@@ -883,12 +1009,14 @@ export const getTeacherTodayClassPeriods = async (req: Request, res: Response) =
         const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
         const now = new Date();
         const currentDay = days[now.getDay()];
+        const reqDay = req.query.day ? String(req.query.day).trim() : null;
+        const targetDay = reqDay || (currentDay === 'Minggu' ? 'Senin' : currentDay);
         const currentTimeStr = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
 
-        // Cari jadwal hari ini di database
+        // Cari jadwal hari ini / hari target di database
         let schedules = await (prisma as any).classPeriodSchedule.findMany({
             where: {
-                day: currentDay,
+                day: targetDay,
                 isBreak: false
             },
             orderBy: { periodIndex: 'asc' }
@@ -896,18 +1024,41 @@ export const getTeacherTodayClassPeriods = async (req: Request, res: Response) =
 
         // Filter jika guru memiliki nama terdaftar
         if (user.name) {
-            const filtered = schedules.filter((s: any) => s.teacherName && (s.teacherName.includes(user.name) || user.name.includes(s.teacherName)));
-            if (filtered.length > 0) schedules = filtered;
+            const filtered = schedules.filter((s: any) => s.teacherName && (s.teacherName.includes(user.name) || user.name.includes(s.teacherName) || (s.teacherId && s.teacherId === user.id)));
+            if (filtered.length > 0) {
+                schedules = filtered;
+            } else {
+                schedules = [];
+            }
         }
 
-        // Jika tabel kosong, sediakan 4 jadwal default standar dengan kelas sekolah
+        // Fallback: Ambil dari tabel master Schedule kurikulum
         if (schedules.length === 0) {
-            schedules = [
-                { id: 'sched-1', periodIndex: 1, startTime: '07:00', endTime: '07:45', className: 'VII-A', subjectName: 'Matematika', roomName: 'Ruang VII-A' },
-                { id: 'sched-2', periodIndex: 2, startTime: '07:45', endTime: '08:30', className: 'VII-B', subjectName: 'Matematika', roomName: 'Ruang VII-B' },
-                { id: 'sched-3', periodIndex: 3, startTime: '09:00', endTime: '09:45', className: 'VII-C', subjectName: 'Matematika', roomName: 'Ruang VII-C' },
-                { id: 'sched-4', periodIndex: 4, startTime: '09:45', endTime: '10:30', className: 'VII-D', subjectName: 'Matematika', roomName: 'Ruang VII-D' }
-            ];
+            const legacySchedules = await (prisma as any).schedule.findMany({
+                where: {
+                    OR: [
+                        { teacherId: user.id },
+                        { teacher: { name: { contains: user.name } } }
+                    ],
+                    day: targetDay
+                },
+                orderBy: { startTime: 'asc' }
+            });
+            if (legacySchedules.length > 0) {
+                schedules = legacySchedules.map((ls: any, idx: number) => ({
+                    id: ls.id,
+                    day: ls.day,
+                    periodIndex: idx + 1,
+                    startTime: ls.startTime || '07:00',
+                    endTime: ls.endTime || '08:20',
+                    className: ls.className,
+                    subjectName: ls.subject || user.teachingSubject || 'Mata Pelajaran',
+                    teacherId: user.id,
+                    teacherName: user.name,
+                    roomName: `Ruang Kelas ${ls.className}`,
+                    isBreak: false
+                }));
+            }
         }
 
         // Cek sesi aktif / sudah IN hari ini
@@ -994,6 +1145,235 @@ export const getTeacherTodayClassPeriods = async (req: Request, res: Response) =
     } catch (error: any) {
         console.error('Error fetching teacher today class periods:', error);
         res.status(500).json({ message: 'Gagal memuat jadwal guru: ' + error.message });
+    }
+};
+
+/**
+ * 7. Get Daftar Siswa Kelas untuk Presensi Guru di Kelas (Dengan Deteksi Otomatis Siswa Sakit/Izin/UKS/Alpa Terkunci)
+ */
+export const getClassSessionStudentsStatus = async (req: Request, res: Response) => {
+    try {
+        const { className, sessionId } = req.query;
+        if (!className) {
+            return res.status(400).json({ success: false, message: 'Nama kelas wajib diisi' });
+        }
+
+        const classVariations = normalizeClassVariations(String(className));
+        const now = new Date();
+        const startOfDay = new Date(now);
+        startOfDay.setHours(0, 0, 0, 0);
+        const endOfDay = new Date(now);
+        endOfDay.setHours(23, 59, 59, 999);
+
+        // Ambil semua siswa di kelas ini
+        const students = await prisma.user.findMany({
+            where: {
+                role: 'STUDENT',
+                className: { in: classVariations.length > 0 ? classVariations : [String(className)] },
+                isActive: true
+            },
+            select: {
+                id: true,
+                name: true,
+                nisn: true,
+                nis: true,
+                gender: true,
+                className: true
+            },
+            orderBy: { name: 'asc' }
+        });
+
+        // Ambil presensi gerbang hari ini
+        const gateAttendances = await prisma.attendance.findMany({
+            where: {
+                userId: { in: students.map(s => s.id) },
+                type: 'GATE_IN',
+                scanTime: { gte: startOfDay, lte: endOfDay }
+            }
+        });
+        const gateMap = new Map<string, any>();
+        gateAttendances.forEach(g => gateMap.set(g.userId, g));
+
+        // Ambil izin resmi hari ini (Sakit / Izin)
+        const leaves = await prisma.studentLeaveRequest.findMany({
+            where: {
+                studentId: { in: students.map(s => s.id) },
+                status: 'APPROVED',
+                startDate: { lte: endOfDay },
+                endDate: { gte: startOfDay }
+            }
+        });
+        const leaveMap = new Map<string, any>();
+        leaves.forEach(l => leaveMap.set(l.studentId, l));
+
+        // Ambil UKS visit aktif hari ini
+        const uksVisits = await (prisma as any).uksVisitEvent?.findMany({
+            where: {
+                siswaId: { in: students.map(s => s.id) },
+                tanggal: { gte: startOfDay, lte: endOfDay }
+            }
+        }) || [];
+        const uksMap = new Map<string, any>();
+        uksVisits.forEach((u: any) => uksMap.set(u.siswaId, u));
+
+        // Ambil data presensi sesi kelas jika sudah ada
+        let sessionAttendanceMap = new Map<string, any>();
+        if (sessionId) {
+            const attendances = await (prisma as any).classPeriodAttendance.findMany({
+                where: { sessionId: String(sessionId) }
+            });
+            attendances.forEach((a: any) => sessionAttendanceMap.set(a.studentId, a));
+        }
+
+        const studentStatusList = students.map(s => {
+            const gate = gateMap.get(s.id);
+            const leave = leaveMap.get(s.id);
+            const uks = uksMap.get(s.id);
+            const sessAtt = sessionAttendanceMap.get(s.id);
+
+            let status = 'HADIR';
+            let isLocked = false;
+            let statusLabel = 'Hadir di Kelas';
+            let lockReason = '';
+
+            if (leave) {
+                isLocked = true;
+                const cat = (leave.category || 'IZIN').toUpperCase();
+                if (cat.includes('SAKIT') || cat === 'SICK') {
+                    status = 'SAKIT';
+                    statusLabel = '🤒 Sakit (Surat Dokter)';
+                    lockReason = `Siswa izin sakit: ${leave.reason || '-'}`;
+                } else {
+                    status = 'IZIN';
+                    statusLabel = '📝 Izin Resmi';
+                    lockReason = `Siswa izin resmi: ${leave.reason || '-'}`;
+                }
+            } else if (uks && ['PULANG', 'PERLU_DIJEMPUT', 'DIRUJUK_RS', 'SEDANG_DIRAWAT'].includes(uks.status)) {
+                isLocked = true;
+                status = 'UKS';
+                statusLabel = '🩵 Sedang di Ruang UKS';
+                lockReason = `Ditangani UKS: ${uks.keluhan || '-'}`;
+            } else if (!gate && now.getHours() >= 8) {
+                isLocked = true;
+                status = 'ALPA';
+                statusLabel = '❌ Tidak Hadir di Sekolah (Alpa)';
+                lockReason = 'Tidak ada rekaman presensi gerbang (Alpa)';
+            } else if (!gate) {
+                isLocked = true;
+                status = 'BELUM_HADIR';
+                statusLabel = '⏳ Belum Scan Gerbang Masuk';
+                lockReason = 'Siswa belum melakukan presensi masuk gerbang';
+            }
+
+            return {
+                id: s.id,
+                name: s.name,
+                nisn: s.nisn || s.nis || '-',
+                gender: s.gender || '-',
+                className: s.className || className,
+                isGateIn: !!gate,
+                gateInTime: gate?.scanTime ? new Date(gate.scanTime).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : null,
+                status: sessAtt ? sessAtt.status : status,
+                statusLabel,
+                isLocked,
+                lockReason,
+                isConfirmedInClass: sessAtt ? (sessAtt.status === 'HADIR' || sessAtt.status === 'PRESENT') : !isLocked
+            };
+        });
+
+        res.json({
+            success: true,
+            className,
+            totalStudents: students.length,
+            presentCount: studentStatusList.filter(s => !s.isLocked).length,
+            absentLockedCount: studentStatusList.filter(s => s.isLocked).length,
+            students: studentStatusList
+        });
+    } catch (err: any) {
+        console.error('Error in getClassSessionStudentsStatus:', err);
+        res.status(500).json({ success: false, message: 'Gagal memuat status siswa kelas: ' + err.message });
+    }
+};
+
+/**
+ * 8. Guru Submit Konfirmasi Presensi Siswa di Kelas
+ */
+export const confirmClassSessionStudents = async (req: Request, res: Response) => {
+    try {
+        const { sessionId, attendanceList } = req.body;
+        if (!sessionId || !Array.isArray(attendanceList)) {
+            return res.status(400).json({ success: false, message: 'Session ID dan daftar presensi wajib disertakan' });
+        }
+
+        const session = await (prisma as any).classPeriodSession.findUnique({
+            where: { id: sessionId }
+        });
+        if (!session) {
+            return res.status(404).json({ success: false, message: 'Sesi kelas tidak ditemukan' });
+        }
+
+        const now = new Date();
+        let confirmedCount = 0;
+
+        for (const item of attendanceList) {
+            const studentId = item.studentId;
+            const studentName = item.studentName || 'Siswa';
+            const className = item.className || session.className;
+            const status = item.status || 'HADIR'; // HADIR, SAKIT, IZIN, ALPA, UKS
+
+            await (prisma as any).classPeriodAttendance.upsert({
+                where: {
+                    sessionId_studentId: {
+                        sessionId,
+                        studentId
+                    }
+                },
+                update: {
+                    status,
+                    outTime: status === 'HADIR' ? now : null
+                },
+                create: {
+                    sessionId,
+                    studentId,
+                    studentName,
+                    className,
+                    status,
+                    method: 'TEACHER_VERIFIED',
+                    outTime: status === 'HADIR' ? now : null,
+                    createdAt: now
+                }
+            });
+            if (status === 'HADIR') confirmedCount++;
+        }
+
+        // Update student count in session
+        await (prisma as any).classPeriodSession.update({
+            where: { id: sessionId },
+            data: {
+                studentOutCount: confirmedCount,
+                updatedAt: now
+            }
+        });
+
+        // Broadcast to monitoring
+        if ((global as any).emitEmptyClassUpdate) {
+            (global as any).emitEmptyClassUpdate({
+                type: 'STUDENTS_ATTENDANCE_CONFIRMED',
+                sessionId,
+                className: session.className,
+                confirmedCount,
+                timestamp: now
+            });
+        }
+
+        res.json({
+            success: true,
+            message: `✔ Presensi kelas ${session.className} berhasil disimpan (${confirmedCount} siswa hadir)`,
+            confirmedCount
+        });
+    } catch (err: any) {
+        console.error('Error in confirmClassSessionStudents:', err);
+        res.status(500).json({ success: false, message: 'Gagal menyimpan presensi kelas: ' + err.message });
     }
 };
 

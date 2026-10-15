@@ -52,6 +52,40 @@ export async function recordClientLog(req: Request, res: Response) {
       }
     });
 
+    // Sinkronkan juga ke ActivityEventLog terpusat dengan source = 'APK'
+    try {
+      const { logApkEvent } = await import("../middleware/activityLogger");
+      const mappedModule = req.body?.module && ['ATTENDANCE', 'CBT', 'HOMEWORK', 'EKANTIN', 'AUTH', 'EXTRACURRICULAR'].includes(req.body.module)
+        ? req.body.module
+        : (tag?.toUpperCase().includes('CBT') ? 'CBT' : (tag?.toUpperCase().includes('ATTEND') ? 'ATTENDANCE' : (tag?.toUpperCase().includes('HOMEWORK') ? 'HOMEWORK' : 'APP_CLIENT')));
+
+      logApkEvent({
+        module: mappedModule as any,
+        action: req.body?.action || (tag ? `APK_${tag.toUpperCase()}` : 'CLIENT_EVENT'),
+        outcome: safeLevel === 'INFO' ? 'SUCCESS' : (safeLevel === 'WARN' ? 'REJECTED' : 'ERROR'),
+        httpStatus: 200,
+        message: safeErrorMessage,
+        userId: userId || null,
+        username: username || null,
+        name: req.body?.name || null,
+        className: req.body?.className || null,
+        role: role || null,
+        deviceId: deviceModel || null,
+        appVersion: appVersion || null,
+        durationMs: 0,
+        payload: JSON.stringify({
+          tag,
+          activityName,
+          networkType,
+          serverUrl,
+          payload: req.body?.payload || null
+        }),
+        anomalyFlag: ['CRASH', 'FATAL'].includes(safeLevel)
+      });
+    } catch (e: any) {
+      console.warn("Could not sync client log to activity log:", e.message);
+    }
+
     console.log(`[CLIENT-LOG] [${safeLevel}] From: ${username || "Anon"} (${deviceModel || "Unknown Device"}): ${safeErrorMessage.substring(0, 80)}`);
 
     return res.status(200).json({

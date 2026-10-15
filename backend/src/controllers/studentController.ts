@@ -4,7 +4,7 @@ import bcrypt from 'bcrypt';
 import path from 'path';
 import fs from 'fs';
 import { checkStudentCommitteeRole, getClassCommittee } from '../utils/classCommittee';
-import { normalizeClassVariations, resolveHomeroomTeacher, canonicalClassName } from '../utils/classHelper';
+import { normalizeClassVariations, resolveHomeroomTeacher, resolveCounselorTeacher, canonicalClassName } from '../utils/classHelper';
 import { supabase } from '../utils/supabaseClient';
 
 const prisma = new PrismaClient();
@@ -54,24 +54,26 @@ export const getStudentProfile = async (req: Request, res: Response): Promise<vo
       return;
     }
 
-    // Ambil Guru BK riil dari database sesuai plotting admin pada rombel kelas siswa
-    let realCounselor = user.counselorTeacher;
+    // Ambil Guru BK riil dari database sesuai plotting dan rombel kelas siswa
+    let realCounselor: string | null = null;
+    let counselorNip: string | null = null;
+    let counselorPhone: string | null = null;
     if (user.className) {
-      const classRecord = await prisma.class.findFirst({
-        where: { name: { in: normalizeClassVariations(user.className) } }
-      });
-      if (classRecord?.counselorName) {
-        realCounselor = classRecord.counselorName;
-        if (user.counselorTeacher !== classRecord.counselorName) {
+      const resolvedBk = await resolveCounselorTeacher(user.className);
+      if (resolvedBk && resolvedBk.name) {
+        realCounselor = resolvedBk.name;
+        counselorNip = resolvedBk.nip || null;
+        counselorPhone = resolvedBk.phone || null;
+        if (user.counselorTeacher !== resolvedBk.name) {
           await prisma.user.update({
             where: { id: user.id },
-            data: { counselorTeacher: classRecord.counselorName }
+            data: { counselorTeacher: resolvedBk.name }
           }).catch(() => {});
         }
       }
     }
 
-    // Ambil Wali Kelas riil dari database (Supabase & SQLite) sesuai rombel kelas siswa
+    // Ambil Wali Kelas riil dari database sesuai rombel kelas siswa
     let realHomeroom = (user.homeroomTeacher && user.homeroomTeacher !== 'null' && user.homeroomTeacher.trim() !== '-')
         ? user.homeroomTeacher.trim()
         : null;
@@ -85,7 +87,7 @@ export const getStudentProfile = async (req: Request, res: Response): Promise<vo
         homeroomNip = resolvedWali.nip || null;
         homeroomPhone = resolvedWali.phone || null;
 
-        // Sinkronkan ke database SQLite jika belum tersimpan atau bernilai 'null'
+        // Sinkronkan ke database jika belum tersimpan atau berbeda
         if (user.homeroomTeacher !== resolvedWali.name) {
           await prisma.user.update({
             where: { id: user.id },
@@ -93,6 +95,30 @@ export const getStudentProfile = async (req: Request, res: Response): Promise<vo
           }).catch(() => {});
         }
       }
+    }
+
+    // Ambil Golongan Darah siswa secara terpadu dari User / UKS / Biodata
+    let resolvedBlood = (user.bloodType && user.bloodType !== '-' && user.bloodType !== 'null') ? user.bloodType.trim() : null;
+    if (!resolvedBlood) {
+      try {
+        const uksData = await (prisma as any).uksStudentHealthData.findUnique({
+          where: { siswaId: user.id }
+        });
+        if (uksData?.golonganDarah && uksData.golonganDarah !== '-') {
+          resolvedBlood = uksData.golonganDarah.trim();
+        }
+        if (!resolvedBlood) {
+          const bioData = await (prisma as any).biodataSiswa.findUnique({
+            where: { studentId: user.id }
+          });
+          if (bioData?.golonganDarah && bioData.golonganDarah !== '-') {
+            resolvedBlood = bioData.golonganDarah.trim();
+          }
+        }
+      } catch (_) {}
+    }
+    if (!resolvedBlood || resolvedBlood === '-' || resolvedBlood === 'null') {
+      resolvedBlood = 'O (Rh+)';
     }
 
     const committeeStatus = await checkStudentCommitteeRole(user.id, user.name, user.className || 'VII-A');
@@ -106,9 +132,15 @@ export const getStudentProfile = async (req: Request, res: Response): Promise<vo
       wali_kelas: realHomeroom || null,
       wali_kelas_nama: realHomeroom || null,
       wali_kelas_nip: homeroomNip,
-      counselorTeacher: realCounselor, // Null jika memang belum ada di database, tidak dummy!
-      bloodType: user.bloodType || 'O (Rhesus +)',
-      points: user.points ?? 100,
+      counselorTeacher: realCounselor,
+      counselorTeacherName: realCounselor,
+      counselorTeacherNip: counselorNip,
+      counselorTeacherPhone: counselorPhone,
+      guru_bk: realCounselor,
+      guru_bk_nama: realCounselor,
+      bloodType: resolvedBlood,
+      golongan_darah: resolvedBlood,
+      points: user.points ?? 0,
       isClassCommittee: committeeStatus.isCommittee,
       committeePosition: committeeStatus.position,
       classLeaderName: committeeStatus.committee.leaderName,
@@ -148,6 +180,14 @@ export const updateStudentProfile = async (req: Request, res: Response): Promise
     const updateData: any = {};
 
     if (newPassword) {
+      // Kebijakan Keamanan Sekolah: Penggantian PIN / Kata Sandi hanya bisa via Operator dan Admin saja
+      if (user.role === 'STUDENT' || user.role === 'PARENT') {
+        res.status(403).json({
+          success: false,
+          message: 'Penggantian PIN / Kata Sandi hanya dapat dilakukan melalui Operator atau Administrator sekolah demi keamanan akun.'
+        });
+        return;
+      }
       if (!oldPassword) {
         res.status(400).json({ message: 'Password lama harus diisi' });
         return;
@@ -160,7 +200,6 @@ export const updateStudentProfile = async (req: Request, res: Response): Promise
         if (
           cleanOldPassword === user.nisn ||
           cleanOldPassword === user.username ||
-          cleanOldPassword === 'password123' ||
           cleanOldPassword === user.password ||
           bcryptMatch
         ) {
@@ -254,27 +293,41 @@ export const getDetailedAttendance = async (req: Request, res: Response): Promis
       return;
     }
 
-    if (userRole === 'PARENT' || userRole === 'TEACHER' || userRole === 'COUNSELOR' || userRole === 'ADMIN' || userRole === 'OPERATOR') {
+    if (userRole === 'PARENT') {
+      const childId = req.query.studentId || req.query.childId;
+      const cleanNisn = ((req as any).user.username || '').replace(/^[Pp]/, '').trim();
+      const parentUser = (req as any).user;
+
+      const myChildren = await prisma.user.findMany({
+        where: {
+          role: 'STUDENT',
+          OR: [
+            { id: parentUser.studentId || '' },
+            { nisn: cleanNisn },
+            { username: cleanNisn },
+            { parentPhone: parentUser.username },
+            { parentPhone: parentUser.phone || '' },
+            { fatherName: parentUser.name },
+            { motherName: parentUser.name }
+          ]
+        },
+        select: { id: true }
+      });
+      const validChildIds = myChildren.map(c => c.id);
+
+      if (childId) {
+        if (!validChildIds.includes(String(childId))) {
+          res.status(403).json({ message: 'Akses ditolak: Anda tidak memiliki wewenang melihat presensi siswa ini.' });
+          return;
+        }
+        targetUserId = String(childId);
+      } else {
+        targetUserId = validChildIds[0] || parentUser.id;
+      }
+    } else if (userRole === 'TEACHER' || userRole === 'COUNSELOR' || userRole === 'ADMIN' || userRole === 'OPERATOR') {
       const childId = req.query.studentId || req.query.childId;
       if (childId) {
         targetUserId = String(childId);
-      } else if (userRole === 'PARENT') {
-        const cleanNisn = ((req as any).user.username || '').replace(/^[Pp]/, '').trim();
-        const child = await prisma.user.findFirst({
-          where: {
-            role: 'STUDENT',
-            OR: [
-              { nisn: cleanNisn },
-              { username: cleanNisn },
-              { parentPhone: (req as any).user.username },
-              { fatherName: (req as any).user.name },
-              { motherName: (req as any).user.name }
-            ]
-          }
-        });
-        if (child) {
-          targetUserId = child.id;
-        }
       }
     }
 
@@ -282,12 +335,22 @@ export const getDetailedAttendance = async (req: Request, res: Response): Promis
     const reqMonth = req.query.month ? Number(req.query.month) : (new Date().getMonth() + 1);
     const reqYear = req.query.year ? Number(req.query.year) : new Date().getFullYear();
     const page = req.query.page ? Math.max(1, Number(req.query.page)) : 1;
-    const limit = req.query.limit ? Math.max(1, Number(req.query.limit)) : 20;
+    const limit = req.query.limit ? Math.max(1, Number(req.query.limit)) : 100;
+
+    const startDate = new Date(reqYear, reqMonth - 1, 1, 0, 0, 0, 0);
+    const lastDay = new Date(reqYear, reqMonth, 0).getDate();
+    const endDate = new Date(reqYear, reqMonth - 1, lastDay, 23, 59, 59, 999);
 
     const attendances = await prisma.attendance.findMany({
-      where: { userId: targetUserId },
+      where: {
+        userId: targetUserId,
+        OR: [
+          { scanTime: { gte: startDate, lte: endDate } },
+          { scanTime: { gte: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000) } }
+        ]
+      },
       orderBy: { scanTime: 'desc' },
-      take: 200
+      take: 1000
     });
 
     const dayNames = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
@@ -328,8 +391,8 @@ export const getDetailedAttendance = async (req: Request, res: Response): Promis
       const dayName = dayNames[dayIndex] || 'Senin';
       const isSunday = (dayIndex === 0);
 
-      const inRecord = records.find(r => r.type === 'GATE_IN');
-      const outRecord = records.find(r => r.type === 'GATE_OUT');
+      const inRecord = records.find(r => r.type === 'GATE_IN' || r.type === 'IN');
+      const outRecord = records.find(r => r.type === 'GATE_OUT' || r.type === 'OUT');
 
       const formatTime = (d: Date | string | null | undefined) => {
         if (!d) return '-';
@@ -344,44 +407,65 @@ export const getDetailedAttendance = async (req: Request, res: Response): Promis
       };
 
       const now = new Date();
-      const nowDateStr = now.toISOString().split('T')[0];
+      const nowDateStr = toWibDateStr(now);
       const isPastDate = dateStr < nowDateStr;
-      const currTime = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false });
-      const isPastGateOutTime = currTime > '17:00';
+      const currTime = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Jakarta' });
+      // Jadwal Kepulangan: Jumat & Sabtu pukul 11:30 WIB, Senin-Kamis pukul 13:30/14:00 WIB
+      const dismissalTimeThreshold = (dayIndex === 5 || dayIndex === 6) ? '11:30' : '13:30';
+      const isPastGateOutTime = currTime > dismissalTimeThreshold;
+
+      // Cek apakah siswa memiliki rekaman scan aktual (menang atas SYSTEM_AUTO Alpa)
+      const hasRealPresenceScan = records.some(r => r.method !== 'SYSTEM_AUTO' && r.status !== 'ABSENT');
+      const isSickRec = records.some(r => r.status === 'SICK' || r.status === 'SAKIT');
+      const isPermRec = records.some(r => r.status === 'PERMISSION' || r.status === 'IZIN');
+      const isLateRec = records.some(r => r.status === 'LATE' || r.status === 'TERLAMBAT' || (r.note && /terlambat/i.test(r.note)));
 
       let finalStatus = 'HADIR';
-      let gateLocation = inRecord?.note || 'Pintu Gerbang Utama';
+      let gateLocation = inRecord?.note || outRecord?.note || 'Pintu Gerbang Utama / Ruang Kelas';
+      let isMissingGateOut = false;
 
       if (isSunday) {
         finalStatus = 'LIBUR HARI MINGGU';
         gateLocation = 'Libur Akhir Pekan (Hari Minggu)';
         liburCount++;
-      } else if (records.some(r => r.status === 'SICK')) {
+      } else if (isSickRec) {
         finalStatus = 'SAKIT';
         sickCount++;
         gateLocation = inRecord?.note || 'Surat Keterangan Sakit';
-      } else if (records.some(r => r.status === 'PERMISSION')) {
+      } else if (isPermRec) {
         finalStatus = 'IZIN';
         izinCount++;
         gateLocation = inRecord?.note || 'Izin Resmi Terverifikasi';
-      } else if (records.some(r => r.status === 'ABSENT')) {
-        finalStatus = 'ALPA';
-        alpaCount++;
-      } else if (records.some(r => r.status === 'LATE')) {
+      } else if (isLateRec) {
         finalStatus = 'TERLAMBAT';
         lateCount++;
-      } else if (inRecord && !outRecord && (isPastDate || isPastGateOutTime)) {
-        finalStatus = 'HADIR';
-        hadirCount++;
-        const inTimeOnly = formatTime(inRecord.scanTime);
-        gateLocation = `Masuk pukul ${inTimeOnly} (Tidak scan kepulangan)`;
+        gateLocation = inRecord?.note || 'Terlambat Hadir';
+      } else if (hasRealPresenceScan || inRecord || outRecord || records.some(r => r.status === 'PRESENT')) {
+        const isDismissalPassed = isPastDate || (dateStr === nowDateStr && isPastGateOutTime);
+        if (inRecord && !outRecord && isDismissalPassed) {
+          finalStatus = 'HADIR (TIDAK SCAN PULANG)';
+          isMissingGateOut = true;
+          hadirCount++;
+          const inTimeOnly = formatTime(inRecord.scanTime);
+          gateLocation = `Masuk pukul ${inTimeOnly} (Tidak scan kepulangan)`;
+        } else {
+          finalStatus = 'HADIR';
+          hadirCount++;
+          gateLocation = inRecord?.note || outRecord?.note || 'Pintu Gerbang Utama / Ruang Kelas';
+        }
+      } else if (records.some(r => r.status === 'ABSENT' || r.status === 'ALPA' || r.status === 'ALPHA')) {
+        finalStatus = 'ALPA';
+        alpaCount++;
+        gateLocation = 'Tanpa Keterangan (Alpa)';
       } else {
         finalStatus = 'HADIR';
         hadirCount++;
       }
 
-      const gateInTime = (inRecord && inRecord.status !== 'ABSENT' && inRecord.method !== 'SYSTEM_AUTO') ? formatTime(inRecord.scanTime) : '-';
-      const gateOutTime = (outRecord && outRecord.status !== 'ABSENT' && outRecord.method !== 'SYSTEM_AUTO') ? formatTime(outRecord.scanTime) : '-';
+      const isNonScanStatus = finalStatus === 'ALPA' || finalStatus === 'SAKIT' || finalStatus === 'IZIN';
+      const actualInRec = inRecord || records.find(r => r.type !== 'GATE_OUT' && r.method !== 'SYSTEM_AUTO') || records[0];
+      const gateInTime = (!isNonScanStatus && actualInRec && actualInRec.method !== 'SYSTEM_AUTO') ? formatTime(actualInRec.scanTime) : (inRecord ? formatTime(inRecord.scanTime) : '-');
+      const gateOutTime = (!isNonScanStatus && outRecord && outRecord.method !== 'SYSTEM_AUTO') ? formatTime(outRecord.scanTime) : '-';
       const isLate = finalStatus === 'TERLAMBAT';
 
       allHistory.push({
@@ -391,8 +475,34 @@ export const getDetailedAttendance = async (req: Request, res: Response): Promis
         gateOutTime,
         status: finalStatus,
         gateLocation,
+        note: inRecord?.note || outRecord?.note || null,
         isLate,
-        isSunday
+        isSunday,
+        isMissingGateOut
+      });
+    }
+
+    // Pastikan Hari Ini (Senin-Sabtu) jika siswa BELUM absen sama sekali, tetap terbit di rekaman kalender
+    const nowForTodayCheck = new Date();
+    const todayStrWib = toWibDateStr(nowForTodayCheck);
+    const todayDayOfWeek = nowForTodayCheck.getDay();
+    const todayCurrTimeStr = nowForTodayCheck.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Jakarta' });
+
+    if (todayDayOfWeek !== 0 && !groupedMap.has(todayStrWib)) {
+      const isPastCutoffToday = todayCurrTimeStr >= '08:00';
+      const statusToday = isPastCutoffToday ? 'ALPA' : 'BELUM PRESENSI';
+      if (isPastCutoffToday) alpaCount++;
+      allHistory.push({
+        date: todayStrWib,
+        dayName: dayNames[todayDayOfWeek] || 'Hari Ini',
+        gateInTime: '-',
+        gateOutTime: '-',
+        status: statusToday,
+        gateLocation: isPastCutoffToday ? 'Alpa / Tidak Hadir (Melewati Batas Masuk 08:00 WIB)' : 'Belum Presensi Gerbang (Menunggu Scan Masuk)',
+        note: isPastCutoffToday ? 'Tidak ada rekaman presensi masuk hari ini' : 'Silakan scan barcode gerbang sebelum 08:00 WIB',
+        isLate: false,
+        isSunday: false,
+        isMissingGateOut: false
       });
     }
 
@@ -512,7 +622,7 @@ export const getDetailedAttendance = async (req: Request, res: Response): Promis
         hasNextPage: page < totalPages,
         hasPrevPage: page > 1
       },
-      history: paginatedHistory,
+      history: (req.query.limit ? paginatedHistory : filteredHistory),
       allHistory: filteredHistory
     });
   } catch (err: any) {
@@ -526,8 +636,34 @@ export const getLearningAnalytics = async (req: Request, res: Response): Promise
   try {
     let userId = (req as any).user?.id;
     const requestedStudentId = req.query.studentId || req.query.childId;
-    if (requestedStudentId && (req as any).user && ['TEACHER', 'COUNSELOR', 'ADMIN', 'OPERATOR', 'PARENT'].includes((req as any).user.role)) {
-      userId = String(requestedStudentId);
+    if (requestedStudentId && (req as any).user) {
+      const userRole = (req as any).user.role;
+      if (userRole === 'PARENT') {
+        const cleanNisn = ((req as any).user.username || '').replace(/^[Pp]/, '').trim();
+        const parentUser = (req as any).user;
+        const hasChild = await prisma.user.findFirst({
+          where: {
+            id: String(requestedStudentId),
+            role: 'STUDENT',
+            OR: [
+              { id: parentUser.studentId || '' },
+              { nisn: cleanNisn },
+              { username: cleanNisn },
+              { parentPhone: parentUser.username },
+              { parentPhone: parentUser.phone || '' },
+              { fatherName: parentUser.name },
+              { motherName: parentUser.name }
+            ]
+          }
+        });
+        if (!hasChild) {
+          res.status(403).json({ message: 'Akses ditolak: Anda tidak memiliki wewenang melihat analitik siswa ini.' });
+          return;
+        }
+        userId = String(requestedStudentId);
+      } else if (['TEACHER', 'COUNSELOR', 'ADMIN', 'OPERATOR'].includes(userRole)) {
+        userId = String(requestedStudentId);
+      }
     }
     if (!userId) {
       res.status(401).json({ message: 'Unauthorized' });
@@ -620,8 +756,13 @@ export const uploadStudentEFile = async (req: Request, res: Response): Promise<v
       fs.mkdirSync(uploadDir, { recursive: true });
     }
 
-    const ext = path.extname(fileName || '.pdf') || '.pdf';
-    const isPdf = ext.toLowerCase() === '.pdf';
+    const ext = (path.extname(fileName || '.pdf') || '.pdf').toLowerCase();
+    const allowedExtensions = ['.pdf', '.jpg', '.jpeg', '.png', '.webp'];
+    if (!allowedExtensions.includes(ext)) {
+      res.status(400).json({ message: 'Tipe berkas tidak diizinkan. Hanya dokumen format PDF, JPG, JPEG, PNG, dan WEBP yang diperbolehkan.' });
+      return;
+    }
+    const isPdf = ext === '.pdf';
     const safeName = `efile_${userId}_${Date.now()}${ext}`;
     const targetPath = path.join(uploadDir, safeName);
     const cleanBase64 = String(fileBase64).replace(/^data:.*?;base64,/, '');
@@ -825,8 +966,9 @@ export const getSubjectAttendanceSummary = async (req: Request, res: Response): 
 
     if (requestedStudentId && user && ['TEACHER', 'COUNSELOR', 'ADMIN', 'OPERATOR', 'PARENT', 'STUDENT'].includes(user.role)) {
       studentId = String(requestedStudentId);
+    } else if (!requestedStudentId && requestedClassName && user) {
       // Guru memanggil rekap mapel untuk kelas
-      const targetClass = requestedClassName || 'VII-A';
+      const targetClass = requestedClassName;
       const firstStudent = await prisma.user.findFirst({
         where: { role: 'STUDENT', className: targetClass }
       });
@@ -868,42 +1010,64 @@ export const getSubjectAttendanceSummary = async (req: Request, res: Response): 
       }
     });
 
-    // Kumpulkan mapel unik
-    const subjectMap: Record<string, any> = {};
-    const defaultSubjects = ['Matematika', 'IPA / Sains', 'Bahasa Indonesia', 'Bahasa Inggris', 'Informatika & CBT', 'PAI & Budi Pekerti', 'IPS Terpadu', 'PJOK', 'Seni Budaya', 'PPKn'];
-    
-    // Inisialisasi daftar mapel
-    defaultSubjects.forEach(s => {
-      subjectMap[s] = {
-        subjectName: s,
-        teacherName: '-',
-        totalSessions: 16,
-        present: 15,
-        sick: 1,
-        permission: 0,
-        truant: 0,
-        percentage: 94
-      };
-    });
-
-    classSchedules.forEach((sch: any) => {
-      if (sch.subjectName && sch.subjectName !== 'Istirahat') {
-        if (!subjectMap[sch.subjectName]) {
-          subjectMap[sch.subjectName] = {
-            subjectName: sch.subjectName,
-            teacherName: sch.teacherName || '-',
-            totalSessions: 0,
-            present: 0,
-            sick: 0,
-            permission: 0,
-            truant: 0,
-            percentage: 100
-          };
-        } else if (sch.teacherName && sch.teacherName !== '-') {
-          subjectMap[sch.subjectName].teacherName = sch.teacherName;
-        }
+    // Ambil semua sesi kelas yang sudah pernah berjalan untuk kelas ini
+    const classSessions = await (prisma as any).classPeriodSession.findMany({
+      where: {
+        className: { in: normalizeClassVariations(className) }
       }
     });
+
+    const sessionsCountBySubject: Record<string, number> = {};
+    classSessions.forEach((cs: any) => {
+      if (cs.subjectName) {
+        sessionsCountBySubject[cs.subjectName] = (sessionsCountBySubject[cs.subjectName] || 0) + 1;
+      }
+    });
+
+    // Kumpulkan mapel unik riil dari Jadwal Kelas
+    const subjectMap: Record<string, any> = {};
+
+    if (classSchedules && classSchedules.length > 0) {
+      classSchedules.forEach((sch: any) => {
+        if (sch.subjectName && sch.subjectName !== 'Istirahat') {
+          const recordedSessions = sessionsCountBySubject[sch.subjectName] || 0;
+          if (!subjectMap[sch.subjectName]) {
+            subjectMap[sch.subjectName] = {
+              subjectName: sch.subjectName,
+              teacherName: sch.teacherName || '-',
+              totalSessions: recordedSessions,
+              present: 0,
+              sick: 0,
+              permission: 0,
+              truant: 0,
+              percentage: 100
+            };
+          } else {
+            if (sch.teacherName && sch.teacherName !== '-') {
+              subjectMap[sch.subjectName].teacherName = sch.teacherName;
+            }
+            if (recordedSessions > subjectMap[sch.subjectName].totalSessions) {
+              subjectMap[sch.subjectName].totalSessions = recordedSessions;
+            }
+          }
+        }
+      });
+    } else {
+      const defaultSubjects = ['Matematika', 'IPA / Sains', 'Bahasa Indonesia', 'Bahasa Inggris', 'Informatika & CBT', 'PAI & Budi Pekerti', 'IPS Terpadu', 'PJOK', 'Seni Budaya', 'PPKn'];
+      defaultSubjects.forEach(s => {
+        const recordedSessions = sessionsCountBySubject[s] || 0;
+        subjectMap[s] = {
+          subjectName: s,
+          teacherName: '-',
+          totalSessions: recordedSessions,
+          present: 0,
+          sick: 0,
+          permission: 0,
+          truant: 0,
+          percentage: 100
+        };
+      });
+    }
 
     // Ambil rekaman riil dari ClassPeriodAttendance
     const realAttendances = await (prisma as any).classPeriodAttendance.findMany({
@@ -927,7 +1091,7 @@ export const getSubjectAttendanceSummary = async (req: Request, res: Response): 
               percentage: 100
             };
           }
-          subjectMap[subj].totalSessions++;
+          
           if (att.status === 'PRESENT' || att.status === 'AUTO_PRESENT') {
             subjectMap[subj].present++;
           } else if (att.status === 'SICK') {
@@ -937,14 +1101,21 @@ export const getSubjectAttendanceSummary = async (req: Request, res: Response): 
           } else if (att.status === 'TRUANT') {
             subjectMap[subj].truant++;
           }
+
+          const studentAttendedTotal = subjectMap[subj].present + subjectMap[subj].sick + subjectMap[subj].permission + subjectMap[subj].truant;
+          if (studentAttendedTotal > subjectMap[subj].totalSessions) {
+            subjectMap[subj].totalSessions = studentAttendedTotal;
+          }
         }
       });
 
-      // Hitung ulang persentase
+      // Hitung persentase kehadiran riil
       Object.keys(subjectMap).forEach(key => {
         const item = subjectMap[key];
         if (item.totalSessions > 0) {
           item.percentage = Math.round((item.present / item.totalSessions) * 100);
+        } else {
+          item.percentage = 100;
         }
       });
     }
@@ -976,12 +1147,22 @@ export const getStudentNotifications = async (req: Request, res: Response): Prom
 
     const committeeStatus = await checkStudentCommitteeRole(student.id, student.name || '', student.className || 'VII-A');
 
+    // Filter ketat notifikasi siswa:
+    // 1. Notifikasi personal siswa (studentId atau recipientId sama persis dengan id siswa).
+    // 2. Notifikasi broadcast kelas (className sama, TAPI studentId null/kosong dan recipientId null/kosong).
+    // Ini menjamin notifikasi personal kelengkapan berkas/biodata/peringatan nama A tidak pernah bocor ke nama B!
     const whereCondition: any = {
-      recipientRole: 'STUDENT',
+      recipientRole: { in: ['STUDENT', 'ALL'] },
       OR: [
-        { className: student.className },
         { studentId: student.id },
-        { recipientId: student.id }
+        { recipientId: student.id },
+        {
+          AND: [
+            { className: student.className },
+            { studentId: null },
+            { recipientId: null }
+          ]
+        }
       ]
     };
 
@@ -992,13 +1173,74 @@ export const getStudentNotifications = async (req: Request, res: Response): Prom
 
     let notifications = await (prisma as any).notificationMessage.findMany({
       where: whereCondition,
-      orderBy: { id: 'desc' },
-      take: 30
+      orderBy: { sentAt: 'desc' },
+      take: 40
     });
 
-    // Validasi tambahan di memori: Jika notifikasi rekap manual adalah tentang dirinya sendiri (misal siswa sedang sakit/izin),
-    // jangan pernah kirimkan ke siswa tersebut karena sedang tidak di sekolah
+    // Validasi ketat lapis kedua di memori:
+    const now = Date.now();
+    const oneDayMs = 24 * 60 * 60 * 1000; // 24 Jam (1 x 24 jam)
+    const wibOffsetMs = 7 * 60 * 60 * 1000;
+    const nowWib = new Date(now + wibOffsetMs);
+    const todayWibMidnight = new Date(Date.UTC(nowWib.getUTCFullYear(), nowWib.getUTCMonth(), nowWib.getUTCDate()) - wibOffsetMs).getTime();
+
     notifications = notifications.filter((n: any) => {
+      // 1. Jika notifikasi memiliki studentId dan bukan ID siswa ini -> buang
+      if (n.studentId && n.studentId !== student.id) return false;
+      // 2. Jika notifikasi memiliki recipientId dan bukan ID siswa ini -> buang
+      if (n.recipientId && n.recipientId !== student.id) return false;
+
+      const notifTime = n.sentAt ? new Date(n.sentAt).getTime() : (n.createdAt ? new Date(n.createdAt).getTime() : 0);
+
+      // 3. ATURAN KEPULANGAN LEBIH AWAL: Khusus hari ini saja (tidak boleh muncul jika dari kemarin) & maks 24 jam
+      const isEarlyDismissal = (
+        n.category === 'EARLY_DISMISSAL' ||
+        n.title?.toLowerCase().includes('kepulangan lebih awal') ||
+        n.title?.toLowerCase().includes('pulang lebih awal')
+      );
+      if (isEarlyDismissal) {
+        if (!notifTime || notifTime < todayWibMidnight || (now - notifTime > oneDayMs)) {
+          return false; // Jangan munculkan kepulangan lebih awal kemarin/lampau!
+        }
+      }
+
+      // 4. ATURAN 1 x 24 JAM PENGUMUMAN & SIARAN
+      const isAnnouncementType = (
+        n.category === 'ANNOUNCEMENT' ||
+        n.category === 'BROADCAST' ||
+        n.title?.toLowerCase().includes('pengumuman') ||
+        n.title?.toLowerCase().includes('siaran')
+      );
+      if (isAnnouncementType) {
+        if (!notifTime || (now - notifTime > oneDayMs)) {
+          return false; // Pengumuman hanya berguna 1 x 24 jam!
+        }
+      }
+
+      // 5. ATURAN 1 x 24 JAM: Izin Keluar / Dispensasi / Gatepass masa lalu (beberapa hari lalu) jangan muncul kembali!
+      const isLeaveType = (
+        n.category === 'LEAVE_VERIFICATION' ||
+        n.category === 'GATEPASS' ||
+        n.category === 'IZIN_APPROVED' ||
+        n.category === 'STUDENT_LEAVE' ||
+        n.title?.toLowerCase().includes('izin') ||
+        n.title?.toLowerCase().includes('dispensasi') ||
+        n.title?.toLowerCase().includes('gatepass')
+      );
+      if (isLeaveType) {
+        if (!notifTime || (now - notifTime > oneDayMs)) {
+          return false; // Jangan munculkan notifikasi izin masa lalu / beberapa hari lalu!
+        }
+      }
+
+      // 5. Notifikasi tentang biodata / berkas siswa wajib cocok nama atau studentId
+      if (n.category && (n.category.includes('BIODATA') || n.title.toLowerCase().includes('biodata') || n.title.toLowerCase().includes('berkas'))) {
+        if (n.studentId && n.studentId !== student.id) return false;
+        if (n.studentName && student.name && !n.studentName.toLowerCase().includes(student.name.toLowerCase()) && !student.name.toLowerCase().includes(n.studentName.toLowerCase())) {
+          return false;
+        }
+      }
+      // 6. Notifikasi rekap manual untuk pengurus kelas: jangan kirimkan jika tentang dirinya sendiri
       if (n.category === 'ATTENDANCE_MANUAL_RECAP') {
         if (n.studentId === student.id) return false;
         if (n.studentName && student.name && n.studentName.toLowerCase().trim() === student.name.toLowerCase().trim()) return false;
@@ -1008,7 +1250,17 @@ export const getStudentNotifications = async (req: Request, res: Response): Prom
 
     res.json({
       success: true,
-      notifications: notifications.slice(0, 20)
+      notifications: notifications.slice(0, 20).map((n: any) => ({
+        id: n.id,
+        recipientRole: n.recipientRole,
+        className: n.className,
+        studentId: n.studentId,
+        studentName: n.studentName,
+        category: n.category,
+        title: n.title,
+        message: n.message,
+        createdAt: n.sentAt ? new Date(n.sentAt).toISOString() : (n.createdAt ? new Date(n.createdAt).toISOString() : null)
+      }))
     });
   } catch (err: any) {
     console.error('Error getting student notifications:', err);
@@ -1016,3 +1268,17 @@ export const getStudentNotifications = async (req: Request, res: Response): Prom
   }
 };
 
+export const markStudentNotificationRead = async (req: Request, res: Response) => {
+  try {
+    const id = (req.params.id || req.body.id) as string;
+    if (id) {
+      await (prisma as any).notificationMessage.updateMany({
+        where: { id },
+        data: { isRead: true }
+      });
+    }
+    res.json({ success: true, message: 'Notifikasi ditandai dibaca' });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: 'Gagal memperbarui notifikasi' });
+  }
+};

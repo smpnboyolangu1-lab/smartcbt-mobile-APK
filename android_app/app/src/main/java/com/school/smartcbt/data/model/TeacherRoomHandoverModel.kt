@@ -69,6 +69,9 @@ data class StudentSubjectAttendanceDto(
     @SerializedName("status") var status: String, // PRESENT, TRUANT, SICK, PERMISSION, ABSENT, NOT_CHECKED_IN
     @SerializedName("morningGateStatus") val morningGateStatus: String? = null,
     @SerializedName("isLockedByGate") val isLockedByGate: Boolean? = false,
+    @SerializedName("isSelfAttended") val isSelfAttended: Boolean? = false,
+    @SerializedName("isApprovedByBk") val isApprovedByBk: Boolean? = false,
+    @SerializedName("canTeacherEdit") val canTeacherEdit: Boolean? = true,
     @SerializedName("notes") var notes: String? = null,
     @SerializedName("markedAt") val markedAt: String? = null,
     @SerializedName("student") val student: StudentBriefDto? = null

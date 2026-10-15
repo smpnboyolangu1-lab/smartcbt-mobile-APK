@@ -1,6 +1,8 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/db';
 import crypto from 'crypto';
+import { sendFcmToUser } from '../services/fcmService';
+import { formatTimeWibWithSuffix } from '../utils/dateUtils';
 
 export const getTeacherTodaySchedule = async (req: Request, res: Response) => {
     try {
@@ -10,80 +12,78 @@ export const getTeacherTodaySchedule = async (req: Request, res: Response) => {
         const now = new Date();
         const currentDay = days[now.getDay()];
         const currentTimeStr = now.toTimeString().substring(0, 5);
+        const reqDay = req.query.day ? String(req.query.day).trim() : null;
 
-        // 1. Cek dari database ClassPeriodSchedule
-        const dbSchedules = await (prisma as any).classPeriodSchedule.findMany({
+        // If today is weekend (Minggu / Sabtu) and no specific day requested, default to 'Senin'
+        const isWeekend = (currentDay === 'Minggu' || currentDay === 'Sabtu');
+        let selectedDay = reqDay || (isWeekend ? 'Senin' : currentDay);
+
+        // Fetch all schedules for this teacher across all days
+        const allDbSchedules = await (prisma as any).classPeriodSchedule.findMany({
             where: {
-                day: currentDay,
                 isBreak: false,
                 OR: [
                     { teacherId: user?.id },
                     { teacherName: { contains: user?.name || '' } }
                 ]
             },
-            orderBy: { periodIndex: 'asc' }
+            orderBy: [{ day: 'asc' }, { periodIndex: 'asc' }]
         });
 
-        let schedules = [];
-        if (dbSchedules && dbSchedules.length > 0) {
-            for (const s of dbSchedules) {
-                const totalStudents = await prisma.user.count({
-                    where: { role: 'STUDENT', className: s.className }
-                });
-                schedules.push({
-                    id: s.id,
-                    className: s.className,
-                    subject: s.subjectName,
-                    timeRange: `${s.startTime} - ${s.endTime}`,
-                    startTime: s.startTime,
-                    endTime: s.endTime,
-                    room: s.roomName || `Ruang Kelas ${s.className}`,
-                    totalStudents: totalStudents || 30,
-                    status: (currentTimeStr >= s.startTime && currentTimeStr <= s.endTime) ? 'ACTIVE' : 'UPCOMING'
-                });
+        // Compute count per day and assigned classes
+        const dayCounts: Record<string, number> = {
+            'Senin': 0, 'Selasa': 0, 'Rabu': 0, 'Kamis': 0, 'Jumat': 0
+        };
+        const assignedClassesSet = new Set<string>();
+
+        for (const s of allDbSchedules) {
+            if (s.day && dayCounts[s.day] !== undefined) {
+                dayCounts[s.day]++;
             }
-        } else {
-            // Ambil kelas riil dari rombel siswa yang ada di database
-            const distinctClasses = await prisma.user.findMany({
-                where: { role: 'STUDENT' },
-                select: { className: true },
-                distinct: ['className']
-            });
-            const validClasses = distinctClasses.map(c => c.className).filter(Boolean) as string[];
-            const selectedClasses = validClasses.length >= 4 ? validClasses.slice(0, 4) : (validClasses.length > 0 ? validClasses : ['VII-A', 'VII-B', 'VII-C', 'VII-D']);
-
-            const defaultTimes = [
-                { start: '07:30', end: '09:00' },
-                { start: '09:15', end: '10:45' },
-                { start: '11:00', end: '12:30' },
-                { start: '13:00', end: '14:30' }
-            ];
-
-            for (let i = 0; i < selectedClasses.length; i++) {
-                const cName = selectedClasses[i];
-                const tSlot = defaultTimes[i % defaultTimes.length];
-                const totalStudents = await prisma.user.count({
-                    where: { role: 'STUDENT', className: cName }
-                });
-                schedules.push({
-                    id: `sched-${i + 1}`,
-                    className: cName,
-                    subject: user?.subject || 'Mata Pelajaran',
-                    timeRange: `${tSlot.start} - ${tSlot.end}`,
-                    startTime: tSlot.start,
-                    endTime: tSlot.end,
-                    room: `Ruang Kelas ${cName}`,
-                    totalStudents: totalStudents || 30,
-                    status: (currentTimeStr >= tSlot.start && currentTimeStr <= tSlot.end) ? 'ACTIVE' : 'UPCOMING'
-                });
+            if (s.className) {
+                assignedClassesSet.add(s.className);
             }
         }
 
+        // Filter schedules for the selected day or ALL
+        const targetSchedules = selectedDay.toUpperCase() === 'ALL'
+            ? allDbSchedules
+            : allDbSchedules.filter((s: any) => s.day.toLowerCase() === selectedDay.toLowerCase());
+
+        let schedules = [];
+        for (const s of targetSchedules) {
+            const totalStudents = await prisma.user.count({
+                where: { role: 'STUDENT', className: s.className }
+            });
+            const isToday = (currentDay.toLowerCase() === s.day.toLowerCase());
+            const isActive = isToday && (currentTimeStr >= s.startTime && currentTimeStr <= s.endTime);
+            schedules.push({
+                id: s.id,
+                day: s.day,
+                periodIndex: s.periodIndex,
+                className: s.className,
+                subject: s.subjectName,
+                timeRange: `${s.startTime} - ${s.endTime}`,
+                startTime: s.startTime,
+                endTime: s.endTime,
+                room: s.roomName || `Ruang Kelas ${s.className}`,
+                totalStudents: totalStudents || 32,
+                status: isActive ? 'ACTIVE' : (isToday && currentTimeStr < s.startTime ? 'UPCOMING' : 'SCHEDULED'),
+                isToday
+            });
+        }
+
         res.json({
+            success: true,
             teacherName,
-            day: currentDay,
+            currentDay,
+            selectedDay,
+            isWeekend,
             currentTime: currentTimeStr,
-            schedules
+            schedules,
+            weeklyDays: ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat'],
+            dayCounts,
+            assignedClasses: Array.from(assignedClassesSet)
         });
     } catch (error) {
         console.error('Error fetching teacher schedule:', error);
@@ -201,9 +201,28 @@ export const scanStudentDynamicQr = async (req: Request, res: Response) => {
 export const quickMarkAllAttendance = async (req: Request, res: Response) => {
     try {
         const { className, subjectName } = req.body;
+        const currentUser = (req as any).user;
 
         if (!className) {
             return res.status(400).json({ message: 'Kelas wajib dipilih' });
+        }
+
+        // Validasi: Guru harus sudah presensi MASUK dan aktif mengajar di kelas ini
+        if (currentUser && currentUser.role === 'TEACHER') {
+            const activeSession = await (prisma as any).teachingSession.findFirst({
+                where: {
+                    teacherId: currentUser.id,
+                    status: 'IN_PROGRESS',
+                    className
+                }
+            });
+
+            if (!activeSession) {
+                return res.status(403).json({
+                    success: false,
+                    message: `⚠️ Anda belum melakukan Presensi Masuk KBM di kelas ${className}. Silakan mulai sesi mengajar di kelas terlebih dahulu sebelum melakukan presensi siswa.`
+                });
+            }
         }
 
         const students = await prisma.user.findMany({
@@ -226,6 +245,8 @@ export const quickMarkAllAttendance = async (req: Request, res: Response) => {
             });
         }
 
+        req.app.get('io')?.emit('attendance_updated', { className, type: 'QUICK_ALL_PRESENT' });
+
         res.json({
             message: '✅ Sukses! Seluruh ' + students.length + ' siswa di kelas ' + className + ' telah ditandai HADIR.',
             totalMarked: students.length,
@@ -240,8 +261,28 @@ export const quickMarkAllAttendance = async (req: Request, res: Response) => {
 export const updateSingleStudentAttendance = async (req: Request, res: Response) => {
     try {
         const { studentId, status, note, className } = req.body;
+        const currentUser = (req as any).user;
+
         if (!studentId || !status) {
             return res.status(400).json({ message: 'studentId dan status wajib diisi' });
+        }
+
+        // Validasi: Guru harus sudah presensi MASUK dan aktif mengajar di kelas jika role TEACHER
+        if (currentUser && currentUser.role === 'TEACHER' && className) {
+            const activeSession = await (prisma as any).teachingSession.findFirst({
+                where: {
+                    teacherId: currentUser.id,
+                    status: 'IN_PROGRESS',
+                    className
+                }
+            });
+
+            if (!activeSession) {
+                return res.status(403).json({
+                    success: false,
+                    message: `⚠️ Anda belum melakukan Presensi Masuk KBM di kelas ${className}. Silakan mulai sesi mengajar di kelas terlebih dahulu sebelum memperbarui presensi siswa.`
+                });
+            }
         }
 
         await prisma.attendance.create({
@@ -253,6 +294,63 @@ export const updateSingleStudentAttendance = async (req: Request, res: Response)
                 note: note || 'Presensi Guru di Kelas ' + (className || '-')
             }
         });
+
+        // Notifikasi Otomatis ke Orang Tua jika status Sakit, Izin, Alpa, atau Terlambat
+        if (status === 'SICK' || status === 'PERMISSION' || status === 'ABSENT' || status === 'LATE') {
+            const student = await prisma.user.findUnique({ where: { id: studentId } });
+            if (student) {
+                const cleanNisn = (student.nisn || student.username || '').replace(/^[Pp]/, '').trim();
+                const statusMap: Record<string, string> = {
+                    SICK: 'Izin Sakit',
+                    PERMISSION: 'Izin Keperluan',
+                    ABSENT: 'Alpa / Tidak Hadir',
+                    LATE: 'Terlambat Masuk Kelas'
+                };
+                const statusLabel = statusMap[status] || status;
+                const notifTitle = `📋 [SIBOY KBM] Presensi Siswa: Tercatat ${statusLabel}`;
+                const notifMsg = `Yth. Orang Tua / Wali dari ananda ${student.name} (Kelas ${className || student.className || '-'}):\n\n` +
+                    `Diberitahukan bahwa pada jam pembelajaran di kelas hari ini, ananda tercatat: ${statusLabel}.\n` +
+                    `• Keterangan: ${note || '-'}\n` +
+                    `• Waktu Pencatatan: ${new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB\n\n` +
+                    `Catatan kehadiran ini telah diverifikasi langsung oleh Guru Pengampu di kelas.`;
+
+                await (prisma as any).notificationMessage.create({
+                    data: {
+                        studentId: student.id,
+                        studentName: student.name,
+                        className: className || student.className,
+                        recipientPhone: student.parentPhone,
+                        recipientRole: 'PARENT',
+                        title: notifTitle,
+                        message: notifMsg,
+                        category: 'ATTENDANCE'
+                    }
+                }).catch(() => null);
+
+                const parentUsers = await prisma.user.findMany({
+                    where: {
+                        role: 'PARENT',
+                        OR: [
+                            { username: `P${cleanNisn}` },
+                            { username: `p${cleanNisn}` },
+                            { username: cleanNisn },
+                            { nisn: cleanNisn },
+                            ...(student.parentPhone ? [{ username: student.parentPhone }] : [])
+                        ]
+                    }
+                });
+
+                for (const p of parentUsers) {
+                    sendFcmToUser(p.id, notifTitle, notifMsg, {
+                        type: 'CLASS_ATTENDANCE',
+                        status,
+                        studentId: student.id
+                    }).catch(() => null);
+                }
+            }
+        }
+
+        req.app.get('io')?.emit('attendance_updated', { studentId, status, className });
 
         res.json({ message: '✅ Status absensi siswa berhasil diubah menjadi: ' + status });
     } catch (error) {
@@ -596,7 +694,8 @@ export const deleteTeacherEFile = async (req: Request, res: Response) => {
 // 1. Mengambil Daftar Kelas yang Diampu Guru Beserta Jumlah Siswa
 export const getTeacherClasses = async (req: Request, res: Response) => {
     try {
-        const user = (req as any).user;
+        const tokenUser = (req as any).user;
+        const user = await prisma.user.findUnique({ where: { id: tokenUser.id } }) || tokenUser;
         const todayOnly = req.query.todayOnly === 'true' || req.query.today === 'true';
         let classesList: string[] = [];
 
@@ -615,33 +714,78 @@ export const getTeacherClasses = async (req: Request, res: Response) => {
                 }
             });
 
-            const scheduledClasses = Array.from(new Set(todaySchedules.map(s => s.className)));
+            const scheduledClasses = Array.from(new Set(todaySchedules.map(s => s.className).filter(Boolean)));
             if (scheduledClasses.length > 0) {
                 classesList = scheduledClasses;
             }
         }
 
         if (classesList.length === 0) {
-            if (user.teachingClasses) {
+            // 1. Dari field teachingClasses database
+            if (user.teachingClasses && user.teachingClasses.trim() !== '' && user.teachingClasses !== 'OPERATOR') {
                 classesList = user.teachingClasses.split(',').map((c: string) => c.trim()).filter(Boolean);
             }
-            if (user.className && !classesList.includes(user.className)) {
+
+            // 2. Dari seluruh jadwal mengajar di classPeriodSchedule
+            if (classesList.length === 0) {
+                const allSchedules = await prisma.classPeriodSchedule.findMany({
+                    where: {
+                        OR: [
+                            { teacherId: user.id },
+                            { teacherName: { contains: user.name } }
+                        ]
+                    },
+                    select: { className: true }
+                });
+                classesList = Array.from(new Set(allSchedules.map(s => s.className).filter(Boolean)));
+            }
+
+            // 3. Dari kelas binaan wali kelas
+            if (user.className && user.className.trim() !== '' && user.className.trim() !== '-' && !classesList.includes(user.className)) {
                 classesList.unshift(user.className);
             }
-            if (classesList.length === 0) {
-                classesList = ['VII-A', 'VII-B', 'VII-C'];
+
+            // 4. Dari siswa binaan homeroomTeacher
+            const walasStudents = await prisma.user.findMany({
+                where: { role: 'STUDENT', homeroomTeacher: user.name },
+                select: { className: true },
+                distinct: ['className']
+            });
+            for (const ws of walasStudents) {
+                if (ws.className && !classesList.includes(ws.className)) {
+                    classesList.unshift(ws.className);
+                }
+            }
+
+            // 5. Jika Kurikulum, Kepala Sekolah, Admin, atau Operator dan masih kosong, berikan seluruh 33 rombel
+            const isKurikulum = (user.tugasTambahan || '').includes('KURIKULUM') || (user.rolesTambahan || '').includes('kurikulum') || user.role === 'KURIKULUM' || (user.name || '').toLowerCase().includes('sidik');
+            const isHeadmaster = user.teachingSubject === 'Kepala Sekolah' || (user.name || '').includes('Adi Sutignyo');
+            if (classesList.length === 0 && (isKurikulum || isHeadmaster || user.role === 'ADMIN' || user.role === 'OPERATOR')) {
+                const allClasses = await prisma.class.findMany({ select: { name: true }, orderBy: { name: 'asc' } });
+                classesList = allClasses.map(c => c.name);
             }
         }
 
         const classesWithStats = await Promise.all(classesList.map(async (cls) => {
+            let altCls = cls;
+            if (cls.startsWith('VII-')) altCls = '7' + cls.slice(4);
+            else if (cls.startsWith('VIII-')) altCls = '8' + cls.slice(5);
+            else if (cls.startsWith('IX-')) altCls = '9' + cls.slice(3);
+
             const studentCount = await prisma.user.count({
-                where: { role: 'STUDENT', className: cls }
+                where: {
+                    role: 'STUDENT',
+                    OR: [
+                        { className: cls },
+                        { className: altCls }
+                    ]
+                }
             });
             const isHomeroom = user.className === cls;
             return {
                 className: cls,
-                subject: user.teachingSubject || 'Matematika',
-                totalStudents: studentCount || 30,
+                subject: user.teachingSubject || 'Mata Pelajaran',
+                totalStudents: studentCount || 32,
                 isHomeroom,
                 roleLabel: isHomeroom ? 'Wali Kelas & Guru Pengampu' : 'Guru Pengampu'
             };
@@ -650,7 +794,7 @@ export const getTeacherClasses = async (req: Request, res: Response) => {
         res.json({
             success: true,
             teacherName: user.name,
-            subject: user.teachingSubject || 'Matematika',
+            subject: user.teachingSubject || 'Mata Pelajaran',
             homeroomClass: user.className || null,
             classes: classesWithStats
         });
@@ -660,19 +804,35 @@ export const getTeacherClasses = async (req: Request, res: Response) => {
     }
 };
 
-// 2. Mengambil Seluruh Siswa Berdasarkan Kelas Rombel
+// 2. Mengambil Seluruh Siswa Berdasarkan Kelas Rombel (Dinamis VII-A <-> 7A)
 export const getStudentsByClass = async (req: Request, res: Response) => {
     try {
-        const className = String(req.params.className || req.query.className || 'VII-A');
+        const rawClass = String(req.params.className || req.query.className || 'VII-A').trim();
+        let altClass = rawClass;
+        if (rawClass.startsWith('VII-')) altClass = '7' + rawClass.slice(4);
+        else if (rawClass.startsWith('VIII-')) altClass = '8' + rawClass.slice(5);
+        else if (rawClass.startsWith('IX-')) altClass = '9' + rawClass.slice(3);
+        else if (rawClass.startsWith('7')) altClass = 'VII-' + rawClass.slice(1);
+        else if (rawClass.startsWith('8')) altClass = 'VIII-' + rawClass.slice(1);
+        else if (rawClass.startsWith('9')) altClass = 'IX-' + rawClass.slice(1);
+
         const students = await prisma.user.findMany({
-            where: { role: 'STUDENT', className },
+            where: {
+                role: 'STUDENT',
+                OR: [
+                    { className: rawClass },
+                    { className: altClass }
+                ]
+            },
             orderBy: { name: 'asc' },
             select: {
                 id: true,
                 name: true,
                 username: true,
+                nis: true,
                 nisn: true,
                 className: true,
+                classRole: true,
                 gender: true,
                 points: true,
                 latestHeightCm: true,
@@ -686,7 +846,7 @@ export const getStudentsByClass = async (req: Request, res: Response) => {
 
         res.json({
             success: true,
-            className,
+            className: rawClass,
             totalStudents: students.length,
             students
         });
@@ -700,7 +860,15 @@ export const getStudentsByClass = async (req: Request, res: Response) => {
 export const getHomeroomSummary = async (req: Request, res: Response) => {
     try {
         const user = (req as any).user;
-        let homeroomClass = user.className;
+        const requestedClass = (req.query.className as string)?.trim();
+        let homeroomClass = requestedClass || user.className;
+
+        if (!homeroomClass && user.tugasTambahan) {
+            const match = user.tugasTambahan.match(/WALI(?:_KELAS)?[:\s-]*([VII|VIII|IX|X|XI|XII0-9A-Za-z-]+)/i);
+            if (match && match[1]) {
+                homeroomClass = match[1].trim();
+            }
+        }
 
         if (!homeroomClass) {
             // Cek apakah guru ini terdaftar sebagai wali kelas di tabel siswa
@@ -720,21 +888,25 @@ export const getHomeroomSummary = async (req: Request, res: Response) => {
         }
 
         // Jika masih null, cek tabel Class jika ada
-        if (!homeroomClass) {
-            const classObj = await prisma.class.findFirst({
-                where: {
-                    name: user.teachingClasses ? { in: user.teachingClasses.split(',').map((c: string) => c.trim()) } : undefined
-                }
-            });
-            if (classObj) homeroomClass = classObj.name;
+        if (!homeroomClass && user.teachingClasses) {
+            const firstCls = user.teachingClasses.split(',')[0]?.trim();
+            if (firstCls) homeroomClass = firstCls;
         }
 
+        // Ambil seluruh daftar kelas yang ada di database
+        const dbClasses = await prisma.class.findMany({
+            orderBy: { name: 'asc' },
+            select: { name: true }
+        });
+        const defaultClassList = [
+            'VII-A', 'VII-B', 'VII-C', 'VII-D', 'VII-E', 'VII-F', 'VII-G', 'VII-H', 'VII-I', 'VII-J', 'VII-K',
+            'VIII-A', 'VIII-B', 'VIII-C', 'VIII-D', 'VIII-E', 'VIII-F', 'VIII-G', 'VIII-H', 'VIII-I', 'VIII-J', 'VIII-K',
+            'IX-A', 'IX-B', 'IX-C', 'IX-D', 'IX-E', 'IX-F', 'IX-G', 'IX-H', 'IX-I', 'IX-J', 'IX-K'
+        ];
+        const availableClasses = dbClasses.length > 0 ? dbClasses.map(c => c.name) : defaultClassList;
+
         if (!homeroomClass) {
-            return res.json({
-                success: true,
-                isHomeroom: false,
-                message: 'Guru ini tidak ditugaskan sebagai wali kelas.'
-            });
+            homeroomClass = availableClasses[0] || 'VII-A';
         }
 
         const students = await prisma.user.findMany({
@@ -765,39 +937,71 @@ export const getHomeroomSummary = async (req: Request, res: Response) => {
         const todayAttendances = await prisma.attendance.findMany({
             where: {
                 userId: { in: students.map(s => s.id) },
-                date: { gte: todayStart, lte: todayEnd }
+                scanTime: { gte: todayStart, lte: todayEnd }
             }
         });
 
-        const attMap = new Map();
-        todayAttendances.forEach(a => attMap.set(a.userId, a));
+        const inMap = new Map<string, any>();
+        const outMap = new Map<string, any>();
+        todayAttendances.forEach(a => {
+            if (a.type === 'GATE_IN') inMap.set(a.userId, a);
+            else if (a.type === 'GATE_OUT') outMap.set(a.userId, a);
+        });
 
         const enrichedStudents = students.map(s => {
-            const att = attMap.get(s.id);
+            const inAtt = inMap.get(s.id);
+            const outAtt = outMap.get(s.id);
             return {
                 ...s,
-                todayStatus: att ? att.status : 'BELUM',
-                todayInTime: att?.inTime || null,
-                todayOutTime: att?.outTime || null
+                todayStatus: inAtt ? inAtt.status : 'BELUM',
+                todayInTime: inAtt?.scanTime || null,
+                todayOutTime: outAtt?.scanTime || null
             };
         });
 
-        // Cek permohonan izin orang tua yang pending
-        const pendingLeaves = await prisma.studentLeaveRequest.findMany({
+        const mapLeaveWithDuration = (l: any) => {
+            const st = l.startDate ? new Date(l.startDate) : new Date();
+            const en = l.endDate ? new Date(l.endDate) : st;
+            const sDay = new Date(st); sDay.setHours(0, 0, 0, 0);
+            const eDay = new Date(en); eDay.setHours(0, 0, 0, 0);
+            const durationDays = Math.floor(Math.max(0, eDay.getTime() - sDay.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+            const isSick = l.category === 'SICK' || l.category === 'SAKIT';
+            const isDoctorNote = String(l.reason || '').toUpperCase().includes('[SURAT DOKTER') || String(l.reason || '').toUpperCase().includes('SURAT DOKTER RESMI');
+            const approvedDays = isSick && !isDoctorNote ? Math.min(durationDays, 3) : durationDays;
+            return {
+                ...l,
+                durationDays,
+                approvedDays,
+                isDoctorNote,
+                documentLabel: isSick
+                    ? (isDoctorNote ? `🏥 Surat Dokter (${approvedDays} Hari)` : `🏠 Izin Ortu (${approvedDays} Hari • Maks 3 Hari)`)
+                    : `📝 Izin Resmi (${approvedDays} Hari)`
+            };
+        };
+
+        // Cek permohonan izin orang tua yang pending & yang sudah di-approve
+        const allClassLeaves = await prisma.studentLeaveRequest.findMany({
             where: {
-                className: homeroomClass,
-                status: 'PENDING'
+                className: homeroomClass
             },
-            orderBy: { createdAt: 'desc' }
+            orderBy: { createdAt: 'desc' },
+            take: 30
         });
+
+        const enrichedLeaves = allClassLeaves.map(mapLeaveWithDuration);
+        const pendingLeaves = enrichedLeaves.filter(l => l.status === 'PENDING');
+        const approvedLeaves = enrichedLeaves.filter(l => l.status === 'APPROVED');
 
         res.json({
             success: true,
             isHomeroom: true,
             homeroomClass,
+            availableClasses,
             totalStudents: enrichedStudents.length,
             pendingLeavesCount: pendingLeaves.length,
+            approvedLeavesCount: approvedLeaves.length,
             pendingLeaves,
+            approvedLeaves,
             students: enrichedStudents
         });
     } catch (error) {
@@ -806,12 +1010,16 @@ export const getHomeroomSummary = async (req: Request, res: Response) => {
     }
 };
 
-// 4. Ringkasan Khusus Guru Piket Hari Ini
+// 4. Ringkasan Khusus Guru Piket Hari Ini & Jadwal Piket Terpadu
 export const getPiketSummary = async (req: Request, res: Response) => {
     try {
         const user = (req as any).user;
         const now = new Date();
-        const currentDay = now.getDay();
+        const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+        const wib = new Date(utc + (3600000 * 7));
+        const currentDay = wib.getDay();
+        const dayNames = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+        const dayName = dayNames[currentDay];
 
         // Cari jadwal piket hari ini (berdasarkan teacherId atau kecocokan nama/username)
         const piketToday = await prisma.piketSchedule.findFirst({
@@ -820,32 +1028,96 @@ export const getPiketSummary = async (req: Request, res: Response) => {
                 isActive: true,
                 OR: [
                     { teacherId: user.id },
-                    { teacherName: { contains: user.name } },
-                    { teacherName: { contains: user.username } }
+                    { teacher: { name: { contains: user.name } } },
+                    { teacher: { username: { contains: user.username } } }
                 ]
+            },
+            include: {
+                teacher: true
             }
         });
 
-        const isTaggedPiket = Boolean(piketToday) || user.role === 'PIKET' || user.role === 'GURU_PIKET';
+        // Ambil SELURUH tim petugas piket yang bertugas hari ini
+        const todayPiketTeam = await prisma.piketSchedule.findMany({
+            where: {
+                dayOfWeek: currentDay,
+                isActive: true
+            },
+            include: {
+                teacher: {
+                    select: { id: true, name: true, teachingSubject: true }
+                }
+            },
+            orderBy: { createdAt: 'asc' }
+        });
+
+        const isTaggedPiket = Boolean(piketToday) || user.role === 'PIKET' || user.role === 'GURU_PIKET' ||
+            todayPiketTeam.some(t => t.teacherId === user.id || (t.teacher?.name && t.teacher.name.toLowerCase() === user.name.toLowerCase()));
 
         // Ambil laporan jam kosong hari ini
-        const todayStart = new Date();
+        const todayStart = new Date(wib);
         todayStart.setHours(0, 0, 0, 0);
 
         const openEmptyClasses = await prisma.emptyClassReport.findMany({
             where: {
-                createdAt: { gte: todayStart },
-                status: 'PENDING'
+                createdAt: { gte: todayStart }
             },
             orderBy: { createdAt: 'desc' }
         });
 
+        // Ambil data guru yang izin / sakit / dinas luar hari ini
+        const todayTeacherLeaves = (prisma as any).teacherLeaveRequest ? await (prisma as any).teacherLeaveRequest.findMany({
+            where: {
+                startDate: { lte: wib },
+                endDate: { gte: todayStart }
+            },
+            include: {
+                teacher: { select: { id: true, name: true, teachingSubject: true } }
+            },
+            orderBy: { createdAt: 'desc' }
+        }).catch(() => []) : [];
+
+        // Ambil jadwal piket mingguan (Senin s/d Sabtu)
+        const weeklyPiketSchedule = await prisma.piketSchedule.findMany({
+            where: { isActive: true },
+            include: {
+                teacher: { select: { id: true, name: true, teachingSubject: true } }
+            },
+            orderBy: [{ dayOfWeek: 'asc' }, { createdAt: 'asc' }]
+        }).catch(() => []);
+
         res.json({
             success: true,
             isPiketToday: isTaggedPiket,
+            dayName,
+            dayOfWeek: currentDay,
             piketDetails: piketToday || null,
-            openEmptyClassesCount: openEmptyClasses.length,
-            openEmptyClasses
+            todayPiketTeam: todayPiketTeam.map(item => ({
+                id: item.id,
+                teacherId: item.teacherId,
+                teacherName: item.teacher?.name || 'Petugas Piket',
+                phone: (item.teacher as any)?.phone || '-',
+                subject: item.teacher?.teachingSubject || '-',
+                notes: item.notes || 'Petugas Posko Piket'
+            })),
+            openEmptyClassesCount: openEmptyClasses.filter(c => c.status === 'PENDING').length,
+            openEmptyClasses,
+            todayTeacherLeaves: todayTeacherLeaves.map((l: any) => ({
+                id: l.id,
+                teacherName: l.teacher?.name || 'Guru',
+                subject: l.teacher?.teachingSubject || '-',
+                leaveType: l.leaveType,
+                reason: l.reason,
+                status: l.status,
+                hasAssignment: l.hasAssignment || false,
+                assignmentDetails: l.assignmentDetails || null
+            })),
+            weeklyScheduleSummary: weeklyPiketSchedule.map(s => ({
+                id: s.id,
+                dayOfWeek: s.dayOfWeek,
+                dayName: dayNames[s.dayOfWeek] || `Hari ${s.dayOfWeek}`,
+                teacherName: s.teacher?.name || 'Guru'
+            }))
         });
     } catch (error) {
         console.error('Error fetching piket summary:', error);
@@ -886,14 +1158,27 @@ export const getTeacherSubjectAttendanceRecap = async (req: Request, res: Respon
         const teachingSubject = dbTeacher?.teachingSubject || user.teachingSubject || 'Matematika';
 
         let classList: string[] = [];
-        if (dbTeacher?.teachingClasses) {
+        if (dbTeacher?.teachingClasses && dbTeacher.teachingClasses.trim() !== '') {
             classList = dbTeacher.teachingClasses.split(',').map((c: string) => c.trim()).filter(Boolean);
         }
-        if (dbTeacher?.className && !classList.includes(dbTeacher.className)) {
+        if (dbTeacher?.className && dbTeacher.className.trim() !== '' && dbTeacher.className.trim() !== '-' && !classList.includes(dbTeacher.className)) {
             classList.unshift(dbTeacher.className);
         }
-        if (classList.length === 0) {
-            classList = ['VII-A', 'VII-B', 'VII-C', 'VII-D'];
+
+        // Query all schedules of this teacher to ensure all taught classes are included
+        const teacherSchedules = await (prisma as any).classPeriodSchedule.findMany({
+            where: {
+                OR: [
+                    { teacherId: user.id },
+                    { teacherName: { contains: dbTeacher?.name || user.name } }
+                ]
+            },
+            select: { className: true }
+        });
+        for (const s of teacherSchedules) {
+            if (s.className && !classList.includes(s.className)) {
+                classList.push(s.className);
+            }
         }
 
         // Ambil data dari sesi KBM jam pelajaran yang pernah dibuat oleh guru ini atau untuk mapel ini
@@ -911,19 +1196,118 @@ export const getTeacherSubjectAttendanceRecap = async (req: Request, res: Respon
             take: 100
         });
 
+        // Ambil seluruh siswa di rombel-rombel yang diampu
+        const allStudentsInClasses = await prisma.user.findMany({
+            where: {
+                role: 'STUDENT',
+                className: { in: classList }
+            },
+            select: {
+                id: true,
+                name: true,
+                nisn: true,
+                className: true,
+                gender: true,
+                profilePicUrl: true
+            },
+            orderBy: { name: 'asc' }
+        });
+
+        // Agregasi presensi per siswa untuk sesi KBM guru ini
+        const studentStatsMap: Record<string, { present: number; sick: number; permission: number; absent: number }> = {};
+        for (const sess of sessions) {
+            for (const att of sess.attendances || []) {
+                const sId = att.studentId;
+                if (!studentStatsMap[sId]) {
+                    studentStatsMap[sId] = { present: 0, sick: 0, permission: 0, absent: 0 };
+                }
+                const st = (att.status || 'PRESENT').toUpperCase();
+                if (st === 'PRESENT' || st === 'AUTO_PRESENT' || st === 'HADIR') {
+                    studentStatsMap[sId].present++;
+                } else if (st === 'SICK' || st === 'SAKIT') {
+                    studentStatsMap[sId].sick++;
+                } else if (st === 'PERMISSION' || st === 'IZIN') {
+                    studentStatsMap[sId].permission++;
+                } else {
+                    studentStatsMap[sId].absent++;
+                }
+            }
+        }
+
+        // Jika belum ada sesi KBM guru tercatat, ambil agregasi kehadiran siswa dari tabel presensi sekolah
+        const studentIds = allStudentsInClasses.map((s: any) => s.id);
+        const generalAttendances = await prisma.attendance.findMany({
+            where: {
+                userId: { in: studentIds }
+            },
+            select: { userId: true, status: true }
+        });
+        const generalStatsMap: Record<string, { present: number; sick: number; permission: number; absent: number }> = {};
+        for (const att of generalAttendances) {
+            if (!generalStatsMap[att.userId]) {
+                generalStatsMap[att.userId] = { present: 0, sick: 0, permission: 0, absent: 0 };
+            }
+            const st = (att.status || 'PRESENT').toUpperCase();
+            if (st === 'PRESENT' || st === 'LATE' || st === 'HADIR' || st === 'TERLAMBAT' || st === 'AUTO_PRESENT') {
+                generalStatsMap[att.userId].present++;
+            } else if (st === 'SICK' || st === 'SAKIT') {
+                generalStatsMap[att.userId].sick++;
+            } else if (st === 'PERMISSION' || st === 'IZIN') {
+                generalStatsMap[att.userId].permission++;
+            } else {
+                generalStatsMap[att.userId].absent++;
+            }
+        }
+
+        // Kelompokkan siswa per rombel
+        const studentsByClass: Record<string, any[]> = {};
+        for (const stu of allStudentsInClasses) {
+            const cls = stu.className || 'Tanpa Rombel';
+            if (!studentsByClass[cls]) {
+                studentsByClass[cls] = [];
+            }
+            const st = studentStatsMap[stu.id] || generalStatsMap[stu.id] || { present: 1, sick: 0, permission: 0, absent: 0 };
+            const total = st.present + st.sick + st.permission + st.absent;
+            const pct = total > 0 ? Math.round((st.present / total) * 100) : 100;
+            studentsByClass[cls].push({
+                id: stu.id,
+                name: stu.name,
+                nisn: stu.nisn || '-',
+                className: cls,
+                gender: stu.gender || 'L',
+                presentCount: st.present,
+                sickCount: st.sick,
+                permissionCount: st.permission,
+                absentCount: st.absent,
+                percentage: pct
+            });
+        }
+
         // Agregasi per kelas
         const recapByClass: any = {};
         for (const cls of classList) {
+            const classStudents = studentsByClass[cls] || [];
+            let cPresent = 0;
+            let cSick = 0;
+            let cPermit = 0;
+            let cAbsent = 0;
+            for (const cs of classStudents) {
+                cPresent += cs.presentCount;
+                cSick += cs.sickCount;
+                cPermit += cs.permissionCount;
+                cAbsent += cs.absentCount;
+            }
+
             recapByClass[cls] = {
                 className: cls,
                 subject: teachingSubject,
                 subjectName: teachingSubject,
-                totalSessions: 0,
-                presentCount: 0,
-                absentCount: 0,
+                totalSessions: Math.max(sessions.filter((s: any) => s.className === cls).length, 1),
+                presentCount: cPresent,
+                absentCount: cAbsent,
                 lateCount: 0,
-                sickCount: 0,
-                permissionCount: 0,
+                sickCount: cSick,
+                permissionCount: cPermit,
                 percentage: 100
             };
         }
@@ -965,18 +1349,36 @@ export const getTeacherSubjectAttendanceRecap = async (req: Request, res: Respon
             const totalHadir = c.presentCount;
             const totalTidakHadir = c.absentCount + c.sickCount + c.permissionCount;
             const totalAbsensi = totalHadir + totalTidakHadir;
-            const pct = totalAbsensi > 0 ? Math.round((totalHadir / totalAbsensi) * 100) : (c.totalSessions > 0 ? 100 : 0);
+            const pct = totalAbsensi > 0 ? Math.round((totalHadir / totalAbsensi) * 100) : 100;
+            const classStudents = studentsByClass[c.className] || [];
             return {
                 ...c,
-                percentage: pct
+                percentage: pct,
+                totalStudents: classStudents.length,
+                students: classStudents
             };
         });
+
+        const subjectsResult = classResults.map((c: any) => ({
+            subjectName: `${c.className} • ${c.subjectName}`,
+            className: c.className,
+            teacherName: dbTeacher?.name || user.name,
+            totalSessions: c.totalSessions,
+            present: c.presentCount,
+            sick: c.sickCount,
+            permission: c.permissionCount,
+            truant: c.absentCount,
+            percentage: c.percentage,
+            totalStudents: c.totalStudents,
+            students: c.students
+        }));
 
         res.json({
             success: true,
             teacherName: dbTeacher?.name || user.name,
             subject: teachingSubject,
             subjectName: teachingSubject,
+            subjects: subjectsResult,
             classes: classResults
         });
     } catch (error) {
@@ -1014,8 +1416,8 @@ export const teacherGeolocationAttendance = async (req: Request, res: Response) 
         }
 
         // Koordinat Kampus SMPN 1 Boyolangu
-        const schoolLat = -8.125506;
-        const schoolLng = 111.893526;
+        const schoolLat = -8.125157;
+        const schoolLng = 111.893912;
         const maxRadiusMeters = 200; // Radius toleransi lingkungan sekolah
 
         if (lat != null && lng != null && String(lat) !== '' && String(lng) !== '') {
@@ -1137,8 +1539,8 @@ export const getTeacherTodayAttendance = async (req: Request, res: Response) => 
         const inRecord = todayAttendances.find(a => a.type === 'GATE_IN');
         const outRecord = todayAttendances.find(a => a.type === 'GATE_OUT');
 
-        const inTimeStr = inRecord ? new Date(inRecord.scanTime).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WIB' : null;
-        const outTimeStr = outRecord ? new Date(outRecord.scanTime).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WIB' : null;
+        const inTimeStr = inRecord ? formatTimeWibWithSuffix(inRecord.scanTime) : null;
+        const outTimeStr = outRecord ? formatTimeWibWithSuffix(outRecord.scanTime) : null;
 
         return res.json({
             success: true,

@@ -9,9 +9,9 @@
     <!-- Header Toolbar -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="62dp"
-        android:background="#0A2E5C"
-        android:elevation="6dp"
+        android:layout_height="64dp"
+        android:background="@drawable/bg_profile_card"
+        android:elevation="8dp"
         android:gravity="center_vertical"
         android:orientation="horizontal"
         android:paddingHorizontal="16dp">
@@ -37,7 +37,7 @@
                 android:layout_height="wrap_content"
                 android:text="Gerbang ExamBrowser CBT"
                 android:textColor="#FFFFFF"
-                android:textSize="17sp"
+                android:textSize="18sp"
                 android:textStyle="bold" />
 
             <TextView
@@ -46,7 +46,7 @@
                 android:layout_marginTop="1dp"
                 android:text="SMPN 1 Boyolangu • Kiosk Terkunci &amp; Anti-Kecurangan"
                 android:textColor="#93C5FD"
-                android:textSize="11sp" />
+                android:textSize="12sp" />
         </LinearLayout>
 
         <ImageButton
@@ -74,8 +74,8 @@
             <androidx.cardview.widget.CardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                app:cardCornerRadius="16dp"
-                app:cardElevation="3dp"
+                app:cardCornerRadius="20dp"
+                app:cardElevation="4dp"
                 app:cardBackgroundColor="#FFFFFF">
 
                 <LinearLayout
@@ -90,25 +90,38 @@
                         android:gravity="center_vertical"
                         android:orientation="horizontal">
 
+                        <!-- Left Accent Bar -->
+                        <View
+                            android:layout_width="4dp"
+                            android:layout_height="20dp"
+                            android:layout_marginEnd="8dp"
+                            android:background="#0A2E5C" />
+
                         <TextView
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="🛡️ DIAGNOSTIK KESIAPAN PERANGKAT"
+                            android:text="DIAGNOSTIK KESIAPAN PERANGKAT"
                             android:textColor="#0A2E5C"
-                            android:textSize="12sp"
+                            android:textSize="14sp"
                             android:textStyle="bold" />
 
-                        <TextView
+                        <androidx.cardview.widget.CardView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:background="#DCFCE7"
-                            android:paddingHorizontal="8dp"
-                            android:paddingVertical="3dp"
-                            android:text="🔒 KIOSK: AKTIF"
-                            android:textColor="#166534"
-                            android:textSize="10sp"
-                            android:textStyle="bold" />
+                            app:cardBackgroundColor="#DCFCE7"
+                            app:cardCornerRadius="12dp"
+                            app:cardElevation="0dp">
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:paddingHorizontal="10dp"
+                                android:paddingVertical="4dp"
+                                android:text="🔒 KIOSK: AKTIF"
+                                android:textColor="#166534"
+                                android:textSize="10sp"
+                                android:textStyle="bold" />
+                        </androidx.cardview.widget.CardView>
                     </LinearLayout>
 
                     <LinearLayout
@@ -178,33 +191,6 @@
                         </LinearLayout>
                     </LinearLayout>
 
-                    <!-- Security Notice Banner -->
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="12dp"
-                        android:background="#FFF1F2"
-                        android:padding="12dp"
-                        android:gravity="center_vertical"
-                        android:orientation="horizontal">
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="⚠️"
-                            android:textSize="18sp" />
-
-                        <TextView
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:layout_marginStart="10dp"
-                            android:text="Perhatian Integritas: Meminimalisir aplikasi, screenshot, floating apps, atau berpindah aplikasi dihitung sebagai pelanggaran (Strike). Pelanggaran 3x otomatis mengunci ujian!"
-                            android:textColor="#9F1239"
-                            android:textSize="11sp"
-                            android:lineSpacingExtra="2dp" />
-                    </LinearLayout>
-
                 </LinearLayout>
             </androidx.cardview.widget.CardView>
 
@@ -213,15 +199,15 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
-                app:cardCornerRadius="16dp"
-                app:cardElevation="2dp"
+                app:cardCornerRadius="20dp"
+                app:cardElevation="4dp"
                 app:cardBackgroundColor="#FFFFFF">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="14dp">
+                    android:padding="16dp">
 
                     <LinearLayout
                         android:layout_width="match_parent"
@@ -229,13 +215,20 @@
                         android:gravity="center_vertical"
                         android:orientation="horizontal">
 
+                        <!-- Left Accent Bar -->
+                        <View
+                            android:layout_width="4dp"
+                            android:layout_height="20dp"
+                            android:layout_marginEnd="8dp"
+                            android:background="#0A2E5C" />
+
                         <TextView
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="📊 PROGRES UJIAN CBT"
+                            android:text="PROGRES UJIAN CBT"
                             android:textColor="#0A2E5C"
-                            android:textSize="12sp"
+                            android:textSize="14sp"
                             android:textStyle="bold" />
 
                         <TextView
@@ -295,6 +288,59 @@
                 </LinearLayout>
             </androidx.cardview.widget.CardView>
 
+            <!-- 2B. TOMBOL AGENDA KALENDER SEMUA JADWAL UJIAN -->
+            <androidx.cardview.widget.CardView
+                android:id="@+id/cardCalendarAgenda"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:foreground="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true"
+                app:cardCornerRadius="14dp"
+                app:cardElevation="2dp"
+                app:cardBackgroundColor="#F8FAFC">
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:padding="12dp">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="📅"
+                        android:textSize="20sp" />
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginStart="10dp"
+                        android:orientation="vertical">
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Agenda Kalender Semua Jadwal Ujian"
+                            android:textColor="#0F172A"
+                            android:textSize="12sp"
+                            android:textStyle="bold" />
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Lihat ujian apa saja di tanggal berapa saja &amp; rincian mapel"
+                            android:textColor="#64748B"
+                            android:textSize="10sp" />
+                    </LinearLayout>
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Buka ➔"
+                        android:textColor="#0284C7"
+                        android:textSize="11sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
+
             <!-- 3. SECTION HEADER -->
             <LinearLayout
                 android:layout_width="match_parent"
@@ -303,27 +349,40 @@
                 android:orientation="horizontal"
                 android:gravity="center_vertical">
 
+                <!-- Left Accent Bar -->
+                <View
+                    android:layout_width="4dp"
+                    android:layout_height="20dp"
+                    android:layout_marginEnd="8dp"
+                    android:background="#0A2E5C" />
+
                 <TextView
                     android:id="@+id/tvExamSectionTitle"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="📝 DAFTAR JADWAL UJIAN AKTIF"
+                    android:text="DAFTAR JADWAL UJIAN AKTIF"
                     android:textColor="#0A2E5C"
-                    android:textSize="12sp"
+                    android:textSize="14sp"
                     android:textStyle="bold" />
 
-                <TextView
-                    android:id="@+id/tvExamCountBadge"
+                <androidx.cardview.widget.CardView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:background="#E0F2FE"
-                    android:paddingHorizontal="10dp"
-                    android:paddingVertical="3dp"
-                    android:text="0 Ujian"
-                    android:textColor="#0369A1"
-                    android:textSize="11sp"
-                    android:textStyle="bold" />
+                    app:cardBackgroundColor="#E0F2FE"
+                    app:cardCornerRadius="10dp"
+                    app:cardElevation="0dp">
+                    <TextView
+                        android:id="@+id/tvExamCountBadge"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:paddingHorizontal="10dp"
+                        android:paddingVertical="4dp"
+                        android:text="0 Ujian"
+                        android:textColor="#0369A1"
+                        android:textSize="11sp"
+                        android:textStyle="bold" />
+                </androidx.cardview.widget.CardView>
             </LinearLayout>
 
             <TextView

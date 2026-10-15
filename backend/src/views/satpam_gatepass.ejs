@@ -45,6 +45,10 @@
 
             <!-- Stats & Quick Actions -->
             <div class="flex items-center gap-3 text-xs">
+                <div id="satpamOfficerBadge" class="hidden sm:flex bg-slate-800/80 border border-slate-700 rounded-xl px-3 py-1.5 items-center gap-1.5 text-emerald-300 font-bold">
+                    <span>👮</span>
+                    <span id="satpamOfficerName">Petugas Pos</span>
+                </div>
                 <div class="bg-slate-800/80 border border-slate-700 rounded-xl px-3 py-1.5 flex items-center gap-2">
                     <span class="text-slate-400">Hari Ini:</span>
                     <span id="statTotalToday" class="font-extrabold text-white">0</span>
@@ -56,6 +60,9 @@
                 <button onclick="refreshGatepassList()" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 shadow-lg shadow-indigo-600/20">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
                     <span>Refresh</span>
+                </button>
+                <button onclick="logoutSatpam()" class="bg-rose-600/20 hover:bg-rose-600 border border-rose-500/40 text-rose-300 hover:text-white font-bold px-3 py-1.5 rounded-xl transition-all">
+                    Keluar
                 </button>
             </div>
         </div>
@@ -242,6 +249,27 @@
             focusScannerInput();
         }
 
+        function getSatpamToken() {
+            const urlParams = new URLSearchParams(window.location.search);
+            return urlParams.get('token') || localStorage.getItem('token') || '';
+        }
+
+        function getAuthHeaders(withJson = false) {
+            const headers = {};
+            if (withJson) headers['Content-Type'] = 'application/json';
+            const tok = getSatpamToken();
+            if (tok) headers['Authorization'] = 'Bearer ' + tok;
+            return headers;
+        }
+
+        function logoutSatpam() {
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            document.cookie = 'token=; path=/; max-age=0';
+            document.cookie = 'admin_token=; path=/; max-age=0';
+            window.location.href = '/';
+        }
+
         // Core Verifikasi ke Backend
         async function processVerification(qrPayload) {
             const card = document.getElementById('verificationResultCard');
@@ -250,7 +278,7 @@
             try {
                 const res = await fetch('/api/gatepass/verify-scan', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: getAuthHeaders(true),
                     body: JSON.stringify({
                         qrPayload: qrPayload,
                         action: currentScanAction
@@ -359,7 +387,9 @@
         // Log Aktivitas Gerbang Real-Time
         async function refreshGatepassList() {
             try {
-                const res = await fetch('/api/satpam/gatepass/list');
+                const res = await fetch('/api/satpam/gatepass/list', {
+                    headers: getAuthHeaders()
+                });
                 const data = await res.json();
                 if (!data.success) return;
 
@@ -399,7 +429,7 @@
                             <td class="py-3 px-3">${badge}</td>
                             <td class="py-3 px-4 text-center">
                                 ${isAct ? `
-                                    <button onclick="processVerification('${g.singleUseCheckoutToken || g.id}')" class="bg-emerald-600 hover:bg-emerald-500 text-white px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all shadow">
+                                    <button onclick="setScanAction('CHECKOUT'); processVerification('${g.singleUseCheckoutToken || g.id}')" class="bg-emerald-600 hover:bg-emerald-500 text-white px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all shadow">
                                         Scan Lolos
                                     </button>
                                 ` : isDone ? `
@@ -459,6 +489,14 @@
 
         // Inisialisasi halaman
         window.addEventListener('DOMContentLoaded', () => {
+            try {
+                const rawUser = localStorage.getItem('user');
+                if (rawUser) {
+                    const u = JSON.parse(rawUser);
+                    const nameEl = document.getElementById('satpamOfficerName');
+                    if (nameEl && u.name) nameEl.innerText = u.name;
+                }
+            } catch (e) {}
             focusScannerInput();
             refreshGatepassList();
             setInterval(refreshGatepassList, 15000); // Polling setiap 15 detik

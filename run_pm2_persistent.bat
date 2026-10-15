@@ -16,16 +16,43 @@ call "C:\Users\user\AppData\Roaming\npm\pm2.cmd" resurrect >> C:\APK\pm2_persist
 call "C:\Users\user\AppData\Roaming\npm\pm2.cmd" start ecosystem.config.js >> C:\APK\pm2_persistent.log 2>&1
 call "C:\Users\user\AppData\Roaming\npm\pm2.cmd" save --force >> C:\APK\pm2_persistent.log 2>&1
 
-:: 2. Monitoring loop tangguh - periksa port 3000 setiap 15 detik
-:LOOP
-ping -n 16 127.0.0.1 >nul
+set /a FAIL_COUNT=0
+set /a CF_FAIL_COUNT=0
 
+:: 2. Monitoring loop tangguh dengan grace period (20 detik per siklus)
+:LOOP
+ping -n 21 127.0.0.1 >nul
+
+:: Periksa apakah port 3000 aktif
 netstat -aon | findstr :3000 | findstr LISTENING >nul 2>&1
-if %errorlevel% neq 0 (
-    echo [%date% %time%] [ALERT] Port 3000 terdeteksi padam! Memulihkan via PM2... >> C:\APK\pm2_persistent.log
-    call "C:\Users\user\AppData\Roaming\npm\pm2.cmd" resurrect >> C:\APK\pm2_persistent.log 2>&1
-    call "C:\Users\user\AppData\Roaming\npm\pm2.cmd" restart smart-school-backend >> C:\APK\pm2_persistent.log 2>&1
-    call "C:\Users\user\AppData\Roaming\npm\pm2.cmd" save --force >> C:\APK\pm2_persistent.log 2>&1
+if %errorlevel% equ 0 (
+    set /a FAIL_COUNT=0
+) else (
+    set /a FAIL_COUNT+=1
+    echo [%date% %time%] [WARN] Port 3000 belum listening (Cek %FAIL_COUNT%/4)... >> C:\APK\pm2_persistent.log
+    if %FAIL_COUNT% geq 4 (
+        echo [%date% %time%] [ALERT] Port 3000 terdeteksi padam > 80 detik! Memulihkan via PM2... >> C:\APK\pm2_persistent.log
+        call "C:\Users\user\AppData\Roaming\npm\pm2.cmd" resurrect >> C:\APK\pm2_persistent.log 2>&1
+        call "C:\Users\user\AppData\Roaming\npm\pm2.cmd" restart smart-school-backend >> C:\APK\pm2_persistent.log 2>&1
+        call "C:\Users\user\AppData\Roaming\npm\pm2.cmd" save --force >> C:\APK\pm2_persistent.log 2>&1
+        set /a FAIL_COUNT=0
+        ping -n 11 127.0.0.1 >nul
+    )
+)
+
+:: Periksa apakah Cloudflare Tunnel aktif
+tasklist /fi "imagename eq cloudflared.exe" | findstr /i "cloudflared.exe" >nul 2>&1
+if %errorlevel% equ 0 (
+    set /a CF_FAIL_COUNT=0
+) else (
+    set /a CF_FAIL_COUNT+=1
+    echo [%date% %time%] [WARN] Cloudflare tunnel belum aktif (Cek %CF_FAIL_COUNT%/3)... >> C:\APK\pm2_persistent.log
+    if %CF_FAIL_COUNT% geq 3 (
+        echo [%date% %time%] [ALERT] Cloudflare Tunnel padam! Memulihkan via PM2... >> C:\APK\pm2_persistent.log
+        call "C:\Users\user\AppData\Roaming\npm\pm2.cmd" restart cloudflare-tunnel >> C:\APK\pm2_persistent.log 2>&1
+        call "C:\Users\user\AppData\Roaming\npm\pm2.cmd" save --force >> C:\APK\pm2_persistent.log 2>&1
+        set /a CF_FAIL_COUNT=0
+    )
 )
 
 goto LOOP

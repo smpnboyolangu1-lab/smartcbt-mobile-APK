@@ -268,10 +268,10 @@ export const submitHomework = async (req: Request, res: Response) => {
             }
         }
 
-        if (hw.questions && (hw.type === 'MULTIPLE_CHOICE' || hw.type === 'MIXED')) {
+        if (hw.questions) {
             try {
-                const questionList: any[] = JSON.parse(hw.questions);
-                const mcQuestions = questionList.filter(q => (q.type === 'PG' || q.type === 'MULTIPLE_CHOICE' || !q.type));
+                const questionList: any[] = typeof hw.questions === 'string' ? JSON.parse(hw.questions) : hw.questions;
+                const mcQuestions = questionList.filter(q => (q.type === 'PG' || q.type === 'MULTIPLE_CHOICE' || q.type === 'BENAR_SALAH' || !q.type));
                 if (mcQuestions.length > 0 && parsedAnswers && typeof parsedAnswers === 'object') {
                     let correctCount = 0;
                     mcQuestions.forEach((q, idx) => {
@@ -293,15 +293,32 @@ export const submitHomework = async (req: Request, res: Response) => {
         // Simpan file unggahan jika dikirimkan via Base64 dari APK
         if (fileBase64) {
             try {
+                const ext = (path.extname(fileName || '.jpg') || '.jpg').toLowerCase();
+                const cleanBase64 = String(fileBase64).replace(/^data:.*?;base64,/, '');
+                const buffer = Buffer.from(cleanBase64, 'base64');
+
+                // BUG-NEW-12 Fix: Validasi tipe berkas dan magic bytes keamanan
+                const dangerousExts = ['.exe', '.apk', '.bat', '.cmd', '.sh', '.php', '.phtml', '.js', '.vbs', '.py', '.msi', '.com', '.scr', '.jar'];
+                if (dangerousExts.includes(ext)) {
+                    return res.status(400).json({ success: false, message: `Ekstensi berkas '${ext}' dilarang demi integritas dan keamanan sistem sekolah.` });
+                }
+
+                // Cek Magic Bytes PE / Executable binary (MZ header)
+                if (buffer.length >= 2 && buffer[0] === 0x4D && buffer[1] === 0x5A) {
+                    return res.status(400).json({ success: false, message: 'Berkas binary executable (PE/MZ) ditolak demi keamanan server.' });
+                }
+                // Cek Magic Bytes Linux ELF binary
+                if (buffer.length >= 4 && buffer[0] === 0x7F && buffer[1] === 0x45 && buffer[2] === 0x4C && buffer[3] === 0x46) {
+                    return res.status(400).json({ success: false, message: 'Berkas binary ELF Linux ditolak demi keamanan server.' });
+                }
+
                 const uploadDir = path.resolve(process.cwd(), 'uploads/homework-submissions');
                 if (!fs.existsSync(uploadDir)) {
                     fs.mkdirSync(uploadDir, { recursive: true });
                 }
-                const ext = path.extname(fileName || '.jpg') || '.jpg';
                 const safeFileName = `hw_${homeworkId}_${user.id}_${Date.now()}${ext}`;
                 const targetPath = path.join(uploadDir, safeFileName);
-                const cleanBase64 = String(fileBase64).replace(/^data:.*?;base64,/, '');
-                fs.writeFileSync(targetPath, Buffer.from(cleanBase64, 'base64'));
+                fs.writeFileSync(targetPath, buffer);
                 finalFileUrl = `/uploads/homework-submissions/${safeFileName}`;
             } catch (fileErr) {
                 console.error('Error saving homework file:', fileErr);

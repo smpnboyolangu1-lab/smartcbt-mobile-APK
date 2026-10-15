@@ -136,3 +136,45 @@ export const getOperatorBroadcasts = async (req: Request, res: Response) => {
         res.status(500).json({ success: false, message: 'Gagal memuat pengumuman: ' + error.message });
     }
 };
+
+// 3. Reset Device Binding Siswa (Buka Kunci HP Siswa)
+export const resetDeviceBinding = async (req: Request, res: Response) => {
+    try {
+        const { studentId, nisn, username, query } = req.body;
+        const target = (studentId || nisn || username || query || '').trim();
+
+        if (!target) {
+            return res.status(400).json({ success: false, message: 'Harap masukkan ID Siswa, NISN, atau Username yang ingin direset kunci HP-nya.' });
+        }
+
+        const user = await prisma.user.findFirst({
+            where: {
+                OR: [
+                    { id: target },
+                    { username: target },
+                    { nisn: target }
+                ]
+            }
+        });
+
+        if (!user) {
+            return res.status(404).json({ success: false, message: `Siswa dengan identitas '${target}' tidak ditemukan di sistem.` });
+        }
+
+        await prisma.user.update({
+            where: { id: user.id },
+            data: {
+                deviceBindingId: null
+            }
+        });
+
+        return res.json({
+            success: true,
+            message: `Kunci perangkat (Device Binding) untuk siswa ${user.name} (${user.nisn || user.username}) berhasil direset! Siswa kini dapat login kembali di perangkat baru.`
+        });
+    } catch (error: any) {
+        console.error('Error resetDeviceBinding:', error);
+        return res.status(500).json({ success: false, message: 'Gagal mereset kunci perangkat: ' + error.message });
+    }
+};
+

@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistem Manajemen Ekstrakurikuler — SMPN 1 Boyolangu</title>
+    <script src="/js/tailwind.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/css/portal-theme.css">
+    <style>
+        body { font-family: 'Plus Jakarta Sans', sans-serif; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 flex h-screen overflow-hidden">
+
+    <!-- Sidebar Mini / Navigasi Cepat -->
+    <aside class="w-64 bg-slate-900 text-white flex flex-col fixed left-0 top-0 h-screen shadow-2xl z-40 border-r border-slate-800 select-none">
+        <div class="px-4 py-4 border-b border-slate-800 bg-gradient-to-r from-slate-900 to-indigo-950 flex items-center justify-between">
+            <div class="flex items-center gap-3 overflow-hidden">
+                <div class="w-10 h-10 rounded-xl bg-white/10 p-1 flex items-center justify-center border border-indigo-400/30 flex-shrink-0">
+                    <img src="/logo-smpn1boyolangu.png" alt="Logo" class="w-full h-full object-contain" onerror="this.src='/logo.png'">
+                </div>
+                <div class="truncate">
+                    <h1 class="font-extrabold text-sm text-white leading-tight">EKSTRAKURIKULER</h1>
+                    <p class="text-[11px] text-indigo-300 font-semibold truncate">SMPN 1 Boyolangu</p>
+                </div>
+            </div>
+        </div>
+
+        <nav class="flex-1 p-3 space-y-1.5 overflow-y-auto text-xs font-semibold">
+            <button onclick="switchTab('katalog')" id="tabNavKatalog" class="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-indigo-600/30 text-indigo-200 border-l-4 border-indigo-500 font-bold transition-all text-left">
+                <span class="text-base">🏆</span> <span>Katalog Ekstrakurikuler</span>
+            </button>
+            <button onclick="switchTab('keanggotaan')" id="tabNavKeanggotaan" class="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-slate-300 hover:bg-slate-800 hover:text-white transition-all text-left">
+                <span class="text-base">👥</span> <span>Pendaftaran &amp; Anggota</span>
+            </button>
+            <button onclick="switchTab('presensi')" id="tabNavPresensi" class="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-slate-300 hover:bg-slate-800 hover:text-white transition-all text-left">
+                <span class="text-base">📅</span> <span>Sesi &amp; Presensi Latihan</span>
+            </button>
+            <button onclick="switchTab('jurnal')" id="tabNavJurnal" class="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-slate-300 hover:bg-slate-800 hover:text-white transition-all text-left">
+                <span class="text-base">📖</span> <span>Jurnal Latihan Pembina</span>
+            </button>
+            <button onclick="switchTab('penilaian')" id="tabNavPenilaian" class="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-slate-300 hover:bg-slate-800 hover:text-white transition-all text-left">
+                <span class="text-base">⭐</span> <span>Penilaian Perkembangan</span>
+            </button>
+            <button onclick="switchTab('prestasi')" id="tabNavPrestasi" class="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-slate-300 hover:bg-slate-800 hover:text-white transition-all text-left">
+                <span class="text-base">🥇</span> <span>Prestasi &amp; Agenda Event</span>
+            </button>
+            <button onclick="switchTab('pengumuman')" id="tabNavPengumuman" class="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-slate-300 hover:bg-slate-800 hover:text-white transition-all text-left">
+                <span class="text-base">📢</span> <span>Broadcast Pengumuman</span>
+            </button>
+
+            <div class="pt-4 border-t border-slate-800 mt-4">
+                <a href="/admin" class="flex items-center gap-2 px-3 py-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition-all">
+                    <span>🏠</span> <span>Kembali ke Admin</span>
+                </a>
+            </div>
+        </nav>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="flex-1 ml-64 p-6 md:p-8 overflow-y-auto h-screen space-y-6 bg-slate-50">
+        <!-- Top Banner Header -->
+        <header class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 pb-5">
+            <div>
+                <h1 class="text-2xl font-black text-slate-900 flex items-center gap-2.5">
+                    <span>🏆</span> Sistem Manajemen Ekstrakurikuler
+                </h1>
+                <p class="text-xs text-slate-500 mt-1">Pengelolaan data ekstra, seleksi pendaftaran, presensi QR, jurnal pembina, radar perkembangan, &amp; prestasi siswa.</p>
+            </div>
+            <div class="flex items-center gap-2.5 flex-wrap">
+                <button onclick="seedMasterEkstra()" class="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm">
+                    <span>⚡</span> Inisialisasi 11 Ekstra Sekolah
+                </button>
+                <button onclick="openModalCreateExtra()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-md">
+                    <span>+</span> Tambah Ekstrakurikuler
+                </button>
+            </div>
+        </header>
+
+        <!-- KPI Summary Cards -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm flex items-center gap-4">
+                <div class="w-12 h-12 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center text-2xl font-black">
+                    ⚽
+                </div>
+                <div>
+                    <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total Ekstrakurikuler</p>
+                    <h3 class="text-2xl font-black text-slate-800 mt-0.5" id="statTotalEkstra">0</h3>
+                </div>
+            </div>
+
+            <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm flex items-center gap-4">
+                <div class="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-2xl font-black">
+                    👥
+                </div>
+                <div>
+                    <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Anggota Aktif</p>
+                    <h3 class="text-2xl font-black text-emerald-600 mt-0.5" id="statTotalAnggota">0</h3>
+                </div>
+            </div>
+
+            <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm flex items-center gap-4">
+                <div class="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center text-2xl font-black">
+                    ⏳
+                </div>
+                <div>
+                    <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Perlu Verifikasi</p>
+                    <h3 class="text-2xl font-black text-amber-600 mt-0.5" id="statPendingVerif">0</h3>
+                </div>
+            </div>
+
+            <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm flex items-center gap-4">
+                <div class="w-12 h-12 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center text-2xl font-black">
+                    🥇
+                </div>
+                <div>
+                    <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Prestasi Kejuaraan</p>
+                    <h3 class="text-2xl font-black text-purple-600 mt-0.5" id="statTotalPrestasi">0</h3>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 1: KATALOG & MASTER EKSTRAKURIKULER -->
+        <section id="contentTabKatalog" class="space-y-4">
+            <div class="flex items-center justify-between gap-4 flex-wrap bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                <div class="flex items-center gap-2">
+                    <span class="text-xs font-bold text-slate-600">Kategori:</span>
+                    <select id="filterKategori" onchange="loadCatalog()" class="border border-slate-300 rounded-xl px-3 py-1.5 text-xs font-semibold bg-white text-slate-700">
+                        <option value="ALL">Semua Kategori</option>
+                        <option value="OLAHRAGA">Olahraga</option>
+                        <option value="SENI">Seni &amp; Musik</option>
+                        <option value="KEPEMIMPINAN">Kepemimpinan</option>
+                        <option value="KEAGAMAAN">Keagamaan</option>
+                        <option value="AKADEMIK">Akademik &amp; Sains</option>
+                        <option value="KEMANUSIAAN">Kemanusiaan / PMR</option>
+                    </select>
+                </div>
+                <div class="relative w-64">
+                    <input type="text" id="searchKatalog" oninput="debounceLoadCatalog()" placeholder="Cari ekstrakurikuler..." class="w-full text-xs pl-8 pr-3 py-2 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <span class="absolute left-2.5 top-2.5 text-slate-400 text-xs">🔍</span>
+                </div>
+            </div>
+
+            <!-- Grid Kartu Katalog Ekstrakurikuler -->
+            <div id="catalogGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                <div class="col-span-full text-center py-12 text-slate-400 text-xs">Memuat katalog ekstrakurikuler...</div>
+            </div>
+        </section>
+
+        <!-- TAB 2: PENDAFTARAN & KEANGGOTAAN SISWA -->
+        <section id="contentTabKeanggotaan" class="space-y-4 hidden">
+            <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                <div class="flex items-center justify-between flex-wrap gap-3">
+                    <h3 class="font-bold text-slate-800 text-sm flex items-center gap-2">
+                        <span>👥</span> Manajemen Anggota &amp; Verifikasi Seleksi
+                    </h3>
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <select id="memberFilterEkstra" onchange="loadMembers()" class="border border-slate-300 rounded-xl px-3 py-1.5 text-xs bg-white">
+                            <option value="ALL">Semua Ekstrakurikuler</option>
+                        </select>
+                        <select id="memberFilterStatus" onchange="loadMembers()" class="border border-slate-300 rounded-xl px-3 py-1.5 text-xs bg-white">
+                            <option value="ALL">Semua Status</option>
+                            <option value="PENDING" selected>Menunggu Verifikasi (Pending)</option>
+                            <option value="SELECTION">Tahap Seleksi</option>
+                            <option value="ACCEPTED">Diterima</option>
+                            <option value="ACTIVE">Aktif</option>
+                            <option value="REJECTED">Ditolak</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-xs border-collapse">
+                        <thead>
+                            <tr class="bg-slate-50 text-slate-600 font-bold border-b">
+                                <th class="p-3">Siswa / NISN</th>
+                                <th class="p-3">Kelas</th>
+                                <th class="p-3">Ekstrakurikuler</th>
+                                <th class="p-3">Tahun Ajaran</th>
+                                <th class="p-3">Status</th>
+                                <th class="p-3">Level Perkembangan</th>
+                                <th class="p-3 text-right">Aksi Verifikasi</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tableMembersBody" class="divide-y divide-slate-100 text-slate-700">
+                            <tr><td colspan="7" class="p-6 text-center text-slate-400">Pilih filter atau klik muat data</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 3: PRESENSI & SESI LATIHAN -->
+        <section id="contentTabPresensi" class="space-y-4 hidden">
+            <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                <div class="flex items-center justify-between flex-wrap gap-3">
+                    <div>
+                        <h3 class="font-bold text-slate-800 text-sm flex items-center gap-2">
+                            <span>📅</span> Sesi Latihan &amp; Presensi QR Code
+                        </h3>
+                        <p class="text-xs text-slate-500">Buka sesi latihan agar siswa dapat melakukan scan QR di APK atau lakukan checklist kehadiran manual.</p>
+                    </div>
+                    <button onclick="openModalCreateSession()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm">
+                        + Buka Sesi Latihan Baru
+                    </button>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div class="p-4 rounded-xl bg-amber-50 border border-amber-200">
+                        <p class="text-[11px] font-bold text-amber-700 uppercase">Radar Perhatian Kehadiran</p>
+                        <p class="text-xs text-amber-800 mt-1">Siswa dengan kehadiran &lt; 75% otomatis ditandai untuk mendapat evaluasi pembina.</p>
+                    </div>
+                    <div class="p-4 rounded-xl bg-rose-50 border border-rose-200">
+                        <p class="text-[11px] font-bold text-rose-700 uppercase">Pembinaan Kritis</p>
+                        <p class="text-xs text-rose-800 mt-1">Siswa dengan kehadiran &lt; 60% membutuhkan surat tindak lanjut pembinaan ke wali kelas.</p>
+                    </div>
+                    <div class="p-4 rounded-xl bg-indigo-50 border border-indigo-200">
+                        <p class="text-[11px] font-bold text-indigo-700 uppercase">Sinkronisasi APK</p>
+                        <p class="text-xs text-indigo-800 mt-1">QR Code otomatis diperbarui per sesi sehingga aman dari presensi palsu / titip absen.</p>
+                    </div>
+                </div>
+
+                <div id="sessionContainer" class="space-y-3">
+                    <div class="text-center py-8 text-slate-400 text-xs">Pilih ekstrakurikuler untuk melihat riwayat sesi latihan.</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 4: JURNAL LATIHAN PEMBINA -->
+        <section id="contentTabJurnal" class="space-y-4 hidden">
+            <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                <div class="flex items-center justify-between flex-wrap gap-3">
+                    <div>
+                        <h3 class="font-bold text-slate-800 text-sm flex items-center gap-2">
+                            <span>📖</span> Jurnal Kegiatan &amp; Laporan Latihan
+                        </h3>
+                        <p class="text-xs text-slate-500">Dokumentasi materi pembinaan, evaluasi keterampilan siswa, dan rekapitulasi kehadiran per pertemuan.</p>
+                    </div>
+                    <button onclick="openModalAddJournal()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm">
+                        + Isi Jurnal Latihan
+                    </button>
+                </div>
+
+                <div id="journalList" class="space-y-3">
+                    <div class="text-center py-8 text-slate-400 text-xs">Belum ada jurnal latihan yang tercatat.</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 5: PENILAIAN PERKEMBANGAN -->
+        <section id="contentTabPenilaian" class="space-y-4 hidden">
+            <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                <div class="flex items-center justify-between flex-wrap gap-3">
+                    <div>
+                        <h3 class="font-bold text-slate-800 text-sm flex items-center gap-2">
+                            <span>⭐</span> Penilaian Perkembangan &amp; Portofolio
+                        </h3>
+                        <p class="text-xs text-slate-500">Tingkat capaian: Pemula &rarr; Berkembang &rarr; Baik &rarr; Mahir &rarr; Unggul.</p>
+                    </div>
+                    <button onclick="openModalAssessment()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm">
+                        + Nilai Siswa
+                    </button>
+                </div>
+
+                <div id="assessmentTableContainer" class="overflow-x-auto">
+                    <p class="text-center py-8 text-slate-400 text-xs">Pilih ekstrakurikuler untuk memuat daftar penilaian.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 6: PRESTASI & AGENDA EVENT -->
+        <section id="contentTabPrestasi" class="space-y-4 hidden">
+            <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                <div class="flex items-center justify-between flex-wrap gap-3">
+                    <div>
+                        <h3 class="font-bold text-slate-800 text-sm flex items-center gap-2">
+                            <span>🥇</span> Rekap Prestasi Kejuaraan &amp; Agenda Event
+                        </h3>
+                        <p class="text-xs text-slate-500">Pencatatan medali / piala otomatis tersinkron ke portofolio rapor siswa masing-masing.</p>
+                    </div>
+                    <button onclick="openModalAddAchievement()" class="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm">
+                        + Catat Prestasi Baru
+                    </button>
+                </div>
+
+                <div id="achievementList" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="col-span-full text-center py-8 text-slate-400 text-xs">Belum ada prestasi yang dicatat.</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 7: BROADCAST PENGUMUMAN -->
+        <section id="contentTabPengumuman" class="space-y-4 hidden">
+            <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                <div class="flex items-center justify-between flex-wrap gap-3">
+                    <div>
+                        <h3 class="font-bold text-slate-800 text-sm flex items-center gap-2">
+                            <span>📢</span> Broadcast Pesan Pembina ke Seluruh Anggota
+                        </h3>
+                        <p class="text-xs text-slate-500">Kirim notifikasi instan ke APK seluruh anggota ekstrakurikuler (perubahan jadwal, info seragam, seleksi lomba).</p>
+                    </div>
+                    <button onclick="openModalBroadcast()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm">
+                        + Buat Broadcast Baru
+                    </button>
+                </div>
+
+                <div id="broadcastList" class="space-y-3">
+                    <div class="text-center py-8 text-slate-400 text-xs">Belum ada pengumuman yang disiarkan.</div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- MODAL TAMBAH / EDIT EKSTRAKURIKULER -->
+    <div id="modalCreateExtra" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div class="px-6 py-4 bg-indigo-600 text-white flex items-center justify-between">
+                <h3 class="font-bold text-sm flex items-center gap-2">
+                    <span>🏆</span> Form Data Ekstrakurikuler
+                </h3>
+                <button onclick="closeModal('modalCreateExtra')" class="text-white hover:text-slate-200 text-lg font-bold">&times;</button>
+            </div>
+            <form id="formCreateExtra" onsubmit="handleSaveExtra(event)" class="p-6 space-y-3 overflow-y-auto text-xs flex-1">
+                <input type="hidden" id="extraId">
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="font-bold text-slate-700">Nama Ekstrakurikuler *</label>
+                        <input type="text" id="extraName" required placeholder="Contoh: Futsal Spenboy" class="w-full mt-1 border rounded-xl p-2.5">
+                    </div>
+                    <div>
+                        <label class="font-bold text-slate-700">Kategori *</label>
+                        <select id="extraCategory" class="w-full mt-1 border rounded-xl p-2.5 bg-white">
+                            <option value="OLAHRAGA">Olahraga</option>
+                            <option value="SENI">Seni &amp; Musik</option>
+                            <option value="KEPEMIMPINAN">Kepemimpinan</option>
+                            <option value="KEAGAMAAN">Keagamaan</option>
+                            <option value="AKADEMIK">Akademik &amp; Sains</option>
+                            <option value="KEMANUSIAAN">Kemanusiaan / PMR</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="font-bold text-slate-700">Guru Pembina</label>
+                        <input type="text" id="extraInstructor" placeholder="Nama Guru Pembina" class="w-full mt-1 border rounded-xl p-2.5">
+                    </div>
+                    <div>
+                        <label class="font-bold text-slate-700">Pelatih Luar</label>
+                        <input type="text" id="extraCoach" placeholder="Nama Pelatih" class="w-full mt-1 border rounded-xl p-2.5">
+                    </div>
+                </div>
+                <div class="grid grid-cols-3 gap-3">
+                    <div>
+                        <label class="font-bold text-slate-700">Hari Latihan</label>
+                        <input type="text" id="extraDay" placeholder="Kamis &amp; Sabtu" class="w-full mt-1 border rounded-xl p-2.5">
+                    </div>
+                    <div>
+                        <label class="font-bold text-slate-700">Jam Latihan</label>
+                        <input type="text" id="extraTime" placeholder="15:30 - 17:00" class="w-full mt-1 border rounded-xl p-2.5">
+                    </div>
+                    <div>
+                        <label class="font-bold text-slate-700">Kuota Siswa</label>
+                        <input type="number" id="extraQuota" value="30" class="w-full mt-1 border rounded-xl p-2.5">
+                    </div>
+                </div>
+                <div>
+                    <label class="font-bold text-slate-700">Lokasi Latihan</label>
+                    <input type="text" id="extraLocation" placeholder="Lapangan Utama / Ruang Lab" class="w-full mt-1 border rounded-xl p-2.5">
+                </div>
+                <div>
+                    <label class="font-bold text-slate-700">Deskripsi Singkat</label>
+                    <textarea id="extraDesc" rows="2" placeholder="Tulis profil ringkas ekstra..." class="w-full mt-1 border rounded-xl p-2.5"></textarea>
+                </div>
+                <div>
+                    <label class="font-bold text-slate-700">Persyaratan Pendaftaran</label>
+                    <input type="text" id="extraReq" placeholder="Kondisi fisik prima, sepatu khusus, dll." class="w-full mt-1 border rounded-xl p-2.5">
+                </div>
+                <div>
+                    <label class="font-bold text-slate-700">Target Pembinaan / Kompetisi</label>
+                    <input type="text" id="extraTarget" placeholder="Juara 1 Tingkat Kabupaten, dll." class="w-full mt-1 border rounded-xl p-2.5">
+                </div>
+                <div class="pt-3 flex justify-end gap-2 border-t">
+                    <button type="button" onclick="closeModal('modalCreateExtra')" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold">Batal</button>
+                    <button type="submit" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-md">Simpan Ekstrakurikuler</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- SCRIPT LOGIKA UTAMA -->
+    <script>
+        let currentTab = 'katalog';
+        let extraCatalogList = [];
+
+        function switchTab(tab) {
+            currentTab = tab;
+            const tabs = ['katalog', 'keanggotaan', 'presensi', 'jurnal', 'penilaian', 'prestasi', 'pengumuman'];
+            tabs.forEach(t => {
+                const el = document.getElementById('contentTab' + t.charAt(0).toUpperCase() + t.slice(1));
+                const btn = document.getElementById('tabNav' + t.charAt(0).toUpperCase() + t.slice(1));
+                if (el) el.classList.toggle('hidden', t !== tab);
+                if (btn) {
+                    if (t === tab) {
+                        btn.className = "w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-indigo-600/30 text-indigo-200 border-l-4 border-indigo-500 font-bold transition-all text-left";
+                    } else {
+                        btn.className = "w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-slate-300 hover:bg-slate-800 hover:text-white transition-all text-left";
+                    }
+                }
+            });
+
+            if (tab === 'katalog') loadCatalog();
+            else if (tab === 'keanggotaan') loadMembers();
+        }
+
+        async function loadCatalog() {
+            try {
+                const cat = document.getElementById('filterKategori').value;
+                const search = document.getElementById('searchKatalog').value;
+                let url = `/api/extracurriculars?category=${cat}`;
+                if (search) url += `&search=${encodeURIComponent(search)}`;
+
+                const res = await fetch(url, { headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('token') || '') } });
+                const json = await res.json();
+                if (json.success) {
+                    extraCatalogList = json.data;
+                    renderCatalogGrid(json.data);
+                    document.getElementById('statTotalEkstra').innerText = json.count;
+
+                    // Update filter ekstra di dropdown
+                    const sel = document.getElementById('memberFilterEkstra');
+                    if (sel) {
+                        sel.innerHTML = '<option value="ALL">Semua Ekstrakurikuler</option>' + json.data.map(d => `<option value="${d.id}">${d.name}</option>`).join('');
+                    }
+                }
+            } catch (err) {
+                console.error('Error loadCatalog:', err);
+            }
+        }
+
+        function renderCatalogGrid(items) {
+            const container = document.getElementById('catalogGrid');
+            if (!items || items.length === 0) {
+                container.innerHTML = '<div class="col-span-full text-center py-12 text-slate-400 text-xs">Belum ada data ekstrakurikuler. Klik tombol "Inisialisasi 11 Ekstra Sekolah" untuk menambahkan daftar default.</div>';
+                return;
+            }
+
+            container.innerHTML = items.map(item => `
+                <div class="bg-white rounded-2xl border border-slate-200/90 shadow-sm hover:shadow-md transition-all overflow-hidden flex flex-col justify-between">
+                    <div class="p-5 space-y-3">
+                        <div class="flex items-start justify-between gap-2">
+                            <span class="text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full ${getCategoryBadge(item.category)}">${item.category}</span>
+                            <span class="text-[11px] font-bold text-slate-500">Kuota: ${item._count?.members || 0}/${item.quota}</span>
+                        </div>
+                        <h3 class="font-extrabold text-base text-slate-900">${item.name}</h3>
+                        <p class="text-xs text-slate-600 line-clamp-2">${item.description || 'Tidak ada deskripsi.'}</p>
+                        
+                        <div class="pt-2 border-t border-slate-100 space-y-1 text-[11px] text-slate-500">
+                            <p><strong>Pembina:</strong> ${item.instructorName || '-'}</p>
+                            <p><strong>Pelatih:</strong> ${item.coachName || '-'}</p>
+                            <p><strong>Jadwal:</strong> ${item.practiceDay || '-'} (${item.practiceTime || '-'})</p>
+                            <p><strong>Lokasi:</strong> ${item.location || '-'}</p>
+                        </div>
+                    </div>
+                    <div class="p-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between text-xs">
+                        <span class="font-bold text-emerald-600">${item.registrationStatus === 'OPEN' ? '🟢 Buka' : '🔴 Ditutup'}</span>
+                        <div class="flex items-center gap-2">
+                            <button onclick="editExtra('${item.id}')" class="text-indigo-600 hover:underline font-bold">Edit</button>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function getCategoryBadge(cat) {
+            switch(cat) {
+                case 'OLAHRAGA': return 'bg-amber-100 text-amber-800';
+                case 'SENI': return 'bg-purple-100 text-purple-800';
+                case 'KEPEMIMPINAN': return 'bg-blue-100 text-blue-800';
+                case 'KEAGAMAAN': return 'bg-emerald-100 text-emerald-800';
+                case 'AKADEMIK': return 'bg-sky-100 text-sky-800';
+                case 'KEMANUSIAAN': return 'bg-rose-100 text-rose-800';
+                default: return 'bg-slate-100 text-slate-800';
+            }
+        }
+
+        async function seedMasterEkstra() {
+            if (!confirm('Inisialisasi 11 data ekstrakurikuler resmi SMPN 1 Boyolangu?')) return;
+            try {
+                const res = await fetch('/api/extracurriculars/seed', {
+                    method: 'POST',
+                    headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('token') || '') }
+                });
+                const json = await res.json();
+                alert(json.message);
+                loadCatalog();
+            } catch (e) {
+                alert('Gagal inisialisasi: ' + e.message);
+            }
+        }
+
+        function openModalCreateExtra() {
+            document.getElementById('formCreateExtra').reset();
+            document.getElementById('extraId').value = '';
+            document.getElementById('modalCreateExtra').classList.remove('hidden');
+        }
+
+        function editExtra(id) {
+            const item = extraCatalogList.find(x => x.id === id);
+            if (!item) return;
+            document.getElementById('extraId').value = item.id;
+            document.getElementById('extraName').value = item.name;
+            document.getElementById('extraCategory').value = item.category;
+            document.getElementById('extraInstructor').value = item.instructorName || '';
+            document.getElementById('extraCoach').value = item.coachName || '';
+            document.getElementById('extraDay').value = item.practiceDay || '';
+            document.getElementById('extraTime').value = item.practiceTime || '';
+            document.getElementById('extraQuota').value = item.quota || 30;
+            document.getElementById('extraLocation').value = item.location || '';
+            document.getElementById('extraDesc').value = item.description || '';
+            document.getElementById('extraReq').value = item.requirements || '';
+            document.getElementById('extraTarget').value = item.trainingTarget || '';
+            document.getElementById('modalCreateExtra').classList.remove('hidden');
+        }
+
+        async function handleSaveExtra(e) {
+            e.preventDefault();
+            const id = document.getElementById('extraId').value;
+            const payload = {
+                id: id || undefined,
+                name: document.getElementById('extraName').value,
+                category: document.getElementById('extraCategory').value,
+                instructorName: document.getElementById('extraInstructor').value,
+                coachName: document.getElementById('extraCoach').value,
+                practiceDay: document.getElementById('extraDay').value,
+                practiceTime: document.getElementById('extraTime').value,
+                quota: document.getElementById('extraQuota').value,
+                location: document.getElementById('extraLocation').value,
+                description: document.getElementById('extraDesc').value,
+                requirements: document.getElementById('extraReq').value,
+                trainingTarget: document.getElementById('extraTarget').value
+            };
+
+            try {
+                const res = await fetch('/api/extracurriculars', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + (localStorage.getItem('token') || '')
+                    },
+                    body: JSON.stringify(payload)
+                });
+                const json = await res.json();
+                if (json.success) {
+                    alert('Ekstrakurikuler berhasil disimpan!');
+                    closeModal('modalCreateExtra');
+                    loadCatalog();
+                } else {
+                    alert(json.message);
+                }
+            } catch (err) {
+                alert('Gagal simpan: ' + err.message);
+            }
+        }
+
+        function closeModal(id) {
+            document.getElementById(id).classList.add('hidden');
+        }
+
+        let debounceTimer;
+        function debounceLoadCatalog() {
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(loadCatalog, 300);
+        }
+
+        // Jalankan saat pertama load
+        document.addEventListener('DOMContentLoaded', () => {
+            loadCatalog();
+        });
+    </script>
+</body>
+</html>

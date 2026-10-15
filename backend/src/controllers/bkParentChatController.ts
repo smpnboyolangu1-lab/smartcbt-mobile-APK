@@ -86,9 +86,92 @@ export const sendChatMessage = async (req: Request, res: Response) => {
             data: { lastMessageAt: new Date() }
         });
 
+        // Socket.io Realtime Broadcast ke Room Thread
+        const io = (req as any).app?.get('io');
+        if (io) {
+            io.to(`thread_${percakapanId}`).emit('chat_message', message);
+            io.to(`user_${pengirimId}`).emit('chat_sent', message);
+            io.emit('chat_notification', {
+                threadId: percakapanId,
+                senderRole,
+                pengirimId,
+                preview: isi.substring(0, 60),
+                waktuKirim: message.waktuKirim
+            });
+        }
+
         return res.json({ success: true, message: 'Pesan berhasil dikirim', data: message });
     } catch (error: any) {
         return res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+export const getChatThreads = async (req: Request, res: Response) => {
+    try {
+        const user = (req as any).user;
+        const role = user?.role;
+        const userId = user?.id;
+
+        let whereCondition: any = {};
+        if (role === 'PARENT') {
+            whereCondition.orangTuaId = userId;
+        } else if (role === 'COUNSELOR' || role === 'BK') {
+            whereCondition.bkId = userId;
+        }
+
+        const threads = await prisma.bkParentChatThread.findMany({
+            where: whereCondition,
+            include: {
+                messages: {
+                    orderBy: { waktuKirim: 'desc' },
+                    take: 1
+                },
+                kasus: true
+            },
+            orderBy: { lastMessageAt: 'desc' }
+        });
+
+        return res.json({ success: true, count: threads.length, data: threads });
+    } catch (e: any) {
+        return res.status(500).json({ success: false, message: e.message });
+    }
+};
+
+export const getThreadMessages = async (req: Request, res: Response) => {
+    try {
+        const user = (req as any).user;
+        const { threadId } = req.params;
+
+        const thread = await prisma.bkParentChatThread.findUnique({
+            where: { id: String(threadId) }
+        });
+
+        if (!thread) {
+            return res.status(404).json({ success: false, message: 'Thread percakapan tidak ditemukan' });
+        }
+
+        // Access Control: Admin/Operator/Counselor or Thread's Parent or Student
+        if (user.role === 'PARENT') {
+            if (thread.orangTuaId !== user.id) {
+                return res.status(403).json({ success: false, message: 'Akses ditolak: Anda bukan peserta dalam percakapan ini.' });
+            }
+        } else if (user.role === 'STUDENT') {
+            if (thread.siswaId !== user.id) {
+                return res.status(403).json({ success: false, message: 'Akses ditolak: Siswa tidak diizinkan membuka thread ini.' });
+            }
+        } else if (!['ADMIN', 'OPERATOR', 'COUNSELOR', 'BK'].includes(user.role)) {
+            return res.status(403).json({ success: false, message: 'Akses ditolak.' });
+        }
+
+        const messages = await prisma.bkParentChatMessage.findMany({
+            where: { percakapanId: String(threadId) },
+            orderBy: { waktuKirim: 'asc' },
+            take: 100
+        });
+
+        return res.json({ success: true, count: messages.length, data: messages });
+    } catch (e: any) {
+        return res.status(500).json({ success: false, message: e.message });
     }
 };
 
@@ -116,8 +199,33 @@ export const reassignCaseCounselor = async (req: Request, res: Response) => {
 // ========================================================
 export const getParentUnifiedDashboard = async (req: Request, res: Response) => {
     try {
+        const user = (req as any).user;
         const { siswaId } = req.params;
         const targetSiswaId = String(siswaId);
+
+        // Access Control: Validasi Kerahasiaan Data Anak
+        if (user.role === 'STUDENT') {
+            if (user.id !== targetSiswaId) {
+                return res.status(403).json({ success: false, message: 'Akses ditolak: Siswa hanya dapat melihat dashboard sendiri.' });
+            }
+        } else if (user.role === 'PARENT') {
+            const relation = await prisma.parentStudentLink.findFirst({
+                where: {
+                    orangTua: { userId: user.id },
+                    siswaId: targetSiswaId
+                }
+            });
+            if (!relation) {
+                const targetStudent = await prisma.user.findUnique({ where: { id: targetSiswaId } });
+                const isMatched = targetStudent && (user.nisn === targetStudent.nisn || user.username === 'P' + targetStudent.nisn || user.username === 'p' + targetStudent.nisn);
+                if (!isMatched) {
+                    return res.status(403).json({ success: false, message: 'Akses ditolak: Anda bukan orang tua resmi siswa ini.' });
+                }
+            }
+        } else if (!['ADMIN', 'OPERATOR', 'TEACHER', 'COUNSELOR', 'BK'].includes(user.role)) {
+            return res.status(403).json({ success: false, message: 'Akses ditolak.' });
+        }
+
         const today = new Date();
         const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
 

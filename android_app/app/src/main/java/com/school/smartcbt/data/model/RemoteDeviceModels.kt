@@ -46,7 +46,8 @@ data class FileMetadata(
     val mimeType: String?,
     val category: String, // IMAGE, VIDEO, AUDIO, DOCUMENT, APK, ARCHIVE, OTHER
     val lastModified: Long, // timestamp in millis
-    val thumbnailBase64: String? = null // Mini thumbnail Base64 (max ~6KB)
+    val thumbnailBase64: String? = null, // Mini thumbnail Base64 (max ~6KB)
+    val isDeleted: Boolean? = false
 )
 
 data class PendingRequest(

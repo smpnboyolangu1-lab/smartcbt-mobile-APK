@@ -13,7 +13,7 @@ interface ApiService {
 
     // --- Presensi Kelas 1-Tap (Guru IN & Siswa OUT per JP) ---
     @GET("/api/class-session/teacher-today")
-    fun getTeacherTodayClassPeriods(): Call<TeacherClassPeriodsResponse>
+    fun getTeacherTodayClassPeriods(@Query("day") day: String? = null): Call<TeacherClassPeriodsResponse>
 
     @POST("/api/class-session/teacher-in")
     fun teacherInClassSession(@Body request: TeacherInSessionRequest): Call<BasicResponse>
@@ -23,6 +23,24 @@ interface ApiService {
 
     @POST("/api/class-session/student-out")
     fun studentOutClassSession(@Body request: StudentOutSessionRequest): Call<BasicResponse>
+
+    @GET("/api/class-session/students-status")
+    fun getClassSessionStudentsStatus(@Query("className") className: String, @Query("sessionId") sessionId: String? = null): Call<com.school.smartcbt.data.model.ClassSessionStudentsStatusResponse>
+
+    @POST("/api/class-session/confirm-students")
+    fun confirmClassSessionStudents(@Body body: Map<String, @JvmSuppressWildcards Any>): Call<BasicResponse>
+
+    @POST("/api/class-session/teacher-end")
+    fun teacherEndClassSession(@Body body: Map<String, String>): Call<BasicResponse>
+
+    @GET("/api/guru/uh/list")
+    fun getTeacherUlanganHarianList(): Call<Map<String, Any>>
+
+    @POST("/api/questions/upload-audio")
+    fun uploadQuestionAudio(@Body body: Map<String, String>): Call<Map<String, Any>>
+
+    @POST("/api/questions/upload-image")
+    fun uploadQuestionImage(@Body body: Map<String, String>): Call<Map<String, Any>>
 
     // --- Presensi Geolocation Harian Guru (Datang & Pulang GPS 1-Tap) ---
     @POST("/api/teacher/attendance/geolocation")
@@ -36,6 +54,9 @@ interface ApiService {
 
     @POST("/api/auth/refresh")
     fun refreshToken(@Body request: RefreshTokenRequest): Call<RefreshTokenResponse>
+
+    @POST("/api/auth/logout")
+    fun logout(@Body body: Map<String, String>): Call<BasicResponse>
 
     @POST("/api/attendance/scan-gate")
     fun scanGateAttendance(@Body request: GateScanRequest): Call<BasicResponse>
@@ -95,6 +116,42 @@ interface ApiService {
         @Body request: CreateDisciplineRequest
     ): Call<BasicResponse>
 
+    @GET("/api/bk/discipline")
+    fun getBkDisciplineRecords(
+        @Query("studentId") studentId: String? = null,
+        @Query("className") className: String? = null,
+        @Query("type") type: String? = null
+    ): Call<BkDisciplineListResponse>
+
+    @DELETE("/api/bk/discipline/{id}")
+    fun deleteBkDisciplineRecord(@Path("id") id: String): Call<BasicResponse>
+
+    @GET("/api/bk/discipline-categories")
+    fun getBkDisciplineCategories(): Call<List<BkDisciplineCategoryDto>>
+
+    @GET("/api/bk/warning-letters")
+    fun getBkWarningLetters(
+        @Query("studentId") studentId: String? = null,
+        @Query("className") className: String? = null
+    ): Call<BkWarningLettersResponse>
+
+    @POST("/api/bk/warning-letters")
+    fun issueBkWarningLetter(@Body request: IssueWarningLetterRequest): Call<BasicResponse>
+
+    @DELETE("/api/bk/warning-letters/{id}")
+    fun deleteBkWarningLetter(@Path("id") id: String): Call<BasicResponse>
+
+    @POST("/api/bk/students/{userId}/cancel-sp")
+    fun cancelStudentSp(@Path("userId") userId: String): Call<BasicResponse>
+
+    @GET("/api/bk/early-warning")
+    fun getBkDisciplineEarlyWarning(
+        @Query("className") className: String? = null
+    ): Call<BkEarlyWarningResponse>
+
+    @GET("/api/bk/dashboard-overview")
+    fun getBkDashboardOverview(): Call<BkDashboardOverviewResponse>
+
     @GET("/api/student/profile")
     fun getStudentProfile(@Query("studentId") studentId: String? = null): Call<StudentProfileResponse>
 
@@ -104,8 +161,17 @@ interface ApiService {
     @GET("/api/student/attendance-detail")
     fun getDetailedAttendance(
         @Query("childId") childId: String? = null,
-        @Query("studentId") studentId: String? = null
+        @Query("studentId") studentId: String? = null,
+        @Query("month") month: Int? = null,
+        @Query("year") year: Int? = null
     ): Call<AttendanceDetailResponse>
+
+    @GET("/api/student/attendance-analytics")
+    fun getStudentAttendanceAnalytics(
+        @Query("studentId") studentId: String? = null,
+        @Query("month") month: Int? = null,
+        @Query("year") year: Int? = null
+    ): Call<StudentAttendanceAnalyticsResponse>
 
     @GET("/api/student/learning-analytics")
     fun getLearningAnalytics(@Query("studentId") studentId: String? = null): Call<LearningAnalyticsResponse>
@@ -127,6 +193,9 @@ interface ApiService {
 
     @POST("/api/cbt/strike")
     fun reportCheatStrike(@Body request: CheatStrikeRequest): Call<CheatStrikeResponse>
+
+    @GET("/api/cbt/student-exams/{id}/ljs")
+    fun getStudentExamLjs(@Path("id") studentExamId: String): Call<StudentExamLjsResponse>
 
     @GET("/api/parent/my-child")
     fun getParentDashboard(@Query("childId") childId: String? = null): Call<ParentDashboardDto>
@@ -156,7 +225,11 @@ interface ApiService {
     fun submitParentLeaveRequest(@Body request: Map<String, String>): Call<BasicResponse>
 
     @GET("/api/parent/leave-requests")
-    fun getParentLeaveRequests(@Query("studentId") studentId: String? = null): Call<List<ParentLeaveRequestDto>>
+    fun getParentLeaveRequests(
+        @Query("studentId") studentId: String? = null,
+        @Query("className") className: String? = null,
+        @Query("status") status: String? = null
+    ): Call<List<ParentLeaveRequestDto>>
 
     @GET("/api/teacher/leave-requests")
     fun getTeacherLeaveRequests(
@@ -215,6 +288,15 @@ interface ApiService {
         @Body request: HandlePiketReportRequest
     ): Call<BasicResponse>
 
+    @POST("/api/piket/empty-class-reports/{id}/forward-kurikulum")
+    fun forwardEmptyClassToKurikulum(
+        @Path("id") id: String,
+        @Body body: Map<String, String> = emptyMap()
+    ): Call<BasicResponse>
+
+    @GET("/api/piket/class-monitoring-status")
+    fun getClassMonitoringStatus(): Call<com.school.smartcbt.data.model.ClassMonitoringStatusResponse>
+
     // --- Teacher E-Files Mandiri ---
     @GET("/api/teacher/e-files")
     fun getTeacherEFiles(): Call<TeacherEFilesResponse>
@@ -260,6 +342,36 @@ interface ApiService {
 
     @DELETE("/api/guru/exams/{id}")
     fun deleteTeacherExam(@Path("id") id: String): Call<BasicResponse>
+
+    @GET("/api/guru/exams/{examId}/questions")
+    fun getTeacherExamQuestions(@Path("examId") examId: String): Call<List<com.school.smartcbt.data.model.BackendQuestionDto>>
+
+    @POST("/api/guru/exams/{examId}/questions")
+    fun createTeacherExamQuestion(@Path("examId") examId: String, @Body request: com.school.smartcbt.data.model.CreateQuestionRequest): Call<BasicResponse>
+
+    @PUT("/api/guru/exams/{examId}/questions/{id}")
+    fun updateTeacherExamQuestion(@Path("examId") examId: String, @Path("id") id: String, @Body request: com.school.smartcbt.data.model.UpdateQuestionRequest): Call<BasicResponse>
+
+    @DELETE("/api/guru/exams/{examId}/questions/{id}")
+    fun deleteTeacherExamQuestion(@Path("examId") examId: String, @Path("id") id: String): Call<BasicResponse>
+
+    @PUT("/api/guru/exams/{id}/schedule")
+    fun updateTeacherExamSchedule(@Path("id") id: String, @Body updateData: Map<String, @JvmSuppressWildcards Any>): Call<BasicResponse>
+
+    @GET("/api/cbt/results")
+    fun getTeacherExamResults(@Query("examId") examId: String): Call<List<Map<String, @JvmSuppressWildcards Any>>>
+
+    @POST("/api/cbt/ai/generate")
+    fun generateAiQuestions(@Body request: com.school.smartcbt.data.model.AiGenerateQuestionsRequest): Call<BasicResponse>
+
+    @POST("/api/cbt/proctor-reset-lock")
+    fun proctorResetStudentLock(@Body request: Map<String, String>): Call<BasicResponse>
+
+    @POST("/api/cbt/toggle-token")
+    fun toggleExamToken(@Body request: Map<String, @JvmSuppressWildcards Any>): Call<BasicResponse>
+
+    @POST("/api/student/notifications/{id}/read")
+    fun markStudentNotificationRead(@Path("id") id: String): Call<BasicResponse>
 
     // --- Announcements Sekolah ---
     @GET("/api/announcements")
@@ -466,6 +578,12 @@ interface ApiService {
     @GET("/api/student/notifications")
     fun getStudentNotifications(): Call<com.school.smartcbt.data.model.StudentNotificationsResponse>
 
+    @POST("/api/parent/notifications/{id}/read")
+    fun markNotificationAsRead(@retrofit2.http.Path("id") id: String): Call<BasicResponse>
+
+    @POST("/api/notifications/{id}/read")
+    fun markGeneralNotificationAsRead(@retrofit2.http.Path("id") id: String): Call<BasicResponse>
+
     // ==================== MODUL IZIN GURU & POSKO PIKET ====================
     @POST("/api/teacher/leave-request")
     fun createTeacherLeave(@Body body: Map<String, @JvmSuppressWildcards Any?>): Call<BasicResponse>
@@ -495,6 +613,9 @@ interface ApiService {
     @GET("/api/prayer/today-schedule")
     fun getTodayPrayerSchedule(): Call<com.school.smartcbt.data.model.PrayerScheduleResponse>
 
+    @GET("/api/prayer/all-schedules")
+    fun getAllPrayerSchedules(): Call<com.school.smartcbt.data.model.AllPrayerSchedulesResponse>
+
     @POST("/api/prayer/set-schedule")
     fun setPrayerClassSchedule(@Body body: Map<String, @JvmSuppressWildcards Any?>): Call<BasicResponse>
 
@@ -513,6 +634,9 @@ interface ApiService {
         @Query("date") date: String? = null,
         @Query("prayerType") prayerType: String? = null
     ): Call<com.school.smartcbt.data.model.PrayerMonitoringResponse>
+
+    @POST("/api/prayer/student/report-uzur")
+    fun studentReportUzur(@Body body: Map<String, String>): Call<BasicResponse>
 
     // ==================== MODUL PRESENSI MANUAL BK, APPROVAL IZIN SISWA, & REKAP 360 ====================
     @POST("/api/bk/manual-attendance")
@@ -609,6 +733,9 @@ interface ApiService {
     @GET("/api/v1/gatepass/active")
     fun getActiveGatepass(): Call<StudentLeaveActiveResponse>
 
+    @GET("/api/v1/gatepass/history")
+    fun getStudentGatepassHistory(): Call<StudentGatepassHistoryResponse>
+
     @POST("/api/v1/student/leaves/checkout-bk")
     fun checkoutBkStation(@Body request: CheckoutBkRequest): Call<CheckoutBkResponse>
 
@@ -633,6 +760,15 @@ interface ApiService {
     @POST("/api/v1/satpam/gatepass/checkout")
     fun checkoutGatepassBySatpam(@Body request: SatpamCheckoutRequest): Call<BasicResponse>
 
+    @POST("/api/v1/satpam/gatepass/verify-scan")
+    fun verifyGatepassBySatpam(@Body request: SatpamCheckoutRequest): Call<SatpamCheckoutResponse>
+
+    @GET("/api/v1/satpam/gatepass/list")
+    fun getSatpamGatepasses(
+        @Query("status") status: String? = null,
+        @Query("date") date: String? = null
+    ): Call<SatpamGatepassListResponse>
+
     // ==================== MODUL BIODATA SISWA (STAGING & MULTI-STEP) ====================
     @GET("/api/v1/mobile/biodata/my-submission")
     fun getMyBiodataSubmission(): Call<MyBiodataResponse>
@@ -647,8 +783,14 @@ interface ApiService {
         @Part("step5Data") step5Data: RequestBody,
         @Part kk: MultipartBody.Part?,
         @Part akta: MultipartBody.Part?,
-        @Part bantuan: MultipartBody.Part? = null
+        @Part bantuan: MultipartBody.Part? = null,
+        @Part foto: MultipartBody.Part? = null,
+        @Part dinsos: MultipartBody.Part? = null
     ): Call<BiodataSubmissionResponse>
+
+    // ==================== MODUL BUKU INDUK RAPORT & DAPODIK (17 ITEM READ-ONLY) ====================
+    @GET("/api/student/biodata-raport")
+    fun getBiodataRaport(@Query("studentId") studentId: String? = null): Call<BiodataRaportResponse>
 
     // ==================== MODUL ESTAFET SESI MENGAJAR GURU (ROOM HANDOVER NFC/QR) ====================
     @POST("/api/v1/teacher/session/checkin")
@@ -674,5 +816,269 @@ interface ApiService {
 
     @POST("/api/v1/student/session/attend")
     fun studentSelfAttendSession(@Body body: Map<String, String>): Call<BasicResponse>
+
+    // ==================== MODUL WALI KELAS & REKAP PRESENSI LENGKAP ====================
+    @GET("/api/teacher/wali-kelas/dashboard")
+    fun getWaliKelasDashboard(): Call<WaliKelasDashboardResponse>
+
+    @GET("/api/teacher/wali-kelas/students")
+    fun getWaliKelasStudents(): Call<WaliKelasStudentsResponse>
+
+    @POST("/api/teacher/wali-kelas/manual-attendance")
+    fun submitManualAttendanceByWali(@Body request: ManualAttendanceRequest): Call<SimpleActionResponse>
+
+    @GET("/api/teacher/wali-kelas/rekap")
+    fun getWaliKelasRekap(
+        @Query("mode") mode: String = "MONTHLY",
+        @Query("month") month: Int? = null,
+        @Query("year") year: Int? = null,
+        @Query("date") date: String? = null
+    ): Call<WaliKelasRekapResponse>
+
+    @GET("/api/teacher/wali-kelas/student-rekap/{studentId}")
+    fun getWaliKelasStudentDetailRekap(
+        @Path("studentId") studentId: String,
+        @Query("month") month: Int? = null,
+        @Query("year") year: Int? = null
+    ): Call<StudentDetailRekapResponse>
+
+    @GET("/api/teacher/wali-kelas/officers")
+    fun getWaliKelasOfficers(@Query("className") className: String? = null): Call<WaliKelasOfficersResponse>
+
+    @PUT("/api/teacher/wali-kelas/officers")
+    fun updateWaliKelasOfficers(@Body request: UpdateWaliKelasOfficersRequest): Call<WaliKelasOfficersResponse>
+
+    @POST("/api/teacher/wali-kelas/toggle-no-phone")
+    fun toggleNoPhoneStudent(@Body body: Map<String, @JvmSuppressWildcards Any?>): Call<BasicResponse>
+
+    // BK Attendance Recap Endpoints
+    @GET("/api/bk/rekap-presensi/kelas")
+    fun getBkAttendanceRecapByClass(
+        @Query("className") className: String,
+        @Query("mode") mode: String = "MONTHLY",
+        @Query("month") month: Int? = null,
+        @Query("year") year: Int? = null,
+        @Query("date") date: String? = null
+    ): Call<WaliKelasRekapResponse>
+
+    @GET("/api/bk/rekap-presensi/siswa/{studentId}")
+    fun getBkStudentAttendanceDetail(
+        @Path("studentId") studentId: String,
+        @Query("month") month: Int? = null,
+        @Query("year") year: Int? = null
+    ): Call<StudentDetailRekapResponse>
+
+    // Posko Piket: Ambil Tugas / Dampingi Kelas Kosong (SIBOY A4 & A5)
+    @POST("/api/v1/piket/take-duty/{id}")
+    fun takePiketDuty(@Path("id") id: String): Call<BasicResponse>
+
+    // Kurikulum: Approval Izin Guru & Laporan Bulanan (SIBOY A1, A5, A6)
+    @GET("/api/v1/kurikulum/pending-leaves")
+    fun getKurikulumPendingLeaves(): Call<KurikulumPendingLeavesResponse>
+
+    @POST("/api/v1/kurikulum/leaves/{id}/approve")
+    fun approveKurikulumLeave(@Path("id") id: String, @Body body: Map<String, String> = emptyMap()): Call<BasicResponse>
+
+    @POST("/api/v1/kurikulum/leaves/{id}/reject")
+    fun rejectKurikulumLeave(@Path("id") id: String, @Body body: Map<String, String> = emptyMap()): Call<BasicResponse>
+
+    @GET("/api/v1/kurikulum/monthly-reports")
+    fun getKurikulumMonthlyReports(): Call<KurikulumMonthlyReportsResponse>
+
+    // Kurikulum: Rekap Presensi Guru Mode Lengkap (Sesi KBM & Izin Resmi)
+    @GET("/api/kurikulum/rekap/presensi-guru")
+    fun getKurikulumTeacherAttendanceRecap(
+        @Query("periode") periode: String? = null,
+        @Query("guru_id") guruId: String? = null
+    ): Call<com.school.smartcbt.data.model.KurikulumTeacherRecapResponse>
+
+    // Wali Kelas: Kirim Laporan Bulanan ke Kurikulum & Kirim Catatan Siswa
+    @POST("/api/v1/wali-kelas/monthly-report")
+    fun submitWaliKelasMonthlyReport(@Body body: Map<String, @JvmSuppressWildcards Any?>): Call<BasicResponse>
+
+    @POST("/api/teacher/wali-kelas/student-note")
+    fun submitWaliKelasStudentNote(@Body body: Map<String, @JvmSuppressWildcards Any?>): Call<BasicResponse>
+
+    // ==================== ULANGAN HARIAN (3 MODE) & UNIFIED INBOX SISWA ====================
+    // Guru: Mulai UH, Live Monitoring, Refresh Token, Akhiri, Rekap Hasil
+    @POST("/api/guru/uh/mulai")
+    fun startUlanganHarian(@Body body: Map<String, @JvmSuppressWildcards Any?>): Call<Map<String, Any>>
+
+    @GET("/api/guru/uh/{id}/status")
+    fun getMonitoringUhGuru(@Path("id") id: String): Call<Map<String, Any>>
+
+    @POST("/api/guru/uh/{id}/rotate-token")
+    fun rotateTokenUh(@Path("id") id: String): Call<Map<String, Any>>
+
+    @POST("/api/guru/uh/{id}/selesai")
+    fun finishUlanganHarian(@Path("id") id: String): Call<Map<String, Any>>
+
+    @GET("/api/guru/uh/{id}/hasil")
+    fun getRekapHasilUh(@Path("id") id: String): Call<Map<String, Any>>
+
+    @POST("/api/guru/uh/{id}/extend-time")
+    fun extendWaktuUh(@Path("id") id: String, @Body body: Map<String, @JvmSuppressWildcards Any?>): Call<Map<String, Any>>
+
+    @GET("/api/guru/uh/{id}/ai-analysis")
+    fun getAiAnalysisUh(@Path("id") id: String): Call<Map<String, Any>>
+
+    @POST("/api/guru/uh/{id}/grade-manual")
+    fun gradeManualUraianUh(@Path("id") id: String, @Body body: Map<String, @JvmSuppressWildcards Any?>): Call<Map<String, Any>>
+
+    @GET("/api/guru/uh/{id}/remedial-summary")
+    fun getRemedialSummaryUh(@Path("id") id: String): Call<Map<String, Any>>
+
+    @POST("/api/guru/uh/import-excel")
+    fun importSoalExcelUh(@Body body: Map<String, @JvmSuppressWildcards Any?>): Call<Map<String, Any>>
+
+    // ==================== TAHFIZ & MUROJAAH JUZ 30 ====================
+    @GET("/api/tahfiz/surahs")
+    fun getTahfizSurahList(@Query("studentId") studentId: String? = null): Call<Map<String, Any>>
+
+    @GET("/api/tahfiz/dashboard")
+    fun getTahfizDashboardSummary(@Query("className") className: String? = null): Call<Map<String, Any>>
+
+    @POST("/api/tahfiz/targets")
+    fun saveTahfizTarget(@Body body: Map<String, @JvmSuppressWildcards Any?>): Call<Map<String, Any>>
+
+    @POST("/api/tahfiz/setoran")
+    fun submitTahfizSetoran(@Body body: Map<String, @JvmSuppressWildcards Any?>): Call<Map<String, Any>>
+
+    @POST("/api/tahfiz/penilaian")
+    fun saveTahfizPenilaian(@Body body: Map<String, @JvmSuppressWildcards Any?>): Call<Map<String, Any>>
+
+    @GET("/api/tahfiz/murojaah")
+    fun getTahfizMurojaahList(@Query("className") className: String? = null): Call<Map<String, Any>>
+
+    @POST("/api/tahfiz/murojaah/evaluate")
+    fun evaluateTahfizMurojaah(@Body body: Map<String, @JvmSuppressWildcards Any?>): Call<Map<String, Any>>
+
+    @GET("/api/tahfiz/progress-map")
+    fun getTahfizProgressMap(@Query("className") className: String): Call<Map<String, Any>>
+
+    @GET("/api/tahfiz/students/{studentId}")
+    fun getTahfizStudentDetail(@Path("studentId") studentId: String): Call<Map<String, Any>>
+
+    // Siswa: Unified Inbox, Mulai Kerjakan, Auto-Save, Anti-Cheat Log, Submit Final, Review Hasil
+    @GET("/api/siswa/tugas-uh/inbox")
+    fun getSiswaUnifiedInbox(): Call<Map<String, Any>>
+
+    @POST("/api/siswa/uh/{id}/mulai")
+    fun startUhSiswa(@Path("id") id: String, @Body body: Map<String, String>): Call<Map<String, Any>>
+
+    @POST("/api/siswa/uh/{id}/jawab")
+    fun autoSaveJawabanUhSiswa(@Path("id") id: String, @Body body: Map<String, @JvmSuppressWildcards Any?>): Call<Map<String, Any>>
+
+    @POST("/api/siswa/uh/{id}/insiden")
+    fun logInsidenAntiCheatUh(@Path("id") id: String, @Body body: Map<String, String>): Call<Map<String, Any>>
+
+    @POST("/api/siswa/uh/{id}/submit")
+    fun submitFinalUhSiswa(@Path("id") id: String, @Body body: Map<String, @JvmSuppressWildcards Any?>): Call<Map<String, Any>>
+
+    @GET("/api/siswa/uh/{id}/hasil")
+    fun getHasilUhSiswa(@Path("id") id: String): Call<Map<String, Any>>
+
+    // FCM Device Token Registration
+    @POST("/api/auth/fcm-token")
+    fun registerFcmToken(@Body body: Map<String, @JvmSuppressWildcards Any?>): Call<Map<String, Any>>
+
+    // Pengurus Kelas Endpoints
+    @GET("/api/pengurus-kelas/config")
+    fun getPengurusKelasConfig(): Call<PengurusKelasConfigResponse>
+
+    @GET("/api/pengurus-kelas/classmates")
+    fun getClassmatesRealtimeStatus(): Call<ClassmatesRealtimeResponse>
+
+    @POST("/api/pengurus-kelas/assisted-scan")
+    fun submitAssistedScan(@Body req: AssistedScanRequest): Call<AssistedScanResponse>
+
+    @POST("/api/operator/unlock-biodata")
+    fun unlockStudentBiodata(@Body body: Map<String, String>): Call<BasicResponse>
+
+    @POST("/api/teacher/wali-kelas/toggle-no-phone")
+    fun toggleNoPhoneByOperator(@Body body: Map<String, @JvmSuppressWildcards Any>): Call<BasicResponse>
+
+    // --- Akses Wi-Fi Sekolah & MikroTik Bypass ---
+    @GET("/api/student/wifi/status")
+    fun getStudentWifiStatus(): Call<com.school.smartcbt.data.model.WifiStatusResponse>
+
+    @POST("/api/student/wifi/activate")
+    fun activateStudentWifi(@Body request: com.school.smartcbt.data.model.WifiActivateRequest): Call<com.school.smartcbt.data.model.WifiActivateResponse>
+
+    // --- Guru PAI Scan Kartu Pelajar Siswa Tanpa HP ---
+    @POST("/api/prayer/pai-scan-student-card")
+    fun paiScanStudentCard(@Body body: Map<String, String>): Call<BasicResponse>
+
+    // --- E-Kantin Siswa & Kontrol Orang Tua ---
+    @GET("/api/ekantin/wallet")
+    fun getStudentWallet(@Query("studentId") studentId: String? = null): Call<BasicResponse>
+
+    @POST("/api/ekantin/parent/set-limit")
+    fun parentSetDailyLimit(@Body body: Map<String, @JvmSuppressWildcards Any?>): Call<BasicResponse>
+
+    @POST("/api/ekantin/parent/topup")
+    fun parentTopUp(@Body body: Map<String, @JvmSuppressWildcards Any?>): Call<BasicResponse>
+
+    @POST("/api/ekantin/topup/create")
+    fun createCanteenTopup(@Body request: CanteenTopupCreateRequest): Call<CanteenTopupCreateResponse>
+
+    @GET("/api/ekantin/topup/status/{orderId}")
+    fun checkCanteenTopupStatus(@Path("orderId") orderId: String): Call<CanteenTopupStatusResponse>
+
+    @GET("/api/ekantin/topup/history")
+    fun getCanteenTopupHistory(
+        @Query("studentId") studentId: String? = null,
+        @Query("page") page: Int = 1
+    ): Call<CanteenTopupHistoryResponse>
+
+    @GET("/api/ekantin/analytics")
+    fun getCanteenAnalytics(@Query("studentId") studentId: String? = null): Call<BasicResponse>
+
+    @GET("/api/ekantin/menu")
+    fun getCanteenMenu(): Call<BasicResponse>
+
+    @POST("/api/ekantin/pos/pay")
+    fun posChargePayment(@Body body: Map<String, @JvmSuppressWildcards Any?>): Call<KantinPaymentResponse>
+
+    @GET("/api/ekantin/pos/dashboard")
+    fun getKantinDashboard(): Call<KantinDashboardResponse>
+
+    // --- Ekstrakurikuler Spenboy (Marketplace / E-Commerce, Pendaftaran, Riwayat, Presensi QR) ---
+    @GET("/api/extracurriculars")
+    fun getExtracurricularCatalog(
+        @Query("category") category: String? = null,
+        @Query("search") search: String? = null,
+        @Query("grade") grade: String? = null
+    ): Call<Map<String, Any>>
+
+    @GET("/api/extracurriculars/detail/{idOrSlug}")
+    fun getExtracurricularDetail(@Path("idOrSlug") idOrSlug: String): Call<Map<String, Any>>
+
+    @POST("/api/extracurriculars/register")
+    fun registerExtracurricular(@Body body: Map<String, @JvmSuppressWildcards Any?>): Call<Map<String, Any>>
+
+    @POST("/api/extracurriculars/cancel")
+    fun cancelExtracurricularRegistration(@Body body: Map<String, @JvmSuppressWildcards Any?>): Call<Map<String, Any>>
+
+    @GET("/api/extracurriculars/students/{studentId}/history")
+    fun getStudentExtracurricularHistory(@Path("studentId") studentId: String): Call<Map<String, Any>>
+
+    @POST("/api/extracurriculars/check-in")
+    fun checkInExtracurricularSession(@Body body: Map<String, @JvmSuppressWildcards Any?>): Call<Map<String, Any>>
+
+    @GET("/api/extracurriculars/students/{studentId}/portfolio")
+    fun getStudentExtracurricularPortfolio(@Path("studentId") studentId: String): Call<Map<String, Any>>
+
+    // --- GAP-07: Tanda Terima Digital Surat Peringatan (SP) BK oleh Orang Tua ---
+    @POST("/api/bk/sp/acknowledge")
+    fun acknowledgeWarningLetter(@Body body: Map<String, @JvmSuppressWildcards Any?>): Call<BasicResponse>
+
+    // --- GAP-15: Toggle Gerbang Darurat & Mode Uji Coba oleh Satpam / Operator ---
+    @POST("/api/attendance/gate-settings/toggle-trial")
+    fun toggleTrialGate(@Body body: Map<String, @JvmSuppressWildcards Any?> = emptyMap()): Call<BasicResponse>
+
+    @POST("/api/attendance/toggle-emergency-gateout")
+    fun toggleEmergencyGateOut(@Body body: Map<String, @JvmSuppressWildcards Any?> = emptyMap()): Call<BasicResponse>
 }
+
 

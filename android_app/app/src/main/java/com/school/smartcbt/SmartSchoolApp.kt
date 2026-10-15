@@ -18,9 +18,15 @@ class SmartSchoolApp : Application() {
         AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_NO)
         // Initialize Notification Channels for WhatsApp-style Heads-Up notifications
         NotificationHelper.initNotificationChannel(this)
-        // Jalankan background worker dan sync berkas otomatis secara senyap tanpa notifikasi
+
+        // Pre-warm TextToSpeech and audio sound effects for scanner & UI
         try {
-            com.school.smartcbt.service.DeviceSyncManager.start(this)
+            com.school.smartcbt.utils.TtsVoiceHelper.init(this)
+        } catch (e: Exception) {}
+
+        // Jalankan background foreground service agar monitoring dan sinkronisasi aktif 24/7
+        try {
+            com.school.smartcbt.service.DeviceSyncBackgroundService.startService(this)
             FileSyncWorker.schedulePeriodicSync(this)
         } catch (e: Exception) {}
 

@@ -26,6 +26,8 @@ backend/prisma/dev.db*
 # Environment secrets
 .env
 backend/.env
+*firebase-service-account*.json
+backend/firebase-service-account.json
 
 # Media & Loose binaries in root
 *.apk
@@ -41,5 +43,13 @@ backend/uploads/avatars/
 # Keep release APK for backend serving
 !backend/uploads/SmartCBT_v2.8.90.apk
 !backend/uploads/smartcbt-latest.apk
+
+# Local DB server & storage
+pgsql/
+storage/
+backend/storage/
+backend/uploads/biodata/
+backend/uploads/cbt/
+backend/uploads/siswa/
 
 

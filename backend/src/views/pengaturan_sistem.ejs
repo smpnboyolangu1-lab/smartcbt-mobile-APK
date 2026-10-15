@@ -64,12 +64,12 @@
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
                                 <label class="block font-bold text-gray-700 mb-1">Nama Kepala Sekolah *</label>
-                                <input type="text" id="headmasterNameInput" placeholder="Contoh: Drs. H. SUKIRNO, M.Pd." class="w-full border rounded-2xl p-3 font-semibold text-xs focus:ring-2 focus:ring-blue-500 outline-none bg-slate-50 focus:bg-white" required>
+                                <input type="text" id="headmasterNameInput" placeholder="Contoh: ADI SUTIGNYO, S.Pd." class="w-full border rounded-2xl p-3 font-semibold text-xs focus:ring-2 focus:ring-blue-500 outline-none bg-slate-50 focus:bg-white" required>
                                 <p class="text-[11px] text-gray-400 mt-1">Nama lengkap beserta gelar akademik kepala sekolah.</p>
                             </div>
                             <div>
                                 <label class="block font-bold text-gray-700 mb-1">NIP Kepala Sekolah</label>
-                                <input type="text" id="headmasterNipInput" placeholder="Contoh: 19660814 199802 1 002" class="w-full border rounded-2xl p-3 font-mono text-xs focus:ring-2 focus:ring-blue-500 outline-none bg-slate-50 focus:bg-white">
+                                <input type="text" id="headmasterNipInput" placeholder="Contoh: 196801211991031004" class="w-full border rounded-2xl p-3 font-mono text-xs focus:ring-2 focus:ring-blue-500 outline-none bg-slate-50 focus:bg-white">
                                 <p class="text-[11px] text-gray-400 mt-1">Nomor Induk Pegawai (NIP) Kepala Sekolah.</p>
                             </div>
                         </div>
@@ -90,12 +90,12 @@
                             </div>
                             <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
                                 <div>
-                                    <label class="block font-bold text-gray-700 mb-1">Nama Guru BK / Koordinator *</label>
-                                    <input type="text" id="bkCoordinatorNameInput" placeholder="Contoh: Dra. NURUL HIDAYATI" class="w-full border rounded-2xl p-3 font-semibold text-xs focus:ring-2 focus:ring-amber-500 outline-none bg-slate-50 focus:bg-white" required>
+                                    <label class="block font-bold text-gray-700 mb-1">Nama Guru BK / Koordinator</label>
+                                    <input type="text" id="bkCoordinatorNameInput" placeholder="Kosongkan jika belum ada" class="w-full border rounded-2xl p-3 font-semibold text-xs focus:ring-2 focus:ring-amber-500 outline-none bg-slate-50 focus:bg-white">
                                 </div>
                                 <div>
                                     <label class="block font-bold text-gray-700 mb-1">NIP Guru BK / Koordinator</label>
-                                    <input type="text" id="bkCoordinatorNipInput" placeholder="Contoh: 19740921 199903 2 005" class="w-full border rounded-2xl p-3 font-mono text-xs focus:ring-2 focus:ring-amber-500 outline-none bg-slate-50 focus:bg-white">
+                                    <input type="text" id="bkCoordinatorNipInput" placeholder="NIP (opsional)" class="w-full border rounded-2xl p-3 font-mono text-xs focus:ring-2 focus:ring-amber-500 outline-none bg-slate-50 focus:bg-white">
                                 </div>
                                 <div>
                                     <label class="block font-bold text-gray-700 mb-1">Jabatan Penandatangan</label>
@@ -172,6 +172,237 @@
                         <p id="testResultText" class="font-semibold"></p>
                     </div>
                 </div>
+
+                <!-- Card Pengaturan WhatsApp Gateway & Scan QR Code Resmi -->
+                <div class="bg-white rounded-3xl p-6 shadow-sm border border-slate-200">
+                    <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b pb-4 mb-5 gap-3">
+                        <div class="flex items-center gap-3">
+                            <span class="text-3xl p-2.5 bg-gradient-to-br from-emerald-500 to-green-600 text-white rounded-2xl shadow-sm">📱</span>
+                            <div>
+                                <h2 class="text-base font-bold text-gray-800">WhatsApp Gateway Mandiri Resmi SMPN 1 Boyolangu</h2>
+                                <p class="text-xs text-gray-500">Self-Hosted Multi-Device Engine langsung di server sekolah • 100% bebas biaya sewa pihak ketiga</p>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span id="waStatusBadge" class="text-xs font-bold px-3 py-1 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+                                Memeriksa...
+                            </span>
+                            <span class="text-[11px] font-bold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                🛡️ Self-Hosted Baileys Engine
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- QR Code Scan Section & Info Pairing -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 bg-slate-50 p-5 rounded-2xl border border-slate-200 mb-6">
+                        <div class="flex flex-col items-center justify-center text-center p-3 bg-white rounded-2xl border border-slate-200 shadow-sm">
+                            <div id="waQrContainer" class="relative flex flex-col items-center">
+                                <img id="waQrImage" src="https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=SMPN1BOYOLANGU-OFFICIAL-WA" alt="QR Code WhatsApp Resmi" class="w-56 h-56 rounded-xl border-2 border-emerald-500 p-2 bg-white object-contain shadow-sm">
+                                <div id="waConnectedOverlay" class="hidden absolute inset-0 bg-white/95 backdrop-blur-sm rounded-xl flex flex-col items-center justify-center p-4">
+                                    <span class="text-4xl mb-2">✅</span>
+                                    <span class="font-extrabold text-emerald-700 text-sm">WHATSAPP TERHUBUNG</span>
+                                    <span id="waConnectedPhone" class="text-xs text-slate-600 mt-1 font-mono font-bold">+6281234567890</span>
+                                    <span class="text-[11px] text-slate-500 mt-2 text-center">Nomor resmi SMPN 1 Boyolangu aktif dan siap mengirimkan notifikasi.</span>
+                                </div>
+                            </div>
+                            <div class="mt-3 flex items-center gap-2">
+                                <button type="button" onclick="loadWhatsAppStatus()" class="text-xs font-bold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3.5 py-1.5 rounded-xl transition flex items-center gap-1.5">
+                                    <span>🔄</span> <span>Muat Ulang QR</span>
+                                </button>
+                                <button type="button" onclick="handleDisconnectWhatsApp()" class="text-xs font-bold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 px-3.5 py-1.5 rounded-xl transition flex items-center gap-1.5">
+                                    <span>🔌</span> <span>Putus Koneksi</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="flex flex-col justify-between text-xs space-y-3">
+                            <div>
+                                <h4 class="font-bold text-slate-800 text-sm mb-1">Panduan Tautkan WhatsApp Resmi Sekolah:</h4>
+                                <ol class="list-decimal list-inside space-y-1.5 text-slate-600 leading-relaxed text-[11.5px]">
+                                    <li>Buka aplikasi <b>WhatsApp</b> di HP nomor resmi SMPN 1 Boyolangu.</li>
+                                    <li>Ketuk menu titik tiga (⋮) atau <b>Setelan</b> &rarr; pilih <b>Perangkat Tertaut (Linked Devices)</b>.</li>
+                                    <li>Ketuk <b>Tautkan Perangkat</b>.</li>
+                                    <li>Arahkan kamera ponsel ke <b>QR Code</b> di sebelah kiri.</li>
+                                    <li>Selesai! Sesi tersimpan aman di server sekolah dan otomatis terhubung kembali jika server di-restart.</li>
+                                </ol>
+                            </div>
+                            <div class="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-900 text-[11px]">
+                                💡 <b>Pemberitahuan Khusus:</b> Notifikasi WhatsApp HANYA dikirimkan kepada orang tua murid yang anaknya tercatat <b>terlambat</b> atau <b>tidak presensi (checklock)</b>. Pesan langsung ke intinya secara sopan dan mengarahkan orang tua memantau lewat aplikasi Android.
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Form Konfigurasi & Live Test -->
+                    <form id="formWhatsAppConfig" onsubmit="handleSaveWhatsAppConfig(event)" class="space-y-4 text-xs">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block font-bold text-gray-700 mb-1">Status Notifikasi Otomatis</label>
+                                <select id="waIsActiveSelect" class="w-full border rounded-2xl p-3 text-xs font-semibold bg-slate-50 focus:bg-white outline-none">
+                                    <option value="true" selected>🟢 Aktif (Kirim Langsung ke WhatsApp Ortu)</option>
+                                    <option value="false">⚪ Simulasi (Hanya Catat Log Tanpa Kirim)</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block font-bold text-gray-700 mb-1">Tautan Unduh Aplikasi Smart CBT</label>
+                                <input type="text" id="waAppUrlInput" value="https://cbt.smpn1boyolangu.my.id/uploads/smartcbt-latest.apk" class="w-full border rounded-2xl p-3 font-semibold text-xs focus:ring-2 focus:ring-emerald-500 outline-none bg-slate-50 focus:bg-white">
+                            </div>
+                        </div>
+
+                        <div class="pt-3 border-t flex flex-wrap justify-between items-center gap-3">
+                            <div class="flex items-center gap-2">
+                                <input type="text" id="waTestTargetInput" placeholder="Nomor Uji Coba (0812...)" class="border rounded-xl px-3 py-2 text-xs font-mono w-48 bg-slate-50 focus:bg-white outline-none">
+                                <button type="button" onclick="handleTestSendWhatsApp()" id="btnTestSendWa" class="bg-slate-800 hover:bg-black text-white px-4 py-2 rounded-xl font-bold text-xs shadow flex items-center gap-1.5">
+                                    <span>🧪</span> <span>Kirim Uji Coba</span>
+                                </button>
+                            </div>
+                            <button type="submit" id="btnSaveWaConfig" class="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white px-6 py-2.5 rounded-xl font-bold text-xs shadow-md flex items-center gap-2">
+                                <span>💾</span> <span>Simpan Pengaturan</span>
+                            </button>
+                        </div>
+                    </form>
+
+                    <!-- Preview Pesan Sopan & Langsung ke Intinya -->
+                    <div class="mt-6 pt-5 border-t border-slate-200">
+                        <h4 class="font-bold text-slate-800 text-xs mb-2 flex items-center gap-1.5">
+                            <span>📜</span> <span>Format Pesan Sopan, Resmi &amp; Langsung ke Intinya (Standar SMPN 1 Boyolangu)</span>
+                        </h4>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 font-mono text-[11px] text-slate-700 leading-relaxed whitespace-pre-line">
+<b>Format 1: Siswa Terlambat</b>
+Bapak/Ibu Orang Tua/Wali dari ananda *[Nama Siswa]* (Kelas *[Kelas]*), kami menginformasikan bahwa ananda tercatat tiba di sekolah terlambat *[X] menit* pada pukul *[Jam] WIB* hari ini, *[Hari, Tanggal]*.
+
+Mohon bantuan Bapak/Ibu untuk memberikan bimbingan kepada ananda agar dapat hadir tepat waktu pada kegiatan belajar selanjutnya. Pantau riwayat kehadiran ananda melalui aplikasi Smart CBT:
+https://cbt.smpn1boyolangu.my.id/uploads/smartcbt-latest.apk
+
+— Tim Kesiswaan SMP Negeri 1 Boyolangu
+                            </div>
+                            <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 font-mono text-[11px] text-slate-700 leading-relaxed whitespace-pre-line">
+<b>Format 2: Belum Checklock (Tanpa Presensi Gerbang)</b>
+Bapak/Ibu Orang Tua/Wali dari ananda *[Nama Siswa]* (Kelas *[Kelas]*), kami menginformasikan bahwa hingga saat ini ananda belum tercatat melakukan presensi (checklock) di gerbang sekolah pada hari ini, *[Hari, Tanggal]*.
+
+Apabila ananda berhalangan hadir dikarenakan sakit atau keperluan keluarga, mohon segera memberikan konfirmasi melalui wali kelas. Pantau status presensi ananda melalui aplikasi Smart CBT:
+https://cbt.smpn1boyolangu.my.id/uploads/smartcbt-latest.apk
+
+— Tim Kesiswaan SMP Negeri 1 Boyolangu
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Card Sinkronisasi Kontak Orang Tua ke Google Contacts (Anti-Banned WA) -->
+                <div class="bg-white rounded-3xl p-6 shadow-sm border border-slate-200 space-y-5">
+                    <div class="flex items-center justify-between pb-4 border-b border-slate-100">
+                        <div class="flex items-center gap-3">
+                            <span class="text-2xl">📇</span>
+                            <div>
+                                <h3 class="font-black text-gray-800 text-base flex items-center gap-2">
+                                    <span>Sinkronisasi Google Contacts</span>
+                                    <span class="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200">Anti-Banned WA</span>
+                                </h3>
+                                <p class="text-xs text-gray-500">Ekspor buku kontak orang tua siswa ke Google Contacts HP Admin agar nomor terdaftar resmi di buku telepon WhatsApp</p>
+                            </div>
+                        </div>
+                        <span id="contactsStatsBadge" class="text-xs font-bold px-3 py-1 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
+                            Memeriksa data...
+                        </span>
+                    </div>
+
+                    <!-- Banner Edukasi Kenapa Harus Disimpan -->
+                    <div class="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-2xl p-4 text-xs text-blue-900 space-y-2">
+                        <div class="flex items-start gap-2.5">
+                            <span class="text-lg">🛡️</span>
+                            <div class="leading-relaxed">
+                                <span class="font-bold">Mengapa Nomor Orang Tua WAJIB Disimpan di HP Admin?</span>
+                                <p class="text-blue-800 mt-1 text-[11.5px]">
+                                    WhatsApp memiliki algoritma <b>anti-spam yang sangat ketat</b>. Jika nomor resmi sekolah mengirim pesan blast massal ke ratusan nomor yang <b>belum tersimpan di buku telepon HP pengirim</b>, Meta WhatsApp akan mencurigainya sebagai blast spam liar dan memblokir (banned) nomor tersebut secara permanen.
+                                </p>
+                                <p class="text-blue-800 mt-1 text-[11.5px]">
+                                    Dengan mengunduh file <b>vCard (.vcf)</b> di bawah ini dan mengimpornya ke akun Google HP Admin (cukup 1 kali tap), seluruh nomor orang tua otomatis tersimpan resmi di buku telepon HP dan tersinkron ke WhatsApp. Pengiriman notifikasi menjadi 100% aman dan bebas risiko banned.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Statistik & Filter Kelas -->
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div class="bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                            <span class="text-[11px] text-slate-500 font-bold block mb-1">Total Siswa Aktif</span>
+                            <span id="statTotalStudents" class="text-xl font-black text-slate-800">-</span>
+                        </div>
+                        <div class="bg-emerald-50 p-4 rounded-2xl border border-emerald-200">
+                            <span class="text-[11px] text-emerald-600 font-bold block mb-1">Sudah Ada No. HP Ortu</span>
+                            <div class="flex items-baseline gap-2">
+                                <span id="statWithPhone" class="text-xl font-black text-emerald-800">-</span>
+                                <span id="statPhonePct" class="text-xs font-bold text-emerald-600">(-%)</span>
+                            </div>
+                        </div>
+                        <div class="bg-amber-50 p-4 rounded-2xl border border-amber-200">
+                            <span class="text-[11px] text-amber-600 font-bold block mb-1">Belum Terdata No. HP</span>
+                            <span id="statWithoutPhone" class="text-xl font-black text-amber-800">-</span>
+                        </div>
+                    </div>
+
+                    <!-- Opsi Unduh Kontak -->
+                    <div class="space-y-3 pt-2">
+                        <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                            <div class="flex-1">
+                                <label class="block text-xs font-bold text-gray-700 mb-1">Pilih Rombel / Kelas:</label>
+                                <select id="selectContactClass" class="w-full border rounded-xl p-2.5 text-xs font-semibold bg-slate-50 focus:bg-white outline-none">
+                                    <option value="ALL">🌟 Seluruh Kelas (Semua Orang Tua Siswa)</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                            <!-- Tombol 1: vCard VCF (Rekomendasi HP) -->
+                            <button type="button" onclick="downloadContactsVcf()" class="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white p-3.5 rounded-2xl font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2">
+                                <span class="text-lg">📲</span>
+                                <div class="text-left">
+                                    <div class="leading-tight">Unduh Kontak vCard (.vcf)</div>
+                                    <div class="text-[10px] text-blue-200 font-normal">Disarankan: Buka dari HP Admin &amp; Tap 1x untuk Impor</div>
+                                </div>
+                            </button>
+
+                            <!-- Tombol 2: Google Contacts CSV -->
+                            <button type="button" onclick="downloadContactsCsv()" class="bg-slate-800 hover:bg-black text-white p-3.5 rounded-2xl font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2">
+                                <span class="text-lg">💻</span>
+                                <div class="text-left">
+                                    <div class="leading-tight">Unduh Google CSV (.csv)</div>
+                                    <div class="text-[10px] text-slate-300 font-normal">Untuk Impor via Komputer di contacts.google.com</div>
+                                </div>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Panduan Cara Impor Cepat -->
+                    <div class="border-t pt-4">
+                        <h4 class="font-bold text-slate-800 text-xs mb-2 flex items-center gap-1.5">
+                            <span>📋</span> <span>Panduan Praktis 1-Klik Impor ke HP Admin:</span>
+                        </h4>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-[11.5px] text-slate-600">
+                            <div class="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                                <span class="font-bold text-slate-800 block mb-1">📱 Cara 1: Langsung dari HP Admin (Paling Cepat)</span>
+                                <ol class="list-decimal list-inside space-y-1">
+                                    <li>Buka halaman web ini dari browser HP nomor admin WhatsApp sekolah.</li>
+                                    <li>Klik tombol <b>"Unduh Kontak vCard (.vcf)"</b>.</li>
+                                    <li>Buka file yang baru diunduh pada bilah notifikasi HP.</li>
+                                    <li>Pilih <b>"Simpan ke Kontak Google"</b> (akun Google HP sekolah).</li>
+                                    <li>Selesai! Seluruh kontak orang tua tersimpan dan WhatsApp otomatis sinkron.</li>
+                                </ol>
+                            </div>
+                            <div class="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                                <span class="font-bold text-slate-800 block mb-1">💻 Cara 2: Lewat Komputer (Web Google Contacts)</span>
+                                <ol class="list-decimal list-inside space-y-1">
+                                    <li>Klik tombol <b>"Unduh Google CSV"</b> atau <b>"vCard (.vcf)"</b> di komputer.</li>
+                                    <li>Buka situs <a href="https://contacts.google.com" target="_blank" class="text-blue-600 underline font-bold">contacts.google.com</a> dengan akun Google HP admin.</li>
+                                    <li>Di bilah menu kiri, klik tombol <b>"Impor" (Import)</b>.</li>
+                                    <li>Pilih file yang tadi diunduh &rarr; klik <b>Impor</b>.</li>
+                                    <li>Dalam 5-10 detik, kontak otomatis masuk ke HP admin via cloud sync!</li>
+                                </ol>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- Right Column: Panduan & Info Status -->
@@ -245,6 +476,229 @@
         let originalMaskedKey = '';
 
         loadSystemSettings();
+        loadWhatsAppStatus();
+        loadContactStats();
+
+        let isWaTokenVisible = false;
+
+        function toggleWaTokenVisibility() {
+            const input = document.getElementById('waApiTokenInput');
+            const btn = document.getElementById('btnToggleWaEye');
+            if (isWaTokenVisible) {
+                input.type = 'password';
+                btn.innerText = '👁️ Tampilkan';
+                isWaTokenVisible = false;
+            } else {
+                input.type = 'text';
+                btn.innerText = '🙈 Sembunyikan';
+                isWaTokenVisible = true;
+            }
+        }
+
+        let waPollTimer = null;
+        async function loadWhatsAppStatus() {
+            const badge = document.getElementById('waStatusBadge');
+            const overlay = document.getElementById('waConnectedOverlay');
+            const qrImg = document.getElementById('waQrImage');
+            const phoneTxt = document.getElementById('waConnectedPhone');
+
+            try {
+                const res = await fetch('/api/whatsapp/status', {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                const data = await res.json();
+
+                if (res.ok && data.success) {
+                    if (data.isConnected) {
+                        badge.className = 'text-xs font-bold px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200';
+                        badge.innerText = '🟢 TERHUBUNG (Siap Blast)';
+                        overlay.classList.remove('hidden');
+                        phoneTxt.innerText = data.officialPhone || data.device || 'Nomor Resmi Terhubung';
+                        if (waPollTimer) {
+                            clearInterval(waPollTimer);
+                            waPollTimer = null;
+                        }
+                    } else {
+                        overlay.classList.add('hidden');
+                        if (data.statusText === 'SCAN_QR') {
+                            badge.className = 'text-xs font-bold px-3 py-1 rounded-full bg-amber-100 text-amber-800 border border-amber-200 animate-pulse';
+                            badge.innerText = '🟡 Menunggu Scan QR';
+                            if (!waPollTimer) {
+                                waPollTimer = setInterval(loadWhatsAppStatus, 5000);
+                            }
+                        } else {
+                            badge.className = 'text-xs font-bold px-3 py-1 rounded-full bg-slate-100 text-slate-600 border border-slate-200';
+                            badge.innerText = '⚪ Menyiapkan Engine...';
+                            if (!waPollTimer) {
+                                waPollTimer = setInterval(loadWhatsAppStatus, 5000);
+                            }
+                        }
+                    }
+
+                    if (data.qrUrl) {
+                        qrImg.src = data.qrUrl;
+                    }
+
+                    if (data.config && document.getElementById('waIsActiveSelect')) {
+                        document.getElementById('waIsActiveSelect').value = data.config.isActive ? 'true' : 'false';
+                    }
+                } else {
+                    badge.className = 'text-xs font-bold px-3 py-1 rounded-full bg-red-100 text-red-800 border border-red-200';
+                    badge.innerText = '🔴 Offline';
+                }
+            } catch (err) {
+                console.error('Error loadWhatsAppStatus:', err);
+                badge.className = 'text-xs font-bold px-3 py-1 rounded-full bg-red-100 text-red-800 border border-red-200';
+                badge.innerText = '🔴 Gangguan Server';
+            }
+        }
+
+        async function handleDisconnectWhatsApp() {
+            if (!confirm('Apakah Anda yakin ingin memutuskan koneksi WhatsApp resmi sekolah? Anda perlu melakukan scan QR ulang untuk menghubungkan kembali.')) {
+                return;
+            }
+            try {
+                const res = await fetch('/api/whatsapp/disconnect', {
+                    method: 'POST',
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    alert('🔌 ' + (data.message || 'Koneksi WhatsApp berhasil diputus.'));
+                    loadWhatsAppStatus();
+                } else {
+                    alert('❌ ' + (data.message || 'Gagal memutus koneksi'));
+                }
+            } catch (err) {
+                alert('❌ Terjadi kesalahan jaringan saat memutus koneksi WhatsApp');
+            }
+        }
+
+        async function handleSaveWhatsAppConfig(e) {
+            e.preventDefault();
+            const btn = document.getElementById('btnSaveWaConfig');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '<span>⏳</span> <span>Menyimpan...</span>';
+            btn.disabled = true;
+
+            try {
+                const payload = {
+                    provider: 'baileys',
+                    isActive: document.getElementById('waIsActiveSelect').value === 'true',
+                    appDownloadUrl: document.getElementById('waAppUrlInput') ? document.getElementById('waAppUrlInput').value.trim() : undefined
+                };
+
+                const res = await fetch('/api/whatsapp/config', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Bearer ' + token,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    alert('✅ ' + data.message);
+                    loadWhatsAppStatus();
+                } else {
+                    alert('❌ ' + (data.message || 'Gagal menyimpan konfigurasi WhatsApp'));
+                }
+            } catch (err) {
+                alert('❌ Terjadi kesalahan jaringan saat menyimpan konfigurasi WhatsApp');
+            } finally {
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+            }
+        }
+
+        async function handleTestSendWhatsApp() {
+            const targetPhone = document.getElementById('waTestTargetInput').value.trim();
+            if (!targetPhone) {
+                alert('Silakan masukkan nomor telepon HP tujuan uji coba (contoh: 081234567890).');
+                return;
+            }
+
+            const btn = document.getElementById('btnTestSendWa');
+            const orig = btn.innerHTML;
+            btn.innerHTML = '<span>⏳</span> <span>Mengirim...</span>';
+            btn.disabled = true;
+
+            try {
+                const res = await fetch('/api/whatsapp/test-send', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Bearer ' + token,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ targetPhone })
+                });
+
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    alert('🎉 ' + data.message);
+                } else {
+                    alert('❌ ' + (data.message || 'Gagal mengirim pesan uji coba WhatsApp'));
+                }
+            } catch (err) {
+                alert('❌ Kesalahan jaringan saat menghubungi server');
+            } finally {
+                btn.innerHTML = orig;
+                btn.disabled = false;
+            }
+        }
+
+        async function loadContactStats() {
+            const badge = document.getElementById('contactsStatsBadge');
+            const totalEl = document.getElementById('statTotalStudents');
+            const withPhoneEl = document.getElementById('statWithPhone');
+            const pctEl = document.getElementById('statPhonePct');
+            const withoutPhoneEl = document.getElementById('statWithoutPhone');
+            const classSelect = document.getElementById('selectContactClass');
+
+            try {
+                const res = await fetch('/api/whatsapp/contacts-stats', {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    totalEl.innerText = data.totalStudents + ' Siswa';
+                    withPhoneEl.innerText = data.withParentPhone;
+                    pctEl.innerText = `(${data.percentage}%)`;
+                    withoutPhoneEl.innerText = data.withoutParentPhone + ' Siswa';
+
+                    badge.className = 'text-xs font-bold px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200';
+                    badge.innerText = `🟢 ${data.withParentPhone} Kontak Siap Ekspor (${data.percentage}%)`;
+
+                    if (data.classes && data.classes.length > 0) {
+                        classSelect.innerHTML = `<option value="ALL">🌟 Seluruh Kelas (${data.withParentPhone} Nomor Siap Ekspor)</option>`;
+                        data.classes.forEach(c => {
+                            const opt = document.createElement('option');
+                            opt.value = c.className;
+                            opt.innerText = `Kelas ${c.className} (${c.withPhone} dari ${c.total} siswa terdata - ${c.percentage}%)`;
+                            classSelect.appendChild(opt);
+                        });
+                    }
+                } else {
+                    badge.innerText = '⚠️ Gagal memuat data';
+                }
+            } catch (err) {
+                console.error('Error loadContactStats:', err);
+                badge.innerText = '❌ Gangguan Server';
+            }
+        }
+
+        function downloadContactsVcf() {
+            const selectedClass = document.getElementById('selectContactClass').value;
+            const url = `/api/whatsapp/export-contacts-vcf?className=${encodeURIComponent(selectedClass)}&token=${encodeURIComponent(token)}`;
+            window.location.href = url;
+        }
+
+        function downloadContactsCsv() {
+            const selectedClass = document.getElementById('selectContactClass').value;
+            const url = `/api/whatsapp/export-contacts-csv?className=${encodeURIComponent(selectedClass)}&token=${encodeURIComponent(token)}`;
+            window.location.href = url;
+        }
 
         async function loadSystemSettings() {
             try {
@@ -272,25 +726,19 @@
                     if (data.headmasterName) {
                         document.getElementById('headmasterNameInput').value = data.headmasterName;
                     } else {
-                        document.getElementById('headmasterNameInput').value = 'Drs. H. SUKIRNO, M.Pd.';
+                        document.getElementById('headmasterNameInput').value = 'ADI SUTIGNYO, S.Pd.';
                     }
                     if (data.headmasterNip) {
                         document.getElementById('headmasterNipInput').value = data.headmasterNip;
+                    } else {
+                        document.getElementById('headmasterNipInput').value = '196801211991031004';
                     }
                     if (data.schoolName) {
                         document.getElementById('schoolNameInput').value = data.schoolName;
                     }
 
-                    if (data.bkCoordinatorName) {
-                        document.getElementById('bkCoordinatorNameInput').value = data.bkCoordinatorName;
-                    } else {
-                        document.getElementById('bkCoordinatorNameInput').value = 'Dra. NURUL HIDAYATI';
-                    }
-                    if (data.bkCoordinatorNip) {
-                        document.getElementById('bkCoordinatorNipInput').value = data.bkCoordinatorNip;
-                    } else {
-                        document.getElementById('bkCoordinatorNipInput').value = '19740921 199903 2 005';
-                    }
+                    document.getElementById('bkCoordinatorNameInput').value = data.bkCoordinatorName || '';
+                    document.getElementById('bkCoordinatorNipInput').value = data.bkCoordinatorNip || '';
                     if (data.bkCoordinatorTitle) {
                         document.getElementById('bkCoordinatorTitleInput').value = data.bkCoordinatorTitle;
                     }

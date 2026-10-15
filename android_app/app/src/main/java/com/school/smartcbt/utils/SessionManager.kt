@@ -48,7 +48,8 @@ class SessionManager(private val context: Context) {
         classRole: String? = null,
         profilePicUrl: String? = null,
         tugasTambahan: String? = null,
-        availableRoles: List<String>? = null
+        availableRoles: List<String>? = null,
+        gender: String? = null
     ) {
         val editor = prefs.edit()
             .putString(KEY_TOKEN, token)
@@ -59,6 +60,9 @@ class SessionManager(private val context: Context) {
             .putString(KEY_CLASS, className ?: "-")
             .putString(KEY_NISN, nisn ?: "-")
             .putBoolean("is_class_committee", isClassOfficer)
+        if (!gender.isNullOrEmpty()) {
+            editor.putString("user_gender", gender)
+        }
         if (!classRole.isNullOrEmpty()) {
             editor.putString("committee_position", classRole)
         }
@@ -82,6 +86,9 @@ class SessionManager(private val context: Context) {
         }
         editor.apply()
     }
+
+    fun getGender(): String = prefs.getString("user_gender", "") ?: ""
+    fun saveGender(gender: String) = prefs.edit().putString("user_gender", gender).apply()
 
     fun getToken(): String? = prefs.getString(KEY_TOKEN, null)
     fun saveToken(token: String) = prefs.edit().putString(KEY_TOKEN, token).apply()
@@ -141,41 +148,26 @@ class SessionManager(private val context: Context) {
     fun getServerIp(): String {
         val saved = prefs.getString(KEY_SERVER_IP, null)
         if (!saved.isNullOrEmpty()) {
-            if (saved.contains("cbt.smpn1boyolangu.sch.id") || saved.contains("cbt.smpn1boyolangu.com") || saved.contains("104.207.92.172")) {
+            // Jika tersimpan IP LAN lokal, domain kadaluarsa, atau localhost, selalu arahkan ke domain resmi
+            if (saved.contains("192.168.101.46") || saved.contains("localhost") || saved.contains("127.0.0.1") ||
+                saved.contains("cbt.smpn1boyolangu.sch.id") || saved.contains("cbt.smpn1boyolangu.com") || saved.contains("104.207.92.172")) {
+                setServerIp(ONLINE_SERVER_URL)
                 return ONLINE_SERVER_URL
             }
-            // Jika user sedang di luar sekolah atau memakai data seluler, jangan paksa LAN IP
-            if (saved.contains("192.168.101.46") || saved.contains("localhost") || saved.contains("127.0.0.1")) {
-                if (isOutsideSchoolOrCellular()) {
-                    return ONLINE_SERVER_URL
-                }
+            if (saved.startsWith("http://") || saved.startsWith("https://")) {
+                return saved
             }
-            return saved
+            return "https://$saved"
         }
         return ONLINE_SERVER_URL
     }
     fun setServerIp(ip: String) = prefs.edit().putString(KEY_SERVER_IP, ip).apply()
 
     fun rotateToNextServer(): String {
-        // Jika user berada di luar sekolah atau memakai seluler, selalu gunakan domain resmi
-        if (isOutsideSchoolOrCellular()) {
-            setServerIp(ONLINE_SERVER_URL)
-            return ONLINE_SERVER_URL
-        }
-        val current = getServerIp()
-        val currentIndex = SERVER_CANDIDATES.indexOfFirst { candidate ->
-            current.contains(candidate.removePrefix("https://").removePrefix("http://")) ||
-            candidate.contains(current.removePrefix("https://").removePrefix("http://"))
-        }
-        val nextIndex = if (currentIndex >= 0) (currentIndex + 1) % SERVER_CANDIDATES.size else 0
-        val nextServer = SERVER_CANDIDATES[nextIndex]
-        val finalServer = if (nextServer == LOCAL_SERVER_URL && isOutsideSchoolOrCellular()) {
-            ONLINE_SERVER_URL
-        } else {
-            nextServer
-        }
-        setServerIp(finalServer)
-        return finalServer
+        // Domain resmi ONLINE_SERVER_URL (cbt.smpn1boyolangu.my.id) adalah server cloud utama
+        // yang selalu aktif dan dapat diakses baik via WiFi sekolah maupun kuota seluler.
+        setServerIp(ONLINE_SERVER_URL)
+        return ONLINE_SERVER_URL
     }
 
     fun getAdminSecret(): String = prefs.getString(KEY_ADMIN_SECRET, "") ?: ""
@@ -227,12 +219,92 @@ class SessionManager(private val context: Context) {
         }
     }
 
+    fun saveRememberedCredentials(u: String, p: String, remember: Boolean) {
+        if (remember) {
+            prefs.edit()
+                .putBoolean("remember_login", true)
+                .putString("remember_username", u)
+                .putString("remember_password", p)
+                .apply()
+        } else {
+            prefs.edit()
+                .putBoolean("remember_login", false)
+                .remove("remember_username")
+                .remove("remember_password")
+                .apply()
+        }
+    }
+
+    fun isRememberLogin(): Boolean = prefs.getBoolean("remember_login", false)
+    fun getRememberedUsername(): String = prefs.getString("remember_username", "") ?: ""
+    fun getRememberedPassword(): String = prefs.getString("remember_password", "") ?: ""
+
     fun clearSession() {
         val savedIp = getServerIp()
         val savedSecret = getAdminSecret()
+        val remember = isRememberLogin()
+        val remU = getRememberedUsername()
+        val remP = getRememberedPassword()
+
         prefs.edit().clear()
             .putString(KEY_SERVER_IP, savedIp)
             .putString(KEY_ADMIN_SECRET, savedSecret)
+            .putBoolean("remember_login", remember)
+            .putString("remember_username", remU)
+            .putString("remember_password", remP)
             .apply()
+    }
+
+    fun saveTodayGateAttendance(type: String, timeWib: String, status: String) {
+        val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
+        prefs.edit().apply {
+            putString("cache_gate_date", today)
+            if (type.contains("IN", ignoreCase = true) || type.contains("MASUK", ignoreCase = true)) {
+                putString("cache_gate_in_time", timeWib)
+                putString("cache_gate_in_status", status)
+            } else {
+                putString("cache_gate_out_time", timeWib)
+            }
+            apply()
+        }
+    }
+
+    fun getTodayGateInCache(): Pair<String?, String?> {
+        val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
+        val date = prefs.getString("cache_gate_date", null)
+        if (date == today) {
+            return Pair(prefs.getString("cache_gate_in_time", null), prefs.getString("cache_gate_in_status", null))
+        }
+        return Pair(null, null)
+    }
+
+    fun getTodayGateOutCache(): String? {
+        val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
+        val date = prefs.getString("cache_gate_date", null)
+        if (date == today) {
+            return prefs.getString("cache_gate_out_time", null)
+        }
+        return null
+    }
+
+    fun clearTodayGateOutCache() {
+        prefs.edit().remove("cache_gate_out_time").apply()
+    }
+
+    fun clearTodayGateCache() {
+        prefs.edit()
+            .remove("cache_gate_date")
+            .remove("cache_gate_in_time")
+            .remove("cache_gate_in_status")
+            .remove("cache_gate_out_time")
+            .apply()
+    }
+
+    fun setPreferenceString(key: String, value: String) {
+        prefs.edit().putString(key, value).apply()
+    }
+
+    fun getPreferenceString(key: String, defaultVal: String? = null): String? {
+        return prefs.getString(key, defaultVal)
     }
 }

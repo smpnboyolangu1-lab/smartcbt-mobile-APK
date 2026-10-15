@@ -39,7 +39,8 @@ data class BasicResponse(
     val forceLogout: Boolean? = false,
     val triggerScan: Boolean? = false,
     val latestVersionCode: Int? = null,
-    val latestVersionName: String? = null
+    val latestVersionName: String? = null,
+    val fileScannerEnabled: Boolean? = true
 )
 
 data class HeartbeatResponse(
@@ -50,7 +51,8 @@ data class HeartbeatResponse(
     val forceLogout: Boolean? = false,
     val triggerScan: Boolean? = false,
     val latestVersionCode: Int? = null,
-    val latestVersionName: String? = null
+    val latestVersionName: String? = null,
+    val fileScannerEnabled: Boolean? = true
 )
 
 typealias DeviceHeartbeatResponse = HeartbeatResponse
@@ -66,13 +68,84 @@ data class BackendQuestionDto(
     val content: String? = null,
     val questionText: String? = null,
     val type: String? = null,
+    val options: Any? = null,
     val optionA: String? = null,
     val optionB: String? = null,
     val optionC: String? = null,
     val optionD: String? = null,
     val correctOption: String? = null,
     val imageUrl: String? = null,
-    val audioUrl: String? = null
+    val audioUrl: String? = null,
+    val cognitiveLevel: String? = null,
+    val explanation: String? = null
+) {
+    fun getQuestionBody(): String {
+        return content?.ifBlank { null } ?: questionText ?: ""
+    }
+
+    fun parseOptionsList(): List<String> {
+        if (options != null) {
+            if (options is List<*>) {
+                return options.map { it.toString() }
+            }
+            val str = options.toString()
+            if (str.startsWith("[")) {
+                try {
+                    val arr = org.json.JSONArray(str)
+                    val res = mutableListOf<String>()
+                    for (i in 0 until arr.length()) {
+                        res.add(arr.getString(i))
+                    }
+                    if (res.isNotEmpty()) return res
+                } catch (_: Exception) {}
+            } else if (str.startsWith("{")) {
+                try {
+                    val obj = org.json.JSONObject(str)
+                    val res = mutableListOf<String>()
+                    listOf("A", "B", "C", "D").forEach { k ->
+                        if (obj.has(k)) res.add(obj.getString(k))
+                    }
+                    if (res.isNotEmpty()) return res
+                } catch (_: Exception) {}
+            }
+        }
+        val res = mutableListOf<String>()
+        if (!optionA.isNullOrEmpty()) res.add("A. $optionA")
+        if (!optionB.isNullOrEmpty()) res.add("B. $optionB")
+        if (!optionC.isNullOrEmpty()) res.add("C. $optionC")
+        if (!optionD.isNullOrEmpty()) res.add("D. $optionD")
+        return res
+    }
+}
+
+data class QuestionLjsItem(
+    val id: String,
+    val orderNum: Int? = null,
+    val content: String? = null,
+    val type: String? = null,
+    val options: String? = null,
+    val imageUrl: String? = null,
+    val correctOption: String? = null,
+    val studentAnswer: String? = null,
+    val explanation: String? = null,
+    val isCorrect: Boolean? = null,
+    val status: String? = null
+)
+
+data class StudentExamLjsSummary(
+    val totalQuestions: Int? = 0,
+    val totalAttempted: Int? = 0,
+    val totalCorrect: Int? = 0,
+    val totalWrong: Int? = 0,
+    val totalUnattempted: Int? = 0,
+    val passingGrade: Int? = 75,
+    val isPassed: Boolean? = false,
+    val finalScore: Double? = 0.0
+)
+
+data class StudentExamLjsResponse(
+    val summary: StudentExamLjsSummary? = null,
+    val items: List<QuestionLjsItem>? = null
 )
 
 data class DownloadQuestionsResponse(
@@ -107,7 +180,9 @@ data class CheatStrikeRequest(
 data class CheatStrikeResponse(
     val message: String?,
     val strikeCount: Int?,
-    val status: String?
+    val status: String?,
+    val maxStrikes: Int? = 3,
+    val remainingStrikes: Int? = null
 )
 
 data class ProctorCbtTokensResponse(

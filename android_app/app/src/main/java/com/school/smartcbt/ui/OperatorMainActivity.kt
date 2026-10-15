@@ -43,11 +43,34 @@ class OperatorMainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityOperatorMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        com.school.smartcbt.utils.DialogHelper.applyDynamicFooter(this)
         sessionManager = SessionManager(this)
 
         setupUI()
         setupTabs()
         loadTeacherLeaves()
+
+        // Cek Pembaruan OTA Otomatis
+        com.school.smartcbt.utils.AppUpdateChecker.checkForUpdates(this)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        com.school.smartcbt.utils.AppUpdateChecker.resumePendingInstallIfAny(this)
+        com.school.smartcbt.utils.AppUpdateChecker.checkForUpdates(this)
+        if (currentTabIndex == 2) {
+            startCbtAutoRefresh()
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        stopCbtAutoRefresh()
+    }
+
+    override fun onDestroy() {
+        stopCbtAutoRefresh()
+        super.onDestroy()
     }
 
     private fun setupUI() {
@@ -55,6 +78,9 @@ class OperatorMainActivity : AppCompatActivity() {
         binding.btnSwitchToTeacherMode.setOnClickListener {
             startActivity(Intent(this, TeacherMainActivity::class.java))
             finish()
+        }
+        binding.btnCheckUpdateOperator.setOnClickListener {
+            com.school.smartcbt.utils.AppUpdateChecker.checkForUpdates(this, showToastIfLatest = true)
         }
 
         binding.btnRefreshOpLeaves.setOnClickListener {
@@ -102,13 +128,26 @@ class OperatorMainActivity : AppCompatActivity() {
             resetStudentDevice(query)
         }
 
-        // Setup Prayer Schedule Days Spinner
-        val days = arrayOf("SENIN", "SELASA", "RABU", "KAMIS", "JUMAT", "SABTU")
-        binding.spinnerOpPrayerDay.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, days)
-
-        binding.btnOpSavePrayerSchedule.setOnClickListener {
-            savePrayerSchedule()
+        binding.btnOpUnlockBiodata.setOnClickListener {
+            val query = binding.etOpDeviceStudentQuery.text.toString().trim()
+            if (query.isEmpty()) {
+                Toast.makeText(this, "Harap isi NISN atau Username siswa!", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            unlockStudentBiodata(query)
         }
+
+        binding.btnOpToggleNoPhone.setOnClickListener {
+            val query = binding.etOpDeviceStudentQuery.text.toString().trim()
+            if (query.isEmpty()) {
+                Toast.makeText(this, "Harap isi NISN atau Username siswa!", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            toggleNoPhoneStudent(query)
+        }
+
+        // Setup Prayer Schedule Days Spinner & Interactive Class Picker (Tab 4)
+        setupPrayerSchedulePicker()
 
         // Setup Rekap Presensi PDF Controls (Tab 5)
         val pdfScopes = arrayOf(
@@ -206,6 +245,13 @@ class OperatorMainActivity : AppCompatActivity() {
         styleTab(binding.tabBtnOpDevice, binding.tvTabOpDevice, tabIndex == 3)
         styleTab(binding.tabBtnOpPrayer, binding.tvTabOpPrayer, tabIndex == 4)
         styleTab(binding.tabBtnOpAttendancePdf, binding.tvTabOpAttendancePdf, tabIndex == 5)
+
+        currentTabIndex = tabIndex
+        if (tabIndex == 2) {
+            startCbtAutoRefresh()
+        } else {
+            stopCbtAutoRefresh()
+        }
 
         when (tabIndex) {
             0 -> loadTeacherLeaves()
@@ -585,19 +631,48 @@ class OperatorMainActivity : AppCompatActivity() {
         }
     }
 
-    // ==================== TAB 2: TOKEN CBT ====================
-    private fun loadCbtExams() {
+    // ==================== TAB 2: TOKEN CBT (REALTIME MONITORING) ====================
+    private var cbtRefreshHandler: android.os.Handler? = null
+    private var cbtRefreshRunnable: Runnable? = null
+    private var currentTabIndex = 0
+
+    private fun startCbtAutoRefresh() {
+        stopCbtAutoRefresh()
+        cbtRefreshHandler = android.os.Handler(android.os.Looper.getMainLooper())
+        cbtRefreshRunnable = object : Runnable {
+            override fun run() {
+                if (currentTabIndex == 2 && !isFinishing) {
+                    loadCbtExams(silent = true)
+                    cbtRefreshHandler?.postDelayed(this, 10000)
+                }
+            }
+        }
+        cbtRefreshHandler?.postDelayed(cbtRefreshRunnable!!, 10000)
+    }
+
+    private fun stopCbtAutoRefresh() {
+        cbtRefreshRunnable?.let { cbtRefreshHandler?.removeCallbacks(it) }
+        cbtRefreshHandler = null
+        cbtRefreshRunnable = null
+    }
+
+    private fun loadCbtExams(silent: Boolean = false) {
+        if (!silent) {
+            Toast.makeText(this, "Memperbarui monitoring ujian CBT...", Toast.LENGTH_SHORT).show()
+        }
         ApiClient.getClient(this).getProctorCbtTokens(null, null).enqueue(object : Callback<ProctorCbtTokensResponse> {
             override fun onResponse(call: Call<ProctorCbtTokensResponse>, response: Response<ProctorCbtTokensResponse>) {
                 if (response.isSuccessful && response.body() != null) {
                     val exams = response.body()!!.exams ?: emptyList()
                     renderCbtExams(exams)
-                } else {
+                } else if (!silent) {
                     Toast.makeText(this@OperatorMainActivity, "Gagal memuat ujian CBT", Toast.LENGTH_SHORT).show()
                 }
             }
             override fun onFailure(call: Call<ProctorCbtTokensResponse>, t: Throwable) {
-                Toast.makeText(this@OperatorMainActivity, "Koneksi terputus: ${t.message}", Toast.LENGTH_SHORT).show()
+                if (!silent) {
+                    Toast.makeText(this@OperatorMainActivity, "Koneksi terputus: ${t.message}", Toast.LENGTH_SHORT).show()
+                }
             }
         })
     }
@@ -605,6 +680,26 @@ class OperatorMainActivity : AppCompatActivity() {
     private fun renderCbtExams(exams: List<ProctorExamDto>) {
         val container = binding.llOpCbtExamsList
         container.removeAllViews()
+
+        // Badge Status Realtime
+        val liveBadge = TextView(this).apply {
+            text = "🟢 Live Real-time Monitoring Aktif (Auto-Refresh 10 detik)"
+            setTextColor(Color.parseColor("#059669"))
+            textSize = 11f
+            setTypeface(null, Typeface.BOLD)
+            val bg = android.graphics.drawable.GradientDrawable().apply {
+                setColor(Color.parseColor("#ECFDF5"))
+                setStroke((1 * resources.displayMetrics.density).toInt(), Color.parseColor("#A7F3D0"))
+                cornerRadius = 8 * resources.displayMetrics.density
+            }
+            background = bg
+            setPadding(16, 8, 16, 8)
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = 12
+            }
+            layoutParams = lp
+        }
+        container.addView(liveBadge)
 
         if (exams.isEmpty()) {
             val tvEmpty = TextView(this).apply {
@@ -619,43 +714,113 @@ class OperatorMainActivity : AppCompatActivity() {
 
         exams.forEach { exam ->
             val card = CardView(this).apply {
-                radius = 10f * resources.displayMetrics.density
-                cardElevation = 1.5f * resources.displayMetrics.density
+                radius = 12f * resources.displayMetrics.density
+                cardElevation = 2f * resources.displayMetrics.density
                 setCardBackgroundColor(Color.WHITE)
                 val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                    bottomMargin = 10
+                    bottomMargin = 14
                 }
                 layoutParams = lp
             }
 
             val inner = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
-                setPadding(20, 16, 20, 16)
+                setPadding(22, 18, 22, 18)
             }
 
             val tvTitle = TextView(this).apply {
                 text = "📝 ${exam.title}"
                 setTextColor(Color.parseColor("#0F172A"))
-                textSize = 13f
+                textSize = 14f
                 setTypeface(null, Typeface.BOLD)
             }
             inner.addView(tvTitle)
 
             val tvToken = TextView(this).apply {
-                text = "🔑 Token: ${exam.token ?: "OFF"} • Kelas: ${exam.assignedClasses ?: "Semua"}"
+                text = "🔑 Token Master: ${exam.token ?: "OFF"} • Sasaran: ${exam.assignedClasses ?: "Semua Kelas"}"
                 setTextColor(Color.parseColor("#78350F"))
-                textSize = 12f
+                textSize = 12.5f
                 setTypeface(null, Typeface.BOLD)
                 setPadding(0, 4, 0, 0)
             }
             inner.addView(tvToken)
+
+            // Distribusi Token per Rombel Paralel (Pills Interaktif & Salin)
+            val classTokens = exam.classTokens
+            if (!classTokens.isNullOrEmpty()) {
+                val tvClassTokensTitle = TextView(this).apply {
+                    text = "Distribusi Token per Kelas (Klik untuk Menyalin):"
+                    setTextColor(Color.parseColor("#475569"))
+                    textSize = 11f
+                    setTypeface(null, Typeface.BOLD)
+                    setPadding(0, 10, 0, 4)
+                }
+                inner.addView(tvClassTokensTitle)
+
+                val tokensContainer = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(0, 4, 0, 0)
+                }
+
+                var currentRow = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                        bottomMargin = 6
+                    }
+                }
+                var itemsInRow = 0
+
+                classTokens.toSortedMap().forEach { (cName, cToken) ->
+                    if (itemsInRow == 3) {
+                        tokensContainer.addView(currentRow)
+                        currentRow = LinearLayout(this).apply {
+                            orientation = LinearLayout.HORIZONTAL
+                            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                                bottomMargin = 6
+                            }
+                        }
+                        itemsInRow = 0
+                    }
+
+                    val pill = TextView(this).apply {
+                        text = "$cName: $cToken"
+                        textSize = 11f
+                        setTextColor(Color.parseColor("#1E3A8A"))
+                        setTypeface(null, Typeface.BOLD)
+                        val pillBg = android.graphics.drawable.GradientDrawable().apply {
+                            setColor(Color.parseColor("#EFF6FF"))
+                            setStroke((1 * resources.displayMetrics.density).toInt(), Color.parseColor("#BFDBFE"))
+                            cornerRadius = 8 * resources.displayMetrics.density
+                        }
+                        background = pillBg
+                        setPadding(12, 8, 12, 8)
+                        val lp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                            rightMargin = 6
+                        }
+                        layoutParams = lp
+                        gravity = android.view.Gravity.CENTER
+                        setOnClickListener {
+                            val clipboard = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                            val clip = android.content.ClipData.newPlainText("Token $cName", cToken)
+                            clipboard.setPrimaryClip(clip)
+                            Toast.makeText(this@OperatorMainActivity, "Token $cName ($cToken) disalin!", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    currentRow.addView(pill)
+                    itemsInRow++
+                }
+                if (itemsInRow > 0) {
+                    tokensContainer.addView(currentRow)
+                }
+                inner.addView(tokensContainer)
+            }
 
             card.addView(inner)
             container.addView(card)
         }
     }
 
-    // ==================== TAB 3: RESET DEVICE BINDING ====================
+    // ==================== TAB 3: RESET DEVICE, UNLOCK BIODATA & STATUS SISWA ====================
     private fun resetStudentDevice(query: String) {
         Toast.makeText(this, "Mereset kunci perangkat siswa...", Toast.LENGTH_SHORT).show()
         val body = mapOf("query" to query)
@@ -681,25 +846,239 @@ class OperatorMainActivity : AppCompatActivity() {
         })
     }
 
+    private fun unlockStudentBiodata(query: String) {
+        Toast.makeText(this, "Membuka kunci formulir biodata...", Toast.LENGTH_SHORT).show()
+        val body = mapOf("query" to query)
+        ApiClient.getClient(this).unlockStudentBiodata(body).enqueue(object : Callback<BasicResponse> {
+            override fun onResponse(call: Call<BasicResponse>, response: Response<BasicResponse>) {
+                if (response.isSuccessful) {
+                    val msg = response.body()?.message ?: "Kunci biodata siswa berhasil dibuka!"
+                    AlertDialog.Builder(this@OperatorMainActivity)
+                        .setTitle("✅ Kunci Biodata Terbuka")
+                        .setMessage(msg)
+                        .setPositiveButton("OK", null)
+                        .show()
+                    binding.etOpDeviceStudentQuery.text.clear()
+                } else {
+                    val err = response.errorBody()?.string() ?: "Siswa tidak ditemukan"
+                    Toast.makeText(this@OperatorMainActivity, "Gagal: $err", Toast.LENGTH_LONG).show()
+                }
+            }
+
+            override fun onFailure(call: Call<BasicResponse>, t: Throwable) {
+                Toast.makeText(this@OperatorMainActivity, "Koneksi terputus: ${t.message}", Toast.LENGTH_SHORT).show()
+            }
+        })
+    }
+
+    private fun toggleNoPhoneStudent(query: String) {
+        Toast.makeText(this, "Mengubah status Siswa Tanpa HP...", Toast.LENGTH_SHORT).show()
+        val body = mapOf<String, Any>("query" to query)
+        ApiClient.getClient(this).toggleNoPhoneByOperator(body).enqueue(object : Callback<BasicResponse> {
+            override fun onResponse(call: Call<BasicResponse>, response: Response<BasicResponse>) {
+                if (response.isSuccessful) {
+                    val msg = response.body()?.message ?: "Status siswa tanpa HP berhasil diubah!"
+                    AlertDialog.Builder(this@OperatorMainActivity)
+                        .setTitle("✅ Status Diperbarui")
+                        .setMessage(msg)
+                        .setPositiveButton("OK", null)
+                        .show()
+                    binding.etOpDeviceStudentQuery.text.clear()
+                } else {
+                    val err = response.errorBody()?.string() ?: "Gagal mengubah status"
+                    Toast.makeText(this@OperatorMainActivity, "Gagal: $err", Toast.LENGTH_LONG).show()
+                }
+            }
+
+            override fun onFailure(call: Call<BasicResponse>, t: Throwable) {
+                Toast.makeText(this@OperatorMainActivity, "Koneksi terputus: ${t.message}", Toast.LENGTH_SHORT).show()
+            }
+        })
+    }
+
     // ==================== TAB 4: JADWAL SHOLAT ====================
+    private val selectedOpPrayerClasses = mutableSetOf<String>()
+    private val opPrayerCheckboxes = mutableMapOf<String, CheckBox>()
+    private var weeklyOpPrayerSchedules: List<PrayerClassScheduleDto> = emptyList()
+
+    private val opGrade7Classes = listOf("VII-A", "VII-B", "VII-C", "VII-D", "VII-E", "VII-F", "VII-G", "VII-H", "VII-I", "VII-J", "VII-K")
+    private val opGrade8Classes = listOf("VIII-A", "VIII-B", "VIII-C", "VIII-D", "VIII-E", "VIII-F", "VIII-G", "VIII-H", "VIII-I", "VIII-J", "VIII-K")
+    private val opGrade9Classes = listOf("IX-A", "IX-B", "IX-C", "IX-D", "IX-E", "IX-F", "IX-G", "IX-H", "IX-I", "IX-J", "IX-K")
+
+    private fun setupPrayerSchedulePicker() {
+        val days = arrayOf("SENIN", "SELASA", "RABU", "KAMIS", "JUMAT", "SABTU")
+        binding.spinnerOpPrayerDay.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, days)
+
+        buildOpPrayerCheckboxes()
+
+        binding.btnOpQuickAll7.setOnClickListener {
+            toggleGradeClasses(opGrade7Classes)
+        }
+        binding.btnOpQuickAll8.setOnClickListener {
+            toggleGradeClasses(opGrade8Classes)
+        }
+        binding.btnOpQuickAll9.setOnClickListener {
+            toggleGradeClasses(opGrade9Classes)
+        }
+        binding.btnOpQuickAllMale.setOnClickListener {
+            selectedOpPrayerClasses.clear()
+            selectedOpPrayerClasses.add("ALL_MALE")
+            opPrayerCheckboxes.values.forEach { it.isChecked = false }
+            refreshOpPrayerSummary()
+        }
+        binding.btnOpQuickClear.setOnClickListener {
+            selectedOpPrayerClasses.clear()
+            opPrayerCheckboxes.values.forEach { it.isChecked = false }
+            refreshOpPrayerSummary()
+        }
+
+        binding.spinnerOpPrayerDay.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                val dayIndex = position + 1 // 1=Senin, 2=Selasa, dst.
+                syncScheduleForDay(dayIndex)
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+
+        binding.btnOpSavePrayerSchedule.setOnClickListener {
+            savePrayerSchedule()
+        }
+
+        loadAllPrayerSchedulesForOperator()
+        loadTodayPrayerSchedule()
+    }
+
+    private fun buildOpPrayerCheckboxes() {
+        val container = binding.llOpPrayerCheckboxesContainer
+        container.removeAllViews()
+        opPrayerCheckboxes.clear()
+
+        val density = resources.displayMetrics.density
+        fun dp(v: Int) = (v * density).toInt()
+
+        fun addGradeSection(title: String, gradeClasses: List<String>, headerColor: String) {
+            val tvH = TextView(this).apply {
+                text = title
+                textSize = 11.5f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(Color.parseColor(headerColor))
+                setPadding(0, dp(6), 0, dp(4))
+            }
+            container.addView(tvH)
+
+            for (i in gradeClasses.indices step 3) {
+                val row = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+                }
+                for (j in 0..2) {
+                    val idx = i + j
+                    if (idx < gradeClasses.size) {
+                        val cName = gradeClasses[idx]
+                        val cb = CheckBox(this).apply {
+                            text = cName
+                            textSize = 11f
+                            isChecked = selectedOpPrayerClasses.contains(cName)
+                            val lp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                            layoutParams = lp
+                            setOnCheckedChangeListener { _, checked ->
+                                if (checked) {
+                                    selectedOpPrayerClasses.remove("ALL_MALE")
+                                    selectedOpPrayerClasses.add(cName)
+                                } else {
+                                    selectedOpPrayerClasses.remove(cName)
+                                }
+                                refreshOpPrayerSummary()
+                            }
+                        }
+                        opPrayerCheckboxes[cName] = cb
+                        row.addView(cb)
+                    } else {
+                        val dummy = View(this).apply {
+                            layoutParams = LinearLayout.LayoutParams(0, 0, 1f)
+                        }
+                        row.addView(dummy)
+                    }
+                }
+                container.addView(row)
+            }
+        }
+
+        addGradeSection("Tingkat Kelas VII (11 Rombel):", opGrade7Classes, "#0284C7")
+        addGradeSection("Tingkat Kelas VIII (11 Rombel):", opGrade8Classes, "#4F46E5")
+        addGradeSection("Tingkat Kelas IX (11 Rombel):", opGrade9Classes, "#7C3AED")
+    }
+
+    private fun toggleGradeClasses(gradeList: List<String>) {
+        if (gradeList.all { selectedOpPrayerClasses.contains(it) }) {
+            selectedOpPrayerClasses.removeAll(gradeList.toSet())
+        } else {
+            selectedOpPrayerClasses.remove("ALL_MALE")
+            selectedOpPrayerClasses.addAll(gradeList)
+        }
+        gradeList.forEach { c -> opPrayerCheckboxes[c]?.isChecked = selectedOpPrayerClasses.contains(c) }
+        refreshOpPrayerSummary()
+    }
+
+    private fun refreshOpPrayerSummary() {
+        val sortedList = selectedOpPrayerClasses.sorted()
+        val textDisplay = if (selectedOpPrayerClasses.contains("ALL_MALE")) {
+            "🕌 Khusus Semua Siswa Putra (Sholat Jumat / ALL_MALE)"
+        } else if (sortedList.isEmpty()) {
+            "⚠️ Belum ada rombel kelas yang dipilih (Centang kelas di bawah)"
+        } else {
+            "✅ Terpilih (${sortedList.size} Rombel): ${sortedList.joinToString(", ")}"
+        }
+        binding.tvOpPrayerSummaryBadge.text = textDisplay
+        binding.etOpPrayerClasses.setText(if (selectedOpPrayerClasses.contains("ALL_MALE")) "ALL_MALE" else sortedList.joinToString(","))
+    }
+
+    private fun syncScheduleForDay(dayIndex: Int) {
+        val sched = weeklyOpPrayerSchedules.find { it.dayOfWeek == dayIndex }
+        selectedOpPrayerClasses.clear()
+        if (sched != null) {
+            val raw = (sched.classNames ?: "").split(",").map { it.trim().uppercase() }.filter { it.isNotEmpty() }
+            selectedOpPrayerClasses.addAll(raw)
+        }
+        opPrayerCheckboxes.forEach { (cName, cb) ->
+            cb.isChecked = selectedOpPrayerClasses.contains(cName)
+        }
+        refreshOpPrayerSummary()
+    }
+
+    private fun loadAllPrayerSchedulesForOperator() {
+        ApiClient.getClient(this).getAllPrayerSchedules().enqueue(object : Callback<AllPrayerSchedulesResponse> {
+            override fun onResponse(call: Call<AllPrayerSchedulesResponse>, response: Response<AllPrayerSchedulesResponse>) {
+                if (response.isSuccessful && response.body()?.schedules != null) {
+                    weeklyOpPrayerSchedules = response.body()!!.schedules!!
+                    val curDayIdx = binding.spinnerOpPrayerDay.selectedItemPosition + 1
+                    syncScheduleForDay(curDayIdx)
+                }
+            }
+            override fun onFailure(call: Call<AllPrayerSchedulesResponse>, t: Throwable) {}
+        })
+    }
+
     private fun savePrayerSchedule() {
         val day = binding.spinnerOpPrayerDay.selectedItem.toString()
         val classes = binding.etOpPrayerClasses.text.toString().trim()
         if (classes.isEmpty()) {
-            Toast.makeText(this, "Harap isi rombel untuk hari $day", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Harap pilih minimal 1 rombel atau centang kelas untuk hari $day", Toast.LENGTH_SHORT).show()
             return
         }
 
+        val prayerType = if (day.equals("JUMAT", ignoreCase = true) || classes == "ALL_MALE") "JUMAT" else "DHUHUR"
         val body = mapOf(
             "dayOfWeek" to day,
             "classes" to classes,
-            "prayerType" to "DHUHUR"
+            "prayerType" to prayerType
         )
-        Toast.makeText(this, "Menyimpan jadwal sholat...", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "Menyimpan & menyinkronkan jadwal sholat...", Toast.LENGTH_SHORT).show()
         ApiClient.getClient(this).setPrayerClassSchedule(body).enqueue(object : Callback<BasicResponse> {
             override fun onResponse(call: Call<BasicResponse>, response: Response<BasicResponse>) {
                 if (response.isSuccessful) {
-                    Toast.makeText(this@OperatorMainActivity, "✅ Jadwal sholat hari $day berhasil disimpan!", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@OperatorMainActivity, "✅ Jadwal sholat hari $day berhasil disimpan & disinkronkan!", Toast.LENGTH_SHORT).show()
+                    loadAllPrayerSchedulesForOperator()
                     loadTodayPrayerSchedule()
                 } else {
                     Toast.makeText(this@OperatorMainActivity, "Gagal menyimpan jadwal sholat", Toast.LENGTH_SHORT).show()

@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Log Aktivitas &amp; Anomali Terpusat - Smart School SIBOY</title>
+    <script src="/js/tailwind.js"></script>
+    <link rel="stylesheet" href="/css/portal-theme.css">
+    <script src="/socket.io/socket.io.js"></script>
+</head>
+<body class="bg-[#f8fafc] text-slate-800 flex">
+    <!-- Sidebar -->
+    <% if (typeof isOperator !== 'undefined' && isOperator) { %>
+        <%- include('partials/sidebar_operator') %>
+    <% } else { %>
+        <%- include('partials/sidebar_admin') %>
+    <% } %>
+
+    <!-- Main Content -->
+    <main class="flex-1 p-6 md:p-8 ml-64 overflow-y-auto h-screen bg-slate-50/60 transition-all duration-300">
+        <!-- Top Header Bar -->
+        <header class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 pb-4 border-b border-slate-200/80">
+            <div class="flex items-center gap-3">
+                <button onclick="togglePortalSidebar()" class="p-2 rounded-xl border border-slate-200/80 bg-white hover:bg-slate-100 text-slate-700 transition-colors shadow-sm cursor-pointer" title="Toggle Sidebar (Ctrl+B)">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+                </button>
+                <div>
+                    <div class="flex items-center gap-3">
+                        <div class="w-2.5 h-7 bg-indigo-600 rounded-full"></div>
+                        <h1 class="text-2xl font-black text-slate-800 tracking-tight flex items-center gap-2">
+                            <span>🛡️</span> Log Aktivitas &amp; Anomali Terpusat
+                        </h1>
+                        <span class="bg-indigo-50 text-indigo-700 text-xs font-bold px-2.5 py-1 rounded-full border border-indigo-200/60">Live Radar</span>
+                    </div>
+                    <p class="text-slate-500 text-xs mt-1 ml-5">Pemantauan real-time aktivitas &amp; penolakan APK/Server (Presensi, CBT, Tugas, E-Kantin, Auth) serta deteksi anomali otomatis</p>
+                </div>
+            </div>
+            
+            <div class="flex items-center gap-3">
+                <div class="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-slate-200 shadow-sm text-xs font-semibold">
+                    <span id="socketLiveIndicator" class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span id="socketLiveText" class="text-slate-600">Socket.IO Terhubung</span>
+                </div>
+                <button onclick="refreshAll()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold shadow flex items-center gap-1.5 transition-all cursor-pointer">
+                    <span>🔄</span> Refresh Data
+                </button>
+            </div>
+        </header>
+
+        <!-- PANEL ANOMALI AKTIF (ALERT BOX) -->
+        <section id="anomaliesSection" class="mb-6 space-y-3">
+            <div class="flex items-center justify-between">
+                <h2 class="text-sm font-extrabold text-slate-800 flex items-center gap-2">
+                    <span class="text-rose-600">🚨</span> Anomali Sistem Terdeteksi (<span id="countOpenAnomalies">0</span>)
+                </h2>
+                <div class="flex gap-2">
+                    <button onclick="loadAnomalies('OPEN')" class="text-xs font-bold text-rose-600 hover:underline cursor-pointer">Hanya Aktif</button>
+                    <span class="text-slate-300">|</span>
+                    <button onclick="loadAnomalies('ALL')" class="text-xs font-bold text-slate-500 hover:underline cursor-pointer">Semua Riwayat</button>
+                </div>
+            </div>
+            <div id="anomaliesList" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="p-4 bg-white rounded-2xl border border-slate-200 text-xs text-slate-400 text-center col-span-2">Memeriksa anomali...</div>
+            </div>
+        </section>
+
+        <!-- KARTU RINGKASAN MODUL HARI INI -->
+        <section class="mb-6">
+            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3" id="moduleCardsGrid">
+                <!-- Template Card Per Modul diisi via JS -->
+            </div>
+        </section>
+
+        <!-- TOP 10 ALASAN PENOLAKAN & FILTER BAR -->
+        <section class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+            <!-- Box Top Rejection Reasons -->
+            <div class="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-sm">
+                <div class="flex items-center justify-between mb-3 border-b pb-2">
+                    <h3 class="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                        <span class="text-amber-500">⚠️</span> Top 10 Alasan Penolakan Hari Ini
+                    </h3>
+                    <span class="text-[10px] text-slate-400 font-bold">Auto-Rank</span>
+                </div>
+                <div id="topRejectionsList" class="space-y-2 max-h-56 overflow-y-auto text-xs">
+                    <p class="text-slate-400 text-center py-4 text-[11px]">Tidak ada penolakan hari ini 🎉</p>
+                </div>
+            </div>
+
+            <!-- Filter & Search Panel -->
+            <div class="lg:col-span-2 bg-white p-4 rounded-2xl border border-slate-200/90 shadow-sm flex flex-col justify-between">
+                <div>
+                    <h3 class="text-xs font-black text-slate-800 mb-3 flex items-center gap-1.5">
+                        <span>🔍</span> Filter &amp; Pencarian Log Aktivitas
+                    </h3>
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-semibold">
+                        <div>
+                            <label class="block text-[11px] text-slate-500 mb-1">Tanggal</label>
+                            <input type="date" id="filterDate" class="w-full border p-2 rounded-xl text-xs bg-slate-50" onchange="refreshAll()">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] text-slate-500 mb-1">Modul</label>
+                            <select id="filterModule" class="w-full border p-2 rounded-xl text-xs bg-slate-50" onchange="loadLogs(1)">
+                                <option value="ALL">Semua Modul</option>
+                                <option value="ATTENDANCE">Presensi (Gate/Geofence)</option>
+                                <option value="CBT">CBT &amp; Ujian</option>
+                                <option value="HOMEWORK">Tugas &amp; PR</option>
+                                <option value="EKANTIN">E-Kantin</option>
+                                <option value="AUTH">Login &amp; Auth</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-[11px] text-slate-500 mb-1">Hasil (Outcome)</label>
+                            <select id="filterOutcome" class="w-full border p-2 rounded-xl text-xs bg-slate-50" onchange="loadLogs(1)">
+                                <option value="ALL">Semua Hasil</option>
+                                <option value="SUCCESS">🟢 Sukses (200)</option>
+                                <option value="REJECTED">🟡 Ditolak (4xx)</option>
+                                <option value="ERROR">🔴 Error (5xx)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-[11px] text-slate-500 mb-1">Sumber (Source)</label>
+                            <select id="filterSource" class="w-full border p-2 rounded-xl text-xs bg-slate-50" onchange="loadLogs(1)">
+                                <option value="ALL">Semua Sumber</option>
+                                <option value="SERVER">SERVER</option>
+                                <option value="APK">APK CLIENT</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-3 pt-3 border-t flex flex-wrap gap-2 items-center">
+                    <div class="relative flex-1 min-w-[200px]">
+                        <input type="text" id="filterSearch" placeholder="Cari nama siswa, NISN, device ID, pesan..." class="w-full border p-2 pl-8 rounded-xl text-xs" onkeydown="if(event.key==='Enter') loadLogs(1)">
+                        <span class="absolute left-2.5 top-2.5 text-slate-400 text-xs">🔎</span>
+                    </div>
+                    <button onclick="loadLogs(1)" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-xs font-bold">Cari Log</button>
+                    <button onclick="resetFilters()" class="bg-slate-200 hover:bg-slate-300 text-slate-700 px-3 py-2 rounded-xl text-xs font-bold">Reset</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- TABEL LOG AKTIVITAS -->
+        <section class="bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden mb-6">
+            <div class="p-4 bg-slate-50/70 border-b flex justify-between items-center">
+                <div>
+                    <h3 class="font-extrabold text-slate-800 text-sm">Tabel Kejadian Aktivitas Terinci</h3>
+                    <p class="text-[11px] text-slate-500">Klik baris log untuk memeriksa payload JSON dan jejak teknis</p>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="text-xs bg-indigo-50 text-indigo-700 font-bold px-3 py-1 rounded-full border border-indigo-200" id="totalLogsBadge">0 Kejadian</span>
+                </div>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse text-xs whitespace-nowrap">
+                    <thead>
+                        <tr class="bg-slate-100 text-slate-700 text-[11px] uppercase tracking-wider font-bold">
+                            <th class="p-3 border-b">Waktu</th>
+                            <th class="p-3 border-b">Sumber</th>
+                            <th class="p-3 border-b">Modul &amp; Aksi</th>
+                            <th class="p-3 border-b">Hasil</th>
+                            <th class="p-3 border-b">Siswa / Pengguna</th>
+                            <th class="p-3 border-b">Pesan / Alasan Penolakan</th>
+                            <th class="p-3 border-b">Perangkat &amp; APK</th>
+                            <th class="p-3 border-b text-center">Durasi</th>
+                            <th class="p-3 border-b text-center">Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody id="logsTableBody">
+                        <tr><td colspan="9" class="p-8 text-center text-slate-400">Memuat log aktivitas...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Pagination Bar -->
+            <div class="p-3 bg-slate-50 border-t flex justify-between items-center text-xs">
+                <span class="text-slate-500" id="pageInfoText">Halaman 1 dari 1</span>
+                <div class="flex gap-1.5" id="paginationButtons">
+                    <!-- Button pagination via JS -->
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- MODAL DETAIL PAYLOAD & LINIMASA SISWA -->
+    <div id="modalDetail" class="hidden fixed inset-0 bg-black/60 backdrop-blur-sm flex justify-center items-center z-50 p-4">
+        <div class="bg-white p-6 rounded-3xl w-full max-w-3xl max-h-[90vh] overflow-y-auto shadow-2xl border border-slate-200">
+            <div class="flex justify-between items-center border-b pb-3 mb-4">
+                <div>
+                    <h3 class="text-base font-extrabold text-slate-800" id="modalTitle">Detail Log Aktivitas</h3>
+                    <p class="text-xs text-slate-500" id="modalSub">Informasi teknis dan payload sanitized</p>
+                </div>
+                <button onclick="closeModal()" class="text-slate-400 hover:text-slate-600 text-2xl font-bold">&times;</button>
+            </div>
+
+            <!-- Tab Modal: Payload vs Linimasa Siswa -->
+            <div class="flex border-b border-slate-200 gap-4 mb-4">
+                <button type="button" onclick="switchModalTab('payload')" id="tabBtnPayload" class="pb-2 font-bold text-indigo-700 border-b-2 border-indigo-600 text-xs">
+                    📄 Payload &amp; Info Teknis
+                </button>
+                <button type="button" onclick="switchModalTab('timeline')" id="tabBtnTimeline" class="pb-2 font-semibold text-slate-400 hover:text-slate-600 text-xs">
+                    🕒 Linimasa Siswa Hari Ini
+                </button>
+            </div>
+
+            <!-- TAB 1: PAYLOAD -->
+            <div id="tabContainerPayload" class="space-y-3 text-xs">
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-2.5 p-3 bg-slate-50 rounded-xl border">
+                    <div>
+                        <span class="block text-[10px] text-slate-400 font-bold uppercase">HTTP Status</span>
+                        <span class="font-extrabold text-slate-800" id="modalHttpStatus">-</span>
+                    </div>
+                    <div>
+                        <span class="block text-[10px] text-slate-400 font-bold uppercase">Durasi Server</span>
+                        <span class="font-bold text-slate-800" id="modalDuration">-</span>
+                    </div>
+                    <div>
+                        <span class="block text-[10px] text-slate-400 font-bold uppercase">IP Address</span>
+                        <span class="font-bold text-slate-800 font-mono" id="modalIp">-</span>
+                    </div>
+                    <div>
+                        <span class="block text-[10px] text-slate-400 font-bold uppercase">Device ID</span>
+                        <span class="font-bold text-slate-800 font-mono text-[11px]" id="modalDeviceId">-</span>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-[11px] font-bold text-slate-600 mb-1">Pesan Lengkap / Alasan:</label>
+                    <div id="modalFullMessage" class="p-3 bg-amber-50 text-amber-900 border border-amber-200 rounded-xl text-xs font-semibold leading-relaxed">
+                        -
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-[11px] font-bold text-slate-600 mb-1">Payload JSON (Sanitized):</label>
+                    <pre id="modalJsonPayload" class="p-3 bg-slate-900 text-emerald-400 rounded-xl font-mono text-[11px] overflow-x-auto max-h-60 leading-relaxed"></pre>
+                </div>
+            </div>
+
+            <!-- TAB 2: TIMELINE SISWA -->
+            <div id="tabContainerTimeline" class="hidden space-y-3 text-xs">
+                <div id="timelineContainer" class="space-y-3 max-h-96 overflow-y-auto pl-2 pr-1">
+                    <p class="text-slate-400 text-center py-4">Memuat linimasa aktivitas...</p>
+                </div>
+            </div>
+
+            <div class="mt-5 pt-3 border-t flex justify-end">
+                <button onclick="closeModal()" class="bg-slate-200 hover:bg-slate-300 text-slate-800 px-4 py-2 rounded-xl text-xs font-bold">Tutup</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- JAVASCRIPT LOG & SOCKET INTEGRATION -->
+    <script>
+        let currentPage = 1;
+        let currentSelectedLog = null;
+        let socket = null;
+
+        document.addEventListener('DOMContentLoaded', () => {
+            // Set tanggal hari ini default YYYY-MM-DD
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const day = String(now.getDate()).padStart(2, '0');
+            document.getElementById('filterDate').value = `${year}-${month}-${day}`;
+
+            initSocket();
+            refreshAll();
+
+            // Refresh berkala tiap 30 detik
+            setInterval(() => {
+                loadSummary();
+                loadAnomalies('OPEN');
+            }, 30000);
+        });
+
+        function initSocket() {
+            try {
+                socket = io();
+                socket.on('connect', () => {
+                    document.getElementById('socketLiveIndicator').className = 'w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse';
+                    document.getElementById('socketLiveText').innerText = 'Socket.IO Terhubung';
+                });
+                socket.on('disconnect', () => {
+                    document.getElementById('socketLiveIndicator').className = 'w-2.5 h-2.5 rounded-full bg-rose-500';
+                    document.getElementById('socketLiveText').innerText = 'Socket.IO Terputus';
+                });
+                socket.on('activity_anomaly', (data) => {
+                    // Alert realtime jika anomali baru muncul
+                    playNotificationTone();
+                    loadAnomalies('OPEN');
+                    loadSummary();
+                });
+            } catch (e) {
+                console.warn('Socket.IO not initialized:', e);
+            }
+        }
+
+        function playNotificationTone() {
+            try {
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = ctx.createOscillator();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
+                osc.connect(ctx.destination);
+                osc.start();
+                osc.stop(ctx.currentTime + 0.2);
+            } catch {}
+        }
+
+        function refreshAll() {
+            loadSummary();
+            loadAnomalies('OPEN');
+            loadLogs(1);
+        }
+
+        function resetFilters() {
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const day = String(now.getDate()).padStart(2, '0');
+            document.getElementById('filterDate').value = `${year}-${month}-${day}`;
+            document.getElementById('filterModule').value = 'ALL';
+            document.getElementById('filterOutcome').value = 'ALL';
+            document.getElementById('filterSource').value = 'ALL';
+            document.getElementById('filterSearch').value = '';
+            loadLogs(1);
+        }
+
+        async function loadSummary() {
+            const date = document.getElementById('filterDate').value;
+            try {
+                const res = await fetch(`/api/activity-logs/summary?date=${date}`);
+                const data = await res.json();
+                if (!data.success) return;
+
+                // Render Card Modul
+                const grid = document.getElementById('moduleCardsGrid');
+                grid.innerHTML = '';
+                const modules = [
+                    { key: 'ATTENDANCE', label: 'Presensi Siswa', icon: '📍', color: 'indigo' },
+                    { key: 'CBT', label: 'CBT &amp; Ujian', icon: '📝', color: 'blue' },
+                    { key: 'HOMEWORK', label: 'Tugas &amp; PR', icon: '📚', color: 'emerald' },
+                    { key: 'EKANTIN', label: 'E-Kantin', icon: '💳', color: 'amber' },
+                    { key: 'AUTH', label: 'Login &amp; Auth', icon: '🔐', color: 'slate' }
+                ];
+
+                modules.forEach(m => {
+                    const stat = data.summaryByModule[m.key] || { SUCCESS: 0, REJECTED: 0, ERROR: 0, TOTAL: 0 };
+                    grid.innerHTML += `
+                        <div class="bg-white p-3.5 rounded-2xl border border-slate-200/90 shadow-sm hover:shadow-md transition-all">
+                            <div class="flex items-center justify-between mb-1.5">
+                                <span class="text-xs font-black text-slate-800 flex items-center gap-1">
+                                    <span>${m.icon}</span> ${m.label}
+                                </span>
+                                <span class="text-[10px] bg-slate-100 text-slate-600 font-bold px-1.5 py-0.5 rounded-md">${stat.TOTAL}</span>
+                            </div>
+                            <div class="grid grid-cols-3 gap-1 pt-1 border-t border-slate-100 text-center">
+                                <div class="bg-emerald-50 rounded-lg p-1">
+                                    <span class="block text-[9px] text-emerald-600 font-bold">SUKSES</span>
+                                    <span class="font-black text-xs text-emerald-700">${stat.SUCCESS}</span>
+                                </div>
+                                <div class="bg-amber-50 rounded-lg p-1">
+                                    <span class="block text-[9px] text-amber-600 font-bold">TOLAK</span>
+                                    <span class="font-black text-xs text-amber-700">${stat.REJECTED}</span>
+                                </div>
+                                <div class="bg-rose-50 rounded-lg p-1">
+                                    <span class="block text-[9px] text-rose-600 font-bold">ERROR</span>
+                                    <span class="font-black text-xs text-rose-700">${stat.ERROR}</span>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+
+                // Render Top Rejections
+                const rejList = document.getElementById('topRejectionsList');
+                rejList.innerHTML = '';
+                if (!data.topRejections || data.topRejections.length === 0) {
+                    rejList.innerHTML = '<p class="text-slate-400 text-center py-4 text-[11px]">Tidak ada penolakan hari ini 🎉</p>';
+                } else {
+                    data.topRejections.forEach(r => {
+                        rejList.innerHTML += `
+                            <div class="flex items-start justify-between gap-2 p-2 bg-amber-50/70 rounded-xl border border-amber-200/50">
+                                <div>
+                                    <span class="text-[10px] font-bold bg-amber-200 text-amber-800 px-1.5 py-0.5 rounded">${r.module}</span>
+                                    <p class="text-[11px] text-amber-950 font-semibold mt-1 leading-snug">${escapeHtml(r.reason)}</p>
+                                </div>
+                                <span class="bg-amber-600 text-white font-extrabold text-[10px] px-2 py-0.5 rounded-full shrink-0">${r.count}x</span>
+                            </div>
+                        `;
+                    });
+                }
+            } catch (err) {
+                console.error('Error loadSummary:', err);
+            }
+        }
+
+        async function loadAnomalies(status = 'OPEN') {
+            try {
+                const res = await fetch(`/api/activity-anomalies?status=${status}`);
+                const data = await res.json();
+                if (!data.success) return;
+
+                const list = document.getElementById('anomaliesList');
+                const badge = document.getElementById('countOpenAnomalies');
+                const openCount = data.data.filter(a => a.status === 'OPEN').length;
+                badge.innerText = openCount;
+
+                if (data.data.length === 0) {
+                    list.innerHTML = `
+                        <div class="p-6 bg-emerald-50 rounded-2xl border border-emerald-200 text-xs text-emerald-800 text-center col-span-2 font-bold flex items-center justify-center gap-2">
+                            <span>✅</span> Tidak ada anomali aktif. Seluruh sistem beroperasi normal.
+                        </div>
+                    `;
+                    return;
+                }
+
+                list.innerHTML = '';
+                data.data.forEach(a => {
+                    const isKritis = a.level === 'KRITIS';
+                    const isResolved = a.status === 'RESOLVED';
+                    const bgClass = isResolved ? 'bg-slate-50 border-slate-200' : (isKritis ? 'bg-rose-50 border-rose-300' : 'bg-amber-50 border-amber-300');
+                    const badgeClass = isResolved ? 'bg-slate-200 text-slate-700' : (isKritis ? 'bg-rose-600 text-white animate-pulse' : 'bg-amber-500 text-white');
+
+                    let sampleListHtml = '';
+                    if (a.sampleStudents) {
+                        try {
+                            const samples = JSON.parse(a.sampleStudents);
+                            if (samples.length > 0) {
+                                sampleListHtml = `
+                                    <div class="mt-2 pt-2 border-t border-slate-200/60 text-[11px] space-y-1">
+                                        <p class="font-bold text-slate-700">Contoh Siswa Terdampak (${samples.length}):</p>
+                                        <div class="flex flex-wrap gap-1.5">
+                                            ${samples.map(s => `<span class="bg-white/80 px-2 py-0.5 rounded-md border text-[10px] font-semibold text-slate-800">${s.name || s.id} (${s.className || '-'})</span>`).join('')}
+                                        </div>
+                                    </div>
+                                `;
+                            }
+                        } catch {}
+                    }
+
+                    list.innerHTML += `
+                        <div class="p-4 rounded-2xl border ${bgClass} shadow-sm relative flex flex-col justify-between">
+                            <div>
+                                <div class="flex items-center justify-between gap-2 mb-1.5">
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-[10px] font-extrabold px-2 py-0.5 rounded-full ${badgeClass}">${a.level}</span>
+                                        <span class="text-[10px] font-bold bg-white text-slate-700 px-2 py-0.5 rounded-full border">${a.module} • ${a.code}</span>
+                                    </div>
+                                    <span class="text-[10px] text-slate-500 font-semibold">${new Date(a.createdAt).toLocaleTimeString('id-ID')} WIB</span>
+                                </div>
+                                <h4 class="font-extrabold text-slate-900 text-xs leading-snug mt-1">${escapeHtml(a.summary)}</h4>
+                                ${sampleListHtml}
+                            </div>
+                            <div class="mt-3 pt-2 border-t flex justify-between items-center text-[11px]">
+                                <span class="text-slate-500 font-semibold">Kejadian: <b>${a.count}x</b></span>
+                                ${!isResolved ? `
+                                    <button onclick="resolveAnomaly('${a.id}')" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1 rounded-xl font-bold transition-all shadow-sm">
+                                        Selesaikan / Validasi
+                                    </button>
+                                ` : `
+                                    <span class="text-emerald-700 font-bold">✓ Terselesaikan (${a.resolvedBy || '-'})</span>
+                                `}
+                            </div>
+                        </div>
+                    `;
+                });
+            } catch (err) {
+                console.error('Error loadAnomalies:', err);
+            }
+        }
+
+        async function resolveAnomaly(id) {
+            const notes = prompt('Masukkan catatan penyelesaian / validasi:');
+            if (notes === null) return;
+            try {
+                const res = await fetch(`/api/activity-anomalies/${id}/resolve`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ notes })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    loadAnomalies('OPEN');
+                } else {
+                    alert('Gagal: ' + data.message);
+                }
+            } catch (e) {
+                alert('Terjadi kesalahan jaringan.');
+            }
+        }
+
+        async function loadLogs(page = 1) {
+            currentPage = page;
+            const date = document.getElementById('filterDate').value;
+            const module = document.getElementById('filterModule').value;
+            const outcome = document.getElementById('filterOutcome').value;
+            const source = document.getElementById('filterSource').value;
+            const search = document.getElementById('filterSearch').value;
+
+            const tbody = document.getElementById('logsTableBody');
+            tbody.innerHTML = '<tr><td colspan="9" class="p-8 text-center text-slate-400">Memuat log aktivitas...</td></tr>';
+
+            try {
+                const params = new URLSearchParams({
+                    page,
+                    limit: 30,
+                    date,
+                    module,
+                    outcome,
+                    source,
+                    search
+                });
+                const res = await fetch(`/api/activity-logs?${params}`);
+                const data = await res.json();
+                if (!data.success) {
+                    tbody.innerHTML = `<tr><td colspan="9" class="p-4 text-center text-rose-500">${data.message}</td></tr>`;
+                    return;
+                }
+
+                document.getElementById('totalLogsBadge').innerText = `${data.total} Kejadian`;
+                document.getElementById('pageInfoText').innerText = `Halaman ${data.page} dari ${data.totalPages || 1} (${data.total} data)`;
+
+                renderPagination(data.page, data.totalPages);
+
+                if (data.data.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="9" class="p-8 text-center text-slate-400">Tidak ada log aktivitas sesuai kriteria pencarian.</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = '';
+                data.data.forEach(l => {
+                    const timeStr = new Date(l.createdAt).toLocaleTimeString('id-ID');
+                    let outcomeBadge = '<span class="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-bold">SUKSES</span>';
+                    if (l.outcome === 'REJECTED') {
+                        outcomeBadge = '<span class="bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-bold">DITOLAK</span>';
+                    } else if (l.outcome === 'ERROR') {
+                        outcomeBadge = '<span class="bg-rose-100 text-rose-800 px-2 py-0.5 rounded-full font-bold">ERROR</span>';
+                    }
+
+                    const sourceBadge = l.source === 'APK' 
+                        ? '<span class="bg-purple-100 text-purple-800 px-1.5 py-0.5 rounded text-[10px] font-bold">APK</span>' 
+                        : '<span class="bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded text-[10px] font-bold">SERVER</span>';
+
+                    const rowClass = l.anomalyFlag ? 'bg-rose-50/40 hover:bg-rose-50/70' : 'hover:bg-slate-50';
+
+                    tbody.innerHTML += `
+                        <tr class="border-b transition-colors cursor-pointer ${rowClass}" onclick="openDetailModal(${escapeJsArg(JSON.stringify(l))})">
+                            <td class="p-3 font-mono text-slate-600">${timeStr}</td>
+                            <td class="p-3">${sourceBadge}</td>
+                            <td class="p-3">
+                                <span class="font-extrabold text-slate-800">${l.module}</span>
+                                <span class="block text-[10px] text-slate-400 font-mono">${l.action}</span>
+                            </td>
+                            <td class="p-3">${outcomeBadge}</td>
+                            <td class="p-3">
+                                <div class="font-bold text-slate-800">${escapeHtml(l.name || l.username || '-')}</div>
+                                <span class="text-[10px] text-slate-400">${l.className ? 'Kelas ' + l.className : (l.role || '-')}</span>
+                            </td>
+                            <td class="p-3 max-w-[280px] truncate" title="${escapeHtml(l.message || '-')}">
+                                <span class="${l.outcome !== 'SUCCESS' ? 'text-rose-700 font-semibold' : 'text-slate-600'}">
+                                    ${escapeHtml(l.message || '-')}
+                                </span>
+                            </td>
+                            <td class="p-3">
+                                <span class="block font-semibold text-slate-700 text-[11px]">${l.appVersion ? 'v' + l.appVersion : '-'}</span>
+                                <span class="text-[10px] text-slate-400 font-mono">${l.deviceId ? l.deviceId.substring(0, 10) + '...' : '-'}</span>
+                            </td>
+                            <td class="p-3 text-center font-mono text-slate-500">${l.durationMs || 0}ms</td>
+                            <td class="p-3 text-center">
+                                <button class="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold px-2.5 py-1 rounded-lg text-[11px] transition-all">
+                                    Detail
+                                </button>
+                            </td>
+                        </tr>
+                    `;
+                });
+            } catch (err) {
+                console.error('Error loadLogs:', err);
+                tbody.innerHTML = '<tr><td colspan="9" class="p-4 text-center text-rose-500">Gagal memuat log aktivitas.</td></tr>';
+            }
+        }
+
+        function renderPagination(current, total) {
+            const container = document.getElementById('paginationButtons');
+            container.innerHTML = '';
+            if (total <= 1) return;
+
+            if (current > 1) {
+                container.innerHTML += `<button onclick="loadLogs(${current - 1})" class="px-2.5 py-1 bg-white border rounded-lg text-slate-700 font-bold hover:bg-slate-100">Sebelumnya</button>`;
+            }
+            if (current < total) {
+                container.innerHTML += `<button onclick="loadLogs(${current + 1})" class="px-2.5 py-1 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700">Berikutnya</button>`;
+            }
+        }
+
+        function openDetailModal(log) {
+            currentSelectedLog = log;
+            document.getElementById('modalTitle').innerText = `${log.module}: ${log.action}`;
+            document.getElementById('modalSub').innerText = `${new Date(log.createdAt).toLocaleString('id-ID')} • Oleh ${log.name || log.username || 'Sistem'}`;
+            document.getElementById('modalHttpStatus').innerText = log.httpStatus || 200;
+            document.getElementById('modalDuration').innerText = `${log.durationMs || 0} ms`;
+            document.getElementById('modalIp').innerText = log.ip || '-';
+            document.getElementById('modalDeviceId').innerText = log.deviceId || '-';
+            document.getElementById('modalFullMessage').innerText = log.message || 'Tidak ada pesan / Berhasil';
+
+            try {
+                const parsed = log.payload ? JSON.parse(log.payload) : { note: 'Payload kosong' };
+                document.getElementById('modalJsonPayload').innerText = JSON.stringify(parsed, null, 2);
+            } catch {
+                document.getElementById('modalJsonPayload').innerText = log.payload || '-';
+            }
+
+            switchModalTab('payload');
+            document.getElementById('modalDetail').classList.remove('hidden');
+        }
+
+        function closeModal() {
+            document.getElementById('modalDetail').classList.add('hidden');
+        }
+
+        function switchModalTab(tab) {
+            const btnP = document.getElementById('tabBtnPayload');
+            const btnT = document.getElementById('tabBtnTimeline');
+            const cP = document.getElementById('tabContainerPayload');
+            const cT = document.getElementById('tabContainerTimeline');
+
+            if (tab === 'payload') {
+                btnP.className = 'pb-2 font-bold text-indigo-700 border-b-2 border-indigo-600 text-xs';
+                btnT.className = 'pb-2 font-semibold text-slate-400 hover:text-slate-600 text-xs';
+                cP.classList.remove('hidden');
+                cT.classList.add('hidden');
+            } else {
+                btnT.className = 'pb-2 font-bold text-indigo-700 border-b-2 border-indigo-600 text-xs';
+                btnP.className = 'pb-2 font-semibold text-slate-400 hover:text-slate-600 text-xs';
+                cT.classList.remove('hidden');
+                cP.classList.add('hidden');
+                loadStudentTimeline();
+            }
+        }
+
+        async function loadStudentTimeline() {
+            if (!currentSelectedLog || !currentSelectedLog.userId) {
+                document.getElementById('timelineContainer').innerHTML = '<p class="text-slate-400 text-center py-4">Pengguna tidak teridentifikasi untuk linimasa.</p>';
+                return;
+            }
+
+            const c = document.getElementById('timelineContainer');
+            c.innerHTML = '<p class="text-slate-400 text-center py-4">Memuat linimasa aktivitas...</p>';
+
+            try {
+                const date = document.getElementById('filterDate').value;
+                const res = await fetch(`/api/activity-logs/timeline/${currentSelectedLog.userId}?date=${date}`);
+                const data = await res.json();
+                if (!data.success || data.data.length === 0) {
+                    c.innerHTML = '<p class="text-slate-400 text-center py-4">Tidak ada riwayat aktivitas hari ini.</p>';
+                    return;
+                }
+
+                c.innerHTML = '';
+                data.data.forEach(item => {
+                    const time = new Date(item.createdAt).toLocaleTimeString('id-ID');
+                    let dotColor = 'bg-emerald-500';
+                    if (item.outcome === 'REJECTED') dotColor = 'bg-amber-500';
+                    else if (item.outcome === 'ERROR') dotColor = 'bg-rose-500';
+
+                    c.innerHTML += `
+                        <div class="flex items-start gap-3 relative pl-4 border-l-2 border-slate-200">
+                            <span class="w-2.5 h-2.5 rounded-full ${dotColor} absolute -left-[6px] top-1.5"></span>
+                            <div>
+                                <div class="flex items-center gap-2">
+                                    <span class="font-mono text-slate-500 font-bold text-[10px]">${time}</span>
+                                    <span class="bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded text-[10px] font-bold">${item.module}</span>
+                                    <span class="font-bold text-slate-800">${item.action}</span>
+                                </div>
+                                <p class="text-slate-600 text-[11px] mt-0.5">${escapeHtml(item.message || 'Sukses')}</p>
+                            </div>
+                        </div>
+                    `;
+                });
+            } catch (e) {
+                c.innerHTML = '<p class="text-rose-500 text-center py-4">Gagal memuat linimasa.</p>';
+            }
+        }
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            return String(text)
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+
+        function escapeJsArg(str) {
+            return str.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+        }
+    </script>
+</body>
+</html>

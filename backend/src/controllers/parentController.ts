@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/db';
+import { formatTimeWib, formatTimeWibWithSuffix, formatDateWibShort } from '../utils/dateUtils';
 
 export const getMyChildData = async (req: any, res: Response) => {
     try {
@@ -10,7 +11,7 @@ export const getMyChildData = async (req: any, res: Response) => {
             student = await prisma.user.findUnique({
                 where: { id: currentUser.id },
                 include: {
-                    attendances: { orderBy: { scanTime: 'desc' }, take: 30 },
+                    attendances: { orderBy: { scanTime: 'desc' }, take: 300 },
                     examsTaken: { include: { exam: { include: { subject: true } } }, orderBy: { startTime: 'desc' } },
                     submissions: { include: { homework: { include: { subject: true } } }, orderBy: { submittedAt: 'desc' } }
                 }
@@ -44,7 +45,7 @@ export const getMyChildData = async (req: any, res: Response) => {
                         ]
                     },
                     include: {
-                        attendances: { orderBy: { scanTime: 'desc' }, take: 30 },
+                        attendances: { orderBy: { scanTime: 'desc' }, take: 300 },
                         examsTaken: { include: { exam: { include: { subject: true } } }, orderBy: { startTime: 'desc' } },
                         submissions: { include: { homework: { include: { subject: true } } }, orderBy: { submittedAt: 'desc' } }
                     }
@@ -64,7 +65,7 @@ export const getMyChildData = async (req: any, res: Response) => {
                         ]
                     },
                     include: {
-                        attendances: { orderBy: { scanTime: 'desc' }, take: 30 },
+                        attendances: { orderBy: { scanTime: 'desc' }, take: 300 },
                         examsTaken: { include: { exam: { include: { subject: true } } }, orderBy: { startTime: 'desc' } },
                         submissions: { include: { homework: { include: { subject: true } } }, orderBy: { submittedAt: 'desc' } }
                     }
@@ -77,11 +78,31 @@ export const getMyChildData = async (req: any, res: Response) => {
         }
 
         const allAtt = student.attendances || [];
-        const presentCount = allAtt.filter((a: any) => a.status === 'PRESENT').length;
-        const lateCount = allAtt.filter((a: any) => a.status === 'LATE').length;
-        const sickCount = allAtt.filter((a: any) => a.status === 'SICK').length;
-        const permissionCount = allAtt.filter((a: any) => a.status === 'PERMISSION').length;
-        const absentCount = allAtt.filter((a: any) => a.status === 'ABSENT').length;
+
+        // Agregasi Kehadiran per Hari (Sesuai Standar Rekapitulasi & Kalender Sekolah)
+        const groupedDays = new Map<string, any[]>();
+        allAtt.forEach((a: any) => {
+            const d = new Date(a.scanTime);
+            const dStr = d.toLocaleDateString('sv-SE', { timeZone: 'Asia/Jakarta' });
+            if (!groupedDays.has(dStr)) groupedDays.set(dStr, []);
+            groupedDays.get(dStr)!.push(a);
+        });
+
+        let presentCount = 0;
+        let lateCount = 0;
+        let sickCount = 0;
+        let permissionCount = 0;
+        let absentCount = 0;
+
+        for (const [_, recs] of groupedDays.entries()) {
+            if (recs.some((r: any) => r.status === 'SICK' || r.status === 'SAKIT')) sickCount++;
+            else if (recs.some((r: any) => r.status === 'PERMISSION' || r.status === 'IZIN')) permissionCount++;
+            else if (recs.some((r: any) => r.status === 'LATE' || r.status === 'TERLAMBAT')) lateCount++;
+            else if (recs.some((r: any) => r.status === 'ABSENT' || r.status === 'ALPA')) absentCount++;
+            else presentCount++;
+        }
+
+        const totalRecordedDays = groupedDays.size || Math.max(1, presentCount + lateCount + sickCount + permissionCount + absentCount);
 
         // Presensi Hari Ini (Datang jam berapa & Pulang jam berapa)
         const todayStart = new Date();
@@ -102,11 +123,11 @@ export const getMyChildData = async (req: any, res: Response) => {
         );
 
         const todayGateInTime = todayInAtt?.scanTime 
-            ? new Date(todayInAtt.scanTime).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WIB'
+            ? formatTimeWibWithSuffix(todayInAtt.scanTime)
             : '--:-- WIB';
 
         const todayGateOutTime = todayOutAtt?.scanTime
-            ? new Date(todayOutAtt.scanTime).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WIB'
+            ? formatTimeWibWithSuffix(todayOutAtt.scanTime)
             : '--:-- WIB';
 
         // Ambil pengaturan gate untuk mengetahui batas jam masuk
@@ -158,8 +179,8 @@ export const getMyChildData = async (req: any, res: Response) => {
                         studentId: student.id,
                         recipientRole: 'PARENT'
                     },
-                    orderBy: { id: 'desc' },
-                    take: 10
+                    orderBy: { sentAt: 'desc' },
+                    take: 20
                 });
             }
         } catch (notifErr) {
@@ -373,42 +394,47 @@ export const getMyChildData = async (req: any, res: Response) => {
             lateAnalytics,
             attendanceTrend,
             attendanceSummary: {
-                totalScans: allAtt.length || 30,
-                present: presentCount || 28,
-                late: lateCount || 1,
-                sick: sickCount || 1,
-                permission: permissionCount || 0,
-                absent: absentCount || 0,
-                percentPresent: `${((((presentCount || 28)) / (allAtt.length || 30)) * 100).toFixed(1)}%`,
-                percentLate: `${((((lateCount || 1)) / (allAtt.length || 30)) * 100).toFixed(1)}%`,
-                percentSick: `${((((sickCount || 1)) / (allAtt.length || 30)) * 100).toFixed(1)}%`,
-                percentPermission: `${((((permissionCount || 0)) / (allAtt.length || 30)) * 100).toFixed(1)}%`,
-                percentAbsent: `${((((absentCount || 0)) / (allAtt.length || 30)) * 100).toFixed(1)}%`,
-                percentTotalKehadiran: `${((((presentCount || 28) + (lateCount || 1)) / (allAtt.length || 30)) * 100).toFixed(1)}%`,
+                totalScans: totalRecordedDays,
+                present: presentCount,
+                late: lateCount,
+                sick: sickCount,
+                permission: permissionCount,
+                absent: absentCount,
+                percentPresent: `${((presentCount / totalRecordedDays) * 100).toFixed(1)}%`,
+                percentLate: `${((lateCount / totalRecordedDays) * 100).toFixed(1)}%`,
+                percentSick: `${((sickCount / totalRecordedDays) * 100).toFixed(1)}%`,
+                percentPermission: `${((permissionCount / totalRecordedDays) * 100).toFixed(1)}%`,
+                percentAbsent: `${((absentCount / totalRecordedDays) * 100).toFixed(1)}%`,
+                percentTotalKehadiran: `${(((presentCount + lateCount) / totalRecordedDays) * 100).toFixed(1)}%`,
                 trend: attendanceTrend
             },
             stats: {
-                present: presentCount || 28,
-                late: lateCount || 1,
-                sick: sickCount || 1,
-                permission: permissionCount || 0,
-                absent: absentCount || 0,
-                percentPresent: `${((((presentCount || 28)) / (allAtt.length || 30)) * 100).toFixed(1)}%`,
-                percentLate: `${((((lateCount || 1)) / (allAtt.length || 30)) * 100).toFixed(1)}%`,
-                percentSick: `${((((sickCount || 1)) / (allAtt.length || 30)) * 100).toFixed(1)}%`,
-                percentPermission: `${((((permissionCount || 0)) / (allAtt.length || 30)) * 100).toFixed(1)}%`,
-                percentAbsent: `${((((absentCount || 0)) / (allAtt.length || 30)) * 100).toFixed(1)}%`,
-                percentTotalKehadiran: `${((((presentCount || 28) + (lateCount || 1)) / (allAtt.length || 30)) * 100).toFixed(1)}%`
+                present: presentCount,
+                late: lateCount,
+                sick: sickCount,
+                permission: permissionCount,
+                absent: absentCount,
+                percentPresent: `${((presentCount / totalRecordedDays) * 100).toFixed(1)}%`,
+                percentLate: `${((lateCount / totalRecordedDays) * 100).toFixed(1)}%`,
+                percentSick: `${((sickCount / totalRecordedDays) * 100).toFixed(1)}%`,
+                percentPermission: `${((permissionCount / totalRecordedDays) * 100).toFixed(1)}%`,
+                percentAbsent: `${((absentCount / totalRecordedDays) * 100).toFixed(1)}%`,
+                percentTotalKehadiran: `${(((presentCount + lateCount) / totalRecordedDays) * 100).toFixed(1)}%`
             },
             academicGrowth,
             recentAttendances: allAtt,
-            attendances: allAtt.map((a: any) => ({
-                id: a.id,
-                type: a.type,
-                status: a.status,
-                scanTime: a.scanTime ? new Date(a.scanTime).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ' WIB' : '-',
-                note: a.note
-            })),
+            attendances: allAtt.slice(0, 50).map((a: any) => {
+                const datePart = a.scanTime ? formatDateWibShort(a.scanTime) : '-';
+                const timePart = a.scanTime ? formatTimeWib(a.scanTime) : '-';
+                return {
+                    id: a.id,
+                    type: a.type,
+                    status: a.status,
+                    scanTime: `${datePart} ${timePart} WIB`,
+                    rawScanTime: a.scanTime,
+                    note: a.note
+                };
+            }),
             todayAttendance: {
                 status: todayStatus,
                 gateInTime: todayGateInTime,
@@ -441,18 +467,51 @@ export const getParentChildren = async (req: any, res: Response) => {
     try {
         const currentUser = req.user;
         let children: any[] = [];
+        const seenIds = new Set<string>();
 
         if (currentUser.role === 'STUDENT') {
             const student = await prisma.user.findUnique({
                 where: { id: currentUser.id },
-                select: { id: true, name: true, username: true, nisn: true, className: true, gender: true }
+                select: { id: true, name: true, username: true, nisn: true, className: true, gender: true, profilePicUrl: true }
             });
             if (student) children = [student];
         } else {
+            // 1. Ambil relasi anak dari tabel relasi ParentAccountProfile & ParentStudentLink
+            try {
+                const profile = await (prisma as any).parentAccountProfile.findUnique({
+                    where: { userId: currentUser.id },
+                    include: {
+                        students: true
+                    }
+                });
+
+                if (profile && profile.students && profile.students.length > 0) {
+                    const linkedStudentIds = profile.students.map((s: any) => s.siswaId);
+                    const linkedStudents = await prisma.user.findMany({
+                        where: { id: { in: linkedStudentIds }, role: 'STUDENT', isActive: true },
+                        select: { id: true, name: true, username: true, nisn: true, className: true, gender: true, motherName: true, fatherName: true, profilePicUrl: true }
+                    });
+
+                    for (const ls of linkedStudents) {
+                        const linkInfo = profile.students.find((s: any) => s.siswaId === ls.id);
+                        seenIds.add(ls.id);
+                        children.push({
+                            ...ls,
+                            relasi: linkInfo?.relasiKeSiswa || 'ANAK_KANDUNG',
+                            isDirectLinked: true
+                        });
+                    }
+                }
+            } catch (linkErr) {
+                console.warn('ParentStudentLink check warning:', linkErr);
+            }
+
+            // 2. Ambil relasi anak dari pencocokan NISN (P[NISN]), nomor telepon ortu, atau nama ayah/ibu
             const nisnFromUsername = currentUser.username.replace(/^[Pp]/, '').trim();
-            children = await prisma.user.findMany({
+            const fallbackStudents = await prisma.user.findMany({
                 where: {
                     role: 'STUDENT',
+                    isActive: true,
                     OR: [
                         { nisn: nisnFromUsername },
                         { username: nisnFromUsername },
@@ -462,11 +521,23 @@ export const getParentChildren = async (req: any, res: Response) => {
                         { motherName: currentUser.name }
                     ]
                 },
-                select: { id: true, name: true, username: true, nisn: true, className: true, gender: true, motherName: true }
+                select: { id: true, name: true, username: true, nisn: true, className: true, gender: true, motherName: true, fatherName: true, profilePicUrl: true }
             });
+
+            for (const fs of fallbackStudents) {
+                if (!seenIds.has(fs.id)) {
+                    seenIds.add(fs.id);
+                    children.push({
+                        ...fs,
+                        relasi: 'ANAK_KANDUNG',
+                        isDirectLinked: false
+                    });
+                }
+            }
         }
 
         res.json({
+            success: true,
             count: children.length,
             children
         });
@@ -476,20 +547,192 @@ export const getParentChildren = async (req: any, res: Response) => {
     }
 };
 
+/**
+ * Menghubungkan anak baru ke akun Orang Tua (Multi-Child)
+ * POST /api/parent/link-child
+ * Body: { studentId, nisn, relasiKeSiswa }
+ */
+export const linkParentChild = async (req: any, res: Response) => {
+    try {
+        const currentUser = req.user;
+        const { studentId, nisn, relasiKeSiswa = 'ANAK_KANDUNG' } = req.body;
+
+        if (!currentUser) {
+            return res.status(401).json({ success: false, message: 'Autentikasi login diperlukan.' });
+        }
+
+        const targetIdentifier = studentId || nisn;
+        if (!targetIdentifier) {
+            return res.status(400).json({ success: false, message: 'studentId atau NISN anak wajib disertakan.' });
+        }
+
+        // Cari data siswa
+        const student = await prisma.user.findFirst({
+            where: {
+                role: 'STUDENT',
+                OR: [
+                    { id: String(targetIdentifier) },
+                    { nisn: String(targetIdentifier) },
+                    { username: String(targetIdentifier) }
+                ]
+            }
+        });
+
+        if (!student) {
+            return res.status(404).json({ success: false, message: 'Data siswa anak tidak ditemukan.' });
+        }
+
+        // VALIDASI KEPEMILIKAN / HUBUNGAN KELUARGA (Anti-IDOR Shield):
+        // Pastikan nomor telepon ortu, nama ayah, nama ibu, atau NISN cocok dengan akun orang tua yang login!
+        const cleanParentPhone = (currentUser.username || '').replace(/\D/g, '');
+        const cleanStudentParentPhone = (student.parentPhone || '').replace(/\D/g, '');
+        const cleanNisn = (currentUser.username || '').replace(/^[Pp]/, '').trim();
+
+        const isPhoneMatch = Boolean(cleanParentPhone && cleanStudentParentPhone && (cleanParentPhone === cleanStudentParentPhone || cleanParentPhone.endsWith(cleanStudentParentPhone) || cleanStudentParentPhone.endsWith(cleanParentPhone)));
+        const isNisnMatch = Boolean(cleanNisn && (student.nisn === cleanNisn || student.username === cleanNisn || (currentUser.nisn && student.nisn === currentUser.nisn)));
+        const isParentNameMatch = Boolean(
+            (student.fatherName && currentUser.name && student.fatherName.trim().toLowerCase() === currentUser.name.trim().toLowerCase()) ||
+            (student.motherName && currentUser.name && student.motherName.trim().toLowerCase() === currentUser.name.trim().toLowerCase())
+        );
+
+        if (currentUser.role !== 'ADMIN' && currentUser.role !== 'OPERATOR' && !isPhoneMatch && !isNisnMatch && !isParentNameMatch) {
+            return res.status(403).json({
+                success: false,
+                message: 'Verifikasi identitas gagal: Data siswa tidak cocok dengan nomor telepon, NISN terdaftar, atau nama orang tua pada akun Anda. Hubungi pihak sekolah jika terdapat ketidaksesuaian data.'
+            });
+        }
+
+        // Pastikan ParentAccountProfile ada
+        const profile = await (prisma as any).parentAccountProfile.upsert({
+            where: { userId: currentUser.id },
+            create: {
+                userId: currentUser.id,
+                namaLengkap: currentUser.name,
+                nomorTelepon: currentUser.username
+            },
+            update: {}
+        });
+
+        // Hubungkan siswa di ParentStudentLink
+        const link = await (prisma as any).parentStudentLink.upsert({
+            where: {
+                id: `${profile.id}_${student.id}`
+            },
+            create: {
+                id: `${profile.id}_${student.id}`,
+                orangTuaId: profile.id,
+                siswaId: student.id,
+                relasiKeSiswa: relasiKeSiswa || 'ANAK_KANDUNG'
+            },
+            update: {
+                relasiKeSiswa: relasiKeSiswa || 'ANAK_KANDUNG'
+            }
+        }).catch(async () => {
+            // Fallback jika id composite tidak didukung
+            return (prisma as any).parentStudentLink.create({
+                data: {
+                    orangTuaId: profile.id,
+                    siswaId: student.id,
+                    relasiKeSiswa: relasiKeSiswa || 'ANAK_KANDUNG'
+                }
+            });
+        });
+
+        res.json({
+            success: true,
+            message: `✅ Berhasil menghubungkan Ananda ${student.name} (${student.className || '-'}) ke akun Anda.`,
+            link,
+            child: {
+                id: student.id,
+                name: student.name,
+                nisn: student.nisn,
+                className: student.className
+            }
+        });
+    } catch (error: any) {
+        console.error('Error linking parent child:', error);
+        res.status(500).json({ success: false, message: 'Gagal menghubungkan anak: ' + error.message });
+    }
+};
+
+/**
+ * Memutuskan relasi anak dari akun Orang Tua
+ * DELETE /api/parent/unlink-child/:studentId
+ */
+export const unlinkParentChild = async (req: any, res: Response) => {
+    try {
+        const currentUser = req.user;
+        const studentId = req.params.studentId || req.body.studentId;
+
+        const profile = await (prisma as any).parentAccountProfile.findUnique({
+            where: { userId: currentUser.id }
+        });
+
+        if (!profile) {
+            return res.status(404).json({ success: false, message: 'Profil orang tua belum terdaftar.' });
+        }
+
+        await (prisma as any).parentStudentLink.deleteMany({
+            where: {
+                orangTuaId: profile.id,
+                siswaId: String(studentId)
+            }
+        });
+
+        res.json({
+            success: true,
+            message: 'Relasi anak berhasil diputuskan dari akun.'
+        });
+    } catch (error: any) {
+        console.error('Error unlinking parent child:', error);
+        res.status(500).json({ success: false, message: 'Gagal memutuskan relasi anak' });
+    }
+};
+
 export const getParentNotifications = async (req: any, res: Response) => {
     try {
         const currentUser = req.user;
-        const studentId = req.query.studentId;
+        let studentId = req.query.studentId;
 
-        let whereCondition: any = {};
-        if (studentId) {
-            whereCondition.studentId = String(studentId);
-        } else if (currentUser && currentUser.role === 'STUDENT') {
-            whereCondition.studentId = currentUser.id;
+        if (!studentId && currentUser) {
+            if (currentUser.role === 'STUDENT') {
+                studentId = currentUser.id;
+            } else if (currentUser.role === 'PARENT') {
+                const nisnFromUsername = currentUser.username.replace(/^[Pp]/, '').trim();
+                const linkedStudent = await prisma.user.findFirst({
+                    where: {
+                        role: 'STUDENT',
+                        OR: [
+                            { nisn: nisnFromUsername },
+                            { username: nisnFromUsername },
+                            { parentPhone: currentUser.username },
+                            { fatherName: currentUser.name },
+                            { motherName: currentUser.name },
+                            ...(currentUser.nisn ? [{ nisn: currentUser.nisn }] : [])
+                        ]
+                    },
+                    select: { id: true }
+                });
+                if (linkedStudent) {
+                    studentId = linkedStudent.id;
+                }
+            }
+        }
+
+        if (!studentId) {
+            res.json({
+                success: true,
+                count: 0,
+                notifications: []
+            });
+            return;
         }
 
         const notifications = await prisma.notificationMessage.findMany({
-            where: whereCondition,
+            where: {
+                studentId: String(studentId),
+                recipientRole: { in: ['PARENT', 'ALL'] }
+            },
             orderBy: { sentAt: 'desc' },
             take: 50
         });
@@ -507,11 +750,13 @@ export const getParentNotifications = async (req: any, res: Response) => {
 
 export const markNotificationAsRead = async (req: Request, res: Response) => {
     try {
-        const id = req.params.id as string;
-        await prisma.notificationMessage.update({
-            where: { id },
-            data: { isRead: true }
-        });
+        const id = (req.params.id || req.body.id || req.query.id) as string;
+        if (id) {
+            await (prisma as any).notificationMessage.updateMany({
+                where: { id },
+                data: { isRead: true }
+            });
+        }
         res.json({ success: true, message: 'Notifikasi ditandai telah dibaca' });
     } catch (error) {
         res.status(500).json({ message: 'Gagal memperbarui notifikasi' });

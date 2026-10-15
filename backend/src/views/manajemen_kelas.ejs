@@ -433,11 +433,20 @@
                 const lngVal = parseCoord(k.lng, SMP_DEFAULT_LNG).toFixed(6);
                 const radiusVal = k.radiusMeters || 10;
 
+                let officerPill = '';
+                if (k.officers && (k.officers.ketuaName || k.officers.wakilName)) {
+                    const ketua = k.officers.ketuaName ? k.officers.ketuaName.split(' ').slice(0, 2).join(' ') : '-';
+                    officerPill = `<div class="mt-1"><span class="inline-flex items-center gap-1 bg-purple-50 text-purple-700 border border-purple-200 text-[10.5px] font-bold px-2 py-0.5 rounded-md" title="Ketua: ${k.officers.ketuaName || '-'} | Wakil: ${k.officers.wakilName || '-'}">👥 Ketua: ${ketua}</span></div>`;
+                } else {
+                    officerPill = `<div class="mt-1"><span class="inline-flex items-center gap-1 text-slate-400 text-[10px] italic">Pengurus belum diplot</span></div>`;
+                }
+
                 tbody.innerHTML += `
                     <tr class="hover:bg-blue-50/50 border-b">
                         <td class="p-4">
                             <span class="font-bold text-blue-900 text-lg block">${k.nama}</span>
                             <span class="text-[11px] font-mono text-gray-400">ID: ${k.id ? k.id.substring(0,8) + '...' : '-'}</span>
+                            ${officerPill}
                         </td>
                         <td class="p-4"><span class="bg-gray-200 text-gray-800 px-2.5 py-1 rounded-xs font-bold">${k.tingkat || '-'}</span></td>
                         <td class="p-4 text-sm">${waliName}</td>

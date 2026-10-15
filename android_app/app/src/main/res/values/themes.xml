@@ -1,25 +1,39 @@
-<resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- Base application theme: Light theme with elegant blue nuance & pure white background -->
-    <style name="Theme.SmartCBT" parent="Theme.MaterialComponents.Light.NoActionBar">
-        <!-- Primary brand color: Elegant Royal Blue -->
-        <item name="colorPrimary">#0D47A1</item>
-        <item name="colorPrimaryVariant">#0A2E5C</item>
-        <item name="colorOnPrimary">#FFFFFF</item>
-        <!-- Secondary brand color: Cyan / Light Blue accent -->
-        <item name="colorSecondary">#0284C7</item>
-        <item name="colorSecondaryVariant">#0369A1</item>
-        <item name="colorOnSecondary">#FFFFFF</item>
-        <!-- Backgrounds: Pure White to prevent dark mode inversion -->
-        <item name="android:windowBackground">#FFFFFF</item>
-        <item name="android:colorBackground">#FFFFFF</item>
-        <item name="android:forceDarkAllowed" tools:targetApi="q">false</item>
-        <!-- Status bar color -->
-        <item name="android:statusBarColor">#FFFFFF</item>
-        <item name="android:windowLightStatusBar">true</item>
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base Material 3 Theme -->
+    <style name="Theme.SmartCBT" parent="Theme.Material3.DayNight.NoActionBar">
+        <!-- Shared colors -->
+        <item name="android:colorBackground">@color/colorBackgroundLight</item>
+        <item name="colorSurface">@color/colorSurfaceLight</item>
+        <item name="colorError">@color/colorError</item>
+        <item name="colorOnError">@color/colorOnError</item>
+        <!-- Typography, shapes, etc. inherit defaults from Material3 -->
     </style>
 
-    <style name="Theme.SmartCBT.NoActionBar" parent="Theme.SmartCBT">
-        <item name="windowActionBar">false</item>
-        <item name="windowNoTitle">true</item>
+    <style name="Theme.SmartCBT.NoActionBar" parent="Theme.SmartCBT" />
+
+    <!-- Role‑specific overlay themes -->
+    <style name="Theme.SmartCBT.Teacher" parent="Theme.SmartCBT">
+        <item name="colorPrimary">@color/colorPrimaryTeacher</item>
+        <item name="colorSecondary">@color/colorSecondaryTeacher</item>
+        <item name="colorOnPrimary">@color/colorOnPrimaryTeacher</item>
+    </style>
+
+    <style name="Theme.SmartCBT.Student" parent="Theme.SmartCBT">
+        <item name="colorPrimary">@color/colorPrimaryStudent</item>
+        <item name="colorSecondary">@color/colorSecondaryStudent</item>
+        <item name="colorOnPrimary">@color/colorOnPrimaryStudent</item>
+    </style>
+
+    <style name="Theme.SmartCBT.Parent" parent="Theme.SmartCBT">
+        <item name="colorPrimary">@color/colorPrimaryParent</item>
+        <item name="colorSecondary">@color/colorSecondaryParent</item>
+        <item name="colorOnPrimary">@color/colorOnPrimaryParent</item>
+    </style>
+
+    <style name="Theme.SmartCBT.Admin" parent="Theme.SmartCBT">
+        <item name="colorPrimary">@color/colorPrimaryAdmin</item>
+        <item name="colorSecondary">@color/colorSecondaryAdmin</item>
+        <item name="colorOnPrimary">@color/colorOnPrimaryAdmin</item>
     </style>
 </resources>

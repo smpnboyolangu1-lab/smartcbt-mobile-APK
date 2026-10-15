@@ -464,7 +464,7 @@ export const getTeachers = async (req: Request, res: Response) => {
     try {
         // Ambil data guru dari database lokal Prisma (CBT & Piket)
         const localTeachers = await prisma.user.findMany({
-            where: { role: 'TEACHER' },
+            where: { role: { in: ['TEACHER', 'COUNSELOR', 'KURIKULUM', 'GURU'] } },
             orderBy: { name: 'asc' },
             select: {
                 id: true,
@@ -472,22 +472,44 @@ export const getTeachers = async (req: Request, res: Response) => {
                 username: true,
                 teachingSubject: true,
                 teachingClasses: true,
-                role: true
+                role: true,
+                isBk: true,
+                tugasTambahan: true,
+                rolesTambahan: true,
+                className: true,
+                parentPhone: true,
+                address: true
             }
         });
 
         if (localTeachers && localTeachers.length > 0) {
-            const normalized = localTeachers.map(teacher => ({
-                id: teacher.id,
-                name: teacher.name,
-                nama: teacher.name,
-                username: teacher.username,
-                nip: teacher.username,
-                teachingSubject: teacher.teachingSubject || '-',
-                teachingClasses: teacher.teachingClasses || '-',
-                role: teacher.role,
-                wali_kelas: null
-            }));
+            const normalized = localTeachers.map(teacher => {
+                const roleUpper = (teacher.role || '').toUpperCase();
+                const tTambahan = ((teacher as any).tugasTambahan || '').toUpperCase();
+                const rTambahan = ((teacher as any).rolesTambahan || '').toLowerCase();
+                const isBk = roleUpper === 'COUNSELOR' || (teacher as any).isBk === true || tTambahan.includes('BK') || rTambahan.includes('bk');
+                const isKurikulum = roleUpper === 'KURIKULUM' || tTambahan.includes('KURIKULUM') || rTambahan.includes('kurikulum');
+
+                return {
+                    id: teacher.id,
+                    name: teacher.name,
+                    nama: teacher.name,
+                    username: teacher.username,
+                    nip: teacher.username,
+                    teachingSubject: teacher.teachingSubject || '-',
+                    mata_pelajaran: teacher.teachingSubject || '-',
+                    teachingClasses: teacher.teachingClasses || '-',
+                    kelas_ajar: teacher.teachingClasses || '-',
+                    no_hp: teacher.parentPhone || '-',
+                    alamat: teacher.address || '-',
+                    role: teacher.role,
+                    isBk,
+                    isKurikulum,
+                    tugasTambahan: (teacher as any).tugasTambahan,
+                    rolesTambahan: (teacher as any).rolesTambahan,
+                    wali_kelas: teacher.className ? { id: teacher.className, nama: teacher.className } : null
+                };
+            });
             return res.json(normalized);
         }
 
@@ -525,56 +547,177 @@ export const getTeachers = async (req: Request, res: Response) => {
 };
 
 export const createTeacher = async (req: Request, res: Response) => {
-    const { nip, nama, mata_pelajaran, no_hp, alamat, kelas_ajar, classId } = req.body;
+    const { nip, nama, mata_pelajaran, no_hp, alamat, kelas_ajar, classId, isBk, isKurikulum } = req.body;
     try {
-        const { data, error } = await supabase.from('guru').insert([
-            {
-                nip: nip || `GURU-${Math.floor(100000 + Math.random() * 900000)}`,
-                nama,
-                mata_pelajaran: mata_pelajaran || '',
-                no_hp: no_hp || '',
-                alamat: alamat || '',
-                kelas_ajar: kelas_ajar || ''
-            }
-        ]).select().single();
-
-        if (error) throw error;
-
-        if (classId && data) {
-            await supabase.from('kelas').update({ wali_kelas_id: data.id }).eq('id', classId);
+        const finalNip = nip || `GURU-${Math.floor(100000 + Math.random() * 900000)}`;
+        let assignedClassName: string | null = null;
+        if (classId) {
+            const targetClass = await prisma.class.findFirst({ where: { OR: [{ id: String(classId) }, { name: String(classId) }] } });
+            if (targetClass) assignedClassName = targetClass.name;
         }
 
-        res.json({ message: 'Guru berhasil ditambahkan ke Supabase', teacher: data });
+        // Sinkronisasi prioritas ke akun lokal Prisma (CBT SQLite)
+        const rolesArr: string[] = [];
+        const tugasArr: string[] = [];
+        if (isKurikulum) {
+            rolesArr.push('kurikulum');
+            tugasArr.push('KURIKULUM');
+        }
+        if (isBk) {
+            rolesArr.push('bk');
+            tugasArr.push('BK');
+        }
+        const normalizedRole = isBk ? 'COUNSELOR' : (isKurikulum ? 'KURIKULUM' : 'TEACHER');
+        const defaultPass = await bcrypt.hash('password123', 10);
+
+        const prismaUser = await prisma.user.upsert({
+            where: { username: finalNip },
+            update: {
+                name: nama,
+                teachingSubject: mata_pelajaran || '',
+                teachingClasses: kelas_ajar || '',
+                className: assignedClassName,
+                classId: classId ? String(classId) : null,
+                parentPhone: no_hp || null,
+                address: alamat || null,
+                isBk: Boolean(isBk),
+                role: normalizedRole,
+                rolesTambahan: rolesArr.length > 0 ? JSON.stringify(rolesArr) : null,
+                tugasTambahan: tugasArr.length > 0 ? tugasArr.join(',') : null
+            },
+            create: {
+                username: finalNip,
+                name: nama,
+                password: defaultPass,
+                role: normalizedRole,
+                isBk: Boolean(isBk),
+                teachingSubject: mata_pelajaran || '',
+                teachingClasses: kelas_ajar || '',
+                className: assignedClassName,
+                classId: classId ? String(classId) : null,
+                parentPhone: no_hp || null,
+                address: alamat || null,
+                rolesTambahan: rolesArr.length > 0 ? JSON.stringify(rolesArr) : null,
+                tugasTambahan: tugasArr.length > 0 ? tugasArr.join(',') : null,
+                isActive: true
+            }
+        });
+
+        // Sinkronisasi opsional ke Supabase (tidak boleh memblokir jika offline/error)
+        let sbData = null;
+        try {
+            const { data, error } = await supabase.from('guru').insert([
+                {
+                    nip: finalNip,
+                    nama,
+                    mata_pelajaran: mata_pelajaran || '',
+                    no_hp: no_hp || '',
+                    alamat: alamat || '',
+                    kelas_ajar: kelas_ajar || ''
+                }
+            ]).select().maybeSingle();
+
+            if (!error && data) {
+                sbData = data;
+                if (classId) {
+                    await supabase.from('kelas').update({ wali_kelas_id: data.id }).eq('id', classId);
+                }
+            }
+        } catch (sbErr) {
+            console.warn('Supabase sync createTeacher error ignored:', sbErr);
+        }
+
+        res.json({ message: 'Guru berhasil ditambahkan dan disinkronkan ke sistem', teacher: prismaUser });
     } catch (error) {
         console.error('Error creating teacher:', error);
-        res.status(500).json({ message: 'Gagal menambah guru ke Supabase.' });
+        res.status(500).json({ message: 'Gagal menambah data guru.' });
     }
 };
 
 export const updateTeacher = async (req: Request, res: Response) => {
     const { id } = req.params;
-    const { nip, nama, mata_pelajaran, no_hp, alamat, kelas_ajar, classId } = req.body;
+    const { nip, nama, mata_pelajaran, no_hp, alamat, kelas_ajar, classId, isBk, isKurikulum } = req.body;
     try {
-        const { data, error } = await supabase.from('guru').update({
-            nip,
-            nama,
-            mata_pelajaran: mata_pelajaran || '',
-            no_hp: no_hp || '',
-            alamat: alamat || '',
-            kelas_ajar: kelas_ajar || ''
-        }).eq('id', id).select().single();
-
-        if (error) throw error;
-
-        // Reset previous wali kelas assignment for this teacher
-        await supabase.from('kelas').update({ wali_kelas_id: null }).eq('wali_kelas_id', id);
-
-        // Assign new class if provided
-        if (classId) {
-            await supabase.from('kelas').update({ wali_kelas_id: id }).eq('id', classId);
+        const teacherId = String(id);
+        const targetClassId = classId ? String(classId) : null;
+        let assignedClassName: string | null = null;
+        if (targetClassId) {
+            const targetClass = await prisma.class.findFirst({ where: { OR: [{ id: targetClassId }, { name: targetClassId }] } });
+            if (targetClass) assignedClassName = targetClass.name;
         }
 
-        res.json({ message: 'Data guru berhasil diperbarui', teacher: data });
+        // 1. Ambil & Update data user di database lokal Prisma SQLite terlebih dahulu
+        let existingUser = await prisma.user.findFirst({
+            where: { OR: [{ id: teacherId }, { username: String(nip || teacherId) }] }
+        });
+
+        let updatedPrismaUser = null;
+        if (existingUser) {
+            let rolesArr: string[] = [];
+            try {
+                if (existingUser.rolesTambahan) rolesArr = JSON.parse(existingUser.rolesTambahan);
+            } catch(e) {}
+
+            if (isKurikulum === true && !rolesArr.includes('kurikulum')) rolesArr.push('kurikulum');
+            if (isKurikulum === false) rolesArr = rolesArr.filter(r => r !== 'kurikulum');
+            if (isBk === true && !rolesArr.includes('bk')) rolesArr.push('bk');
+            if (isBk === false) rolesArr = rolesArr.filter(r => r !== 'bk');
+
+            let currentTugas = existingUser.tugasTambahan ? existingUser.tugasTambahan.split(',').map((s: string) => s.trim()) : [];
+            if (isKurikulum === true && !currentTugas.includes('KURIKULUM')) currentTugas.push('KURIKULUM');
+            if (isKurikulum === false) currentTugas = currentTugas.filter((s: string) => s !== 'KURIKULUM');
+            if (isBk === true && !currentTugas.includes('BK')) currentTugas.push('BK');
+            if (isBk === false) currentTugas = currentTugas.filter((s: string) => s !== 'BK');
+
+            const newRole = isBk ? 'COUNSELOR' : (isKurikulum && existingUser.role === 'TEACHER' ? 'KURIKULUM' : existingUser.role);
+
+            updatedPrismaUser = await prisma.user.update({
+                where: { id: existingUser.id },
+                data: {
+                    username: nip || existingUser.username,
+                    name: nama || existingUser.name,
+                    teachingSubject: mata_pelajaran !== undefined ? mata_pelajaran : existingUser.teachingSubject,
+                    teachingClasses: kelas_ajar !== undefined ? kelas_ajar : existingUser.teachingClasses,
+                    className: assignedClassName !== undefined ? assignedClassName : existingUser.className,
+                    classId: targetClassId || existingUser.classId,
+                    parentPhone: no_hp !== undefined ? no_hp : existingUser.parentPhone,
+                    address: alamat !== undefined ? alamat : existingUser.address,
+                    role: newRole,
+                    isBk: typeof isBk === 'boolean' ? isBk : existingUser.isBk,
+                    rolesTambahan: JSON.stringify(rolesArr),
+                    tugasTambahan: currentTugas.length > 0 ? currentTugas.join(',') : null
+                }
+            });
+        }
+
+        // 2. Sinkronkan ke Supabase (dalam try-catch agar kegagalan Supabase tidak memblokir simpan)
+        let sbData = null;
+        try {
+            const { data: sbRes, error: sbErr } = await supabase.from('guru').update({
+                nip: nip || existingUser?.username,
+                nama: nama || existingUser?.name,
+                mata_pelajaran: mata_pelajaran || '',
+                no_hp: no_hp || '',
+                alamat: alamat || '',
+                kelas_ajar: kelas_ajar || ''
+            }).or(`id.eq.${id},nip.eq.${nip || existingUser?.username}`).select().maybeSingle();
+            sbData = sbRes;
+
+            if (sbData?.id) {
+                await supabase.from('kelas').update({ wali_kelas_id: null }).eq('wali_kelas_id', sbData.id);
+                if (targetClassId) {
+                    await supabase.from('kelas').update({ wali_kelas_id: sbData.id }).eq('id', targetClassId);
+                }
+            }
+        } catch (sbError) {
+            console.warn('Supabase sync updateTeacher ignored error:', sbError);
+        }
+
+        return res.json({
+            success: true,
+            message: 'Data guru berhasil diperbarui dan disinkronkan',
+            teacher: updatedPrismaUser || sbData || { id, nama, nip }
+        });
     } catch (error) {
         console.error('Error updating teacher:', error);
         res.status(500).json({ message: 'Gagal memperbarui data guru.' });

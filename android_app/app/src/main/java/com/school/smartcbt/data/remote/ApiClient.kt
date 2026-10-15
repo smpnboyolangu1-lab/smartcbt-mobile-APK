@@ -34,14 +34,14 @@ object ApiClient {
     fun getBaseServerUrl(context: Context): String {
         val sessionManager = SessionManager(context)
         var serverIp = sessionManager.getServerIp().trim()
-        if (serverIp.contains("localhost") || serverIp.contains("127.0.0.1")) {
-            val hostReplacement = if (sessionManager.isOutsideSchoolOrCellular()) "cbt.smpn1boyolangu.my.id" else "192.168.101.46"
-            serverIp = serverIp.replace("localhost", hostReplacement).replace("127.0.0.1", hostReplacement)
+        if (serverIp.contains("localhost") || serverIp.contains("127.0.0.1") || serverIp.contains("192.168.101.46")) {
+            serverIp = SessionManager.ONLINE_SERVER_URL
+            sessionManager.setServerIp(SessionManager.ONLINE_SERVER_URL)
         }
         val baseUrl = if (serverIp.startsWith("http://") || serverIp.startsWith("https://")) {
             serverIp
         } else {
-            "http://$serverIp"
+            "https://$serverIp"
         }
         return baseUrl.trimEnd('/')
     }
@@ -73,7 +73,9 @@ object ApiClient {
                         }
                         requestBuilder.header("Accept", "application/json")
                         requestBuilder.header("X-Client-Type", "SmartSchool-ExamBrowser")
-                        requestBuilder.header("User-Agent", "SmartSchool-ExamBrowser/2.8.58 (Android; Linux)")
+                        requestBuilder.header("User-Agent", "SmartSchool-ExamBrowser/${com.school.smartcbt.BuildConfig.VERSION_NAME} (Android; Linux)")
+                        requestBuilder.header("X-Device-Id", sessionManager.getDeviceId())
+                        requestBuilder.header("X-App-Version", com.school.smartcbt.BuildConfig.VERSION_NAME)
                         chain.proceed(requestBuilder.build())
                     }
 
@@ -111,7 +113,9 @@ object ApiClient {
                                     .post(requestBody)
                                     .header("Accept", "application/json")
                                     .header("X-Client-Type", "SmartSchool-ExamBrowser")
-                                    .header("User-Agent", "SmartSchool-ExamBrowser/2.8.58 (Android; Linux)")
+                                    .header("User-Agent", "SmartSchool-ExamBrowser/${com.school.smartcbt.BuildConfig.VERSION_NAME} (Android; Linux)")
+                                    .header("X-Device-Id", sessionManager.getDeviceId())
+                                    .header("X-App-Version", com.school.smartcbt.BuildConfig.VERSION_NAME)
                                     .build()
 
                                 val rawClient = OkHttpClient.Builder()
@@ -131,6 +135,16 @@ object ApiClient {
                                             .header("Authorization", "Bearer $newToken")
                                             .build()
                                     }
+                                } else if (refreshResponse.code() in listOf(401, 403)) {
+                                    // Refresh token invalid atau expired di server.
+                                    // Kosongkan refresh token agar tidak terjadi loop penolakan ribuan kali.
+                                    sessionManager.saveRefreshToken("")
+                                    com.school.smartcbt.utils.ClientLogger.logAuth(
+                                        context = context.applicationContext,
+                                        action = "REFRESH_TOKEN",
+                                        outcome = "REJECTED",
+                                        message = "Sesi login kedaluwarsa (HTTP ${refreshResponse.code()}). Refresh token dinonaktifkan."
+                                    )
                                 }
                             } catch (e: Exception) {
                                 e.printStackTrace()
@@ -145,49 +159,31 @@ object ApiClient {
                             val response = chain.proceed(request)
                             // Jika response server gateway error 502/503/504
                             if (response.code() in listOf(502, 503, 504)) {
-                                val isOutside = sessionManager.isOutsideSchoolOrCellular()
-                                if (!isOutside) {
-                                    val nextCandidate = sessionManager.rotateToNextServer()
-                                    // JANGAN rotasi ke 192.168.101.46 jika di luar sekolah
-                                    if (!nextCandidate.contains("192.168.101.46")) {
-                                        resetClient()
-                                        val nextHttpUrl = okhttp3.HttpUrl.parse(nextCandidate)
-                                        if (nextHttpUrl != null) {
-                                            val newUrl = request.url().newBuilder()
-                                                .scheme(nextHttpUrl.scheme())
-                                                .host(nextHttpUrl.host())
-                                                .port(nextHttpUrl.port())
-                                                .build()
-                                            response.close()
-                                            return@Interceptor chain.proceed(request.newBuilder().url(newUrl).build())
-                                        }
-                                    }
-                                }
-                                // Pastikan fallback hanya ke domain resmi yang valid
                                 sessionManager.setServerIp(SessionManager.ONLINE_SERVER_URL)
+                                val onlineUrl = okhttp3.HttpUrl.parse(SessionManager.ONLINE_SERVER_URL)
+                                if (onlineUrl != null && request.url().host() != onlineUrl.host()) {
+                                    val newUrl = request.url().newBuilder()
+                                        .scheme(onlineUrl.scheme())
+                                        .host(onlineUrl.host())
+                                        .port(onlineUrl.port())
+                                        .build()
+                                    response.close()
+                                    return@Interceptor chain.proceed(request.newBuilder().url(newUrl).build())
+                                }
                             }
                             response
                         } catch (e: java.io.IOException) {
                             android.util.Log.w("ApiClient", "Network error on ${request.url()}: ${e.message}")
-                            val isOutside = sessionManager.isOutsideSchoolOrCellular()
-                            // JANGAN rotasi ke 192.168.101.46 jika user sedang berada di jaringan internet publik/seluler atau host tidak dapat dihubungi
-                            if (!isOutside) {
-                                val nextCandidate = sessionManager.rotateToNextServer()
-                                if (!nextCandidate.contains("192.168.101.46")) {
-                                    resetClient()
-                                    val nextHttpUrl = okhttp3.HttpUrl.parse(nextCandidate)
-                                    if (nextHttpUrl != null) {
-                                        val newUrl = request.url().newBuilder()
-                                            .scheme(nextHttpUrl.scheme())
-                                            .host(nextHttpUrl.host())
-                                            .port(nextHttpUrl.port())
-                                            .build()
-                                        return@Interceptor chain.proceed(request.newBuilder().url(newUrl).build())
-                                    }
-                                }
-                            }
-                            // Pastikan fallback hanya ke domain resmi yang valid
                             sessionManager.setServerIp(SessionManager.ONLINE_SERVER_URL)
+                            val onlineUrl = okhttp3.HttpUrl.parse(SessionManager.ONLINE_SERVER_URL)
+                            if (onlineUrl != null && request.url().host() != onlineUrl.host()) {
+                                val newUrl = request.url().newBuilder()
+                                    .scheme(onlineUrl.scheme())
+                                    .host(onlineUrl.host())
+                                    .port(onlineUrl.port())
+                                    .build()
+                                return@Interceptor chain.proceed(request.newBuilder().url(newUrl).build())
+                            }
                             throw e
                         }
                     }
@@ -213,14 +209,22 @@ object ApiClient {
                     }
 
                     val okHttpClient = OkHttpClient.Builder()
+                        .dns(object : okhttp3.Dns {
+                            override fun lookup(hostname: String): List<java.net.InetAddress> {
+                                val addresses = okhttp3.Dns.SYSTEM.lookup(hostname)
+                                // Prioritaskan alamat IPv4 untuk mencegah delay/timeout IPv6 pada operator seluler Indonesia
+                                return addresses.sortedBy { if (it is java.net.Inet4Address) 0 else 1 }
+                            }
+                        })
                         .addInterceptor(failoverInterceptor)
                         .addInterceptor(authInterceptor)
                         .addInterceptor(authErrorInterceptor)
                         .authenticator(tokenAuthenticator)
-                        .connectionPool(okhttp3.ConnectionPool(10, 2, TimeUnit.MINUTES))
-                        .connectTimeout(45, TimeUnit.SECONDS)
-                        .readTimeout(120, TimeUnit.SECONDS)
-                        .writeTimeout(120, TimeUnit.SECONDS)
+                        .connectionPool(okhttp3.ConnectionPool(15, 5, TimeUnit.MINUTES))
+                        .connectTimeout(30, TimeUnit.SECONDS)
+                        .readTimeout(60, TimeUnit.SECONDS)
+                        .writeTimeout(60, TimeUnit.SECONDS)
+                        .pingInterval(15, TimeUnit.SECONDS) // Keep HTTP/2 connection alive
                         .retryOnConnectionFailure(true)
                         .build()
 

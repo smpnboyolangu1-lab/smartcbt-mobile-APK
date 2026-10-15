@@ -42,13 +42,37 @@ export const getBkDashboardOverview = async (req: Request, res: Response) => {
             take: 10
         });
 
+        const user = (req as any).user;
+        let supervisedClasses: string[] = [];
+        if (user) {
+            const dbUser = await prisma.user.findUnique({ where: { id: user.id } });
+            if (dbUser?.teachingClasses) {
+                try {
+                    if (dbUser.teachingClasses.startsWith('[')) {
+                        supervisedClasses = JSON.parse(dbUser.teachingClasses);
+                    } else {
+                        supervisedClasses = dbUser.teachingClasses.split(',').map((c: string) => c.trim()).filter(Boolean);
+                    }
+                } catch {
+                    supervisedClasses = dbUser.teachingClasses.split(',').map((c: string) => c.trim()).filter(Boolean);
+                }
+            }
+        }
+        supervisedClasses = Array.from(new Set(supervisedClasses));
+        const totalSupervisedStudents = supervisedClasses.length > 0 ? await prisma.user.count({
+            where: { role: 'STUDENT', className: { in: supervisedClasses }, isActive: true }
+        }) : 0;
+
         return res.json({
             success: true,
             summary: {
                 newCasesCount,
                 todaySchedulesCount: todaySchedules.length,
                 unreadParentChatsCount,
-                atRiskCount: atRiskStudents.length
+                atRiskCount: atRiskStudents.length,
+                supervisedClasses,
+                totalClasses: supervisedClasses.length,
+                totalStudents: totalSupervisedStudents
             },
             todaySchedules,
             atRiskStudents

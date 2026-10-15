@@ -2,6 +2,7 @@ package com.school.smartcbt
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationManager
@@ -41,6 +42,7 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.text.SimpleDateFormat
 import java.util.Date
+import java.util.Calendar
 import java.util.Locale
 import android.widget.LinearLayout
 import android.graphics.Color
@@ -134,6 +136,12 @@ class ScannerActivity : AppCompatActivity() {
         const val EXTRA_SCANNED_ROOM_CODE = "EXTRA_SCANNED_ROOM_CODE"
         const val MODE_BK_DYNAMIC_QR = "MODE_BK_DYNAMIC_QR"
         const val MODE_SATPAM_GATEPASS = "MODE_SATPAM_GATEPASS"
+        const val EXTRA_SATPAM_ACTION = "EXTRA_SATPAM_ACTION"
+        const val EXTRA_PRAYER_STATUS = "EXTRA_PRAYER_STATUS"
+        const val EXTRA_PRAYER_TYPE = "EXTRA_PRAYER_TYPE"
+        const val MODE_WIFI_CARD = "MODE_WIFI_CARD"
+        const val MODE_PAI_STUDENT_CARD = "MODE_PAI_STUDENT_CARD"
+        const val MODE_KANTIN_POS = "KANTIN_POS"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -175,6 +183,10 @@ class ScannerActivity : AppCompatActivity() {
         btnFlashToggle = findViewById(R.id.btnFlashToggle)
         btnBack = findViewById(R.id.btnBack)
 
+        // Inisialisasi Suara Pintar (TTS Bahasa Indonesia)
+        com.school.smartcbt.utils.TtsVoiceHelper.init(this)
+        com.school.smartcbt.utils.AttendanceOfflineManager.clearAllOfflineScans(this)
+
         currentScanMode = intent.getStringExtra(EXTRA_SCAN_MODE) ?: MODE_ATTENDANCE
         if (currentScanMode == MODE_BOOK_AUDIT) {
             tvScannerTitle?.text = "📚 Pemindai Barcode Buku"
@@ -207,11 +219,37 @@ class ScannerActivity : AppCompatActivity() {
             tvClassIndicator.setBackgroundColor(Color.parseColor("#059669"))
             tvStatusText.text = "📱 Posisikan Dynamic QR Guru BK pada kotak pemindai..."
         } else if (currentScanMode == MODE_SATPAM_GATEPASS) {
-            tvScannerTitle?.text = "🛡️ POS SATPAM: CHECKOUT GERBANG"
-            tvScannerSub?.text = "Pindai Single-Use QR Gatepass di HP Siswa"
-            tvClassIndicator.text = "🚪 Pos Keamanan Gerbang Keluar"
-            tvClassIndicator.setBackgroundColor(Color.parseColor("#DC2626"))
-            tvStatusText.text = "🛡️ Posisikan QR Tiket Gatepass Siswa pada kamera..."
+            val satpamAction = intent.getStringExtra(EXTRA_SATPAM_ACTION) ?: "CHECKOUT"
+            layoutLiveGpsBadge?.visibility = View.GONE
+            tvGpsAccuracySub?.visibility = View.GONE
+            if (satpamAction == "RETURN") {
+                tvScannerTitle?.text = "🛡️ POS SATPAM: KEMBALI MASUK"
+                tvScannerSub?.text = "Pindai QR Gatepass / Kartu Siswa yang Kembali ke Kampus"
+                tvClassIndicator.text = "🏫 Pos Keamanan: Siswa Kembali Masuk"
+                tvClassIndicator.setBackgroundColor(Color.parseColor("#0284C7"))
+                tvStatusText.text = "🛡️ Posisikan QR Gatepass / Kartu Siswa untuk mencatat kembali masuk..."
+            } else {
+                tvScannerTitle?.text = "🛡️ POS SATPAM: CHECKOUT GERBANG"
+                tvScannerSub?.text = "Pindai Single-Use QR Gatepass di HP Siswa"
+                tvClassIndicator.text = "🚪 Pos Keamanan Gerbang Keluar"
+                tvClassIndicator.setBackgroundColor(Color.parseColor("#DC2626"))
+                tvStatusText.text = "🛡️ Posisikan QR Tiket Gatepass Siswa pada kamera..."
+            }
+        } else if (currentScanMode == MODE_PAI_STUDENT_CARD) {
+            tvScannerTitle?.text = "🕌 SCAN KARTU PELAJAR (GURU PAI)"
+            tvScannerSub?.text = "Scan Kartu Pelajar Siswa Tanpa HP untuk Presensi Mushola & Gate Sekolah"
+            tvClassIndicator.text = "🕌 Presensi Sholat & Gate Sekolah Terintegrasi"
+            tvClassIndicator.setBackgroundColor(Color.parseColor("#059669"))
+            tvStatusText.text = "📷 Arahkan kamera ke Barcode / QR Kartu Pelajar siswa..."
+            layoutLiveGpsBadge?.visibility = View.GONE
+        } else if (currentScanMode == MODE_KANTIN_POS) {
+            tvScannerTitle?.text = "🍱 KASIR E-KANTIN"
+            tvScannerSub?.text = "Pindai QR Saldo Siswa atau Barcode Kartu Pelajar"
+            tvClassIndicator.text = "🍱 POS Kasir E-Kantin Sekolah"
+            tvClassIndicator.setBackgroundColor(Color.parseColor("#D97706"))
+            tvStatusText.text = "📷 Posisikan QR Bayar Siswa / Barcode NISN..."
+            layoutLiveGpsBadge?.visibility = View.GONE
+            tvGpsAccuracySub?.visibility = View.GONE
         } else {
             val className = sessionManager.getClassName().ifEmpty { "VII-A" }
             tvScannerTitle?.text = "Scan QR Pintu Kelas"
@@ -244,14 +282,31 @@ class ScannerActivity : AppCompatActivity() {
 
     private fun checkPermissionsAndStartCamera() {
         if (isScannerGeolocationActive && (currentScanMode == MODE_ATTENDANCE || currentScanMode == MODE_PRAYER || currentScanMode == MODE_ROOM_HANDOVER)) {
-            if (!com.school.smartcbt.utils.GpsUtils.isHighAccuracyGpsEnabled(this)) {
-                com.school.smartcbt.utils.GpsUtils.showGpsRequirementDialog(this) {
-                    finish()
+            com.school.smartcbt.utils.GpsUtils.checkAndRequestOneTapGps(
+                activity = this,
+                requestCode = com.school.smartcbt.utils.GpsUtils.REQUEST_CHECK_SETTINGS_GPS,
+                onGpsAlreadyEnabled = {
+                    proceedWithPermissionsCheck()
+                },
+                onResolutionPrompted = {
+                    // One-tap native prompt ditampilkan ke siswa (cukup klik [OK])
+                },
+                onErrorFallback = {
+                    if (!com.school.smartcbt.utils.GpsUtils.isHighAccuracyGpsEnabled(this)) {
+                        com.school.smartcbt.utils.GpsUtils.showGpsRequirementDialog(this) {
+                            finish()
+                        }
+                    } else {
+                        proceedWithPermissionsCheck()
+                    }
                 }
-                return
-            }
+            )
+        } else {
+            proceedWithPermissionsCheck()
         }
+    }
 
+    private fun proceedWithPermissionsCheck() {
         val permissionsNeeded = mutableListOf<String>()
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
             permissionsNeeded.add(Manifest.permission.CAMERA)
@@ -264,6 +319,21 @@ class ScannerActivity : AppCompatActivity() {
             ActivityCompat.requestPermissions(this, permissionsNeeded.toTypedArray(), PERMISSION_REQ_CODE)
         } else {
             startCamera()
+            startLocationUpdates()
+        }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == com.school.smartcbt.utils.GpsUtils.REQUEST_CHECK_SETTINGS_GPS) {
+            if (resultCode == android.app.Activity.RESULT_OK) {
+                // Siswa cukup menekan tombol [OK] di pop-up bawaan -> GPS aktif seketika!
+                proceedWithPermissionsCheck()
+            } else {
+                Toast.makeText(this, "Presensi memerlukan GPS aktif dalam mode Akurasi Tinggi.", Toast.LENGTH_SHORT).show()
+                finish()
+            }
         }
     }
 
@@ -272,14 +342,6 @@ class ScannerActivity : AppCompatActivity() {
         if (requestCode == PERMISSION_REQ_CODE) {
             val cameraGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
             if (cameraGranted) {
-                if (currentScanMode == MODE_ATTENDANCE || currentScanMode == MODE_PRAYER || currentScanMode == MODE_ROOM_HANDOVER) {
-                    if (!com.school.smartcbt.utils.GpsUtils.isHighAccuracyGpsEnabled(this)) {
-                        com.school.smartcbt.utils.GpsUtils.showGpsRequirementDialog(this) {
-                            finish()
-                        }
-                        return
-                    }
-                }
                 startCamera()
                 startLocationUpdates()
             } else {
@@ -414,10 +476,23 @@ class ScannerActivity : AppCompatActivity() {
 
     private fun handleScannedBarcode(scannedCode: String) {
         vibratePhone()
+        try {
+            com.school.smartcbt.utils.TtsVoiceHelper.playBeepSuccess()
+        } catch (e: Exception) {}
 
         val scanMode = intent.getStringExtra(EXTRA_SCAN_MODE) ?: MODE_ATTENDANCE
         if (scanMode == MODE_EXAM_TOKEN) {
             val cleanToken = scannedCode.trim().uppercase()
+            val resultIntent = android.content.Intent().apply {
+                putExtra(EXTRA_SCANNED_TOKEN, cleanToken)
+            }
+            setResult(RESULT_OK, resultIntent)
+            finish()
+            return
+        }
+
+        if (scanMode == MODE_WIFI_CARD) {
+            val cleanToken = scannedCode.trim()
             val resultIntent = android.content.Intent().apply {
                 putExtra(EXTRA_SCANNED_TOKEN, cleanToken)
             }
@@ -447,6 +522,17 @@ class ScannerActivity : AppCompatActivity() {
             return
         }
 
+        if (scanMode == "KANTIN_POS" || scannedCode.startsWith("CANTIN-PAY:")) {
+            val cleanToken = scannedCode.trim()
+            val resultIntent = android.content.Intent().apply {
+                putExtra(EXTRA_SCANNED_TOKEN, cleanToken)
+                putExtra("SCANNED_TOKEN", cleanToken)
+            }
+            setResult(RESULT_OK, resultIntent)
+            finish()
+            return
+        }
+
         if (scanMode == MODE_SATPAM_GATEPASS || scannedCode.startsWith("SMARTCBT-GATEPASS:") || scannedCode.startsWith("SMARTCBT-EXITPASS:") || scannedCode.startsWith("GP-CHK-")) {
             handleSatpamGatepassScan(scannedCode)
             return
@@ -457,6 +543,11 @@ class ScannerActivity : AppCompatActivity() {
             return
         }
 
+        if (scanMode == MODE_PAI_STUDENT_CARD) {
+            handlePaiStudentCardScan(scannedCode)
+            return
+        }
+
         if (scanMode == MODE_PRAYER || scannedCode.contains("SHOLAT", ignoreCase = true) || scannedCode.contains("MASJID", ignoreCase = true)) {
             handlePrayerScan(scannedCode)
             return
@@ -464,13 +555,54 @@ class ScannerActivity : AppCompatActivity() {
 
         tvStatusText.text = "🔍 Terdeteksi: $scannedCode. Memproses..."
 
-        // Jika Geolocation dinonaktifkan dari portal admin ATAU sedang menggunakan fallback QR Kelas:
-        if (!isScannerGeolocationActive || isUsingQrFallback) {
-            submitAttendance(scannedCode, null, null, false, method = "QR_STATIC", accuracy = null)
+        // 1. Deteksi Barcode QR Dinamis Pengurus Kelas (10 Detik):
+        // Presensi sah 100% tanpa GPS karena pengurus kelas hadir fisik di dalam kelas & kode berputar tiap 10 detik
+        if (scannedCode.startsWith("DYNAMIC_CLASS_QR|")) {
+            tvStatusText.text = "⚡ Terdeteksi: QR Dinamis Pengurus Kelas. Memverifikasi..."
+            submitAttendance(scannedCode, null, null, false, method = "QR_DYNAMIC_OFFICER", accuracy = null)
             return
         }
 
+        // 2. Deteksi Khusus Barcode Ruang BK (GATE_IN_BK / GATE_OUT_BK)
+        val isBkCode = scannedCode.contains("GATE_IN_BK", ignoreCase = true) || scannedCode.contains("GATE_OUT_BK", ignoreCase = true)
+        if (!isBkCode) {
+            // Sesuai instruksi: QR Code statis (QR_STATIC / stiker barcode kelas) dinonaktifkan total!
+            val timeNow = SimpleDateFormat("HH:mm:ss", Locale("id", "ID")).format(Date()) + " WIB"
+            val voiceMsg = "QR Code statis telah dinonaktifkan. Silakan pindai QR Dinamis pada HP Pengurus Kelas Anda."
+            com.school.smartcbt.utils.TtsVoiceHelper.speak(voiceMsg)
+            showModernScanDialog(
+                isSuccess = false,
+                title = "⛔ QR Statis Dinonaktifkan",
+                subtitle = "Wajib Gunakan QR Dinamis Pengurus Kelas",
+                message = "Penggunaan barcode stiker kelas statis (QR_STATIC) telah dinonaktifkan total demi menjamin kehadiran siswa di dalam ruang kelas.\n\nSilakan minta Pengurus Kelas untuk membuka menu QR Dinamis (kode otomatis berganti tiap 10 detik) lalu pindai langsung dari layar HP Pengurus Kelas Anda.",
+                gateType = "Wajib QR Pengurus",
+                timeStr = timeNow,
+                lat = null,
+                lng = null
+            )
+            return
+        }
+
+        // Khusus Ruang BK (Izin Cepat / Keterlambatan BK):
+        val isGpsEnabled = locationManager?.isProviderEnabled(LocationManager.GPS_PROVIDER) ?: false
         val (lat, lng, isMock, accuracy) = getCurrentLocation()
+
+        if (!isGpsEnabled || lat == null) {
+            val timeNow = SimpleDateFormat("HH:mm:ss", Locale("id", "ID")).format(Date()) + " WIB"
+            val voiceMsg = "Presensi BK memerlukan sinyal GPS aktif di sekolah."
+            com.school.smartcbt.utils.TtsVoiceHelper.speak(voiceMsg)
+            showModernScanDialog(
+                isSuccess = false,
+                title = "📍 GPS Tidak Terkunci",
+                subtitle = "Aktifkan GPS di Area Sekolah",
+                message = "Presensi Ruang BK memerlukan sinyal GPS aktif di lingkungan sekolah SMPN 1 Boyolangu.",
+                gateType = "Presensi BK",
+                timeStr = timeNow,
+                lat = null,
+                lng = null
+            )
+            return
+        }
 
         if (isMock) {
             val timeNow = SimpleDateFormat("HH:mm:ss", Locale("id", "ID")).format(Date()) + " WIB"
@@ -487,44 +619,53 @@ class ScannerActivity : AppCompatActivity() {
             return
         }
 
-        // Cek Akurasi Multi-Zona:
-        // Zona 1 (Presisi Baik ≤ 50m): Langsung diterima sah
-        // Zona 2 (Terdegradasi 51m - 100m): Diterima sah dengan catatan
-        // Zona 3 (> 100m atau GPS belum lock): Tampilkan tombol fallback QR Kelas!
-        if (accuracy > zoneDegradedThreshold && currentScanMode != MODE_BOOK_AUDIT) {
-            val timeNow = SimpleDateFormat("HH:mm:ss", Locale("id", "ID")).format(Date()) + " WIB"
-            showQrFallbackDialog(accuracy, timeNow, scannedCode)
-            return
-        }
-
-        if (accuracy > zoneGoodThreshold && accuracy <= zoneDegradedThreshold) {
-            Toast.makeText(this, "⚠️ Akurasi GPS ±${accuracy.toInt()}m (kurang presisi, presensi tetap diproses sah)", Toast.LENGTH_LONG).show()
-        }
-
-        submitAttendance(scannedCode, lat, lng, isMock, method = "GPS", accuracy = accuracy)
+        // Jika GPS valid untuk Ruang BK:
+        val method = if (accuracy <= zoneDegradedThreshold) "GPS" else "QR_FALLBACK"
+        submitAttendance(scannedCode, lat, lng, isMock, method = method, accuracy = accuracy)
     }
 
     private fun handleSatpamGatepassScan(scannedCode: String) {
-        tvStatusText.text = "🛡️ Memverifikasi Gatepass Siswa..."
+        val satpamAction = intent.getStringExtra(EXTRA_SATPAM_ACTION) ?: "CHECKOUT"
+        tvStatusText.text = if (satpamAction == "RETURN") "🛡️ Memverifikasi Siswa Kembali Masuk..." else "🛡️ Memverifikasi Gatepass Keluar Siswa..."
         val req = com.school.smartcbt.data.model.SatpamCheckoutRequest(
             checkoutToken = scannedCode,
-            qrPayload = scannedCode
+            qrPayload = scannedCode,
+            action = satpamAction
         )
-        ApiClient.getClient(this).checkoutGatepassBySatpam(req).enqueue(object : Callback<BasicResponse> {
-            override fun onResponse(call: Call<BasicResponse>, response: Response<BasicResponse>) {
-                val data = response.body()
-                val isSuccess = response.isSuccessful && data?.success == true
+        ApiClient.getClient(this).verifyGatepassBySatpam(req).enqueue(object : Callback<com.school.smartcbt.data.model.SatpamCheckoutResponse> {
+            override fun onResponse(
+                call: Call<com.school.smartcbt.data.model.SatpamCheckoutResponse>,
+                response: Response<com.school.smartcbt.data.model.SatpamCheckoutResponse>
+            ) {
+                val body = response.body()
+                val isSuccess = response.isSuccessful && body?.success == true
+                val gp = body?.data
+                val studentInfo = if (gp?.student != null) "\n\n👤 Siswa: ${gp.student.name ?: "-"} (${gp.student.className ?: "-"})\n🏷️ Kategori: ${gp.leaveCategory ?: "-"}\n💬 Alasan: ${gp.reason ?: "-"}" else ""
+                val errMsg = if (!isSuccess) {
+                    try {
+                        val rawErr = response.errorBody()?.string() ?: ""
+                        org.json.JSONObject(rawErr).optString("message", body?.message ?: "Tiket tidak valid atau sudah kedaluwarsa.")
+                    } catch (e: Exception) {
+                        body?.message ?: "Tiket tidak valid atau sudah kedaluwarsa."
+                    }
+                } else ""
+
                 val timeNow = SimpleDateFormat("HH:mm:ss", Locale("id", "ID")).format(Date()) + " WIB"
+                setResult(RESULT_OK)
                 showModernScanDialog(
                     isSuccess = isSuccess,
-                    title = if (isSuccess) "✅ IZIN PULANG SAH (SATPAM)" else "⛔ GATEPASS TIDAK SAH",
-                    subtitle = if (isSuccess) "Siswa Diizinkan Melewati Gerbang" else "Verifikasi Gagal",
-                    message = data?.message ?: if (isSuccess) "Siswa telah diverifikasi dan tercatat resmi keluar gerbang sekolah." else "Tiket tidak valid atau telah kedaluwarsa.",
-                    gateType = "GATE_OUT (Gatepass)",
+                    title = if (isSuccess) {
+                        if (body?.action == "RETURN" || satpamAction == "RETURN") "✅ SISWA KEMBALI MASUK" else "✅ IZIN KELUAR SAH (SATPAM)"
+                    } else "⛔ GATEPASS DITOLAK",
+                    subtitle = if (isSuccess) {
+                        if (body?.action == "RETURN" || satpamAction == "RETURN") "Tercatat Kembali Masuk Kampus" else "Siswa Diizinkan Melewati Gerbang"
+                    } else "Verifikasi Pos Keamanan Gagal",
+                    message = (if (isSuccess) (body?.message ?: "Gatepass berhasil diverifikasi.") else errMsg) + studentInfo,
+                    gateType = if (satpamAction == "RETURN") "RETURN (Kembali Masuk)" else "CHECKOUT (Gatepass Keluar)",
                     timeStr = timeNow
                 )
             }
-            override fun onFailure(call: Call<BasicResponse>, t: Throwable) {
+            override fun onFailure(call: Call<com.school.smartcbt.data.model.SatpamCheckoutResponse>, t: Throwable) {
                 Toast.makeText(this@ScannerActivity, "Gagal terhubung ke pos satpam: ${t.message}", Toast.LENGTH_SHORT).show()
                 isProcessingScan = false
             }
@@ -538,48 +679,53 @@ class ScannerActivity : AppCompatActivity() {
                 call: Call<com.school.smartcbt.data.model.BookOwnerCheckResponse>,
                 response: Response<com.school.smartcbt.data.model.BookOwnerCheckResponse>
             ) {
-                val data = response.body()
-                if (response.isSuccessful && data != null && data.success) {
-                    val bookTitle = data.book?.title ?: "Buku Paket"
-                    val copyCode = data.copy?.copyBarcode ?: barcode
-                    val isMyBook = data.isMyBook
+                if (isFinishing || isDestroyed) return
+                try {
+                    val data = response.body()
+                    if (response.isSuccessful && data != null && data.success) {
+                        val bookTitle = data.book?.title ?: "Buku Paket"
+                        val copyCode = data.copy?.copyBarcode ?: barcode
+                        val isMyBook = data.isMyBook
 
-                    if (isMyBook) {
-                        AlertDialog.Builder(this@ScannerActivity)
-                            .setTitle("✅ BUKU PAKET ANDA")
-                            .setMessage("Buku ini memang terdaftar resmi atas nama Anda!\n\n📘 Judul: $bookTitle\n🏷️ Barcode: $copyCode\nStatus: Terverifikasi (Tidak Tertukar).")
-                            .setPositiveButton("Selesai") { _, _ -> finish() }
-                            .setNeutralButton("Scan Buku Lain") { _, _ ->
-                                isProcessingScan = false
-                                tvStatusText.text = "Arahkan kamera ke Barcode buku berikutnya..."
-                            }
-                            .setCancelable(false)
-                            .show()
+                        if (isMyBook) {
+                            AlertDialog.Builder(this@ScannerActivity)
+                                .setTitle("✅ BUKU PAKET ANDA")
+                                .setMessage("Buku ini memang terdaftar resmi atas nama Anda!\n\n📘 Judul: $bookTitle\n🏷️ Barcode: $copyCode\nStatus: Terverifikasi (Tidak Tertukar).")
+                                .setPositiveButton("Selesai") { _, _ -> finish() }
+                                .setNeutralButton("Scan Buku Lain") { _, _ ->
+                                    isProcessingScan = false
+                                    tvStatusText.text = "Arahkan kamera ke Barcode buku berikutnya..."
+                                }
+                                .setCancelable(false)
+                                .show()
+                        } else {
+                            val borrowerName = data.borrower?.name ?: "Siswa Lain"
+                            val borrowerClass = data.borrower?.className ?: "-"
+                            AlertDialog.Builder(this@ScannerActivity)
+                                .setTitle("⚠️ BUKU PAKET TERTUKAR!")
+                                .setMessage("Perhatian! Buku yang Anda bawa BUKAN milik Anda!\n\n📘 Judul: $bookTitle\n🏷️ Barcode: $copyCode\n\n👤 Peminjam Asli Tercatat:\n• Nama : $borrowerName\n• Kelas: $borrowerClass\n\nHarap tukarkan kembali dengan pemilik asli atau laporkan ke Petugas Perpustakaan/Operator untuk mutasi data.")
+                                .setPositiveButton("Saya Mengerti") { _, _ -> finish() }
+                                .setNeutralButton("Scan Lagi") { _, _ ->
+                                    isProcessingScan = false
+                                    tvStatusText.text = "Arahkan kamera ke Barcode buku lainnya..."
+                                }
+                                .setCancelable(false)
+                                .show()
+                        }
                     } else {
-                        val borrowerName = data.borrower?.name ?: "Siswa Lain"
-                        val borrowerClass = data.borrower?.className ?: "-"
+                        val msg = data?.message ?: "Barcode $barcode tidak ditemukan dalam katalog perpustakaan sekolah."
                         AlertDialog.Builder(this@ScannerActivity)
-                            .setTitle("⚠️ BUKU PAKET TERTUKAR!")
-                            .setMessage("Perhatian! Buku yang Anda bawa BUKAN milik Anda!\n\n📘 Judul: $bookTitle\n🏷️ Barcode: $copyCode\n\n👤 Peminjam Asli Tercatat:\n• Nama : $borrowerName\n• Kelas: $borrowerClass\n\nHarap tukarkan kembali dengan pemilik asli atau laporkan ke Petugas Perpustakaan/Operator untuk mutasi data.")
-                            .setPositiveButton("Saya Mengerti") { _, _ -> finish() }
-                            .setNeutralButton("Scan Lagi") { _, _ ->
+                            .setTitle("❓ Barcode Tidak Dikenali")
+                            .setMessage(msg)
+                            .setPositiveButton("Scan Ulang") { _, _ ->
                                 isProcessingScan = false
-                                tvStatusText.text = "Arahkan kamera ke Barcode buku lainnya..."
+                                tvStatusText.text = "Arahkan kamera ke Barcode buku..."
                             }
-                            .setCancelable(false)
+                            .setNegativeButton("Tutup") { _, _ -> finish() }
                             .show()
                     }
-                } else {
-                    val msg = data?.message ?: "Barcode $barcode tidak ditemukan dalam katalog perpustakaan sekolah."
-                    AlertDialog.Builder(this@ScannerActivity)
-                        .setTitle("❓ Barcode Tidak Dikenali")
-                        .setMessage(msg)
-                        .setPositiveButton("Scan Ulang") { _, _ ->
-                            isProcessingScan = false
-                            tvStatusText.text = "Arahkan kamera ke Barcode buku..."
-                        }
-                        .setNegativeButton("Tutup") { _, _ -> finish() }
-                        .show()
+                } catch (e: Exception) {
+                    android.util.Log.e("ScannerActivity", "Gagal menampilkan dialog buku: ${e.message}")
                 }
             }
 
@@ -624,10 +770,18 @@ class ScannerActivity : AppCompatActivity() {
             return
         }
 
+        val prayerStatus = intent.getStringExtra(EXTRA_PRAYER_STATUS) ?: "HADIR"
+        val isBerhalangan = prayerStatus == "BERHALANGAN_HAID"
+        val prayerType = intent.getStringExtra(EXTRA_PRAYER_TYPE) ?: intent.getStringExtra("EXTRA_PRAYER_TYPE") ?: "DHUHUR"
+
         val body = mutableMapOf(
             "barcodeData" to scannedCode,
-            "prayerType" to "DHUHUR"
+            "prayerType" to prayerType,
+            "status" to prayerStatus
         )
+        if (isBerhalangan) {
+            body["note"] = "Berhalangan / Uzur Syar'i (Keputrian)"
+        }
         if (lat != null && lng != null) {
             body["lat"] = lat.toString()
             body["lng"] = lng.toString()
@@ -641,12 +795,15 @@ class ScannerActivity : AppCompatActivity() {
                 val data = response.body()
                 val timeNow = SimpleDateFormat("HH:mm:ss", Locale("id", "ID")).format(Date()) + " WIB"
                 if (response.isSuccessful && data != null && data.success == true) {
+                    val successTitle = if (isBerhalangan) "🌸 Presensi Uzur Syar'i Tercatat!" else "🕌 Presensi Sholat Berhasil!"
+                    val successSub = if (isBerhalangan) "Siswi Putri Berhalangan (Keputrian) • Mushola" else "Titik Presensi: Mushola SMPN 1 Boyolangu"
+                    val successMsg = data.message ?: if (isBerhalangan) "Presensi uzur syar'i siswi putri di mushola telah dicatat resmi." else "Alhamdulillah, presensi sholat berjamaah di mushola berhasil dicatat."
                     showModernScanDialog(
                         isSuccess = true,
-                        title = "🕌 Presensi Sholat Berhasil!",
-                        subtitle = "Titik Presensi: Mushola SMPN 1 Boyolangu",
-                        message = data.message ?: "Alhamdulillah, presensi sholat berjamaah di mushola berhasil dicatat.",
-                        gateType = "Sholat Mushola",
+                        title = successTitle,
+                        subtitle = successSub,
+                        message = successMsg,
+                        gateType = if (isBerhalangan) "Berhalangan (Haid)" else "Sholat Mushola",
                         timeStr = timeNow,
                         lat = lat,
                         lng = lng
@@ -681,9 +838,84 @@ class ScannerActivity : AppCompatActivity() {
         })
     }
 
+    private fun handlePaiStudentCardScan(scannedCode: String) {
+        val prayerType = intent.getStringExtra("EXTRA_PRAYER_TYPE") ?: "DHUHUR"
+        val payload = mapOf(
+            "barcode" to scannedCode.trim(),
+            "prayerType" to prayerType,
+            "status" to "SHOLAT_BERJAMAAH"
+        )
+        val progress = android.app.ProgressDialog(this).apply {
+            setMessage("Memverifikasi kartu siswa & sinkronisasi Gate In/Out...")
+            setCancelable(false)
+            show()
+        }
+        ApiClient.getClient(this).paiScanStudentCard(payload).enqueue(object : Callback<BasicResponse> {
+            override fun onResponse(call: Call<BasicResponse>, response: Response<BasicResponse>) {
+                progress.dismiss()
+                if (response.isSuccessful && response.body()?.success == true) {
+                    val msg = response.body()?.message ?: "Kehadiran sholat & gate sekolah siswa berhasil dicatat!"
+                    AlertDialog.Builder(this@ScannerActivity)
+                        .setTitle("✅ Presensi Kartu Siswa Berhasil")
+                        .setMessage(msg)
+                        .setPositiveButton("Scan Siswa Lain") { _, _ ->
+                            isProcessingScan = false
+                            tvStatusText.text = "Arahkan kamera ke barcode kartu siswa berikutnya..."
+                        }
+                        .setNegativeButton("Selesai") { _, _ ->
+                            setResult(RESULT_OK)
+                            finish()
+                        }
+                        .setCancelable(false)
+                        .show()
+                } else {
+                    val rawErr = try {
+                        val str = response.errorBody()?.string() ?: ""
+                        if (str.isNotBlank()) org.json.JSONObject(str).optString("message", str) else response.body()?.message ?: "Gagal memproses kartu siswa"
+                    } catch (e: Exception) {
+                        response.body()?.message ?: "Gagal memproses kartu siswa"
+                    }
+                    AlertDialog.Builder(this@ScannerActivity)
+                        .setTitle("❌ Gagal Scan Kartu")
+                        .setMessage(rawErr)
+                        .setPositiveButton("Coba Lagi") { _, _ ->
+                            isProcessingScan = false
+                            tvStatusText.text = "Arahkan kamera ke Barcode / QR Kartu Pelajar..."
+                        }
+                        .setNegativeButton("Tutup") { _, _ ->
+                            finish()
+                        }
+                        .setCancelable(false)
+                        .show()
+                }
+            }
+
+            override fun onFailure(call: Call<BasicResponse>, t: Throwable) {
+                progress.dismiss()
+                AlertDialog.Builder(this@ScannerActivity)
+                    .setTitle("⚠️ Masalah Jaringan")
+                    .setMessage(t.message ?: "Koneksi terputus")
+                    .setPositiveButton("Coba Lagi") { _, _ ->
+                        isProcessingScan = false
+                    }
+                    .setCancelable(false)
+                    .show()
+            }
+        })
+    }
+
     override fun onResume() {
         super.onResume()
         startLocationUpdates()
+        if (com.school.smartcbt.utils.AttendanceOfflineManager.isOnline(this)) {
+            com.school.smartcbt.utils.AttendanceOfflineManager.syncPendingAttendances(this) { synced, _ ->
+                if (synced > 0) {
+                    runOnUiThread {
+                        android.widget.Toast.makeText(this@ScannerActivity, "✅ $synced presensi darurat offline berhasil disinkronkan ke server sekolah!", android.widget.Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        }
     }
 
     override fun onPause() {
@@ -732,38 +964,20 @@ class ScannerActivity : AppCompatActivity() {
             override fun onTick(millisUntilFinished: Long) {
                 val sec = millisUntilFinished / 1000
                 if (liveBestLocation == null || (liveBestLocation?.accuracy ?: 999f) > zoneGoodThreshold) {
-                    tvGpsAccuracySub?.text = "Mencari satelit GPS... ($sec dtk tersisa)"
+                    tvGpsAccuracySub?.text = "Mengoptimalkan sensor lokasi... ($sec dtk)"
                 }
             }
 
             override fun onFinish() {
                 if (liveBestLocation == null || (liveBestLocation?.accuracy ?: 999f) > zoneGoodThreshold) {
-                    tvStatusText.text = "⚠️ Satelit GPS belum terkunci stabil. Silakan gunakan Scan QR Kelas."
-                    tvStatusText.setTextColor(Color.parseColor("#F59E0B"))
-                    tvGpsAccuracySub?.text = "💡 Tips: Anda dapat langsung scan QR di dinding kelas"
+                    tvStatusText.text = "📷 Arahkan kamera ke Barcode Presensi Kelas"
+                    tvStatusText.setTextColor(Color.parseColor("#38BDF8"))
+                    tvGpsAccuracySub?.text = "💡 Sistem otomatis memverifikasi lokasi & barcode kelas"
                 }
             }
         }.start()
     }
 
-    private fun showQrFallbackDialog(accuracy: Float, timeNow: String, scannedCode: String) {
-        val accText = if (accuracy >= 999f) "Belum terkunci" else "±${accuracy.toInt()}m"
-        AlertDialog.Builder(this)
-            .setTitle("⚠️ GPS Satelit Belum Presisi ($accText)")
-            .setMessage("Sinyal satelit GPS di posisi Anda saat ini belum presisi (Batas toleransi sah: ≤ 50m).\n\nJika Anda berada di dalam ruangan kelas, Anda dapat menggunakan mode 'Scan QR Kelas' untuk presensi fisik.")
-            .setPositiveButton("📷 Scan QR Kelas") { _, _ ->
-                isUsingQrFallback = true
-                tvStatusText.text = "📷 Mode QR Kelas Aktif: Scan QR di dinding kelas Anda"
-                tvStatusText.setTextColor(Color.parseColor("#38BDF8"))
-                submitAttendance(scannedCode, null, null, false, method = "QR_STATIC", accuracy = null)
-            }
-            .setNegativeButton("Tunggu GPS") { dialog, _ ->
-                dialog.dismiss()
-                isProcessingScan = false
-            }
-            .setCancelable(false)
-            .show()
-    }
 
     private fun startLocationUpdates() {
         if (!isScannerGeolocationActive) return
@@ -908,20 +1122,115 @@ class ScannerActivity : AppCompatActivity() {
         }
     }
 
+    private fun validateAndSaveOffline(
+        req: GateScanRequest,
+        isGateOut: Boolean,
+        gateText: String,
+        timeNow: String,
+        lat: Double?,
+        lng: Double?,
+        accuracy: Float?,
+        isFakeGps: Boolean
+    ) {
+        // 1. Cek Anti-Fake GPS
+        if (isFakeGps) {
+            showModernScanDialog(
+                isSuccess = false,
+                title = "🚨 Terdeteksi Fake GPS!",
+                subtitle = "Presensi Ditolak Sistem",
+                message = "Manipulasi lokasi palsu (Mock Location) terdeteksi. Presensi offline DITOLAK demi kedisiplinan sekolah. Silakan matikan Fake GPS dan gunakan lokasi nyata!",
+                gateType = "Fake GPS Ditolak",
+                timeStr = timeNow,
+                lat = lat,
+                lng = lng
+            )
+            return
+        }
+
+        // 2. Kunci Koordinat Satelit GPS (Wajib Terkunci di Lingkungan Sekolah)
+        if (lat == null || lng == null) {
+            showModernScanDialog(
+                isSuccess = false,
+                title = "❌ GPS Satelit Belum Terkunci",
+                subtitle = "Presensi Offline Memerlukan Sinyal Satelit GPS",
+                message = "Perangkat Anda sedang offline atau koneksi server terputus. Untuk mencegah kecurangan di luar sekolah, presensi offline WAJIB mengunci satelit GPS nyata di lingkungan sekolah.\n\nSilakan tunggu sinyal GPS mengunci posisi Anda sebelum memindai barcode.",
+                gateType = "Lokasi Tidak Terverifikasi",
+                timeStr = timeNow,
+                lat = null,
+                lng = null
+            )
+            return
+        }
+
+        // 3. Validasi Geofence Radius Sekolah
+        val distResults = FloatArray(1)
+        Location.distanceBetween(lat, lng, schoolLat, schoolLng, distResults)
+        val distToSchoolMeters = distResults[0].toInt()
+        val maxAllowedRadius = (radiusGlobal + (accuracy ?: 20f)).toInt()
+
+        if (distToSchoolMeters > maxAllowedRadius) {
+            showModernScanDialog(
+                isSuccess = false,
+                title = "❌ Di Luar Area Sekolah!",
+                subtitle = "Jarak Terlalu Jauh (${distToSchoolMeters}m)",
+                message = "Presensi offline DITOLAK karena Anda terdeteksi berada di luar area SMP Negeri 1 Boyolangu (Jarak: $distToSchoolMeters meter, batas: ${maxAllowedRadius}m).\n\nPresensi sah HANYA dapat dilakukan saat Anda sudah berada secara fisik di area SMP Negeri 1 Boyolangu.",
+                gateType = "Di Luar Radius Sekolah",
+                timeStr = timeNow,
+                lat = lat,
+                lng = lng
+            )
+            return
+        }
+
+        // 4. Lolos Validasi -> Simpan ke Antrian Room Database Lokal HP
+        com.school.smartcbt.utils.OfflineAttendanceManager.savePendingScan(this, req)
+
+        // Simpan ke Cache Lokal agar Tampilan Beranda Langsung Berubah Seketika (hanya jika waktu operasional wajar)
+        val calHour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+        if (!isGateOut || calHour >= 10) {
+            val cacheStatus = if (isGateOut) "PULANG" else "HADIR"
+            sessionManager.saveTodayGateAttendance(
+                type = if (isGateOut) "GATE_OUT" else "GATE_IN",
+                timeWib = timeNow,
+                status = cacheStatus
+            )
+        }
+
+        val titleText = if (isGateOut) "✅ Presensi Pulang Tercatat di HP" else "⏳ Presensi Masuk Tersimpan di HP"
+        val msgText = if (isGateOut) {
+            "Silakan langsung pulang ke rumah. Koordinat GPS sekolah terverifikasi sah (Jarak: ${distToSchoolMeters}m) dan data otomatis dikirim saat online."
+        } else {
+            "Presensi masuk telah diamankan di HP (Koordinat GPS sekolah terverifikasi sah, Jarak: ${distToSchoolMeters}m) dan otomatis disinkronkan ke server sekolah."
+        }
+
+        showModernScanDialog(
+            isSuccess = true,
+            title = titleText,
+            subtitle = "Tersimpan Sah di Database HP (GPS: ${distToSchoolMeters}m)",
+            message = msgText,
+            gateType = gateText,
+            timeStr = timeNow,
+            lat = lat,
+            lng = lng
+        )
+    }
+
     private fun submitAttendance(
         code: String,
         lat: Double?,
         lng: Double?,
         isFakeGps: Boolean,
         method: String = "GPS",
-        accuracy: Float? = null
+        accuracy: Float? = null,
+        isSpecialCheckoutWithoutIn: Boolean = false
     ) {
         val sNisn = sessionManager.getNisn().ifEmpty { sessionManager.getUsername() }
-        val devTime = SimpleDateFormat("HH:mm", Locale("id", "ID")).format(Date())
-        val isGateOut = code.contains("OUT", true) || code.contains("PULANG", true)
+        val gateActionExtra = intent.getStringExtra("EXTRA_GATE_ACTION")
+        val isGateOut = (gateActionExtra == "GATE_OUT") || (gateActionExtra != "GATE_IN" && (code.contains("OUT", true) || code.contains("PULANG", true)))
         val gateText = if (isGateOut) "Gate-Out (Kepulangan)" else "Gate-In (Masuk)"
         val timeNow = SimpleDateFormat("HH:mm:ss", Locale("id", "ID")).format(Date()) + " WIB"
 
+        val clientTimeMillis = System.currentTimeMillis()
         val req = GateScanRequest(
             gateCode = code,
             barcodeCode = code,
@@ -932,18 +1241,20 @@ class ScannerActivity : AppCompatActivity() {
             isFakeGps = isFakeGps,
             method = method,
             accuracy = accuracy,
-            deviceTime = devTime
+            deviceTime = timeNow,
+            isSpecialCheckoutWithoutIn = isSpecialCheckoutWithoutIn,
+            clientScanTime = clientTimeMillis
         )
 
-        // CEK KONEKSI: Jika HP siswa tidak memiliki paket data internet, simpan langsung ke Room DB lokal HP!
+        // CEK KONEKSI: Siswa WAJIB online saat presensi. Mode offline dinonaktifkan.
         if (!com.school.smartcbt.utils.AttendanceOfflineManager.isOnline(this)) {
-            com.school.smartcbt.utils.OfflineAttendanceManager.savePendingScan(this, req)
-
+            com.school.smartcbt.utils.TtsVoiceHelper.playBeepError()
+            com.school.smartcbt.utils.TtsVoiceHelper.speak("Presensi gagal. Tidak ada koneksi internet. Silakan hubungkan ke WiFi sekolah atau aktifkan paket data.")
             showModernScanDialog(
-                isSuccess = true,
-                title = "⏳ Presensi Tersimpan Offline",
-                subtitle = "Tersimpan Sah di Database HP",
-                message = "HP Anda saat ini tidak memiliki koneksi internet. Data presensi Anda telah tercatat sah di memori lokal HP dan akan otomatis dikirimkan ke server sekolah begitu HP terhubung ke internet.",
+                isSuccess = false,
+                title = "❌ Presensi Memerlukan Internet",
+                subtitle = "Tidak Ada Koneksi Internet",
+                message = "Presensi kehadiran memerlukan koneksi internet aktif agar langsung tercatat resmi di server sekolah.\n\n📌 Langkah Penyelesaian:\n1. Hubungkan HP ke WiFi Sekolah (SMBOY) yang tersedia di area kelas.\n2. Atau aktifkan Paket Data Seluler Anda.\n3. Buka kembali pemindai lalu scan barcode presensi kelas.\n\n💡 Alternatif: Jika HP Anda terkendala jaringan, minta bantuan presensi ke Pengurus Kelas atau melapor ke Guru Piket.",
                 gateType = gateText,
                 timeStr = timeNow,
                 lat = lat,
@@ -960,11 +1271,33 @@ class ScannerActivity : AppCompatActivity() {
 
                     if (response.isSuccessful) {
                         val msg = response.body()?.message ?: "Presensi Berhasil Dicatat!"
+                        com.school.smartcbt.utils.ClientLogger.logAttendance(
+                            context = this@ScannerActivity,
+                            action = if (isGateOut) "SCAN_GATE_OUT" else "SCAN_GATE_IN",
+                            outcome = "SUCCESS",
+                            message = msg,
+                            barcode = code,
+                            lat = lat,
+                            lng = lng,
+                            extra = mapOf("method" to req.method, "isFakeGps" to isFakeGps, "accuracy" to accuracy)
+                        )
+
                         NotificationHelper.showHeadsUpNotification(
                             this@ScannerActivity,
                             "✅ Presensi Berhasil Dicatat!",
                             "$sName (Kelas $sClass) berhasil scan barcode: $msg",
                             "Presensi SMPN 1 Boyolangu"
+                        )
+
+                        if (req.method == "QR_DYNAMIC_OFFICER") {
+                            com.school.smartcbt.utils.TtsVoiceHelper.speak("Presensi berhasil melalui QR Dinamis Pengurus Kelas.")
+                        }
+
+                        // Simpan ke Cache Lokal agar Beranda Siswa Langsung Terupdate Seketika
+                        sessionManager.saveTodayGateAttendance(
+                            type = if (isGateOut) "GATE_OUT" else "GATE_IN",
+                            timeWib = timeNow,
+                            status = if (isGateOut) "PULANG" else "HADIR"
                         )
 
                         showModernScanDialog(
@@ -978,16 +1311,135 @@ class ScannerActivity : AppCompatActivity() {
                             lng = lng
                         )
                     } else {
+                        if (isGateOut) {
+                            sessionManager.clearTodayGateOutCache()
+                        }
+                        val statusCode = response.code()
                         val rawErr = response.errorBody()?.string() ?: ""
+
+                        // Khusus Deteksi Error 530 Cloudflare / Tunnel Terputus akibat Listrik Padam
+                        val is530OrTunnelError = statusCode == 530 || statusCode == 502 || statusCode == 504 || statusCode in 520..530 ||
+                                rawErr.contains("530", ignoreCase = true) ||
+                                rawErr.contains("Cloudflare", ignoreCase = true) ||
+                                rawErr.contains("Origin DNS", ignoreCase = true)
+
+                        if (is530OrTunnelError) {
+                            com.school.smartcbt.utils.ClientLogger.logAttendance(
+                                context = this@ScannerActivity,
+                                action = if (isGateOut) "SCAN_GATE_OUT" else "SCAN_GATE_IN",
+                                outcome = "BUFFERED_530_OFFLINE",
+                                message = "Server/Tunnel offline (Kode $statusCode / Error 530 pemadaman listrik). Presensi diamankan ke database lokal HP.",
+                                barcode = code,
+                                lat = lat,
+                                lng = lng,
+                                extra = mapOf("method" to req.method, "statusCode" to statusCode, "error530" to true)
+                            )
+
+                            // Simpan ke antrean lokal Room DB
+                            val studentIdent = sessionManager.getUserId().ifEmpty { sessionManager.getUsername() }
+                            com.school.smartcbt.utils.AttendanceOfflineManager.saveOffline(
+                                context = this@ScannerActivity,
+                                identifier = studentIdent,
+                                barcodeCode = code,
+                                scanType = if (isGateOut) "GATE_OUT" else "GATE_IN",
+                                method = req.method ?: "QR_GATE",
+                                lat = lat,
+                                lng = lng,
+                                accuracy = accuracy,
+                                isFakeGps = isFakeGps,
+                                deviceTime = timeNow,
+                                note = "CLOUDFLARE_530_OUTAGE"
+                            )
+
+                            // Simpan ke Cache Lokal agar Beranda Siswa Langsung Terupdate Seketika
+                            sessionManager.saveTodayGateAttendance(
+                                type = if (isGateOut) "GATE_OUT" else "GATE_IN",
+                                timeWib = timeNow,
+                                status = if (isGateOut) "PULANG" else "HADIR"
+                            )
+
+                            com.school.smartcbt.utils.TtsVoiceHelper.playBeepSuccess()
+                            com.school.smartcbt.utils.TtsVoiceHelper.speak("Server sekolah offline karena kendala listrik. Presensi Anda berhasil diamankan di HP dan otomatis disinkronkan.")
+
+                            NotificationHelper.showHeadsUpNotification(
+                                this@ScannerActivity,
+                                "💾 Presensi Diamankan di HP (Server Offline)",
+                                "$sName (Kelas $sClass) presensi berhasil disimpan di penyimpanan internal HP karena server sekolah offline.",
+                                "Presensi SMPN 1 Boyolangu"
+                            )
+
+                            showModernScanDialog(
+                                isSuccess = true,
+                                title = "💾 Presensi Diamankan di HP!",
+                                subtitle = "Server Offline (Error 530 / Listrik Padam)",
+                                message = "✅ Anda tidak perlu khawatir!\nPresensi $gateText Anda tercatat pukul $timeNow dan tersimpan aman di memori HP Anda.\n\nAlasan: Server sekolah offline sementara (Error 530 Cloudflare / Pemadaman Listrik).\n\n💡 Catatan:\nData ini akan otomatis disinkronkan ke server sekolah saat listrik menyala kembali. Anda tidak perlu mengulang scan barcode.",
+                                gateType = "$gateText (Offline Buffer)",
+                                timeStr = timeNow,
+                                lat = lat,
+                                lng = lng
+                            )
+                            return
+                        }
+
+                        // Jika server mengalami gangguan/down lainnya (500)
+                        if (statusCode >= 500) {
+                            com.school.smartcbt.utils.ClientLogger.logAttendance(
+                                context = this@ScannerActivity,
+                                action = if (isGateOut) "SCAN_GATE_OUT" else "SCAN_GATE_IN",
+                                outcome = "ERROR",
+                                message = "Server error $statusCode: $rawErr",
+                                barcode = code,
+                                lat = lat,
+                                lng = lng
+                            )
+                            com.school.smartcbt.utils.TtsVoiceHelper.playBeepError()
+                            com.school.smartcbt.utils.TtsVoiceHelper.speak("Presensi gagal. Gangguan server sekolah.")
+                            showModernScanDialog(
+                                isSuccess = false,
+                                title = "❌ Gangguan Server",
+                                subtitle = "Server Sedang Sibuk (Kode $statusCode)",
+                                message = "Server presensi sekolah sedang memproses antrean padat. Silakan pastikan koneksi stabil lalu ulangi pemindaian barcode.",
+                                gateType = gateText,
+                                timeStr = timeNow,
+                                lat = lat,
+                                lng = lng
+                            )
+                            return
+                        }
+
                         var userMsg = "Presensi Ditolak Server"
+                        var isWarningYellow = false
                         try {
                             val json = org.json.JSONObject(rawErr)
                             if (json.has("message")) {
                                 userMsg = json.getString("message")
                             }
+                            if (json.optBoolean("isWarningYellow", false) || 
+                                json.optBoolean("notScannedIn", false) ||
+                                json.optBoolean("isGateOutInMorning", false)) {
+                                isWarningYellow = true
+                            }
                         } catch (e: Exception) {
                             if (rawErr.isNotEmpty()) userMsg = rawErr
                         }
+
+                        if (userMsg.contains("belum tercatat", ignoreCase = true) ||
+                            userMsg.contains("belum scan masuk", ignoreCase = true) ||
+                            userMsg.contains("Memindai Barcode Kepulangan", ignoreCase = true) ||
+                            userMsg.contains("gate-in", ignoreCase = true)) {
+                            isWarningYellow = true
+                        }
+
+                        com.school.smartcbt.utils.ClientLogger.logAttendance(
+                            context = this@ScannerActivity,
+                            action = if (isGateOut) "SCAN_GATE_OUT" else "SCAN_GATE_IN",
+                            outcome = "REJECTED",
+                            message = userMsg,
+                            barcode = code,
+                            lat = lat,
+                            lng = lng,
+                            extra = mapOf("statusCode" to statusCode, "isWarningYellow" to isWarningYellow, "accuracy" to accuracy)
+                        )
 
                         val explanation = parseScanFailureExplanation(userMsg, code)
                         val formattedMsg = "📌 Keterangan:\n${explanation.reason}\n\n💡 Saran Tindakan:\n${explanation.suggestion}"
@@ -997,23 +1449,51 @@ class ScannerActivity : AppCompatActivity() {
                             title = explanation.title,
                             subtitle = explanation.subtitle,
                             message = formattedMsg,
-                            gateType = gateText,
+                            gateType = if (isWarningYellow) "⚠️ GATE-OUT DITOLAK" else gateText,
                             timeStr = timeNow,
                             lat = lat,
-                            lng = lng
+                            lng = lng,
+                            isWarningYellow = isWarningYellow,
+                            scannedCode = code,
+                            isFakeGps = isFakeGps,
+                            accuracy = accuracy
                         )
                     }
                 }
 
                 override fun onFailure(call: Call<BasicResponse>, t: Throwable) {
-                    // Simpan ke antrean lokal Room DB saat terjadi kegagalan jaringan
-                    com.school.smartcbt.utils.OfflineAttendanceManager.savePendingScan(this@ScannerActivity, req)
+                    if (isGateOut) {
+                        sessionManager.clearTodayGateOutCache()
+                    }
+                    val netMsg = t.message ?: "Koneksi terputus"
+                    val isDnsOrOffline = netMsg.contains("Unable to resolve host", ignoreCase = true) ||
+                            netMsg.contains("No address associated", ignoreCase = true) ||
+                            netMsg.contains("Failed to connect", ignoreCase = true)
+
+                    com.school.smartcbt.utils.ClientLogger.logAttendance(
+                        context = this@ScannerActivity,
+                        action = if (isGateOut) "SCAN_GATE_OUT" else "SCAN_GATE_IN",
+                        outcome = "ERROR",
+                        message = "Presensi terputus: $netMsg",
+                        barcode = code,
+                        lat = lat,
+                        lng = lng
+                    )
+                    com.school.smartcbt.utils.TtsVoiceHelper.playBeepError()
+                    com.school.smartcbt.utils.TtsVoiceHelper.speak("Presensi gagal. Server sekolah tidak terjangkau. Silakan hubungkan ke WiFi sekolah atau aktifkan paket data.")
+
+                    val friendlySub = if (isDnsOrOffline) "Koneksi Internet Terputus (DNS Gagal)" else "Koneksi Terputus / Timeout"
+                    val friendlyMsg = if (isDnsOrOffline) {
+                        "HP Anda tidak dapat menjangkau server sekolah (sinyal seluler lemah atau kuota data tidak aktif).\n\n📌 Langkah Penyelesaian:\n1. Hubungkan HP ke WiFi Sekolah (SMBOY) yang tersedia di area kelas.\n2. Atau pastikan Paket Data Seluler Anda aktif dan memiliki kuota.\n3. Setelah terhubung, tekan tombol 'Scan Ulang' di bawah ini.\n\n💡 Alternatif: Jika internet HP tetap terkendala, Anda dapat meminta bantuan presensi ke Pengurus Kelas atau melapor ke Guru Piket."
+                    } else {
+                        "Gagal berkomunikasi dengan server presensi sekolah ($netMsg).\n\n📌 Langkah Penyelesaian:\n1. Pastikan koneksi internet (WiFi / Data Seluler) stabil.\n2. Tekan tombol 'Scan Ulang' untuk mencoba kembali.\n3. Jika kendala berlanjut, hubungi Pengurus Kelas atau Guru Piket."
+                    }
 
                     showModernScanDialog(
-                        isSuccess = true,
-                        title = "⏳ Presensi Disimpan Offline",
-                        subtitle = "Koneksi Terputus - Tersimpan di HP",
-                        message = "Koneksi ke server sekolah terputus saat mengirim data. Presensi Anda telah diamankan di database lokal HP dan akan disinkronkan otomatis saat jaringan kembali normal.",
+                        isSuccess = false,
+                        title = "❌ Presensi Gagal!",
+                        subtitle = friendlySub,
+                        message = friendlyMsg,
                         gateType = gateText,
                         timeStr = timeNow,
                         lat = lat,
@@ -1031,8 +1511,16 @@ class ScannerActivity : AppCompatActivity() {
         gateType: String,
         timeStr: String,
         lat: Double? = null,
-        lng: Double? = null
+        lng: Double? = null,
+        isWarningYellow: Boolean = false,
+        scannedCode: String? = null,
+        isFakeGps: Boolean = false,
+        accuracy: Float? = null
     ) {
+        if (isFinishing || isDestroyed) {
+            return
+        }
+
         val dialogView = layoutInflater.inflate(R.layout.dialog_scan_result, null)
         val dialog = AlertDialog.Builder(this)
             .setView(dialogView)
@@ -1050,6 +1538,15 @@ class ScannerActivity : AppCompatActivity() {
         val tvStudentName = dialogView.findViewById<TextView>(R.id.tvStudentName)
         val tvStudentClassNisn = dialogView.findViewById<TextView>(R.id.tvStudentClassNisn)
         val tvScanTime = dialogView.findViewById<TextView>(R.id.tvScanTime)
+        
+        val tvScanTypeLabel = dialogView.findViewById<TextView>(R.id.tvScanTypeLabel)
+        val tvLocationVerified = dialogView.findViewById<TextView>(R.id.tvLocationVerified)
+        val tvParentNotifDetail = dialogView.findViewById<TextView>(R.id.tvParentNotifDetail)
+        val layoutDurationInfo = dialogView.findViewById<LinearLayout>(R.id.layoutDurationInfo)
+        val tvDurationInfo = dialogView.findViewById<TextView>(R.id.tvDurationInfo)
+        val layoutLateInfo = dialogView.findViewById<LinearLayout>(R.id.layoutLateInfo)
+        val tvLateInfo = dialogView.findViewById<TextView>(R.id.tvLateInfo)
+        
         val tvGateTypeBadge = dialogView.findViewById<TextView>(R.id.tvGateTypeBadge)
         val tvGpsStatus = dialogView.findViewById<TextView>(R.id.tvGpsStatus)
         val layoutParentNotifBadge = dialogView.findViewById<LinearLayout>(R.id.layoutParentNotifBadge)
@@ -1066,7 +1563,7 @@ class ScannerActivity : AppCompatActivity() {
         tvStudentClassNisn.text = "Kelas $sClass • NISN: $sNisn"
         tvStudentAvatar.text = if (sName.isNotEmpty()) sName.take(1).uppercase() else "S"
         tvScanTime.text = timeStr
-        tvGateTypeBadge.text = gateType
+        tvGateTypeBadge?.text = gateType
         tvScanResultMessage.text = message
 
         if (lat != null && lng != null) {
@@ -1085,44 +1582,106 @@ class ScannerActivity : AppCompatActivity() {
         }
 
         if (isSuccess) {
+            try {
+                com.school.smartcbt.utils.TtsVoiceHelper.playBeepSuccess()
+            } catch (e: Exception) {}
             val isMushola = gateType.contains("mushola", ignoreCase = true) || gateType.contains("sholat", ignoreCase = true)
             val isMatpel = gateType.contains("matpel", ignoreCase = true) || gateType.contains("pelajaran", ignoreCase = true) || gateType.contains("kbm", ignoreCase = true)
+            val isGateOut = gateType.contains("pulang", ignoreCase = true) || gateType.contains("out", ignoreCase = true)
+            
             if (isMushola) {
                 layoutHeaderBanner.setBackgroundResource(R.drawable.bg_mushola_header_gradient)
                 tvScanResultIcon.text = "🕌"
                 tvScanResultIcon.setTextColor(Color.parseColor("#059669"))
-                tvScanResultTitle.text = title
+                tvScanResultTitle.text = "JAZAKALLAHU KHAIRAN 🕌"
                 tvScanResultSubtitle.text = subtitle
-                tvGateTypeBadge.text = "🕌 PRESENSI MUSHOLA"
-                tvGateTypeBadge.setBackgroundColor(Color.parseColor("#D1FAE5"))
-                tvGateTypeBadge.setTextColor(Color.parseColor("#065F46"))
+                
+                tvScanTypeLabel?.text = "PRESENSI MUSHOLA"
+                tvLocationVerified?.text = "📍 Terverifikasi di Area Mushola Sekolah"
+                
+                tvGateTypeBadge?.text = "🕌 PRESENSI MUSHOLA"
+                tvGateTypeBadge?.setBackgroundColor(Color.parseColor("#D1FAE5"))
+                tvGateTypeBadge?.setTextColor(Color.parseColor("#065F46"))
                 btnPrimary.setBackgroundColor(Color.parseColor("#059669"))
                 btnPrimary.text = "Alhamdulillah, Selesai"
                 layoutParentNotifBadge.visibility = View.VISIBLE
                 tvParentNotifText.text = "🕌 Presensi Sholat Terhubung ke SIAKAD & Buku Pantau Ibadah"
+                tvParentNotifDetail?.text = "$sName telah melaksanakan sholat dan tercatat di sistem pada $timeStr WIB"
             } else if (isMatpel) {
                 layoutHeaderBanner.setBackgroundResource(R.drawable.bg_matpel_header_gradient)
                 tvScanResultIcon.text = "📚"
                 tvScanResultIcon.setTextColor(Color.parseColor("#4F46E5"))
-                tvScanResultTitle.text = title
+                tvScanResultTitle.text = "PRESENSI KBM TERCATAT ✅"
                 tvScanResultSubtitle.text = subtitle
-                tvGateTypeBadge.text = "🎯 PRESENSI MAPEL"
-                tvGateTypeBadge.setBackgroundColor(Color.parseColor("#EEF2FF"))
-                tvGateTypeBadge.setTextColor(Color.parseColor("#3730A3"))
+                
+                tvScanTypeLabel?.text = "PRESENSI MATA PELAJARAN (KBM)"
+                tvLocationVerified?.text = "📍 Terverifikasi di Ruang Kelas"
+                
+                tvGateTypeBadge?.text = "🎯 PRESENSI MAPEL"
+                tvGateTypeBadge?.setBackgroundColor(Color.parseColor("#EEF2FF"))
+                tvGateTypeBadge?.setTextColor(Color.parseColor("#3730A3"))
                 btnPrimary.setBackgroundColor(Color.parseColor("#4F46E5"))
                 btnPrimary.text = "Alhamdulillah, Selesai"
                 layoutParentNotifBadge.visibility = View.VISIBLE
                 tvParentNotifText.text = "📚 Presensi Mata Pelajaran Terhubung Langsung ke Guru & Portal SIAKAD"
+                tvParentNotifDetail?.text = "Kehadiran $sName di kelas tercatat pada $timeStr WIB"
+            } else if (isGateOut) {
+                layoutHeaderBanner.setBackgroundResource(R.drawable.bg_biodata_header_gradient)
+                tvScanResultIcon.text = "🚪"
+                tvScanResultIcon.setTextColor(Color.parseColor("#2563EB"))
+                tvScanResultTitle.text = "SELAMAT JALAN, HATI-HATI! 🏠"
+                tvScanResultSubtitle.text = subtitle
+                
+                tvScanTypeLabel?.text = "PRESENSI PULANG (GATE-OUT)"
+                tvLocationVerified?.text = "📍 Terverifikasi di Area SMP Negeri 1 Boyolangu"
+                
+                btnPrimary.setBackgroundColor(Color.parseColor("#2563EB"))
+                btnPrimary.text = "Selesai & Tutup"
+                layoutParentNotifBadge.visibility = View.VISIBLE
+                tvParentNotifText.text = "Notifikasi Kepulangan Terkirim ke Orang Tua"
+                tvParentNotifDetail?.text = "Anak Anda $sName telah pulang dari sekolah pukul $timeStr WIB"
             } else {
                 layoutHeaderBanner.setBackgroundResource(R.drawable.bg_biodata_header_gradient)
-                tvScanResultIcon.text = "✓"
+                tvScanResultIcon.text = "🏫"
                 tvScanResultIcon.setTextColor(Color.parseColor("#059669"))
-                tvScanResultTitle.text = title
+                tvScanResultTitle.text = "SELAMAT DATANG DI SEKOLAH!"
                 tvScanResultSubtitle.text = subtitle
+                
+                tvScanTypeLabel?.text = "PRESENSI MASUK PAGI (GATE-IN)"
+                tvLocationVerified?.text = "📍 Terverifikasi di Area SMP Negeri 1 Boyolangu"
+                
                 btnPrimary.setBackgroundColor(Color.parseColor("#059669"))
                 btnPrimary.text = "Selesai & Tutup"
                 layoutParentNotifBadge.visibility = View.VISIBLE
-                tvParentNotifText.text = "📱 Notifikasi Terkirim ke Portal & WhatsApp Orang Tua"
+                tvParentNotifText.text = "Notifikasi Kedatangan Terkirim ke Orang Tua"
+                
+                val lateStatus = if (message.contains("terlambat", ignoreCase = true)) "Terlambat" else "Hadir Tepat Waktu"
+                tvParentNotifDetail?.text = "Anak Anda $sName telah tiba di sekolah pukul $timeStr WIB — Status: $lateStatus"
+                
+                if (lateStatus == "Terlambat") {
+                    tvScanResultIcon.text = "⚠️"
+                    tvScanResultTitle.text = "⚠️ PRESENSI MASUK TERLAMBAT"
+                    tvScanResultSubtitle.text = "Kedatangan Melewati Pukul 07:00 WIB (+2 Poin Kedisiplinan)"
+                    layoutLateInfo?.visibility = View.VISIBLE
+                    tvLateInfo?.text = "Status: Terlambat (+2 Poin Kedisiplinan)"
+                    btnPrimary.setBackgroundColor(Color.parseColor("#D97706"))
+                    btnPrimary.text = "Mengerti & Masuk Kelas"
+                    com.school.smartcbt.utils.TtsVoiceHelper.speakMasukTerlambat(sName)
+                } else {
+                    com.school.smartcbt.utils.TtsVoiceHelper.speakMasukTepatWaktu(sName)
+                }
+            }
+
+            if (isMushola) {
+                com.school.smartcbt.utils.TtsVoiceHelper.speakMushola(sName)
+            } else if (isMatpel) {
+                com.school.smartcbt.utils.TtsVoiceHelper.speak("Presensi mata pelajaran berhasil, $sName.")
+            } else if (isGateOut) {
+                com.school.smartcbt.utils.TtsVoiceHelper.speakPulang(sName)
+            } else if (gateType.contains("RETURN", ignoreCase = true)) {
+                com.school.smartcbt.utils.TtsVoiceHelper.speakSatpamReturn(sName)
+            } else if (gateType.contains("CHECKOUT", ignoreCase = true)) {
+                com.school.smartcbt.utils.TtsVoiceHelper.speakSatpamCheckout(sName)
             }
             btnSecondary.visibility = View.GONE
 
@@ -1130,44 +1689,263 @@ class ScannerActivity : AppCompatActivity() {
                 dialog.dismiss()
                 finish()
             }
-        } else {
-            layoutHeaderBanner.setBackgroundColor(Color.parseColor("#DC2626"))
-            tvScanResultIcon.text = "⚠️"
-            tvScanResultIcon.setTextColor(Color.parseColor("#DC2626"))
+        } else if (isWarningYellow) {
+            try {
+                com.school.smartcbt.utils.TtsVoiceHelper.playBeepError()
+            } catch (e: Exception) {}
+            val isMorning = Calendar.getInstance().get(Calendar.HOUR_OF_DAY) < 11
+            val isScannedGateOutInMorning = (scannedCode?.contains("OUT", ignoreCase = true) == true || 
+                                             message.contains("Barcode Kepulangan", ignoreCase = true) || 
+                                             title.contains("GATE-OUT", ignoreCase = true)) && isMorning
+
+            if (isScannedGateOutInMorning) {
+                layoutHeaderBanner.setBackgroundColor(Color.parseColor("#D97706"))
+                tvScanResultIcon.text = "⛔"
+                tvScanResultIcon.setTextColor(Color.parseColor("#FFFFFF"))
+                tvScanTypeLabel?.text = "⛔ INI BARCODE KEPULANGAN (GATE-OUT)"
+                tvScanResultTitle.text = "⛔ Anda Memindai Barcode Pulang!"
+                tvScanResultSubtitle.text = "Gerbang Kepulangan Sedang Ditutup"
+                tvGateTypeBadge.setBackgroundColor(Color.parseColor("#FEF3C7"))
+                tvGateTypeBadge.setTextColor(Color.parseColor("#B45309"))
+                tvGateTypeBadge.text = "⚠️ BUKAN BARCODE MASUK KELAS"
+
+                tvScanResultMessage.setTypeface(null, android.graphics.Typeface.BOLD)
+                tvScanResultMessage.setTextColor(Color.parseColor("#92400E"))
+                tvScanResultMessage.setBackgroundColor(Color.parseColor("#FEF3C7"))
+                tvScanResultMessage.text = "Yang baru saja Anda pindai adalah Barcode Kepulangan (Gate-Out). Gerbang kepulangan saat ini SEDANG DITUTUP (Baru dibuka pukul 12:30 WIB).\n\n👉 JANGAN PANIK!\nSilakan pindai BARCODE MASUK (GATE-IN) yang terpasang di samping pintu ruang kelas Anda untuk presensi kedatangan pagi."
+
+                btnPrimary.setBackgroundColor(Color.parseColor("#D97706"))
+                btnPrimary.text = "Mengerti, Cari Barcode Masuk"
+                btnSecondary.visibility = View.GONE
+                layoutParentNotifBadge.visibility = View.GONE
+
+                com.school.smartcbt.utils.TtsVoiceHelper.speakSalahScanGateOutPagi()
+
+                btnPrimary.setOnClickListener {
+                    dialog.dismiss()
+                    isProcessingScan = false
+                    tvStatusText.text = "📷 Arahkan Kamera ke Barcode [ MASUK (GATE-IN) ]"
+                }
+            } else {
+                tvScanTypeLabel?.text = "PERINGATAN PRESENSI"
+                layoutHeaderBanner.setBackgroundColor(Color.parseColor("#D97706"))
+                tvScanResultIcon.text = "⚠️"
+                tvScanResultIcon.setTextColor(Color.parseColor("#D97706"))
+                tvScanResultTitle.text = title
+                tvScanResultSubtitle.text = subtitle
+                tvGateTypeBadge.setBackgroundColor(Color.parseColor("#FEF3C7"))
+                tvGateTypeBadge.setTextColor(Color.parseColor("#B45309"))
+                tvGateTypeBadge.text = "⚠️ PERINGATAN: BELUM SCAN MASUK"
+                btnPrimary.setBackgroundColor(Color.parseColor("#D97706"))
+                btnPrimary.text = "Pulang Khusus (Lupa Scan Pagi)"
+                btnSecondary.visibility = View.VISIBLE
+                btnSecondary.text = "Tutup / Tanya Piket"
+                layoutParentNotifBadge.visibility = View.GONE
+
+                com.school.smartcbt.utils.TtsVoiceHelper.speakBelumScanMasuk()
+
+                btnPrimary.setOnClickListener {
+                    dialog.dismiss()
+                    if (!scannedCode.isNullOrEmpty()) {
+                        AlertDialog.Builder(this@ScannerActivity)
+                            .setTitle("🚪 Konfirmasi Pulang Khusus")
+                            .setMessage("Apakah Anda ingin memproses Presensi Kepulangan Khusus?\n\n📌 Ketentuan:\n• Anda tetap diizinkan pulang sekarang.\n• Sistem akan mencatat catatan kedisiplinan ringan (Lupa scan masuk pagi) ke Guru BK/Piket.\n• Notifikasi resmi kepulangan akan diteruskan ke HP Orang Tua.")
+                            .setPositiveButton("Ya, Tetap Pulang") { _, _ ->
+                                submitAttendance(
+                                    code = scannedCode,
+                                    lat = lat,
+                                    lng = lng,
+                                    isFakeGps = isFakeGps,
+                                    method = "GPS",
+                                    accuracy = accuracy,
+                                    isSpecialCheckoutWithoutIn = true
+                                )
+                            }
+                            .setNegativeButton("Batal", null)
+                            .show()
+                    } else {
+                        finish()
+                    }
+                }
+                btnSecondary.setOnClickListener {
+                    dialog.dismiss()
+                    finish()
+                }
+            }
+        } else if (title.contains("LIBUR", ignoreCase = true) || title.contains("MINGGU", ignoreCase = true)) {
+            tvScanTypeLabel?.text = "🌴 HARI LIBUR SEKOLAH"
+            layoutHeaderBanner.setBackgroundColor(Color.parseColor("#0284C7"))
+            tvScanResultIcon.text = "🌴"
+            tvScanResultIcon.setTextColor(Color.parseColor("#FFFFFF"))
             tvScanResultTitle.text = title
             tvScanResultSubtitle.text = subtitle
-            tvGateTypeBadge.setBackgroundColor(Color.parseColor("#FEE2E2"))
-            tvGateTypeBadge.setTextColor(Color.parseColor("#991B1B"))
-            btnPrimary.setBackgroundColor(Color.parseColor("#DC2626"))
-            btnPrimary.text = "Tutup"
-            btnSecondary.visibility = View.VISIBLE
-            btnSecondary.text = "Scan Ulang"
+            tvGateTypeBadge.setBackgroundColor(Color.parseColor("#E0F2FE"))
+            tvGateTypeBadge.setTextColor(Color.parseColor("#0369A1"))
+            tvGateTypeBadge.text = "🌴 LIBUR OPERASIONAL SEKOLAH"
+            btnPrimary.setBackgroundColor(Color.parseColor("#0284C7"))
+            btnPrimary.text = "Tutup & Selamat Berlibur"
+            btnSecondary.visibility = View.GONE
             layoutParentNotifBadge.visibility = View.GONE
 
+            com.school.smartcbt.utils.TtsVoiceHelper.speakLiburSekolah()
             btnPrimary.setOnClickListener {
                 dialog.dismiss()
                 finish()
             }
-            btnSecondary.setOnClickListener {
-                dialog.dismiss()
-                isProcessingScan = false
-                tvStatusText.text = "📷 Kamera Siap: Arahkan ke QR Code Presensi"
+        } else {
+            val calNow = Calendar.getInstance()
+            val hourNow = calNow.get(Calendar.HOUR_OF_DAY)
+            val minuteNow = calNow.get(Calendar.MINUTE)
+            val isPast0730 = (hourNow in 8..11) || (hourNow == 7 && minuteNow >= 30)
+
+            val isLateArrivalToBk = isPast0730 && 
+                                    (title.contains("TERLAMBAT", ignoreCase = true) || title.contains("TERKUNCI", ignoreCase = true) || title.contains("DITUTUP", ignoreCase = true) || message.contains("07:30", ignoreCase = true) || message.contains("Ruang BK", ignoreCase = true)) && 
+                                    !title.contains("BELUM", ignoreCase = true) && 
+                                    !title.contains("LIBUR", ignoreCase = true) && 
+                                    !title.contains("MINGGU", ignoreCase = true) && 
+                                    !title.contains("KEPULANGAN", ignoreCase = true) && 
+                                    !title.contains("GATE-OUT", ignoreCase = true)
+
+            if (isLateArrivalToBk) {
+                tvScanTypeLabel?.text = "🚨 GERBANG KELAS DITUTUP (> 07:30 WIB)"
+                layoutHeaderBanner.setBackgroundColor(Color.parseColor("#991B1B"))
+                tvScanResultIcon.text = "🚨"
+                tvScanResultIcon.setTextColor(Color.parseColor("#FFFFFF"))
+                tvScanResultTitle.text = "🚨 GERBANG KELAS DITUTUP!"
+                tvScanResultSubtitle.text = "Batas Presensi Kelas Pukul 07:30:00 WIB Berakhir"
+                tvGateTypeBadge.setBackgroundColor(Color.parseColor("#FEF2F2"))
+                tvGateTypeBadge.setTextColor(Color.parseColor("#991B1B"))
+                tvGateTypeBadge.text = "🏢 ARAHAN: SEGERA MENUJU RUANG BK"
+
+                tvScanResultMessage.setTypeface(null, android.graphics.Typeface.BOLD)
+                tvScanResultMessage.setTextColor(Color.parseColor("#991B1B"))
+                tvScanResultMessage.setBackgroundColor(Color.parseColor("#FEE2E2"))
+                tvScanResultMessage.text = "⚠️ GERBANG KELAS TELAH DITUTUP PUKUL 07:30 WIB!\n\nBatas toleransi presensi di ruang kelas telah berakhir demi ketertiban KBM jam pertama.\n\n👉 SEGERA MENUJU KE RUANG BK!\nTemui Guru BK atau scan Barcode Khusus Siswa Terlambat di Ruang BK untuk mendapatkan pendataan dan izin masuk kelas."
+
+                // Blinking animation on message to draw critical attention
+                val blinkAnimation = android.view.animation.AlphaAnimation(0.2f, 1.0f).apply {
+                    duration = 450
+                    repeatMode = android.view.animation.Animation.REVERSE
+                    repeatCount = android.view.animation.Animation.INFINITE
+                }
+                tvScanResultMessage.startAnimation(blinkAnimation)
+                com.school.smartcbt.utils.TtsVoiceHelper.speakBarcodeDitutup()
+
+                btnPrimary.setBackgroundColor(Color.parseColor("#991B1B"))
+                btnPrimary.text = "🏠 Kembali ke Dashboard"
+                btnSecondary.visibility = View.VISIBLE
+                btnSecondary.text = "🏢 Scan Barcode BK"
+
+                btnPrimary.setOnClickListener {
+                    blinkAnimation.cancel()
+                    dialog.dismiss()
+                    finish()
+                }
+                btnSecondary.setOnClickListener {
+                    blinkAnimation.cancel()
+                    dialog.dismiss()
+                    isProcessingScan = false
+                    tvStatusText.text = "🏢 Arahkan Kamera ke Barcode Terlambat Ruang BK"
+                }
+            } else {
+                try {
+                    com.school.smartcbt.utils.TtsVoiceHelper.playBeepError()
+                } catch (e: Exception) {}
+                tvScanTypeLabel?.text = "STATUS PRESENSI"
+                layoutHeaderBanner.setBackgroundColor(Color.parseColor("#DC2626"))
+                tvScanResultIcon.text = "⚠️"
+                tvScanResultIcon.setTextColor(Color.parseColor("#DC2626"))
+                tvScanResultTitle.text = title
+                tvScanResultSubtitle.text = subtitle
+                tvGateTypeBadge.setBackgroundColor(Color.parseColor("#FEE2E2"))
+                tvGateTypeBadge.setTextColor(Color.parseColor("#991B1B"))
+                btnPrimary.setBackgroundColor(Color.parseColor("#DC2626"))
+                btnPrimary.text = "🏠 Kembali ke Dashboard"
+                btnSecondary.visibility = View.VISIBLE
+                btnSecondary.text = "🔄 Scan Ulang"
+                layoutParentNotifBadge.visibility = View.GONE
+
+                val lowerMsg = (title + " " + subtitle + " " + message).lowercase()
+                if (gateType.contains("CHECKOUT", ignoreCase = true) || gateType.contains("RETURN", ignoreCase = true)) {
+                    com.school.smartcbt.utils.TtsVoiceHelper.speakSatpamDitolak()
+                } else if (lowerMsg.contains("kelas lain") || lowerMsg.contains("bukan kelas") || lowerMsg.contains("tidak cocok")) {
+                    com.school.smartcbt.utils.TtsVoiceHelper.speakBedaKelas()
+                } else if (lowerMsg.contains("fake gps") || lowerMsg.contains("mock") || lowerMsg.contains("palsu")) {
+                    com.school.smartcbt.utils.TtsVoiceHelper.speakFakeGps()
+                } else if (lowerMsg.contains("sudah") && (lowerMsg.contains("hadir") || lowerMsg.contains("presensi") || lowerMsg.contains("1x"))) {
+                    com.school.smartcbt.utils.TtsVoiceHelper.speakSudahAbsen(sName)
+                } else if (lowerMsg.contains("tutup") || lowerMsg.contains("terkunci") || lowerMsg.contains("bk") || lowerMsg.contains("wali kelas")) {
+                    com.school.smartcbt.utils.TtsVoiceHelper.speakBarcodeDitutup()
+                } else if (lowerMsg.contains("gps") || lowerMsg.contains("lokasi") || lowerMsg.contains("radius") || lowerMsg.contains("jarak")) {
+                    com.school.smartcbt.utils.TtsVoiceHelper.speakGpsDitolak()
+                } else if (lowerMsg.contains("belum dibuka")) {
+                    com.school.smartcbt.utils.TtsVoiceHelper.speak("Presensi ditolak. Gerbang presensi belum dibuka oleh server sekolah.")
+                } else {
+                    com.school.smartcbt.utils.TtsVoiceHelper.speak(if (message.isNotBlank()) message else title)
+                }
+
+                btnPrimary.setOnClickListener {
+                    dialog.dismiss()
+                    finish()
+                }
+                btnSecondary.setOnClickListener {
+                    dialog.dismiss()
+                    isProcessingScan = false
+                    tvStatusText.text = "📷 Kamera Siap: Arahkan ke QR Code Presensi"
+                }
             }
         }
 
-        dialog.show()
+        try {
+            if (!isFinishing && !isDestroyed) {
+                dialog.show()
+                dialog.window?.let { win ->
+                    val displayMetrics = resources.displayMetrics
+                    val dialogWidth = (displayMetrics.widthPixels * 0.94).toInt()
+                    val maxHeight = (displayMetrics.heightPixels * 0.88).toInt()
+                    win.setLayout(dialogWidth, android.view.ViewGroup.LayoutParams.WRAP_CONTENT)
+
+                    // Ensure navigation bar never obscures bottom buttons
+                    val bottomBar = dialogView.findViewById<View>(R.id.layoutDialogBottomBar)
+                    if (bottomBar != null && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                        win.decorView.setOnApplyWindowInsetsListener { _, insets ->
+                            val navBottom = insets.getInsets(android.view.WindowInsets.Type.navigationBars()).bottom
+                            bottomBar.setPadding(
+                                bottomBar.paddingLeft,
+                                bottomBar.paddingTop,
+                                bottomBar.paddingRight,
+                                bottomBar.paddingBottom.coerceAtLeast(navBottom + 20)
+                            )
+                            insets
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("ScannerActivity", "Gagal menampilkan showModernScanDialog: ${e.message}")
+        }
     }
 
-    private val studentPhotoCache = java.util.concurrent.ConcurrentHashMap<String, Bitmap>()
+    private val studentPhotoCache: android.util.LruCache<String, Bitmap> by lazy {
+        val maxMemoryKb = (Runtime.getRuntime().maxMemory() / 1024).toInt()
+        val cacheSizeKb = (maxMemoryKb / 8).coerceAtLeast(2048)
+        object : android.util.LruCache<String, Bitmap>(cacheSizeKb) {
+            override fun sizeOf(key: String, bitmap: Bitmap): Int {
+                return (bitmap.byteCount / 1024).coerceAtLeast(1)
+            }
+        }
+    }
 
     private fun loadStudentPhotoAsync(url: String, imageView: ImageView, fallbackText: TextView) {
         imageView.tag = url
-        val cached = studentPhotoCache[url]
-        if (cached != null && !cached.isRecycled) {
-            imageView.setImageBitmap(cached)
-            imageView.visibility = View.VISIBLE
-            fallbackText.visibility = View.GONE
-            return
+        synchronized(studentPhotoCache) {
+            val cached = studentPhotoCache.get(url)
+            if (cached != null && !cached.isRecycled) {
+                imageView.setImageBitmap(cached)
+                imageView.visibility = View.VISIBLE
+                fallbackText.visibility = View.GONE
+                return
+            }
         }
 
         cameraExecutor.execute {
@@ -1178,9 +1956,25 @@ class ScannerActivity : AppCompatActivity() {
                 conn.doInput = true
                 conn.connect()
                 val bytes = conn.inputStream.use { it.readBytes() }
-                val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                if (bytes.isEmpty() || bytes.size > 5 * 1024 * 1024) return@execute
+
+                val boundsOpt = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size, boundsOpt)
+
+                var sampleSize = 1
+                while (boundsOpt.outWidth / sampleSize > 256 || boundsOpt.outHeight / sampleSize > 256) {
+                    sampleSize *= 2
+                }
+
+                val decodeOpt = BitmapFactory.Options().apply {
+                    inSampleSize = sampleSize
+                    inPreferredConfig = Bitmap.Config.RGB_565
+                }
+                val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, decodeOpt)
                 if (bmp != null) {
-                    studentPhotoCache[url] = bmp
+                    synchronized(studentPhotoCache) {
+                        studentPhotoCache.put(url, bmp)
+                    }
                     runOnUiThread {
                         if (imageView.tag == url) {
                             imageView.setImageBitmap(bmp)
@@ -1209,6 +2003,66 @@ class ScannerActivity : AppCompatActivity() {
     private fun parseScanFailureExplanation(serverMsg: String, code: String): ScanFailureExplanation {
         val lower = serverMsg.lowercase(Locale.ROOT)
         return when {
+            // 1. HARI MINGGU & HARI LIBUR SEKOLAH (PRIORITAS TERTINGGI - JANGAN SAMPAI DISANGKA TERLAMBAT/KE BK)
+            lower.contains("minggu") || lower.contains("libur") || lower.contains("holiday") || lower.contains("akhir pekan") -> {
+                ScanFailureExplanation(
+                    title = "🌴 HARI LIBUR OPERASIONAL SEKOLAH",
+                    subtitle = "Selamat Berakhir Pekan!",
+                    reason = "Hari ini adalah hari libur sekolah (tidak ada kegiatan belajar mengajar atau presensi tatap muka di SMP Negeri 1 Boyolangu).",
+                    suggestion = "Presensi dinonaktifkan pada hari libur. Silakan nikmati waktu istirahat dan berkumpul bersama keluarga di rumah."
+                )
+            }
+
+            // 2. SISWA MEMINDAI BARCODE GATE-OUT DI PAGI HARI (JANGAN PANIK)
+            lower.contains("memindai barcode kepulangan") || lower.contains("isgateoutinmorning") || 
+            (code.contains("OUT", true) && Calendar.getInstance().get(Calendar.HOUR_OF_DAY) < 11) -> {
+                ScanFailureExplanation(
+                    title = "⛔ INI BARCODE KEPULANGAN (GATE-OUT)",
+                    subtitle = "Gerbang Kepulangan Sedang Ditutup",
+                    reason = "Yang baru saja Anda pindai adalah Barcode Kepulangan (Gate-Out). Gerbang kepulangan saat ini SEDANG DITUTUP dan baru dibuka saat jam kepulangan siang (pukul 12:30 WIB).",
+                    suggestion = "👉 JANGAN PANIK! Silakan pindai BARCODE MASUK (GATE-IN) yang terpasang di samping pintu ruang kelas Anda untuk mencatat presensi pagi."
+                )
+            }
+
+            // 3. GERBANG KEPULANGAN SIANG BELUM DIBUKA
+            lower.contains("gerbang kepulangan belum dibuka") || lower.contains("isgateoutclosed") || 
+            (lower.contains("kepulangan") && lower.contains("belum dibuka")) -> {
+                ScanFailureExplanation(
+                    title = "⛔ GERBANG KEPULANGAN BELUM DIBUKA",
+                    subtitle = "KBM Masih Berlangsung",
+                    reason = "Presensi kepulangan (Gate-Out) baru dibuka saat jam kepulangan resmi sekolah sesuai jadwal operasional hari ini.",
+                    suggestion = "Silakan ikuti KBM hingga selesai. Jika ada keperluan darurat atau sakit, ajukan izin melalui menu Perizinan (Gatepass) di aplikasi."
+                )
+            }
+
+            // 4. GERBANG KELAS DITUTUP PUKUL 07:30 KE RUANG BK
+            lower.contains("ditutup pukul 07:30") || lower.contains("isclassgateclosedtobk") || lower.contains("ke ruang bk") || lower.contains("toleransi presensi di ruang kelas") -> {
+                ScanFailureExplanation(
+                    title = "🚨 GERBANG KELAS DITUTUP (PUKUL 07:30 WIB)",
+                    subtitle = "Batas Presensi Kelas Telah Berakhir",
+                    reason = "Presensi mandiri di ruang kelas telah ditutup pada pukul 07:30:00 WIB demi ketertiban KBM jam pertama.",
+                    suggestion = "👉 SEGERA MENUJU KE RUANG BK! Silakan scan Barcode Khusus Siswa Terlambat di Ruang BK atau temui Guru BK untuk mendapatkan surat izin masuk kelas."
+                )
+            }
+
+            // 5. GERBANG MASUK BELUM DIBUKA (< 06:00 WIB)
+            lower.contains("gerbang masuk belum dibuka") || (lower.contains("belum dibuka") && lower.contains("masuk")) -> {
+                ScanFailureExplanation(
+                    title = "⛔ GERBANG PRESENSI BELUM DIBUKA",
+                    subtitle = "Di Luar Jam Masuk Sekolah",
+                    reason = "Sesi pemindaian presensi pagi belum dibuka oleh server sekolah (Jam masuk resmi dibuka mulai pukul 06:00 WIB).",
+                    suggestion = "Silakan tunggu beberapa saat hingga server membuka gerbang presensi sesuai jam operasional sekolah."
+                )
+            }
+
+            lower.contains("belum tercatat") || lower.contains("belum scan masuk") || lower.contains("belum ada catatan presensi masuk") -> {
+                ScanFailureExplanation(
+                    title = "⚠️ BELUM SCAN MASUK",
+                    subtitle = "Keamanan Gerbang: Wajib Scan Masuk Dahulu",
+                    reason = "Presensi kepulangan ditolak karena sistem tidak menemukan catatan presensi masuk (Gate-In) Anda hari ini. Siswa wajib memiliki catatan kedatangan sebelum dapat memindai kepulangan.",
+                    suggestion = "Harap segera melapor ke Guru Piket atau Ruang Guru BK untuk verifikasi kehadiran dan klarifikasi presensi Anda."
+                )
+            }
             lower.contains("sudah melakukan presensi") || lower.contains("1x per hari") || lower.contains("already") -> {
                 ScanFailureExplanation(
                     title = "⚠️ SUDAH TERCATAT HARI INI",
@@ -1217,28 +2071,20 @@ class ScannerActivity : AppCompatActivity() {
                     suggestion = "Anda tidak perlu melakukan pemindaian masuk lagi. Silakan bersiap mengikuti KBM di kelas dan tunggu waktu kepulangan sore hari untuk scan pulang."
                 )
             }
-            lower.contains("belum dibuka") || lower.contains("jadwal belum") -> {
-                ScanFailureExplanation(
-                    title = "⛔ GERBANG PRESENSI BELUM DIBUKA",
-                    subtitle = "Di Luar Jadwal Presensi Masuk",
-                    reason = "Sesi pemindaian presensi pagi belum dibuka oleh server sekolah (Jam masuk resmi gerbang sekolah: 06:15 - 07:00 WIB).",
-                    suggestion = "Silakan tunggu beberapa saat hingga server membuka gerbang presensi sesuai jam operasional sekolah."
-                )
-            }
-            lower.contains("terkunci") || lower.contains("ditutup") || lower.contains("terlambat") || lower.contains("lock") -> {
-                ScanFailureExplanation(
-                    title = "🔒 GERBANG PRESENSI TERKUNCI / TUTUP",
-                    subtitle = "Batas Jam Masuk Telah Berakhir",
-                    reason = "Gerbang presensi mandiri telah ditutup karena batas toleransi jam masuk KBM telah berakhir (Pukul 07:00 WIB).",
-                    suggestion = "Segera melapor ke Guru Piket di lobi utama atau Ruang BK untuk mendapatkan pendataan presensi manual dan kartu izin masuk kelas."
-                )
-            }
             lower.contains("darurat") || lower.contains("pulang lebih awal") || lower.contains("belum waktunya pulang") -> {
                 ScanFailureExplanation(
                     title = "⛔ BELUM WAKTUNYA KEPULANGAN",
                     subtitle = "KBM Masih Berlangsung",
                     reason = "Jam KBM sekolah masih berjalan aktif. Siswa tidak diizinkan memindai barcode kepulangan tanpa izin resmi.",
                     suggestion = "Jika Anda memiliki keperluan mendesak atau sakit, silakan ajukan izin melalui menu Perizinan (Gatepass) di aplikasi dan temui Guru BK."
+                )
+            }
+            lower.contains("gps tidak terkunci") || lower.contains("pengurus kelas") || lower.contains("redirectdynamicqr") -> {
+                ScanFailureExplanation(
+                    title = "📍 GPS TIDAK TERKUNCI",
+                    subtitle = "Alihkan ke QR Dinamis Pengurus Kelas",
+                    reason = "Presensi menggunakan stiker barcode kelas fisik memerlukan koordinat GPS aktif yang terkunci di lingkungan sekolah.",
+                    suggestion = "Silakan minta Pengurus Kelas Anda untuk membuka menu QR Dinamis (kode berganti otomatis tiap 10 detik) lalu pindai langsung dari layar HP Pengurus Kelas Anda."
                 )
             }
             lower.contains("zona") || lower.contains("radius") || lower.contains("jarak") || lower.contains("geofence") -> {
@@ -1278,7 +2124,7 @@ class ScannerActivity : AppCompatActivity() {
                     title = "⚠️ VERIFIKASI PRESENSI GAGAL",
                     subtitle = "Server Menolak Pemindaian",
                     reason = serverMsg.ifBlank { "Server sekolah tidak dapat memvalidasi barcode yang dipindai ($code)." },
-                    suggestion = "Pastikan barcode dalam kondisi bersih dan pencahayaan cukup. Jika kendala berlanjut, hubungi Guru Piket atau Operator CBT."
+                    suggestion = "Pastikan barcode dalam kondisi bersih dan pencahayaan cukup. Jika kendala berlanjut, hubungi Guru BK, Wali Kelas atau Operator CBT."
                 )
             }
         }
@@ -1288,5 +2134,8 @@ class ScannerActivity : AppCompatActivity() {
         super.onDestroy()
         clockHandler.removeCallbacks(clockTicker)
         cameraExecutor.shutdown()
+        try {
+            studentPhotoCache.evictAll()
+        } catch (e: Exception) {}
     }
 }

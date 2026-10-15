@@ -34,9 +34,17 @@ data class ReplyBkRequest(
     val status: String = "REPLIED"
 )
 
+data class BkTodayAttendanceDto(
+    val time: String? = null,
+    val status: String? = null,
+    val note: String? = null
+)
+
 data class BkClassRecapResponse(
     val success: Boolean,
     val allowedClasses: List<String>? = null,
+    val tingkats: List<String>? = null,
+    val tingkatGroups: Map<String, List<String>>? = null,
     val selectedClass: String? = null,
     val totalStudents: Int? = null,
     val students: List<BkStudentRecapDto>? = null,
@@ -53,6 +61,10 @@ data class BkStudentRecapDto(
     val points: Int? = null,
     val parentPhone: String? = null,
     val spLevel: String? = null,
+    val todayGateIn: BkTodayAttendanceDto? = null,
+    val todayGateOut: BkTodayAttendanceDto? = null,
+    val canAbsenMasuk: Boolean? = true,
+    val canAbsenPulang: Boolean? = true,
     val stats: BkStudentStatsDto? = null,
     val recentViolations: List<BkDisciplineRecordDto>? = null
 )
@@ -67,10 +79,95 @@ data class BkStudentStatsDto(
 
 data class BkDisciplineRecordDto(
     val id: String? = null,
+    val userId: String? = null,
+    val type: String? = null,
     val category: String? = null,
     val description: String? = null,
     val points: Int? = null,
-    val createdAt: String? = null
+    val counselorName: String? = null,
+    val createdAt: String? = null,
+    val user: ConsultationUserDto? = null
+)
+
+data class BkDisciplineStudentSummaryDto(
+    val id: String? = null,
+    val name: String? = null,
+    val nisn: String? = null,
+    val className: String? = null,
+    val totalViolationPoints: Int = 0,
+    val spStatus: String = "AMAN",
+    val nextSpThreshold: Int = 15,
+    val violationCount: Int = 0,
+    val achievementCount: Int = 0,
+    val warningLetters: List<BkWarningLetterDto>? = emptyList()
+)
+
+data class BkDisciplineListResponse(
+    val success: Boolean = true,
+    val studentSummary: BkDisciplineStudentSummaryDto? = null,
+    val records: List<BkDisciplineRecordDto>? = emptyList()
+)
+
+data class BkWarningLetterDto(
+    val id: String,
+    val userId: String? = null,
+    val spLevel: String,
+    val letterNumber: String? = null,
+    val totalPointsSnapshot: Int = 0,
+    val reasonSummary: String? = null,
+    val issuedBy: String? = null,
+    val issuedAt: String? = null,
+    val user: ConsultationUserDto? = null,
+    val acknowledgedByParent: Boolean? = false,
+    val acknowledgedAt: String? = null
+)
+
+data class BkWarningLettersResponse(
+    val success: Boolean = true,
+    val letters: List<BkWarningLetterDto>? = emptyList()
+)
+
+data class IssueWarningLetterRequest(
+    val userId: String,
+    val spLevel: String,
+    val reasonSummary: String,
+    val letterNumber: String? = null
+)
+
+data class BkEarlyWarningSummaryDto(
+    val totalMonitored: Int = 0,
+    val sp3Count: Int = 0,
+    val sp2Count: Int = 0,
+    val sp1Count: Int = 0,
+    val pembinaanCount: Int = 0
+)
+
+data class BkEarlyWarningStudentDto(
+    val id: String,
+    val name: String,
+    val username: String? = null,
+    val nisn: String? = null,
+    val className: String? = null,
+    val points: Int = 0,
+    val recommendedLevel: String? = "AMAN",
+    val activeSp: String? = "AMAN",
+    val needsUpgrade: Boolean = false,
+    val parentPhone: String? = null,
+    val recentRecords: List<BkDisciplineRecordDto>? = emptyList()
+)
+
+data class BkEarlyWarningResponse(
+    val summary: BkEarlyWarningSummaryDto? = null,
+    val students: List<BkEarlyWarningStudentDto>? = emptyList()
+)
+
+data class BkDisciplineCategoryDto(
+    val id: String,
+    val code: String? = null,
+    val name: String,
+    val type: String = "PELANGGARAN",
+    val defaultPoints: Int = 5,
+    val description: String? = null
 )
 
 data class BkTodayActivityResponse(
@@ -90,8 +187,10 @@ data class BkActivityItemDto(
 )
 
 data class CreateDisciplineRequest(
-    val studentId: String,
+    val studentId: String? = null,
+    val userId: String? = null,
     val type: String = "PELANGGARAN",
+    val category: String? = null,
     val description: String,
     val points: Int
 )

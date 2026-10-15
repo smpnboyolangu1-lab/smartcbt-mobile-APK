@@ -1,22 +1,34 @@
 package com.school.smartcbt.ui
 
+import android.Manifest
 import android.app.AlertDialog
 import android.app.DatePickerDialog
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.res.ColorStateList
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
+import android.location.Geocoder
+import android.location.Location
+import android.location.LocationManager
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import android.widget.*
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.cardview.widget.CardView
+import androidx.core.app.ActivityCompat
 import com.school.smartcbt.R
 import com.school.smartcbt.data.model.*
 import com.school.smartcbt.data.remote.ApiClient
+import com.school.smartcbt.utils.CamScannerHelper
 import com.school.smartcbt.utils.SessionManager
 import okhttp3.MediaType
 import okhttp3.MultipartBody
@@ -62,7 +74,10 @@ class ParentBiodataActivity : AppCompatActivity() {
     private lateinit var layoutStep4: CardView
     private lateinit var layoutStep5: CardView
 
-    // Step 1: Identitas
+    // Step 1: Identitas & Pas Foto
+    private lateinit var ivStudentPhotoPreview: ImageView
+    private lateinit var btnCameraPhoto: Button
+    private lateinit var btnUploadPhoto: Button
     private lateinit var etStudentName: EditText
     private lateinit var etStudentNisn: EditText
     private lateinit var etStudentNik: EditText
@@ -73,7 +88,14 @@ class ParentBiodataActivity : AppCompatActivity() {
     private lateinit var rbFemale: RadioButton
     private lateinit var spReligion: Spinner
 
-    // Step 2: Alamat
+    // Step 2: Alamat & Koordinat GPS Maps
+    private lateinit var btnGetGpsLocation: Button
+    private lateinit var btnViewMap: Button
+    private lateinit var btnOpenGmapsFull: Button
+    private lateinit var etAddressLatitude: EditText
+    private lateinit var etAddressLongitude: EditText
+    private lateinit var wvMiniMapPreview: android.webkit.WebView
+    private lateinit var llMiniMapPlaceholder: View
     private lateinit var etAddressStreet: EditText
     private lateinit var etAddressRt: EditText
     private lateinit var etAddressRw: EditText
@@ -81,7 +103,7 @@ class ParentBiodataActivity : AppCompatActivity() {
     private lateinit var etAddressVillage: EditText
     private lateinit var etAddressDistrict: EditText
 
-    // Step 3: Orang Tua (Status, Pekerjaan & Penghasilan Terpisah)
+    // Step 3: Orang Tua Kandung Sesuai Akta & Wali (Opsional)
     private lateinit var etFatherName: EditText
     private lateinit var rgFatherStatus: RadioGroup
     private lateinit var rbFatherAlive: RadioButton
@@ -95,6 +117,15 @@ class ParentBiodataActivity : AppCompatActivity() {
     private lateinit var rbMotherDeceased: RadioButton
     private lateinit var etMotherJob: EditText
     private lateinit var etMotherIncome: EditText
+
+    private lateinit var cbHasGuardian: CheckBox
+    private lateinit var layoutGuardianSection: LinearLayout
+    private lateinit var etGuardianName: EditText
+    private lateinit var etGuardianNik: EditText
+    private lateinit var spGuardianRelation: Spinner
+    private lateinit var etGuardianJob: EditText
+    private lateinit var etGuardianIncome: EditText
+    private lateinit var etGuardianPhone: EditText
 
     private lateinit var etParentPhone: EditText
 
@@ -111,7 +142,7 @@ class ParentBiodataActivity : AppCompatActivity() {
     private lateinit var btnCameraBantuan: Button
     private lateinit var btnUploadBantuan: Button
 
-    // Step 5: Upload Berkas Dokumen (Foto & Berkas)
+    // Step 5: Upload Berkas Dokumen (CamScanner PDF)
     private lateinit var ivKkPreview: ImageView
     private lateinit var tvKkFileName: TextView
     private lateinit var tvKkStatusBadge: TextView
@@ -124,13 +155,22 @@ class ParentBiodataActivity : AppCompatActivity() {
     private lateinit var btnCameraAkta: Button
     private lateinit var btnUploadAkta: Button
 
-    private lateinit var layoutStep5Bantuan: LinearLayout
-    private lateinit var ivStep5BantuanPreview: ImageView
-    private lateinit var tvStep5BantuanFileName: TextView
-    private lateinit var btnCameraStep5Bantuan: Button
-    private lateinit var btnUploadStep5Bantuan: Button
+    // Step 4 Kesejahteraan & Afirmasi Desil
+    private lateinit var spDesil: Spinner
+    private lateinit var ivDinsosPreview: ImageView
+    private lateinit var tvDinsosFileName: TextView
+    private lateinit var tvDinsosStatusBadge: TextView
+    private lateinit var btnCameraDinsos: Button
+    private lateinit var btnUploadDinsos: Button
+    private var selectedDinsosFile: File? = null
+    private var existingDinsosUrl: String? = null
+    private lateinit var btnDownloadBiodataPdf: Button
+    private lateinit var layoutDownloadPdfBanner: LinearLayout
+    private lateinit var layoutEndPdfDownload: LinearLayout
+    private lateinit var btnDownloadBiodataPdfEnd: Button
+    private lateinit var cbAgreeStatement: CheckBox
 
-    // Bottom Navigation Presisi
+    // Bottom Navigation
     private lateinit var btnPrevStep: Button
     private lateinit var spaceNav: View
     private lateinit var btnNextStep: Button
@@ -138,17 +178,31 @@ class ParentBiodataActivity : AppCompatActivity() {
     private var currentStep = 1
     private var isFormLocked = false
     private var isApprovedSubmission = false
+
+    private var existingPhotoUrl: String? = null
     private var existingKkUrl: String? = null
     private var existingAktaUrl: String? = null
     private var existingBantuanUrl: String? = null
+
+    private var selectedPhotoFile: File? = null
     private var selectedKkFile: File? = null
     private var selectedAktaFile: File? = null
     private var selectedBantuanFile: File? = null
 
     private val religions = arrayOf("Islam", "Kristen Protestan", "Katolik", "Hindu", "Buddha", "Khonghucu")
     private val assistanceTypes = arrayOf("KIP (Kartu Indonesia Pintar)", "PKH (Program Keluarga Harapan)", "KKS (Kartu Keluarga Sejahtera)", "SKTM (Surat Keterangan Tidak Mampu)", "DTKS", "Lainnya")
+    private val guardianRelations = arrayOf("Paman / Om", "Bibi / Tante", "Kakek", "Nenek", "Kakak Kandung", "Saudara", "Lainnya")
+
     private val imageExecutor = Executors.newFixedThreadPool(2)
     private val mainHandler = Handler(Looper.getMainLooper())
+
+    private var pendingCameraFile: File? = null
+    private var pendingCameraTarget: String = "KK"
+
+    // Launcher untuk berkas galeri / file picker
+    private val pickPhotoLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        uri?.let { handlePhotoSelected(it) }
+    }
 
     private val pickKkLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         uri?.let { handleFileSelected(it, targetType = "KK") }
@@ -162,24 +216,63 @@ class ParentBiodataActivity : AppCompatActivity() {
         uri?.let { handleFileSelected(it, targetType = "BANTUAN") }
     }
 
-    private var pendingCameraFile: File? = null
-    private var pendingCameraTarget: String = "KK"
+    private val pickDinsosLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        uri?.let { handleFileSelected(it, targetType = "DINSOS") }
+    }
 
+    private val requestCameraPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            showBiometricCameraDialog()
+        } else {
+            Toast.makeText(this, "Izin kamera diperlukan untuk mengambil pasfoto biometrik", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    // Launcher kamera
     private val takePictureLauncher = registerForActivityResult(ActivityResultContracts.TakePicture()) { success: Boolean ->
         if (success && pendingCameraFile != null && pendingCameraFile!!.exists()) {
-            processCapturedPhotoToPdf(pendingCameraFile!!, pendingCameraTarget)
+            if (pendingCameraTarget == "FOTO") {
+                processCapturedStudentPhoto(pendingCameraFile!!)
+            } else {
+                processCapturedDocumentCamScanner(pendingCameraFile!!, pendingCameraTarget)
+            }
         }
+    }
+
+    // Launcher Google ML Kit Document Scanner (Murni PDF)
+    private val docScannerLauncher = registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK && result.data != null) {
+            val scanResult = com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult.fromActivityResultIntent(result.data)
+            val pdfUri = scanResult?.pdf?.uri
+            if (pdfUri != null) {
+                handleFileSelected(pdfUri, pendingCameraTarget)
+            }
+        }
+    }
+
+    private fun launchDocScanner(targetType: String) {
+        pendingCameraTarget = targetType
+        com.school.smartcbt.utils.GoogleDocScannerHelper.launchScanner(
+            activity = this,
+            launcher = docScannerLauncher,
+            onFailure = { _ ->
+                launchCamera(targetType)
+            }
+        )
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_parent_biodata)
-
+        com.school.smartcbt.utils.DialogHelper.applyDynamicFooter(this)
         sessionManager = SessionManager(this)
 
         initViews()
         setupSpinners()
         setupListeners()
+        prefillInstantData() // << INSTANT 0ms: Nama & data lokal langsung muncul tanpa menunggu server!
         loadBiodataSubmission()
         updateStepView(1)
     }
@@ -187,6 +280,7 @@ class ParentBiodataActivity : AppCompatActivity() {
     private fun initViews() {
         btnBackBiodata = findViewById(R.id.btnBackBiodata)
         btnRefreshBiodata = findViewById(R.id.btnRefreshBiodata)
+        btnDownloadBiodataPdf = findViewById(R.id.btnDownloadBiodataPdf)
         tvBiodataSubtitle = findViewById(R.id.tvBiodataSubtitle)
         layoutStatusNotice = findViewById(R.id.layoutStatusNotice)
         tvStatusNoticeIcon = findViewById(R.id.tvStatusNoticeIcon)
@@ -209,10 +303,20 @@ class ParentBiodataActivity : AppCompatActivity() {
         layoutStep4 = findViewById(R.id.layoutStep4)
         layoutStep5 = findViewById(R.id.layoutStep5)
 
-        // Step 1
+        // Step 1: Identitas & Pas Foto
+        ivStudentPhotoPreview = findViewById(R.id.ivStudentPhotoPreview)
+        btnCameraPhoto = findViewById(R.id.btnCameraPhoto)
+        btnUploadPhoto = findViewById(R.id.btnUploadPhoto)
         etStudentName = findViewById(R.id.etStudentName)
+        // Kunci Nama Siswa & NISN (Read-Only dari Akun Resmi Sekolah)
+        etStudentName.isEnabled = false
+        etStudentName.isFocusable = false
         etStudentNisn = findViewById(R.id.etStudentNisn)
+        etStudentNisn.isEnabled = false
+        etStudentNisn.isFocusable = false
+
         etStudentNik = findViewById(R.id.etStudentNik)
+        etStudentNik.filters = arrayOf(android.text.InputFilter.LengthFilter(16))
         etStudentPob = findViewById(R.id.etStudentPob)
         etStudentDob = findViewById(R.id.etStudentDob)
         rgGender = findViewById(R.id.rgGender)
@@ -220,7 +324,14 @@ class ParentBiodataActivity : AppCompatActivity() {
         rbFemale = findViewById(R.id.rbFemale)
         spReligion = findViewById(R.id.spReligion)
 
-        // Step 2
+        // Step 2: Alamat & GPS Maps
+        btnGetGpsLocation = findViewById(R.id.btnGetGpsLocation)
+        btnViewMap = findViewById(R.id.btnViewMap)
+        btnOpenGmapsFull = findViewById(R.id.btnOpenGmapsFull)
+        etAddressLatitude = findViewById(R.id.etAddressLatitude)
+        etAddressLongitude = findViewById(R.id.etAddressLongitude)
+        wvMiniMapPreview = findViewById(R.id.wvMiniMapPreview)
+        llMiniMapPlaceholder = findViewById(R.id.llMiniMapPlaceholder)
         etAddressStreet = findViewById(R.id.etAddressStreet)
         etAddressRt = findViewById(R.id.etAddressRt)
         etAddressRw = findViewById(R.id.etAddressRw)
@@ -228,7 +339,9 @@ class ParentBiodataActivity : AppCompatActivity() {
         etAddressVillage = findViewById(R.id.etAddressVillage)
         etAddressDistrict = findViewById(R.id.etAddressDistrict)
 
-        // Step 3
+        setupMiniMapView()
+
+        // Step 3: Orang Tua Kandung Sesuai Akta & Wali
         etFatherName = findViewById(R.id.etFatherName)
         rgFatherStatus = findViewById(R.id.rgFatherStatus)
         rbFatherAlive = findViewById(R.id.rbFatherAlive)
@@ -243,9 +356,18 @@ class ParentBiodataActivity : AppCompatActivity() {
         etMotherJob = findViewById(R.id.etMotherJob)
         etMotherIncome = findViewById(R.id.etMotherIncome)
 
+        cbHasGuardian = findViewById(R.id.cbHasGuardian)
+        layoutGuardianSection = findViewById(R.id.layoutGuardianSection)
+        etGuardianName = findViewById(R.id.etGuardianName)
+        etGuardianNik = findViewById(R.id.etGuardianNik)
+        spGuardianRelation = findViewById(R.id.spGuardianRelation)
+        etGuardianJob = findViewById(R.id.etGuardianJob)
+        etGuardianIncome = findViewById(R.id.etGuardianIncome)
+        etGuardianPhone = findViewById(R.id.etGuardianPhone)
+
         etParentPhone = findViewById(R.id.etParentPhone)
 
-        // Step 4
+        // Step 4: Kesejahteraan
         rgAssistanceStatus = findViewById(R.id.rgAssistanceStatus)
         rbNoAssistance = findViewById(R.id.rbNoAssistance)
         rbHasAssistance = findViewById(R.id.rbHasAssistance)
@@ -258,7 +380,7 @@ class ParentBiodataActivity : AppCompatActivity() {
         btnCameraBantuan = findViewById(R.id.btnCameraBantuan)
         btnUploadBantuan = findViewById(R.id.btnUploadBantuan)
 
-        // Step 5
+        // Step 5: Dokumen CamScanner PDF
         ivKkPreview = findViewById(R.id.ivKkPreview)
         tvKkFileName = findViewById(R.id.tvKkFileName)
         tvKkStatusBadge = findViewById(R.id.tvKkStatusBadge)
@@ -271,11 +393,19 @@ class ParentBiodataActivity : AppCompatActivity() {
         btnCameraAkta = findViewById(R.id.btnCameraAkta)
         btnUploadAkta = findViewById(R.id.btnUploadAkta)
 
-        layoutStep5Bantuan = findViewById(R.id.layoutStep5Bantuan)
-        ivStep5BantuanPreview = findViewById(R.id.ivStep5BantuanPreview)
-        tvStep5BantuanFileName = findViewById(R.id.tvStep5BantuanFileName)
-        btnCameraStep5Bantuan = findViewById(R.id.btnCameraStep5Bantuan)
-        btnUploadStep5Bantuan = findViewById(R.id.btnUploadStep5Bantuan)
+        spDesil = findViewById(R.id.spDesil)
+        ivDinsosPreview = findViewById(R.id.ivDinsosPreview)
+        tvDinsosFileName = findViewById(R.id.tvDinsosFileName)
+        tvDinsosStatusBadge = findViewById(R.id.tvDinsosStatusBadge)
+        btnCameraDinsos = findViewById(R.id.btnCameraDinsos)
+        btnUploadDinsos = findViewById(R.id.btnUploadDinsos)
+        cbAgreeStatement = findViewById(R.id.cbAgreeStatement)
+
+        layoutDownloadPdfBanner = findViewById(R.id.layoutDownloadPdfBanner)
+        layoutEndPdfDownload = findViewById(R.id.layoutEndPdfDownload)
+        btnDownloadBiodataPdfEnd = findViewById(R.id.btnDownloadBiodataPdfEnd)
+        layoutDownloadPdfBanner.visibility = View.GONE
+        layoutEndPdfDownload.visibility = View.GONE
 
         // Bottom Nav
         btnPrevStep = findViewById(R.id.btnPrevStep)
@@ -289,38 +419,99 @@ class ParentBiodataActivity : AppCompatActivity() {
 
         val astAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, assistanceTypes)
         spAssistanceType.adapter = astAdapter
+
+        val grdAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, guardianRelations)
+        spGuardianRelation.adapter = grdAdapter
+
+        val desilList = arrayOf(
+            "Bukan Penerima / Non-Desil",
+            "Desil 1 (Sangat Miskin / Desil 1)",
+            "Desil 2 (Miskin / Desil 2)",
+            "Desil 3 (Hampir Miskin / Desil 3)",
+            "Desil 4 (Rentan Miskin / Desil 4)",
+            "Desil 5", "Desil 6", "Desil 7", "Desil 8", "Desil 9", "Desil 10"
+        )
+        val desilAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, desilList)
+        spDesil.adapter = desilAdapter
     }
 
     private fun setupListeners() {
         btnBackBiodata.setOnClickListener { finish() }
         btnRefreshBiodata.setOnClickListener { loadBiodataSubmission() }
+        btnDownloadBiodataPdf.setOnClickListener { downloadOrPrintBiodataPdf() }
+        btnDownloadBiodataPdfEnd.setOnClickListener { downloadOrPrintBiodataPdf() }
 
         etStudentDob.setOnClickListener {
             if (!isFormLocked) showDatePicker()
+        }
+
+        // Foto Biometrik Wajah Siswa (Wajib Live Camera Langsung dengan Bingkai AI)
+        btnCameraPhoto.setOnClickListener { if (!isFormLocked) launchBiometricCameraDialog() }
+        btnUploadPhoto.setOnClickListener { 
+            Toast.makeText(this, "Foto Biometrik wajib diambil langsung via Kamera HP (Live Camera).", Toast.LENGTH_SHORT).show()
+        }
+
+        // Tombol Ambil Lokasi GPS Rumah
+        btnGetGpsLocation.setOnClickListener {
+            if (!isFormLocked) fetchCurrentGpsLocation()
+        }
+
+        // Inisialisasi logika peta mini & tombol Google Maps
+        setupMiniMapViewListeners()
+
+        // Logika Ayah Sudah Meninggal -> Kunci Pekerjaan & Penghasilan
+        rgFatherStatus.setOnCheckedChangeListener { _, checkedId ->
+            if (checkedId == R.id.rbFatherDeceased) {
+                etFatherJob.isEnabled = false
+                etFatherJob.setText("Alm. (Meninggal)")
+                etFatherIncome.isEnabled = false
+                etFatherIncome.setText("Tidak Ada")
+            } else {
+                etFatherJob.isEnabled = true
+                if (etFatherJob.text.toString() == "Alm. (Meninggal)") etFatherJob.setText("")
+                etFatherIncome.isEnabled = true
+                if (etFatherIncome.text.toString() == "Tidak Ada") etFatherIncome.setText("")
+            }
+        }
+
+        // Logika Ibu Sudah Meninggal -> Kunci Pekerjaan & Penghasilan
+        rgMotherStatus.setOnCheckedChangeListener { _, checkedId ->
+            if (checkedId == R.id.rbMotherDeceased) {
+                etMotherJob.isEnabled = false
+                etMotherJob.setText("Almh. (Meninggal)")
+                etMotherIncome.isEnabled = false
+                etMotherIncome.setText("Tidak Ada")
+            } else {
+                etMotherJob.isEnabled = true
+                if (etMotherJob.text.toString() == "Almh. (Meninggal)") etMotherJob.setText("")
+                etMotherIncome.isEnabled = true
+                if (etMotherIncome.text.toString() == "Tidak Ada") etMotherIncome.setText("")
+            }
+        }
+
+        // Toggle Wali Siswa (Opsional)
+        cbHasGuardian.setOnCheckedChangeListener { _, isChecked ->
+            layoutGuardianSection.visibility = if (isChecked) View.VISIBLE else View.GONE
         }
 
         // Toggle Kesejahteraan (Punya vs Tidak Punya)
         rgAssistanceStatus.setOnCheckedChangeListener { _, checkedId ->
             val hasCard = (checkedId == R.id.rbHasAssistance)
             layoutAssistanceDetails.visibility = if (hasCard) View.VISIBLE else View.GONE
-            layoutStep5Bantuan.visibility = if (hasCard) View.VISIBLE else View.GONE
         }
 
-        // Upload Berkas Buttons: Kartu Keluarga
-        btnCameraKk.setOnClickListener { if (!isFormLocked) launchDocumentCamera("KK") }
-        btnUploadKk.setOnClickListener { if (!isFormLocked) pickKkLauncher.launch("*/*") }
+        // Upload Berkas Buttons (Google ML Kit AI Doc Scanner & Murni PDF)
+        btnCameraKk.setOnClickListener { if (!isFormLocked) launchDocScanner("KK") }
+        btnUploadKk.setOnClickListener { if (!isFormLocked) pickKkLauncher.launch("application/pdf") }
 
-        // Upload Berkas Buttons: Akta Kelahiran
-        btnCameraAkta.setOnClickListener { if (!isFormLocked) launchDocumentCamera("AKTA") }
-        btnUploadAkta.setOnClickListener { if (!isFormLocked) pickAktaLauncher.launch("*/*") }
+        btnCameraAkta.setOnClickListener { if (!isFormLocked) launchDocScanner("AKTA") }
+        btnUploadAkta.setOnClickListener { if (!isFormLocked) pickAktaLauncher.launch("application/pdf") }
 
-        // Upload Berkas Buttons: Kartu Bantuan (Step 4 & Step 5)
-        val onBantuanCamera = View.OnClickListener { if (!isFormLocked) launchDocumentCamera("BANTUAN") }
-        val onBantuanFile = View.OnClickListener { if (!isFormLocked) pickBantuanLauncher.launch("*/*") }
-        btnCameraBantuan.setOnClickListener(onBantuanCamera)
-        btnUploadBantuan.setOnClickListener(onBantuanFile)
-        btnCameraStep5Bantuan.setOnClickListener(onBantuanCamera)
-        btnUploadStep5Bantuan.setOnClickListener(onBantuanFile)
+        btnCameraBantuan.setOnClickListener { if (!isFormLocked) launchDocScanner("BANTUAN") }
+        btnUploadBantuan.setOnClickListener { if (!isFormLocked) pickBantuanLauncher.launch("application/pdf") }
+
+        btnCameraDinsos.setOnClickListener { if (!isFormLocked) launchDocScanner("DINSOS") }
+        btnUploadDinsos.setOnClickListener { if (!isFormLocked) pickDinsosLauncher.launch("application/pdf") }
 
         // Navigation Buttons
         btnPrevStep.setOnClickListener {
@@ -349,11 +540,273 @@ class ParentBiodataActivity : AppCompatActivity() {
         stepTab3.setOnClickListener { if (validateStep(1) && validateStep(2)) updateStepView(3) }
         stepTab4.setOnClickListener { if (validateStep(1) && validateStep(2) && validateStep(3)) updateStepView(4) }
         stepTab5.setOnClickListener { if (validateStep(1) && validateStep(2) && validateStep(3) && validateStep(4)) updateStepView(5) }
+
+        cbAgreeStatement.setOnCheckedChangeListener { _, isChecked ->
+            updateStep5SubmitButton(isChecked)
+            if (isChecked) {
+                layoutEndPdfDownload.visibility = View.VISIBLE
+                layoutDownloadPdfBanner.visibility = View.VISIBLE
+            } else if (!isFormLocked && !isApprovedSubmission) {
+                layoutEndPdfDownload.visibility = View.GONE
+                layoutDownloadPdfBanner.visibility = View.GONE
+            }
+        }
     }
 
-    private fun launchDocumentCamera(targetType: String) {
+    private fun fetchCurrentGpsLocation() {
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), 101)
+            return
+        }
+
+        val lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        val loc: Location? = lm.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+            ?: lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+
+        if (loc != null) {
+            val latStr = String.format(Locale.US, "%.6f", loc.latitude)
+            val lngStr = String.format(Locale.US, "%.6f", loc.longitude)
+            etAddressLatitude.setText(latStr)
+            etAddressLongitude.setText(lngStr)
+
+            // Auto-fill alamat via Geocoder
+            try {
+                val geocoder = Geocoder(this, Locale.getDefault())
+                val addresses = geocoder.getFromLocation(loc.latitude, loc.longitude, 1)
+                if (!addresses.isNullOrEmpty()) {
+                    val addr = addresses[0]
+                    if (etAddressStreet.text.isEmpty() && addr.thoroughfare != null) {
+                        etAddressStreet.setText(addr.thoroughfare)
+                    }
+                    if (etAddressVillage.text.isEmpty() && addr.subLocality != null) {
+                        etAddressVillage.setText(addr.subLocality)
+                    }
+                    if (etAddressDistrict.text.isEmpty() && addr.locality != null) {
+                        etAddressDistrict.setText(addr.locality)
+                    }
+                    if (etAddressPostalCode.text.isEmpty() && addr.postalCode != null) {
+                        etAddressPostalCode.setText(addr.postalCode)
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+
+            Toast.makeText(this, "📍 Titik koordinat GPS berhasil dicatat ($latStr, $lngStr)", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(this, "Pastikan GPS perangkat Anda aktif untuk mengambil titik rumah", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    @android.annotation.SuppressLint("SetJavaScriptEnabled")
+    private fun setupMiniMapView() {
+        wvMiniMapPreview.settings.apply {
+            javaScriptEnabled = true
+            domStorageEnabled = true
+            databaseEnabled = true
+            useWideViewPort = true
+            loadWithOverviewMode = true
+            mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+            allowFileAccess = true
+            allowContentAccess = true
+        }
+        wvMiniMapPreview.webViewClient = object : android.webkit.WebViewClient() {
+            override fun onReceivedSslError(view: android.webkit.WebView?, handler: android.webkit.SslErrorHandler?, error: android.net.http.SslError?) {
+                handler?.proceed()
+            }
+            override fun shouldOverrideUrlLoading(view: android.webkit.WebView?, request: android.webkit.WebResourceRequest?): Boolean {
+                return false
+            }
+        }
+    }
+
+    private fun setupMiniMapViewListeners() {
+        val openGmaps = {
+            val lat = etAddressLatitude.text.toString().trim()
+            val lng = etAddressLongitude.text.toString().trim()
+            if (lat.isNotEmpty() && lng.isNotEmpty()) {
+                val mapUri = Uri.parse("geo:$lat,$lng?q=$lat,$lng(Rumah+Siswa)")
+                val intent = Intent(Intent.ACTION_VIEW, mapUri)
+                try {
+                    startActivity(intent)
+                } catch (e: Exception) {
+                    val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com/maps/search/?api=1&query=$lat,$lng"))
+                    startActivity(browserIntent)
+                }
+            } else {
+                Toast.makeText(this, "Tekan 'Ambil Lokasi GPS' terlebih dahulu", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        btnViewMap.setOnClickListener { openGmaps() }
+        btnOpenGmapsFull.setOnClickListener { openGmaps() }
+
+        val coordWatcher = object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) {
+                tryUpdateMiniMapFromInputs()
+            }
+        }
+        etAddressLatitude.addTextChangedListener(coordWatcher)
+        etAddressLongitude.addTextChangedListener(coordWatcher)
+        tryUpdateMiniMapFromInputs()
+    }
+
+    private fun tryUpdateMiniMapFromInputs() {
+        val latStr = etAddressLatitude.text.toString().trim()
+        val lngStr = etAddressLongitude.text.toString().trim()
+        val lat = latStr.toDoubleOrNull()
+        val lng = lngStr.toDoubleOrNull()
+        if (lat != null && lng != null && lat != 0.0 && lng != 0.0) {
+            renderMiniMap(lat, lng)
+        } else {
+            llMiniMapPlaceholder.visibility = View.VISIBLE
+        }
+    }
+
+    private fun renderMiniMap(lat: Double, lng: Double) {
+        runOnUiThread {
+            llMiniMapPlaceholder.visibility = View.GONE
+            val minLng = lng - 0.005
+            val minLat = lat - 0.004
+            val maxLng = lng + 0.005
+            val maxLat = lat + 0.004
+            val embedSrc = "https://www.openstreetmap.org/export/embed.html?bbox=$minLng%2C$minLat%2C$maxLng%2C$maxLat&amp;layer=mapnik&amp;marker=$lat%2C$lng"
+            val html = """
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+                    <style>
+                        body, html { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; background: #e2e8f0; }
+                        iframe { border: none; width: 100%; height: 100%; }
+                    </style>
+                </head>
+                <body>
+                    <iframe src="$embedSrc"></iframe>
+                </body>
+                </html>
+            """.trimIndent()
+            wvMiniMapPreview.loadDataWithBaseURL("https://www.openstreetmap.org", html, "text/html", "UTF-8", null)
+        }
+    }
+
+    private fun launchBiometricCameraDialog() {
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            requestCameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+            return
+        }
+        showBiometricCameraDialog()
+    }
+
+    private fun showBiometricCameraDialog() {
+        val dialog = android.app.Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen)
+        dialog.setContentView(R.layout.dialog_biometric_camera)
+
+        val previewView = dialog.findViewById<androidx.camera.view.PreviewView>(R.id.biometricPreviewView)
+        val btnClose = dialog.findViewById<ImageButton>(R.id.btnBioClose)
+        val btnSwitch = dialog.findViewById<ImageButton>(R.id.btnBioSwitchCamera)
+        val btnCapture = dialog.findViewById<ImageButton>(R.id.btnBioCapture)
+
+        var cameraSelector = androidx.camera.core.CameraSelector.DEFAULT_BACK_CAMERA
+        var imageCapture: androidx.camera.core.ImageCapture? = null
+        val cameraExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
+
+        fun startCamera() {
+            val cameraProviderFuture = androidx.camera.lifecycle.ProcessCameraProvider.getInstance(this)
+            cameraProviderFuture.addListener({
+                try {
+                    val cameraProvider = cameraProviderFuture.get()
+                    val preview = androidx.camera.core.Preview.Builder().build().also {
+                        it.setSurfaceProvider(previewView.surfaceProvider)
+                    }
+
+                    imageCapture = androidx.camera.core.ImageCapture.Builder()
+                        .setCaptureMode(androidx.camera.core.ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
+                        .build()
+
+                    cameraProvider.unbindAll()
+                    cameraProvider.bindToLifecycle(
+                        this,
+                        cameraSelector,
+                        preview,
+                        imageCapture
+                    )
+                } catch (e: Exception) {
+                    if (cameraSelector == androidx.camera.core.CameraSelector.DEFAULT_FRONT_CAMERA) {
+                        cameraSelector = androidx.camera.core.CameraSelector.DEFAULT_BACK_CAMERA
+                        try {
+                            val cameraProvider = cameraProviderFuture.get()
+                            val preview = androidx.camera.core.Preview.Builder().build().also {
+                                it.setSurfaceProvider(previewView.surfaceProvider)
+                            }
+                            imageCapture = androidx.camera.core.ImageCapture.Builder().build()
+                            cameraProvider.unbindAll()
+                            cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageCapture)
+                        } catch (_: Exception) {}
+                    }
+                }
+            }, androidx.core.content.ContextCompat.getMainExecutor(this))
+        }
+
+        startCamera()
+
+        btnSwitch.setOnClickListener {
+            cameraSelector = if (cameraSelector == androidx.camera.core.CameraSelector.DEFAULT_FRONT_CAMERA) {
+                androidx.camera.core.CameraSelector.DEFAULT_BACK_CAMERA
+            } else {
+                androidx.camera.core.CameraSelector.DEFAULT_FRONT_CAMERA
+            }
+            startCamera()
+        }
+
+        btnClose.setOnClickListener {
+            dialog.dismiss()
+        }
+
+        btnCapture.setOnClickListener {
+            val capture = imageCapture ?: return@setOnClickListener
+            btnCapture.isEnabled = false
+            val photoFile = File(cacheDir, "foto_biometrik_${System.currentTimeMillis()}.jpg")
+            val outputOptions = androidx.camera.core.ImageCapture.OutputFileOptions.Builder(photoFile).build()
+
+            capture.takePicture(
+                outputOptions,
+                cameraExecutor,
+                object : androidx.camera.core.ImageCapture.OnImageSavedCallback {
+                    override fun onImageSaved(output: androidx.camera.core.ImageCapture.OutputFileResults) {
+                        runOnUiThread {
+                            dialog.dismiss()
+                            processCapturedStudentPhoto(photoFile)
+                        }
+                    }
+
+                    override fun onError(exc: androidx.camera.core.ImageCaptureException) {
+                        runOnUiThread {
+                            btnCapture.isEnabled = true
+                            Toast.makeText(this@ParentBiodataActivity, "Gagal mengambil foto: ${exc.message}", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            )
+        }
+
+        dialog.setOnDismissListener {
+            cameraExecutor.shutdown()
+            val cameraProviderFuture = androidx.camera.lifecycle.ProcessCameraProvider.getInstance(this)
+            try {
+                cameraProviderFuture.get().unbindAll()
+            } catch (_: Exception) {}
+        }
+
+        dialog.show()
+    }
+
+    private fun launchCamera(targetType: String) {
         pendingCameraTarget = targetType
         val prefix = when (targetType) {
+            "FOTO" -> "foto_siswa_"
             "KK" -> "raw_kk_"
             "AKTA" -> "raw_akta_"
             else -> "raw_bantuan_"
@@ -368,75 +821,305 @@ class ParentBiodataActivity : AppCompatActivity() {
         takePictureLauncher.launch(photoUri)
     }
 
-    private fun convertImageToPdf(imageFile: File, prefix: String): File? {
-        return try {
-            val bitmap = BitmapFactory.decodeFile(imageFile.absolutePath) ?: return null
-            val pdfDoc = android.graphics.pdf.PdfDocument()
-
-            val maxWidth = 1200
-            val scale = if (bitmap.width > maxWidth) maxWidth.toFloat() / bitmap.width else 1.0f
-            val scaledWidth = (bitmap.width * scale).toInt()
-            val scaledHeight = (bitmap.height * scale).toInt()
-            val scaledBitmap = android.graphics.Bitmap.createScaledBitmap(bitmap, scaledWidth, scaledHeight, true)
-
-            val pageInfo = android.graphics.pdf.PdfDocument.PageInfo.Builder(scaledWidth, scaledHeight, 1).create()
-            val page = pdfDoc.startPage(pageInfo)
-            page.canvas.drawBitmap(scaledBitmap, 0f, 0f, null)
-            pdfDoc.finishPage(page)
-
-            val pdfFile = File(cacheDir, "${prefix}_doc_${System.currentTimeMillis()}.pdf")
-            FileOutputStream(pdfFile).use { out ->
-                pdfDoc.writeTo(out)
+    private fun handlePhotoSelected(uri: Uri) {
+        try {
+            contentResolver.openInputStream(uri)?.use { input ->
+                val bmp = BitmapFactory.decodeStream(input)
+                if (bmp != null) {
+                    showReviewPhotoDialog(bmp)
+                } else {
+                    Toast.makeText(this, "Format gambar tidak dikenali", Toast.LENGTH_SHORT).show()
+                }
             }
-            pdfDoc.close()
-            if (scaledBitmap != bitmap) scaledBitmap.recycle()
-            bitmap.recycle()
-            pdfFile
         } catch (e: Exception) {
-            e.printStackTrace()
-            null
+            Toast.makeText(this, "Gagal memproses foto siswa: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
 
-    private fun processCapturedPhotoToPdf(photoFile: File, targetType: String) {
-        try {
-            val prefix = targetType.lowercase()
-            val pdfFile = convertImageToPdf(photoFile, prefix)
-            if (pdfFile != null && pdfFile.exists()) {
-                val bmp = BitmapFactory.decodeFile(photoFile.absolutePath)
+    private fun processCapturedStudentPhoto(photoFile: File) {
+        val bmp = BitmapFactory.decodeFile(photoFile.absolutePath)
+        if (bmp != null) {
+            Toast.makeText(this, "🤖 AI mendeteksi wajah & memproses latar belakang biru...", Toast.LENGTH_SHORT).show()
+            com.school.smartcbt.utils.PhotoSegmentationHelper.processSelfieToBlueBackground(
+                bitmap = bmp,
+                onSuccess = { blueBmp ->
+                    val passportBmp = com.school.smartcbt.utils.PhotoSegmentationHelper.cropToPassportRatio(blueBmp)
+                    runOnUiThread {
+                        showReviewPhotoDialog(passportBmp)
+                    }
+                },
+                onError = { _ ->
+                    val fallbackBmp = CamScannerHelper.createPasFoto3x4(bmp)
+                    runOnUiThread {
+                        showReviewPhotoDialog(fallbackBmp)
+                    }
+                }
+            )
+        } else {
+            Toast.makeText(this, "Gagal membaca hasil kamera", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun showReviewPhotoDialog(bitmap: Bitmap) {
+        var currentBmp = bitmap
+
+        val density = resources.displayMetrics.density
+        val pad = (16 * density).toInt()
+
+        val rootLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, pad, pad, pad)
+            gravity = Gravity.CENTER_HORIZONTAL
+        }
+
+        val tvDesc = TextView(this).apply {
+            text = "Pas foto otomatis disesuaikan ke rasio 3x4 dengan latar belakang biru resmi (#0078D4). Anda dapat memutar orientasi jika posisi foto miring."
+            textSize = 12f
+            setTextColor(Color.parseColor("#475569"))
+            setPadding(0, 0, 0, (10 * density).toInt())
+            gravity = Gravity.CENTER
+        }
+        rootLayout.addView(tvDesc)
+
+        val ivPreview = ImageView(this).apply {
+            layoutParams = LinearLayout.LayoutParams((150 * density).toInt(), (200 * density).toInt()).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+            }
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            setImageBitmap(currentBmp)
+            setBackgroundColor(com.school.smartcbt.utils.PhotoSegmentationHelper.OFFICIAL_BLUE_COLOR)
+        }
+        rootLayout.addView(ivPreview)
+
+        val btnRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, (12 * density).toInt(), 0, 0)
+            gravity = Gravity.CENTER
+        }
+
+        val btnRotate = Button(this).apply {
+            text = "🔄 Putar 90°"
+            textSize = 12f
+            setOnClickListener {
+                currentBmp = CamScannerHelper.rotateBitmap(currentBmp, 90f)
+                ivPreview.setImageBitmap(currentBmp)
+            }
+        }
+        btnRow.addView(btnRotate)
+
+        val space = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams((12 * density).toInt(), 1)
+        }
+        btnRow.addView(space)
+
+        val btnRetake = Button(this).apply {
+            text = "📸 Foto Ulang"
+            textSize = 12f
+        }
+        btnRow.addView(btnRetake)
+
+        rootLayout.addView(btnRow)
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("👤 Konfirmasi Foto Biometrik Wajah")
+            .setView(rootLayout)
+            .setPositiveButton("✅ Gunakan Foto Biometrik Ini") { _, _ ->
+                val savedFile = CamScannerHelper.saveBitmapToJpeg(this@ParentBiodataActivity, currentBmp, "foto_biometrik_siswa_${System.currentTimeMillis()}")
+                selectedPhotoFile = savedFile
+                ivStudentPhotoPreview.setImageBitmap(currentBmp)
+                Toast.makeText(this@ParentBiodataActivity, "✅ Foto biometrik wajah siswa berhasil diambil", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Batal", null)
+            .create()
+
+        btnRetake.setOnClickListener {
+            dialog.dismiss()
+            launchCamera("FOTO")
+        }
+
+        dialog.show()
+    }
+
+    private fun processCapturedDocumentCamScanner(photoFile: File, targetType: String) {
+        val bmp = BitmapFactory.decodeFile(photoFile.absolutePath)
+        if (bmp != null) {
+            showReviewDocumentDialog(bmp, targetType)
+        } else {
+            Toast.makeText(this, "Gagal memuat hasil jepretan kamera", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun showReviewDocumentDialog(bitmap: Bitmap, targetType: String) {
+        var currentBmp = CamScannerHelper.applyCamScannerFilter(bitmap)
+
+        val density = resources.displayMetrics.density
+        val pad = (16 * density).toInt()
+
+        val rootLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, pad, pad, pad)
+            gravity = Gravity.CENTER_HORIZONTAL
+        }
+
+        val docLabel = when (targetType) {
+            "KK" -> "Kartu Keluarga (KK)"
+            "AKTA" -> "Akta Kelahiran"
+            else -> "Kartu Bantuan Sosial"
+        }
+
+        val tvDesc = TextView(this).apply {
+            text = "Kontras berkas $docLabel telah dipertajam layaknya CamScanner. Pastikan teks terbaca jelas dan posisi tegak lurus."
+            textSize = 12f
+            setTextColor(Color.parseColor("#475569"))
+            setPadding(0, 0, 0, (8 * density).toInt())
+            gravity = Gravity.CENTER
+        }
+        rootLayout.addView(tvDesc)
+
+        val ivPreview = ImageView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (250 * density).toInt())
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            setImageBitmap(currentBmp)
+            setBackgroundColor(Color.parseColor("#F1F5F9"))
+        }
+        rootLayout.addView(ivPreview)
+
+        val btnRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, (10 * density).toInt(), 0, 0)
+            gravity = Gravity.CENTER
+        }
+
+        val btnRotate = Button(this).apply {
+            text = "🔄 Putar 90°"
+            textSize = 12f
+            setOnClickListener {
+                currentBmp = CamScannerHelper.rotateBitmap(currentBmp, 90f)
+                ivPreview.setImageBitmap(currentBmp)
+            }
+        }
+        btnRow.addView(btnRotate)
+
+        val space = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams((12 * density).toInt(), 1)
+        }
+        btnRow.addView(space)
+
+        val btnRetake = Button(this).apply {
+            text = "📸 Foto Ulang"
+            textSize = 12f
+        }
+        btnRow.addView(btnRetake)
+
+        rootLayout.addView(btnRow)
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("📄 Review Scan Berkas ($docLabel)")
+            .setView(rootLayout)
+            .setPositiveButton("✅ Gunakan & Jadikan PDF") { _, _ ->
+                val prefix = targetType.lowercase()
+                val pdfFile = CamScannerHelper.convertBitmapToDocumentPdf(
+                    this@ParentBiodataActivity,
+                    currentBmp,
+                    "${prefix}_camscanner_${System.currentTimeMillis()}"
+                )
+
                 when (targetType) {
                     "KK" -> {
                         selectedKkFile = pdfFile
-                        tvKkFileName.text = "📄 Berkas KK (PDF): ${pdfFile.name}"
-                        tvKkStatusBadge.text = "✅ Siap Dikirim"
+                        tvKkFileName.text = "📄 Berkas KK (CamScanner PDF): ${pdfFile.name}"
+                        tvKkStatusBadge.text = "✅ Dokumen PDF Siap Kirim"
                         tvKkStatusBadge.setTextColor(Color.parseColor("#059669"))
-                        if (bmp != null) ivKkPreview.setImageBitmap(bmp)
+                        ivKkPreview.setImageBitmap(currentBmp)
                     }
                     "AKTA" -> {
                         selectedAktaFile = pdfFile
-                        tvAktaFileName.text = "📄 Berkas Akta (PDF): ${pdfFile.name}"
-                        tvAktaStatusBadge.text = "✅ Siap Dikirim"
+                        tvAktaFileName.text = "📄 Berkas Akta (CamScanner PDF): ${pdfFile.name}"
+                        tvAktaStatusBadge.text = "✅ Dokumen PDF Siap Kirim"
                         tvAktaStatusBadge.setTextColor(Color.parseColor("#059669"))
-                        if (bmp != null) ivAktaPreview.setImageBitmap(bmp)
+                        ivAktaPreview.setImageBitmap(currentBmp)
                     }
                     "BANTUAN" -> {
                         selectedBantuanFile = pdfFile
-                        tvBantuanFileName.text = "📄 Kartu Bantuan (PDF): ${pdfFile.name}"
-                        tvBantuanStatusBadge.text = "✅ Siap Dikirim"
+                        tvBantuanFileName.text = "📄 Kartu Bantuan (CamScanner PDF): ${pdfFile.name}"
+                        tvBantuanStatusBadge.text = "✅ Dokumen PDF Siap Kirim"
                         tvBantuanStatusBadge.setTextColor(Color.parseColor("#059669"))
-                        tvStep5BantuanFileName.text = "📄 Kartu Bantuan (PDF): ${pdfFile.name}"
-                        if (bmp != null) {
-                            ivBantuanPreview.setImageBitmap(bmp)
-                            ivStep5BantuanPreview.setImageBitmap(bmp)
-                        }
+                        ivBantuanPreview.setImageBitmap(currentBmp)
+                    }
+                    "DINSOS" -> {
+                        selectedDinsosFile = pdfFile
+                        tvDinsosFileName.text = "📄 Surat Dinsos (CamScanner PDF): ${pdfFile.name}"
+                        tvDinsosStatusBadge.text = "✅ Surat Dinsos Siap Kirim"
+                        tvDinsosStatusBadge.setTextColor(Color.parseColor("#059669"))
+                        ivDinsosPreview.setImageBitmap(currentBmp)
                     }
                 }
-                Toast.makeText(this, "Foto dokumen berhasil diubah ke format PDF resmi", Toast.LENGTH_SHORT).show()
-            } else {
-                Toast.makeText(this, "Gagal membuat berkas PDF dari foto", Toast.LENGTH_LONG).show()
+                Toast.makeText(this@ParentBiodataActivity, "📸 Berkas $docLabel berhasil dijadikan PDF CamScanner!", Toast.LENGTH_SHORT).show()
             }
+            .setNegativeButton("Batal", null)
+            .create()
+
+        btnRetake.setOnClickListener {
+            dialog.dismiss()
+            launchCamera(targetType)
+        }
+
+        dialog.show()
+    }
+
+    private fun handleFileSelected(uri: Uri, targetType: String) {
+        try {
+            val mimeType = contentResolver.getType(uri)
+            val isPdf = mimeType?.contains("pdf", ignoreCase = true) == true ||
+                    uri.toString().lowercase().endsWith(".pdf") ||
+                    (uri.path?.lowercase()?.endsWith(".pdf") == true)
+
+            if (!isPdf) {
+                Toast.makeText(this, "⚠️ Format Ditolak! Dokumen $targetType wajib berformat PDF murni (.pdf). Silakan pilih berkas PDF dari penyimpanan atau gunakan tombol kamera untuk Scan Otomatis.", Toast.LENGTH_LONG).show()
+                return
+            }
+
+            val fileNamePrefix = "${targetType.lowercase()}_upload_"
+            val tempFile = File(cacheDir, "$fileNamePrefix${System.currentTimeMillis()}.pdf")
+            contentResolver.openInputStream(uri)?.use { inputStream ->
+                FileOutputStream(tempFile).use { outputStream ->
+                    inputStream.copyTo(outputStream)
+                }
+            }
+
+            when (targetType) {
+                "KK" -> {
+                    selectedKkFile = tempFile
+                    tvKkFileName.text = "📄 Berkas KK: ${tempFile.name}"
+                    tvKkStatusBadge.text = "✅ Dokumen PDF Siap Kirim"
+                    tvKkStatusBadge.setTextColor(Color.parseColor("#059669"))
+                    ivKkPreview.setImageResource(R.drawable.ic_journal_book)
+                }
+                "AKTA" -> {
+                    selectedAktaFile = tempFile
+                    tvAktaFileName.text = "📄 Berkas Akta: ${tempFile.name}"
+                    tvAktaStatusBadge.text = "✅ Dokumen PDF Siap Kirim"
+                    tvAktaStatusBadge.setTextColor(Color.parseColor("#059669"))
+                    ivAktaPreview.setImageResource(R.drawable.ic_journal_book)
+                }
+                "BANTUAN" -> {
+                    selectedBantuanFile = tempFile
+                    tvBantuanFileName.text = "📄 Kartu Bantuan: ${tempFile.name}"
+                    tvBantuanStatusBadge.text = "✅ Dokumen PDF Siap Kirim"
+                    tvBantuanStatusBadge.setTextColor(Color.parseColor("#059669"))
+                    ivBantuanPreview.setImageResource(R.drawable.ic_journal_book)
+                }
+                "DINSOS" -> {
+                    selectedDinsosFile = tempFile
+                    tvDinsosFileName.text = "📄 Surat Dinsos: ${tempFile.name}"
+                    tvDinsosStatusBadge.text = "✅ Surat Dinsos Siap Kirim"
+                    tvDinsosStatusBadge.setTextColor(Color.parseColor("#059669"))
+                    ivDinsosPreview.setImageResource(R.drawable.ic_journal_book)
+                }
+            }
+            Toast.makeText(this, "✅ Berkas PDF ($targetType) siap dikirim", Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
-            Toast.makeText(this, "Kesalahan konversi PDF: ${e.message}", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Gagal memproses berkas: ${e.message}", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -445,7 +1128,11 @@ class ParentBiodataActivity : AppCompatActivity() {
         val currentText = etStudentDob.text.toString().trim()
         if (currentText.isNotEmpty()) {
             try {
-                val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+                val sdf = if (currentText.contains("-") && currentText.indexOf("-") == 2) {
+                    SimpleDateFormat("dd-MM-yyyy", Locale.getDefault())
+                } else {
+                    SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+                }
                 val d = sdf.parse(currentText)
                 if (d != null) calendar.time = d
             } catch (e: Exception) {}
@@ -457,7 +1144,7 @@ class ParentBiodataActivity : AppCompatActivity() {
                 val selectedCal = Calendar.getInstance().apply {
                     set(year, month, dayOfMonth)
                 }
-                val format = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+                val format = SimpleDateFormat("dd-MM-yyyy", Locale.getDefault())
                 etStudentDob.setText(format.format(selectedCal.time))
             },
             calendar.get(Calendar.YEAR),
@@ -465,61 +1152,6 @@ class ParentBiodataActivity : AppCompatActivity() {
             calendar.get(Calendar.DAY_OF_MONTH)
         )
         dpd.show()
-    }
-
-    private fun handleFileSelected(uri: Uri, targetType: String) {
-        try {
-            val fileNamePrefix = "${targetType.lowercase()}_upload_"
-            val isPdf = contentResolver.getType(uri)?.contains("pdf") == true || uri.toString().lowercase().endsWith(".pdf")
-            val extension = if (isPdf) ".pdf" else ".jpg"
-            val tempFile = File(cacheDir, "$fileNamePrefix${System.currentTimeMillis()}$extension")
-            contentResolver.openInputStream(uri)?.use { inputStream ->
-                FileOutputStream(tempFile).use { outputStream ->
-                    inputStream.copyTo(outputStream)
-                }
-            }
-
-            val finalFile: File = if (!isPdf) {
-                convertImageToPdf(tempFile, targetType.lowercase()) ?: tempFile
-            } else {
-                tempFile
-            }
-
-            when (targetType) {
-                "KK" -> {
-                    selectedKkFile = finalFile
-                    tvKkFileName.text = "📄 Berkas KK: ${finalFile.name}"
-                    tvKkStatusBadge.text = "✅ Siap Dikirim"
-                    tvKkStatusBadge.setTextColor(Color.parseColor("#059669"))
-                    if (!isPdf) ivKkPreview.setImageURI(uri) else ivKkPreview.setImageResource(R.drawable.ic_journal_book)
-                }
-                "AKTA" -> {
-                    selectedAktaFile = finalFile
-                    tvAktaFileName.text = "📄 Berkas Akta: ${finalFile.name}"
-                    tvAktaStatusBadge.text = "✅ Siap Dikirim"
-                    tvAktaStatusBadge.setTextColor(Color.parseColor("#059669"))
-                    if (!isPdf) ivAktaPreview.setImageURI(uri) else ivAktaPreview.setImageResource(R.drawable.ic_journal_book)
-                }
-                "BANTUAN" -> {
-                    selectedBantuanFile = finalFile
-                    tvBantuanFileName.text = "📄 Kartu Bantuan: ${finalFile.name}"
-                    tvBantuanStatusBadge.text = "✅ Siap Dikirim"
-                    tvBantuanStatusBadge.setTextColor(Color.parseColor("#059669"))
-                    tvStep5BantuanFileName.text = "📄 Kartu Bantuan: ${finalFile.name}"
-                    if (!isPdf) {
-                        ivBantuanPreview.setImageURI(uri)
-                        ivStep5BantuanPreview.setImageURI(uri)
-                    } else {
-                        ivBantuanPreview.setImageResource(R.drawable.ic_journal_book)
-                        ivStep5BantuanPreview.setImageResource(R.drawable.ic_journal_book)
-                    }
-                }
-            }
-
-            Toast.makeText(this, "Berkas berhasil dipilih & siap dikirim", Toast.LENGTH_SHORT).show()
-        } catch (e: Exception) {
-            Toast.makeText(this, "Gagal memproses berkas: ${e.message}", Toast.LENGTH_LONG).show()
-        }
     }
 
     private fun updateStepView(step: Int) {
@@ -533,15 +1165,15 @@ class ParentBiodataActivity : AppCompatActivity() {
 
         // Update Nav Buttons
         btnPrevStep.visibility = if (step > 1) View.VISIBLE else View.GONE
+        btnPrevStep.text = "⬅️ Sebelumnya"
         spaceNav.visibility = if (step > 1) View.VISIBLE else View.GONE
 
         if (step == 5) {
-            btnNextStep.text = "🚀 KIRIM KE TU SEKARANG"
-            btnNextStep.setBackgroundResource(R.drawable.bg_btn_glowing_submit)
-            btnNextStep.backgroundTintList = null
-            btnNextStep.setTextColor(Color.WHITE)
-            layoutStep5Bantuan.visibility = if (rbHasAssistance.isChecked) View.VISIBLE else View.GONE
+            btnNextStep.text = "🚀 SELESAI & KIRIM BERKAS"
+            btnNextStep.setBackgroundResource(android.R.drawable.btn_default)
+            updateStep5SubmitButton(cbAgreeStatement.isChecked)
         } else {
+            btnNextStep.isEnabled = true
             btnNextStep.text = "Lanjut ke Step ${step + 1} ›"
             btnNextStep.setBackgroundResource(android.R.drawable.btn_default)
             btnNextStep.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#2563EB"))
@@ -571,6 +1203,20 @@ class ParentBiodataActivity : AppCompatActivity() {
         }
     }
 
+    private fun updateStep5SubmitButton(isChecked: Boolean) {
+        if (currentStep == 5) {
+            if (isChecked) {
+                btnNextStep.isEnabled = true
+                btnNextStep.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#2563EB"))
+                btnNextStep.setTextColor(Color.WHITE)
+            } else {
+                btnNextStep.isEnabled = false
+                btnNextStep.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#94A3B8"))
+                btnNextStep.setTextColor(Color.parseColor("#F1F5F9"))
+            }
+        }
+    }
+
     private fun validateStep(step: Int): Boolean {
         when (step) {
             1 -> {
@@ -578,12 +1224,9 @@ class ParentBiodataActivity : AppCompatActivity() {
                     etStudentName.error = "Nama Lengkap wajib diisi"
                     return false
                 }
-                if (etStudentNisn.text.toString().trim().length < 10) {
-                    etStudentNisn.error = "NISN wajib 10 digit"
-                    return false
-                }
-                if (etStudentNik.text.toString().trim().length < 16) {
-                    etStudentNik.error = "NIK wajib 16 digit sesuai KK"
+                val cleanNik = etStudentNik.text.toString().trim()
+                if (cleanNik.length != 16) {
+                    etStudentNik.error = "NIK wajib tepat 16 digit sesuai KK (Saat ini: ${cleanNik.length} digit)"
                     return false
                 }
                 if (etStudentPob.text.toString().trim().isEmpty()) {
@@ -592,6 +1235,10 @@ class ParentBiodataActivity : AppCompatActivity() {
                 }
                 if (etStudentDob.text.toString().trim().isEmpty()) {
                     etStudentDob.error = "Tanggal Lahir wajib diisi"
+                    return false
+                }
+                if (selectedPhotoFile == null && (existingPhotoUrl == null || existingPhotoUrl.isNullOrEmpty())) {
+                    Toast.makeText(this, "⚠️ Foto Biometrik Wajah Wajib diambil via Kamera sebelum lanjut!", Toast.LENGTH_LONG).show()
                     return false
                 }
             }
@@ -630,26 +1277,25 @@ class ParentBiodataActivity : AppCompatActivity() {
                     etParentPhone.error = "Nomor WhatsApp aktif wajib diisi"
                     return false
                 }
+                if (cbHasGuardian.isChecked && etGuardianName.text.toString().trim().isEmpty()) {
+                    etGuardianName.error = "Nama wali wajib diisi jika dicentang"
+                    return false
+                }
             }
             4 -> {
-                if (rbHasAssistance.isChecked) {
-                    if (etAssistanceNumber.text.toString().trim().isEmpty()) {
-                        etAssistanceNumber.error = "Nomor kartu bantuan wajib diisi jika memiliki bantuan sosial"
-                        return false
-                    }
-                    if (selectedBantuanFile == null && existingBantuanUrl.isNullOrEmpty()) {
-                        Toast.makeText(this, "⚠️ Harap lampirkan foto/scan kartu bantuan yang dipilih!", Toast.LENGTH_LONG).show()
-                        return false
-                    }
-                }
+                // Seluruh data bantuan sosial, nomor kartu, desil, dan surat Dinsos bersifat opsional
             }
             5 -> {
                 if (selectedKkFile == null && existingKkUrl.isNullOrEmpty()) {
-                    Toast.makeText(this, "⚠️ Foto Kartu Keluarga (KK) wajib diunggah!", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, "⚠️ Berkas Kartu Keluarga (KK) wajib diunggah!", Toast.LENGTH_LONG).show()
                     return false
                 }
                 if (selectedAktaFile == null && existingAktaUrl.isNullOrEmpty()) {
-                    Toast.makeText(this, "⚠️ Foto Akta Kelahiran siswa wajib diunggah!", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, "⚠️ Berkas Akta Kelahiran siswa wajib diunggah!", Toast.LENGTH_LONG).show()
+                    return false
+                }
+                if (!cbAgreeStatement.isChecked) {
+                    Toast.makeText(this, "⚠️ Harap centang surat pernyataan keabsahan data sebelum mengirim!", Toast.LENGTH_LONG).show()
                     return false
                 }
             }
@@ -672,7 +1318,10 @@ class ParentBiodataActivity : AppCompatActivity() {
                     isApprovedSubmission = (status == "APPROVED")
 
                     student?.let { populateStudentDefaults(it) }
-                    submission?.let { populateExistingSubmission(it) }
+                    submission?.let { 
+                        populateExistingSubmission(it)
+                        saveBiodataCache(it, student)
+                    }
 
                     renderStatusBanner(status, isToggleOpen, isLocked, submission?.rejectionReason)
 
@@ -688,6 +1337,78 @@ class ParentBiodataActivity : AppCompatActivity() {
                 Toast.makeText(this@ParentBiodataActivity, "Koneksi offline / server tidak merespon", Toast.LENGTH_SHORT).show()
             }
         })
+    }
+
+    private fun prefillInstantData() {
+        // 1. Langsung isi Nama dan NISN dari session manager (0 milidetik!)
+        var sessionName = sessionManager.getName().trim()
+        sessionName = sessionName.replace(Regex("^(Orang Tua / Wali|Orang Tua|Wali)\\s*", RegexOption.IGNORE_CASE), "").trim()
+        val sessionNisn = sessionManager.getNisn().ifEmpty { sessionManager.getUsername() }.replace(Regex("^[Pp]"), "")
+        if (sessionName.isNotEmpty() && !sessionName.equals("null", ignoreCase = true)) {
+            etStudentName.setText(sessionName)
+        }
+        if (sessionNisn.isNotEmpty() && !sessionNisn.equals("null", ignoreCase = true)) {
+            etStudentNisn.setText(sessionNisn)
+        }
+
+        // 2. Baca cache lokal SharedPreferences agar data lengkap langsung muncul tanpa jeda
+        try {
+            val prefs = getSharedPreferences("SmartCbtBiodataCache", Context.MODE_PRIVATE)
+            val cachedStr = prefs.getString("cache_${sessionNisn}", null)
+            if (!cachedStr.isNullOrEmpty()) {
+                val json = JSONObject(cachedStr)
+                if (json.has("studentName") && etStudentName.text.isEmpty()) etStudentName.setText(json.optString("studentName"))
+                if (json.has("studentNisn") && etStudentNisn.text.isEmpty()) etStudentNisn.setText(json.optString("studentNisn"))
+                if (json.has("studentNik") && etStudentNik.text.isEmpty()) etStudentNik.setText(json.optString("studentNik"))
+                if (json.has("studentPob") && etStudentPob.text.isEmpty()) etStudentPob.setText(json.optString("studentPob"))
+                if (json.has("studentDob") && etStudentDob.text.isEmpty()) etStudentDob.setText(json.optString("studentDob"))
+
+                val dummySub = BiodataSubmissionDto(
+                    id = "cached",
+                    studentId = sessionManager.getUserId(),
+                    status = "DRAFT",
+                    rejectionReason = null,
+                    step1Data = json.optString("step1").ifEmpty { null },
+                    step2Data = json.optString("step2").ifEmpty { null },
+                    step3Data = json.optString("step3").ifEmpty { null },
+                    step4Data = json.optString("step4").ifEmpty { null },
+                    step5Data = json.optString("step5").ifEmpty { null },
+                    kkFileUrl = json.optString("kkUrl").ifEmpty { null },
+                    aktaFileUrl = json.optString("aktaUrl").ifEmpty { null },
+                    submittedAt = null,
+                    reviewedAt = null,
+                    reviewedBy = null
+                )
+                populateExistingSubmission(dummySub)
+            }
+        } catch (e: Exception) {}
+    }
+
+    private fun saveBiodataCache(sub: BiodataSubmissionDto, st: StudentBriefDto?) {
+        try {
+            val sessionNisn = sessionManager.getNisn().ifEmpty { sessionManager.getUsername() }
+            val prefs = getSharedPreferences("SmartCbtBiodataCache", Context.MODE_PRIVATE)
+            val json = JSONObject().apply {
+                put("step1", sub.step1Data ?: "")
+                put("step2", sub.step2Data ?: "")
+                put("step3", sub.step3Data ?: "")
+                put("step4", sub.step4Data ?: "")
+                put("step5", sub.step5Data ?: "")
+                put("kkUrl", sub.kkFileUrl ?: "")
+                put("aktaUrl", sub.aktaFileUrl ?: "")
+                put("bantuanUrl", "")
+                st?.let { s ->
+                    put("studentName", s.name ?: "")
+                    put("studentNisn", s.nisn ?: "")
+                    put("studentNik", s.nik ?: "")
+                    put("studentPob", s.pob ?: "")
+                    put("studentDob", s.dob ?: "")
+                    put("studentGender", s.gender ?: "")
+                    put("studentReligion", s.religion ?: "")
+                }
+            }
+            prefs.edit().putString("cache_${sessionNisn}", json.toString()).apply()
+        } catch (e: Exception) {}
     }
 
     private fun populateStudentDefaults(st: StudentBriefDto) {
@@ -721,11 +1442,18 @@ class ParentBiodataActivity : AppCompatActivity() {
                 if (json.optString("jenisKelamin") == "L") rbMale.isChecked = true else rbFemale.isChecked = true
                 val rIdx = religions.indexOfFirst { it.equals(json.optString("agama"), ignoreCase = true) }
                 if (rIdx != -1) spReligion.setSelection(rIdx)
+
+                if (json.has("fotoUrl") && json.optString("fotoUrl").isNotEmpty()) {
+                    existingPhotoUrl = json.optString("fotoUrl")
+                    loadRemoteImage(existingPhotoUrl!!, ivStudentPhotoPreview)
+                }
             }
 
             sub.step2Data?.let { raw ->
                 val json = JSONObject(raw)
                 if (json.has("alamat")) etAddressStreet.setText(json.optString("alamat"))
+                if (json.has("latitude")) etAddressLatitude.setText(json.optString("latitude"))
+                if (json.has("longitude")) etAddressLongitude.setText(json.optString("longitude"))
                 if (json.has("rt")) etAddressRt.setText(json.optString("rt"))
                 if (json.has("rw")) etAddressRw.setText(json.optString("rw"))
                 if (json.has("kodePos")) etAddressPostalCode.setText(json.optString("kodePos"))
@@ -736,25 +1464,66 @@ class ParentBiodataActivity : AppCompatActivity() {
             sub.step3Data?.let { raw ->
                 val json = JSONObject(raw)
                 if (json.has("namaAyah")) etFatherName.setText(json.optString("namaAyah"))
-                if (json.optString("statusAyah") == "Sudah Meninggal") rbFatherDeceased.isChecked = true else rbFatherAlive.isChecked = true
+                if (json.optString("statusAyah") == "Sudah Meninggal") {
+                    rbFatherDeceased.isChecked = true
+                    etFatherJob.isEnabled = false
+                    etFatherIncome.isEnabled = false
+                } else {
+                    rbFatherAlive.isChecked = true
+                }
                 if (json.has("pekerjaanAyah")) etFatherJob.setText(json.optString("pekerjaanAyah"))
                 if (json.has("penghasilanAyah")) etFatherIncome.setText(json.optString("penghasilanAyah"))
 
                 if (json.has("namaIbu")) etMotherName.setText(json.optString("namaIbu"))
-                if (json.optString("statusIbu") == "Sudah Meninggal") rbMotherDeceased.isChecked = true else rbMotherAlive.isChecked = true
+                if (json.optString("statusIbu") == "Sudah Meninggal") {
+                    rbMotherDeceased.isChecked = true
+                    etMotherJob.isEnabled = false
+                    etMotherIncome.isEnabled = false
+                } else {
+                    rbMotherAlive.isChecked = true
+                }
                 if (json.has("pekerjaanIbu")) etMotherJob.setText(json.optString("pekerjaanIbu"))
                 if (json.has("penghasilanIbu")) etMotherIncome.setText(json.optString("penghasilanIbu"))
+
+                if (json.optBoolean("hasGuardian", false)) {
+                    cbHasGuardian.isChecked = true
+                    layoutGuardianSection.visibility = View.VISIBLE
+                    if (json.has("namaWali")) etGuardianName.setText(json.optString("namaWali"))
+                    if (json.has("nikWali")) etGuardianNik.setText(json.optString("nikWali"))
+                    if (json.has("pekerjaanWali")) etGuardianJob.setText(json.optString("pekerjaanWali"))
+                    if (json.has("penghasilanWali")) etGuardianIncome.setText(json.optString("penghasilanWali"))
+                    if (json.has("noHpWali")) etGuardianPhone.setText(json.optString("noHpWali"))
+                }
 
                 if (json.has("noHpOrtu")) etParentPhone.setText(json.optString("noHpOrtu"))
             }
 
             sub.step4Data?.let { raw ->
                 val json = JSONObject(raw)
-                val hasCard = json.optBoolean("hasAssistance", false) || json.has("noKip") || json.has("assistanceNumber")
+                val desilVal = json.optInt("desil", 0)
+                if (desilVal in 1..10) {
+                    spDesil.setSelection(desilVal)
+                }
+
+                if (json.has("dinsosFileUrl") && json.optString("dinsosFileUrl").isNotEmpty()) {
+                    existingDinsosUrl = json.optString("dinsosFileUrl")
+                    tvDinsosFileName.text = "📄 Surat Dinsos Tersimpan di Server TU"
+                    tvDinsosStatusBadge.text = "✅ Tersimpan di Server"
+                    tvDinsosStatusBadge.setTextColor(Color.parseColor("#059669"))
+                    loadRemoteImage(existingDinsosUrl!!, ivDinsosPreview)
+                }
+
+                val noKip = json.optString("noKip", "").trim()
+                val assistanceNum = json.optString("assistanceNumber", "").trim()
+                val hasExplicit = json.optBoolean("hasAssistance", false)
+                val hasCard = hasExplicit ||
+                    (noKip.isNotEmpty() && noKip != "-" && noKip != "null" && !noKip.equals("tidak", ignoreCase = true)) ||
+                    (assistanceNum.isNotEmpty() && assistanceNum != "-" && assistanceNum != "null" && !assistanceNum.equals("tidak", ignoreCase = true))
+
                 if (hasCard) {
                     rbHasAssistance.isChecked = true
+                    rbNoAssistance.isChecked = false
                     layoutAssistanceDetails.visibility = View.VISIBLE
-                    layoutStep5Bantuan.visibility = View.VISIBLE
 
                     val astType = json.optString("assistanceType", "KIP (Kartu Indonesia Pintar)")
                     val aIdx = assistanceTypes.indexOfFirst { it.startsWith(astType.take(3), ignoreCase = true) }
@@ -766,30 +1535,27 @@ class ParentBiodataActivity : AppCompatActivity() {
                     if (json.has("bantuanFileUrl") && json.optString("bantuanFileUrl").isNotEmpty()) {
                         existingBantuanUrl = json.optString("bantuanFileUrl")
                         tvBantuanFileName.text = "📄 Kartu Bantuan Tersimpan di Server TU"
-                        tvStep5BantuanFileName.text = "📄 Kartu Bantuan Tersimpan di Server TU"
                         loadRemoteImage(existingBantuanUrl!!, ivBantuanPreview)
-                        loadRemoteImage(existingBantuanUrl!!, ivStep5BantuanPreview)
                     }
                 } else {
                     rbNoAssistance.isChecked = true
+                    rbHasAssistance.isChecked = false
                     layoutAssistanceDetails.visibility = View.GONE
-                    layoutStep5Bantuan.visibility = View.GONE
                 }
             }
         } catch (e: Exception) {
             e.printStackTrace()
         }
 
-        // Tampilkan preview berkas tersimpan
         if (!sub.kkFileUrl.isNullOrEmpty()) {
             tvKkFileName.text = "📄 Berkas Kartu Keluarga Tersimpan di Server TU"
-            tvKkStatusBadge.text = "✅ Tersimpan di Server"
+            tvKkStatusBadge.text = "✅ Dokumen PDF Tersimpan"
             tvKkStatusBadge.setTextColor(Color.parseColor("#059669"))
             loadRemoteImage(sub.kkFileUrl, ivKkPreview)
         }
         if (!sub.aktaFileUrl.isNullOrEmpty()) {
             tvAktaFileName.text = "📄 Berkas Akta Kelahiran Tersimpan di Server TU"
-            tvAktaStatusBadge.text = "✅ Tersimpan di Server"
+            tvAktaStatusBadge.text = "✅ Dokumen PDF Tersimpan"
             tvAktaStatusBadge.setTextColor(Color.parseColor("#059669"))
             loadRemoteImage(sub.aktaFileUrl, ivAktaPreview)
         }
@@ -797,6 +1563,18 @@ class ParentBiodataActivity : AppCompatActivity() {
 
     private fun renderStatusBanner(status: String, isToggleOpen: Boolean, isLocked: Boolean, rejectionReason: String?) {
         layoutStatusNotice.visibility = View.VISIBLE
+
+        val isAlreadyApprovedOrSubmitted = status == "APPROVED" || status == "VERIFIED" || status == "SUBMITTED" || isLocked
+        if (isAlreadyApprovedOrSubmitted) {
+            layoutDownloadPdfBanner.visibility = View.VISIBLE
+            layoutEndPdfDownload.visibility = View.VISIBLE
+            cbAgreeStatement.isChecked = true
+        } else {
+            if (!cbAgreeStatement.isChecked) {
+                layoutDownloadPdfBanner.visibility = View.GONE
+                layoutEndPdfDownload.visibility = View.GONE
+            }
+        }
 
         when {
             status == "APPROVED" || isLocked -> {
@@ -836,7 +1614,7 @@ class ParentBiodataActivity : AppCompatActivity() {
                 tvStatusNoticeIcon.text = "📝"
                 tvStatusNoticeTitle.text = "STATUS: FORMULIR BELUM DIKIRIM"
                 tvStatusNoticeTitle.setTextColor(Color.parseColor("#1E40AF"))
-                tvStatusNoticeDetail.text = "Lengkapi 5 langkah identitas dan berkas pendukung, kemudian tekan 'KIRIM KE TU SEKARANG'."
+                tvStatusNoticeDetail.text = "Lengkapi 5 langkah identitas dan berkas pendukung, kemudian tekan 'SELESAI & KIRIM BERKAS'."
                 tvStatusNoticeDetail.setTextColor(Color.parseColor("#1D4ED8"))
             }
         }
@@ -844,17 +1622,20 @@ class ParentBiodataActivity : AppCompatActivity() {
 
     private fun lockFormFields() {
         val viewsToLock = listOf<View>(
+            btnCameraPhoto, btnUploadPhoto,
             etStudentName, etStudentNisn, etStudentNik, etStudentPob, etStudentDob,
             rbMale, rbFemale, spReligion,
+            btnGetGpsLocation, etAddressLatitude, etAddressLongitude,
             etAddressStreet, etAddressRt, etAddressRw, etAddressPostalCode, etAddressVillage, etAddressDistrict,
             etFatherName, rbFatherAlive, rbFatherDeceased, etFatherJob, etFatherIncome,
             etMotherName, rbMotherAlive, rbMotherDeceased, etMotherJob, etMotherIncome,
+            cbHasGuardian, etGuardianName, etGuardianNik, spGuardianRelation, etGuardianJob, etGuardianIncome, etGuardianPhone,
             etParentPhone,
             rbNoAssistance, rbHasAssistance, spAssistanceType, etAssistanceNumber,
             btnCameraBantuan, btnUploadBantuan,
             btnCameraKk, btnUploadKk,
             btnCameraAkta, btnUploadAkta,
-            btnCameraStep5Bantuan, btnUploadStep5Bantuan
+            spDesil, btnCameraDinsos, btnUploadDinsos
         )
         for (v in viewsToLock) {
             v.isEnabled = false
@@ -870,9 +1651,9 @@ class ParentBiodataActivity : AppCompatActivity() {
         if (!validateStep(5)) return
 
         AlertDialog.Builder(this)
-            .setTitle("Kirim ke TU Sekarang?")
-            .setMessage("Seluruh data identitas pribadi, alamat, data ayah & ibu (pekerjaan & penghasilan terpisah), kartu bantuan, serta berkas asli KK & Akta akan diserahkan ke Petugas TU SMPN 1 Boyolangu untuk diverifikasi.")
-            .setPositiveButton("🚀 Ya, Kirim Sekarang") { _, _ ->
+            .setTitle("Selesai & Kirim Berkas?")
+            .setMessage("Apakah seluruh data identitas pribadi, titik lokasi rumah (GPS), data orang tua kandung/wali, foto siswa 3x4, serta dokumen hasil scan PDF sudah benar?\n\nBerkas resmi akan diserahkan ke TU SMPN 1 Boyolangu untuk diverifikasi.")
+            .setPositiveButton("🚀 Ya, Selesai & Kirim") { _, _ ->
                 executeSubmission()
             }
             .setNegativeButton("Periksa Lagi", null)
@@ -892,6 +1673,8 @@ class ParentBiodataActivity : AppCompatActivity() {
 
         val s2Json = JSONObject().apply {
             put("alamat", etAddressStreet.text.toString().trim())
+            put("latitude", etAddressLatitude.text.toString().trim())
+            put("longitude", etAddressLongitude.text.toString().trim())
             put("rt", etAddressRt.text.toString().trim())
             put("rw", etAddressRw.text.toString().trim())
             put("kodePos", etAddressPostalCode.text.toString().trim())
@@ -910,23 +1693,48 @@ class ParentBiodataActivity : AppCompatActivity() {
             put("pekerjaanIbu", etMotherJob.text.toString().trim())
             put("penghasilanIbu", etMotherIncome.text.toString().trim())
 
+            put("hasGuardian", cbHasGuardian.isChecked)
+            if (cbHasGuardian.isChecked) {
+                put("namaWali", etGuardianName.text.toString().trim())
+                put("nikWali", etGuardianNik.text.toString().trim())
+                put("hubunganWali", spGuardianRelation.selectedItem?.toString() ?: "Wali")
+                put("pekerjaanWali", etGuardianJob.text.toString().trim())
+                put("penghasilanWali", etGuardianIncome.text.toString().trim())
+                put("noHpWali", etGuardianPhone.text.toString().trim())
+            }
+
             put("noHpOrtu", etParentPhone.text.toString().trim())
         }.toString()
 
         val s4Json = JSONObject().apply {
             val hasCard = rbHasAssistance.isChecked
             put("hasAssistance", hasCard)
+            val selectedDesil = spDesil.selectedItem?.toString() ?: "Bukan Penerima / Non-Desil"
+            val desilNum = when {
+                selectedDesil.startsWith("Desil 10") -> 10
+                selectedDesil.startsWith("Desil 1") -> 1
+                selectedDesil.startsWith("Desil 2") -> 2
+                selectedDesil.startsWith("Desil 3") -> 3
+                selectedDesil.startsWith("Desil 4") -> 4
+                selectedDesil.startsWith("Desil 5") -> 5
+                selectedDesil.startsWith("Desil 6") -> 6
+                selectedDesil.startsWith("Desil 7") -> 7
+                selectedDesil.startsWith("Desil 8") -> 8
+                selectedDesil.startsWith("Desil 9") -> 9
+                else -> 0
+            }
+            put("desil", desilNum)
             if (hasCard) {
                 put("assistanceType", spAssistanceType.selectedItem?.toString() ?: "KIP")
                 put("assistanceNumber", etAssistanceNumber.text.toString().trim())
                 put("bantuanFileUploaded", selectedBantuanFile != null || !existingBantuanUrl.isNullOrEmpty())
             }
+            put("dinsosFileUploaded", selectedDinsosFile != null || !existingDinsosUrl.isNullOrEmpty())
         }.toString()
 
         val s5Json = JSONObject().apply {
             put("kkUploaded", selectedKkFile != null || !existingKkUrl.isNullOrEmpty())
             put("aktaUploaded", selectedAktaFile != null || !existingAktaUrl.isNullOrEmpty())
-            put("bantuanUploaded", selectedBantuanFile != null || !existingBantuanUrl.isNullOrEmpty())
         }.toString()
 
         val textType = MediaType.parse("text/plain")
@@ -935,6 +1743,12 @@ class ParentBiodataActivity : AppCompatActivity() {
         val s3Body = RequestBody.create(textType, s3Json)
         val s4Body = RequestBody.create(textType, s4Json)
         val s5Body = RequestBody.create(textType, s5Json)
+
+        var photoPart: MultipartBody.Part? = null
+        selectedPhotoFile?.let { file ->
+            val requestFile = RequestBody.create(MediaType.parse("image/jpeg"), file)
+            photoPart = MultipartBody.Part.createFormData("foto", file.name, requestFile)
+        }
 
         var kkPart: MultipartBody.Part? = null
         selectedKkFile?.let { file ->
@@ -957,21 +1771,34 @@ class ParentBiodataActivity : AppCompatActivity() {
             bantuanPart = MultipartBody.Part.createFormData("bantuan", file.name, requestFile)
         }
 
+        var dinsosPart: MultipartBody.Part? = null
+        selectedDinsosFile?.let { file ->
+            val mime = if (file.name.endsWith(".pdf", ignoreCase = true)) "application/pdf" else "image/jpeg"
+            val requestFile = RequestBody.create(MediaType.parse(mime), file)
+            dinsosPart = MultipartBody.Part.createFormData("dinsos", file.name, requestFile)
+        }
+
         btnNextStep.isEnabled = false
-        btnNextStep.text = "⏳ Mengirim Formulir ke TU..."
+        btnNextStep.text = "⏳ Menyerahkan Berkas ke TU..."
 
         ApiClient.getClient(this).submitBiodata(
-            s1Body, s2Body, s3Body, s4Body, s5Body, kkPart, aktaPart, bantuanPart
+            s1Body, s2Body, s3Body, s4Body, s5Body, kkPart, aktaPart, bantuanPart, photoPart, dinsosPart
         ).enqueue(object : Callback<BiodataSubmissionResponse> {
             override fun onResponse(call: Call<BiodataSubmissionResponse>, response: Response<BiodataSubmissionResponse>) {
                 btnNextStep.isEnabled = true
-                btnNextStep.text = "🚀 KIRIM KE TU SEKARANG"
+                btnNextStep.text = "🚀 SELESAI & KIRIM BERKAS"
 
                 if (response.isSuccessful && response.body()?.success == true) {
+                    layoutDownloadPdfBanner.visibility = View.VISIBLE
+                    layoutEndPdfDownload.visibility = View.VISIBLE
                     AlertDialog.Builder(this@ParentBiodataActivity)
-                        .setTitle("🎉 Berhasil Terkirim ke TU")
-                        .setMessage(response.body()?.message ?: "Formulir biodata siswa berhasil dikirim ke antrean verifikasi Staf Tata Usaha.")
-                        .setPositiveButton("OK") { _, _ ->
+                        .setTitle("🎉 Berhasil Diserahkan ke TU")
+                        .setMessage("Formulir biodata lengkap, titik koordinat GPS, peta lokasi rumah, foto 3x4 latar biru, dan dokumen PDF berhasil diserahkan ke Tata Usaha SMPN 1 Boyolangu.\n\nApakah Anda ingin mengunduh / mencetak berkas Formulir Biodata & Surat Pernyataan (PDF 3 Halaman) sekarang?")
+                        .setPositiveButton("📥 Cetak / Unduh PDF") { _, _ ->
+                            loadBiodataSubmission()
+                            downloadOrPrintBiodataPdf()
+                        }
+                        .setNegativeButton("Tutup & Selesai") { _, _ ->
                             loadBiodataSubmission()
                         }
                         .setCancelable(false)
@@ -984,7 +1811,7 @@ class ParentBiodataActivity : AppCompatActivity() {
 
             override fun onFailure(call: Call<BiodataSubmissionResponse>, t: Throwable) {
                 btnNextStep.isEnabled = true
-                btnNextStep.text = "🚀 KIRIM KE TU SEKARANG"
+                btnNextStep.text = "🚀 SELESAI & KIRIM BERKAS"
                 Toast.makeText(this@ParentBiodataActivity, "Kesalahan jaringan: ${t.message}", Toast.LENGTH_LONG).show()
             }
         })
@@ -1005,6 +1832,31 @@ class ParentBiodataActivity : AppCompatActivity() {
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
+            }
+        }
+    }
+
+    private fun downloadOrPrintBiodataPdf() {
+        val studentId = etStudentNisn.text.toString().trim().ifEmpty {
+            sessionManager.getNisn().ifEmpty { sessionManager.getUsername() }
+        }
+        val baseUrl = ApiClient.getBaseServerUrl(this).trimEnd('/')
+        val pdfUrl = "$baseUrl/api/biodata/download/$studentId"
+
+        try {
+            val intent = Intent(this, PdfViewerActivity::class.java).apply {
+                putExtra(PdfViewerActivity.EXTRA_URL, pdfUrl)
+                putExtra("EXTRA_FILE_URL", pdfUrl)
+                putExtra(PdfViewerActivity.EXTRA_TITLE, "Formulir & Surat Pernyataan Resmi (PDF 3 Halaman)")
+                putExtra(PdfViewerActivity.EXTRA_DOC_TYPE, "BIODATA")
+            }
+            startActivity(intent)
+        } catch (e: Exception) {
+            try {
+                val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(pdfUrl))
+                startActivity(browserIntent)
+            } catch (ex: Exception) {
+                Toast.makeText(this, "Gagal membuka berkas PDF: ${e.message}", Toast.LENGTH_SHORT).show()
             }
         }
     }

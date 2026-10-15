@@ -100,11 +100,24 @@ class ParentHomeworkActivity : AppCompatActivity() {
             override fun onResponse(call: Call<ParentHomeworkResponse>, response: Response<ParentHomeworkResponse>) {
                 val list = response.body()?.homework ?: emptyList()
                 allHomework = list
+                com.school.smartcbt.utils.ClientLogger.logHomework(
+                    context = this@ParentHomeworkActivity,
+                    action = "LIST_HOMEWORKS",
+                    outcome = "SUCCESS",
+                    message = "Memuat ${list.size} tugas untuk Ananda $childName"
+                )
                 renderHomework()
             }
 
             override fun onFailure(call: Call<ParentHomeworkResponse>, t: Throwable) {
-                renderEmptyState("Koneksi ke server terputus: ${t.message}")
+                val netErr = t.message ?: "Koneksi ke server terputus"
+                com.school.smartcbt.utils.ClientLogger.logHomework(
+                    context = this@ParentHomeworkActivity,
+                    action = "LIST_HOMEWORKS",
+                    outcome = "ERROR",
+                    message = netErr
+                )
+                renderEmptyState("Koneksi ke server terputus: $netErr")
             }
         })
     }

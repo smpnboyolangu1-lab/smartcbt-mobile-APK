@@ -1,19 +1,48 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/db';
 import { getSchoolSignatures } from '../utils/schoolSignatures';
+import { sendFcmToUser } from '../services/fcmService';
+import { formatTimeWib, formatTimeWibWithSuffix } from '../utils/dateUtils';
 
-// 1. Ambil Jadwal Rombel Sholat Hari Ini
+// 1. Ambil Jadwal Rombel Sholat Hari Ini (Dinamis: Mendukung Sholat Dhuha, Dhuhur, Jumat)
 export const getTodayPrayerSchedule = async (req: Request, res: Response) => {
     try {
         const todayDay = new Date().getDay(); // 0 = Minggu, 1 = Senin, dst.
         const dayNames = ['MINGGU', 'SENIN', 'SELASA', 'RABU', 'KAMIS', 'JUMAT', 'SABTU'];
         const currentDayName = dayNames[todayDay];
+        const requestedType = (req.query.prayerType as string)?.toUpperCase();
+
+        // Deteksi jendela waktu otomatis menggunakan zona waktu resmi WIB (Asia/Jakarta)
+        const nowWIB = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Jakarta' }));
+        const currentHourWIB = nowWIB.getHours(); // 0 - 23 WIB
+        const isMorningDhuhaWindow = currentHourWIB < 10; // Sebelum jam 10 pagi WIB adalah sesi Sholat Dhuha
+
+        let whereCondition: any = {
+            dayOfWeek: todayDay,
+            isActive: true
+        };
+
+        if (requestedType) {
+            whereCondition.prayerType = requestedType;
+        } else if (isMorningDhuhaWindow) {
+            // Cek apakah ada jadwal Dhuha aktif hari ini
+            const dhuhaSchedule = await (prisma as any).prayerClassSchedule.findFirst({
+                where: { dayOfWeek: todayDay, prayerType: 'DHUHA', isActive: true }
+            });
+            if (dhuhaSchedule) {
+                whereCondition.prayerType = 'DHUHA';
+            }
+        }
 
         let schedule = await (prisma as any).prayerClassSchedule.findFirst({
-            where: {
-                dayOfWeek: todayDay,
-                isActive: true
-            }
+            where: whereCondition,
+            orderBy: { scanStartTime: 'asc' }
+        });
+
+        // Ambil semua opsi sholat yang tersedia untuk hari ini (Dhuha & Dhuhur/Jumat)
+        const allTodaySchedules = await (prisma as any).prayerClassSchedule.findMany({
+            where: { dayOfWeek: todayDay, isActive: true },
+            orderBy: { scanStartTime: 'asc' }
         });
 
         // Default schedules jika belum diatur di database
@@ -21,58 +50,64 @@ export const getTodayPrayerSchedule = async (req: Request, res: Response) => {
             let defaultClasses = "VII-A,VII-B,VII-C,VII-D,VII-E";
             if (todayDay === 2) defaultClasses = "VIII-A,VIII-B,VIII-C,VIII-D,VIII-E";
             else if (todayDay === 3) defaultClasses = "IX-A,IX-B,IX-C,IX-D,IX-E";
+            else if (todayDay === 4) defaultClasses = "VII-F,VII-G,VIII-F,VIII-G";
             else if (todayDay === 5) defaultClasses = "ALL_MALE"; // Sholat Jumat
+            else if (todayDay === 6) defaultClasses = "ALL"; // Sholat Dhuhur Sabtu
             
+            const isDhuhaReq = requestedType === 'DHUHA' || (isMorningDhuhaWindow && requestedType !== 'DHUHUR' && requestedType !== 'JUMAT');
             schedule = {
-                id: `default-${todayDay}`,
+                id: `default-${todayDay}-${isDhuhaReq ? 'dhuha' : 'dhuhur'}`,
                 dayOfWeek: todayDay,
                 dayName: currentDayName,
-                prayerType: todayDay === 5 ? 'JUMAT' : 'DHUHUR',
+                prayerType: isDhuhaReq ? 'DHUHA' : (todayDay === 5 ? 'JUMAT' : 'DHUHUR'),
                 classNames: defaultClasses,
-                barcodeKey: todayDay === 5 ? 'BARCODE_SHOLAT_JUMAT_MASJID' : 'BARCODE_SHOLAT_DHUHUR_MASJID',
-                wudhuTime: '11:45',
-                scanStartTime: '12:00',
-                scanEndTime: '12:30',
-                notes: `Jadwal Sholat ${todayDay === 5 ? 'Jumat' : 'Dhuhur'} Berjamaah di Masjid Sekolah`
+                barcodeKey: isDhuhaReq ? 'BARCODE_SHOLAT_DHUHA_MASJID' : (todayDay === 5 ? 'BARCODE_SHOLAT_JUMAT_MASJID' : 'BARCODE_SHOLAT_DHUHUR_MASJID'),
+                wudhuTime: isDhuhaReq ? '06:45' : '11:45',
+                scanStartTime: isDhuhaReq ? '07:00' : '12:00',
+                scanEndTime: isDhuhaReq ? '07:45' : '12:30',
+                notes: `Jadwal Sholat ${isDhuhaReq ? 'Dhuha' : (todayDay === 5 ? 'Jumat' : 'Dhuhur')} Berjamaah di Masjid Sekolah`
             };
         } else {
             schedule = {
                 ...schedule,
-                wudhuTime: schedule.wudhuTime || '11:45',
-                scanStartTime: schedule.scanStartTime || '12:00',
-                scanEndTime: schedule.scanEndTime || '12:30'
+                wudhuTime: schedule.wudhuTime || (schedule.prayerType === 'DHUHA' ? '06:45' : '11:45'),
+                scanStartTime: schedule.scanStartTime || (schedule.prayerType === 'DHUHA' ? '07:00' : '12:00'),
+                scanEndTime: schedule.scanEndTime || (schedule.prayerType === 'DHUHA' ? '07:45' : '12:30')
             };
         }
 
         res.json({
             success: true,
             dayName: currentDayName,
-            schedule
+            schedule,
+            availablePrayers: allTodaySchedules
         });
     } catch (error: any) {
         res.status(500).json({ success: false, message: 'Gagal memuat jadwal sholat: ' + error.message });
     }
 };
 
-// 1b. Ambil Seluruh Jadwal Sholat Sepanjang Pekan (Senin - Jumat)
+// 1b. Ambil Seluruh Jadwal Sholat Sepanjang Pekan (Senin - Jumat) - Mendukung multi-sholat per hari (Dhuha & Dhuhur)
 export const getAllPrayerSchedules = async (req: Request, res: Response) => {
     try {
         const schedules = await (prisma as any).prayerClassSchedule.findMany({
             where: { isActive: true },
-            orderBy: { dayOfWeek: 'asc' }
+            orderBy: [{ dayOfWeek: 'asc' }, { scanStartTime: 'asc' }]
         });
 
         const dayNames = ['MINGGU', 'SENIN', 'SELASA', 'RABU', 'KAMIS', 'JUMAT', 'SABTU'];
-        const fullWeekSchedules = [];
+        const fullWeekSchedules: any[] = [];
 
-        for (let d = 1; d <= 5; d++) {
-            const found = schedules.find((s: any) => s.dayOfWeek === d);
-            if (found) {
-                fullWeekSchedules.push({
-                    ...found,
-                    wudhuTime: found.wudhuTime || '11:45',
-                    scanStartTime: found.scanStartTime || '12:00',
-                    scanEndTime: found.scanEndTime || '12:30'
+        for (let d = 1; d <= 6; d++) {
+            const daySchedules = schedules.filter((s: any) => s.dayOfWeek === d);
+            if (daySchedules.length > 0) {
+                daySchedules.forEach((s: any) => {
+                    fullWeekSchedules.push({
+                        ...s,
+                        wudhuTime: s.wudhuTime || (s.prayerType === 'DHUHA' ? '06:45' : '11:45'),
+                        scanStartTime: s.scanStartTime || (s.prayerType === 'DHUHA' ? '07:00' : '12:00'),
+                        scanEndTime: s.scanEndTime || (s.prayerType === 'DHUHA' ? '07:45' : '12:30')
+                    });
                 });
             } else {
                 let defaultClasses = "VII-A,VII-B,VII-C,VII-D,VII-E";
@@ -80,6 +115,7 @@ export const getAllPrayerSchedules = async (req: Request, res: Response) => {
                 else if (d === 3) defaultClasses = "IX-A,IX-B,IX-C,IX-D,IX-E";
                 else if (d === 4) defaultClasses = "VII-F,VII-G,VIII-F,VIII-G";
                 else if (d === 5) defaultClasses = "ALL_MALE";
+                else if (d === 6) defaultClasses = "ALL";
 
                 fullWeekSchedules.push({
                     id: `default-${d}`,
@@ -164,57 +200,66 @@ export const studentScanStaticBarcode = async (req: Request, res: Response) => {
         const { prayerType, lat, lng, isFakeGps } = req.body;
         const cleanBar = String(rawBar || '').trim().toUpperCase();
 
-        // Validasi Barcode Statik Masjid
+        // Validasi Barcode Statik Masjid & Keputrian
         const validStaticBarcodes = [
             'BARCODE_SHOLAT_DHUHUR_MASJID',
             'BARCODE_SHOLAT_JUMAT_MASJID',
+            'BARCODE_SHOLAT_PULANG_MASJID',
             'MASJID_DHUHUR_S1BOY',
             'MASJID_JUMAT_S1BOY',
+            'MASJID_PULANG_S1BOY',
+            'PULANG_MUSHOLA',
+            'SHOLAT_PULANG',
             'SHOLAT_MASJID_SMPN1',
-            'SHOLAT_DHUHUR_MASJID'
+            'SHOLAT_DHUHUR_MASJID',
+            'BARCODE_KEPUTRIAN_MASUK',
+            'BARCODE_KEPUTRIAN_PULANG',
+            'KEPUTRIAN_S1BOY',
+            'KEPUTRIAN_MASJID_S1BOY',
+            'SHOLAT_JUMAT_KEPUTRIAN'
         ];
 
-        const isMatch = validStaticBarcodes.some(b => cleanBar.includes(b)) || cleanBar.includes('MASJID') || cleanBar.includes('SHOLAT');
+        const isMatch = validStaticBarcodes.some(b => cleanBar.includes(b)) || 
+            cleanBar.includes('MASJID') || 
+            cleanBar.includes('SHOLAT') || 
+            cleanBar.includes('MUSHOLA') || 
+            cleanBar.includes('KEPUTRIAN');
+
         if (!isMatch) {
             return res.status(400).json({
                 success: false,
-                message: '❌ Barcode tidak valid! Pastikan Anda memindai Barcode Statik resmi yang tertempel di dinding Masjid SMPN 1 Boyolangu.'
+                message: '❌ Barcode tidak valid! Pastikan Anda memindai Barcode Statik resmi yang tertempel di Mushola / Pos Pembinaan Keputrian SMPN 1 Boyolangu.'
             });
         }
+
+        const isPulangScan = cleanBar.includes('PULANG') || 
+            cleanBar.includes('OUT') || 
+            req.body.isPulang === true || 
+            req.body.scanType === 'GATE_OUT' || 
+            String(req.body.type || '').toUpperCase() === 'GATE_OUT';
+
+        const isKeputrianScan = cleanBar.includes('KEPUTRIAN');
 
         const todayDay = new Date().getDay();
         const pType = prayerType || (todayDay === 5 ? 'JUMAT' : 'DHUHUR');
 
-        // Cek Jadwal & Status Keaktifan Barcode Mushola Hari Ini (Otomatis Non-aktif saat Scan Selesai)
+        // Cek Jadwal & Status Keaktifan Barcode Mushola Hari Ini
         const sched = await (prisma as any).prayerClassSchedule.findFirst({
             where: { dayOfWeek: todayDay, prayerType: pType, isActive: true }
         });
 
         const now = new Date();
         const currentHourMinute = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false }).replace('.', ':');
+        const timeWithSec = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).replace(/\./g, ':');
 
-        // Pengaturan jam scan sholat resmi: ditentukan oleh Admin atau Guru PAI (Bukan 24 jam)
-        const startTime = sched?.scanStartTime || '12:00';
-        const endTime = sched?.scanEndTime || '12:30';
+        const startTime = sched?.scanStartTime || '11:30';
+        const endTime = sched?.scanEndTime || '14:30'; // Longgarkan toleransi agar mencakup jam kepulangan mushola
         const wudhuTime = sched?.wudhuTime || '11:45';
 
         if (sched && sched.isScanActive === false) {
             return res.status(400).json({
                 success: false,
                 message: '❌ Barcode mushola non-aktif! Sesi scan sholat telah dinonaktifkan oleh Guru PAI / Pengurus Mushola.'
-            });
-        }
-
-        if (currentHourMinute < startTime) {
-            return res.status(400).json({
-                success: false,
-                message: `❌ Presensi sholat belum dibuka! Sesi scan QR mushola dibuka pukul ${startTime} s/d ${endTime} WIB (Wudhu: ${wudhuTime} WIB) sesuai jadwal resmi Admin / Guru PAI. Presensi sholat tidak berlaku 24 jam.`
-            });
-        }
-        if (currentHourMinute > endTime) {
-            return res.status(400).json({
-                success: false,
-                message: `❌ Waktu scan sholat telah ditutup (batas pukul ${endTime} WIB). Pengaturan jam presensi ditentukan oleh Admin / Guru PAI demi ketertiban ibadah.`
             });
         }
 
@@ -225,7 +270,109 @@ export const studentScanStaticBarcode = async (req: Request, res: Response) => {
             return res.status(404).json({ success: false, message: 'Data siswa tidak ditemukan.' });
         }
 
-        // Cek apakah sudah pernah presensi sholat hari ini
+        const rawStatus = (req.body.status || 'SHOLAT_BERJAMAAH').toString().toUpperCase();
+        const studentGender = ((student.gender || 'L').toString().toUpperCase().startsWith('P') || (student.gender || '').toLowerCase().includes('perempuan')) ? 'P' : 'L';
+        const isBerhalangan = (rawStatus.includes('BERHALANGAN') || rawStatus.includes('HAID') || isKeputrianScan) && studentGender === 'P';
+        const finalStatus = isBerhalangan ? 'BERHALANGAN_HAID' : 'SHOLAT_BERJAMAAH';
+
+        // -------------------------------------------------------------
+        // KASUS 1: SCAN BARCODE PULANG DI MUSHOLA
+        // -------------------------------------------------------------
+        if (isPulangScan) {
+            // Cek apakah siswa sudah pernah scan pulang hari ini
+            const existingOut = await prisma.attendance.findFirst({
+                where: {
+                    userId: student.id,
+                    type: 'GATE_OUT',
+                    scanTime: {
+                        gte: new Date(new Date().setHours(0, 0, 0, 0)),
+                        lte: new Date(new Date().setHours(23, 59, 59, 999))
+                    }
+                }
+            });
+
+            if (existingOut) {
+                const outTimeStr = formatTimeWib(existingOut.scanTime);
+                return res.json({
+                    success: true,
+                    alreadyRecorded: true,
+                    message: `✅ Anda sudah melakukan scan kepulangan mushola hari ini pukul ${outTimeStr} WIB.`,
+                    record: existingOut
+                });
+            }
+
+            // Catat Kepulangan Resmi di tabel Attendance
+            const outRecord = await prisma.attendance.create({
+                data: {
+                    userId: student.id,
+                    type: 'GATE_OUT',
+                    method: 'BARCODE',
+                    status: 'PRESENT',
+                    lat: lat ? Number(lat) : null,
+                    lng: lng ? Number(lng) : null,
+                    isFakeGps: Boolean(isFakeGps),
+                    note: `Scan Pulang di Mushola setelah Sholat ${pType} Berjamaah (${timeWithSec} WIB)`
+                }
+            });
+
+            // Perbarui catatan di tabel studentPrayerAttendance jika ada
+            await (prisma as any).studentPrayerAttendance.updateMany({
+                where: {
+                    studentId: student.id,
+                    date: todayStr,
+                    prayerType: pType
+                },
+                data: {
+                    notes: `Selesai Sholat & Scan Pulang Mushola pukul ${timeWithSec} WIB`
+                }
+            }).catch(() => {});
+
+            // Kirim Notifikasi Real-time ke Orang Tua
+            try {
+                const notifTitle = `🕌 Scan Pulang Mushola: ${student.name} Selesai Sholat`;
+                const notifMsg = `Alhamdulillah, ananda ${student.name} (Kelas ${student.className || '-'}) telah melaksanakan Sholat ${pType} Berjamaah dan melakukan scan kepulangan di Mushola SMPN 1 Boyolangu pada pukul ${timeWithSec} WIB. Ananda bersiap dalam perjalanan pulang ke rumah.`;
+
+                await (prisma as any).notificationMessage.create({
+                    data: {
+                        recipientRole: 'PARENT',
+                        studentId: student.id,
+                        studentName: student.name,
+                        className: student.className,
+                        title: notifTitle,
+                        message: notifMsg,
+                        category: 'ATTENDANCE'
+                    }
+                });
+
+                const parentUsername = `P${student.nisn || student.username}`;
+                const parentUser = await prisma.user.findFirst({
+                    where: {
+                        OR: [
+                            { username: parentUsername },
+                            { nisn: student.nisn || student.username, role: 'PARENT' }
+                        ]
+                    }
+                });
+                if (parentUser) {
+                    await sendFcmToUser(parentUser.id, notifTitle, notifMsg, {
+                        type: 'PRAYER_GATE_OUT',
+                        studentId: student.id,
+                        studentName: student.name
+                    }).catch(e => console.warn('[FCM Prayer Parent]', e.message));
+                }
+            } catch (nErr) {}
+
+            return res.json({
+                success: true,
+                isGateOut: true,
+                message: `✅ Alhamdulillah! Presensi kepulangan di Mushola berhasil dicatat pukul ${timeWithSec} WIB. Notifikasi telah terkirim ke Orang Tua.`,
+                record: outRecord
+            });
+        }
+
+        // -------------------------------------------------------------
+        // KASUS 2: SCAN MASUK SHOLAT / KEPUTRIAN DI MUSHOLA
+        // -------------------------------------------------------------
         const existing = await (prisma as any).studentPrayerAttendance.findFirst({
             where: {
                 studentId: student.id,
@@ -235,28 +382,35 @@ export const studentScanStaticBarcode = async (req: Request, res: Response) => {
         });
 
         if (existing) {
+            const isPrevBerhalangan = existing.status === 'BERHALANGAN_HAID';
             return res.json({
                 success: true,
                 alreadyRecorded: true,
-                message: `✅ Anda sudah tercatat melaksanakan Sholat ${pType} Berjamaah hari ini pukul ${new Date(existing.createdAt).toTimeString().substring(0, 5)} WIB.`,
+                message: isPrevBerhalangan
+                    ? `🌸 Anda sudah tercatat hadir berhalangan sholat (haid/uzur keputrian) hari ini pukul ${new Date(existing.createdAt).toTimeString().substring(0, 5)} WIB.`
+                    : `✅ Anda sudah tercatat melaksanakan Sholat ${pType} Berjamaah hari ini pukul ${new Date(existing.createdAt).toTimeString().substring(0, 5)} WIB.`,
                 record: existing
             });
         }
 
         const coordText = (lat && lng) ? ` • GPS: ${lat}, ${lng}` : '';
+        const notesText = isBerhalangan 
+            ? `Presensi mandiri siswi berhalangan (uzur syar'i/keputrian) scan barcode${coordText}`
+            : `Presensi mandiri scan barcode masuk sholat${coordText}`;
+
         const newRecord = await (prisma as any).studentPrayerAttendance.create({
             data: {
                 studentId: student.id,
                 studentName: student.name,
                 className: student.className || '-',
-                gender: (student.gender || 'L').toUpperCase(),
+                gender: studentGender,
                 prayerType: pType,
                 date: todayStr,
-                status: 'SHOLAT_BERJAMAAH',
-                method: 'STATIC_BARCODE',
+                status: finalStatus,
+                method: isKeputrianScan ? 'BARCODE_KEPUTRIAN' : 'STATIC_BARCODE',
                 recordedById: student.id,
                 recordedByName: student.name,
-                notes: `Presensi mandiri scan barcode statik mushola${coordText}`
+                notes: notesText
             }
         });
 
@@ -283,7 +437,7 @@ export const studentScanStaticBarcode = async (req: Request, res: Response) => {
                             lat: Number(lat),
                             lng: Number(lng),
                             isFakeGps: Boolean(isFakeGps),
-                            note: (existingAtt.note || '') + ` • Mushola GPS: ${lat}, ${lng}`
+                            note: (existingAtt.note || '') + ` • Mushola (${finalStatus}) GPS: ${lat}, ${lng}`
                         }
                     });
                 } else {
@@ -292,35 +446,64 @@ export const studentScanStaticBarcode = async (req: Request, res: Response) => {
                             userId: student.id,
                             type: 'PRAYER',
                             method: 'BARCODE',
-                            status: 'PRESENT',
+                            status: isBerhalangan ? 'PERMISSION' : 'PRESENT',
                             lat: Number(lat),
                             lng: Number(lng),
                             isFakeGps: Boolean(isFakeGps),
-                            note: `Presensi Sholat Mushola • GPS: ${lat}, ${lng}`
+                            note: `Presensi Mushola (${finalStatus}) • GPS: ${lat}, ${lng}`
                         }
                     });
                 }
             } catch (attErr) {}
         }
 
-        // Kirim notifikasi ke Orang Tua
+        // Kirim notifikasi real-time ke Orang Tua (Bukan sekadar rekap absen)
         try {
+            let notifTitle = `🕌 Laporan Ibadah: Sholat ${pType} Berjamaah`;
+            let notifMsg = `Alhamdulillah, ananda ${student.name} (Kelas ${student.className || '-'}) telah melaksanakan scan masuk Sholat ${pType} Berjamaah di Mushola SMPN 1 Boyolangu hari ini pukul ${timeWithSec} WIB.`;
+
+            if (isKeputrianScan || isBerhalangan) {
+                notifTitle = `🌸 Laporan Ibadah Keputrian: ${student.name}`;
+                notifMsg = `Informasi: Ananda ${student.name} (Kelas ${student.className || '-'}) hari ini mengikuti kegiatan pembinaan keputrian bersama Guru PAI Putri (status berhalangan sholat / uzur syar'i) pada pukul ${timeWithSec} WIB.`;
+            }
+
             await (prisma as any).notificationMessage.create({
                 data: {
                     recipientRole: 'PARENT',
                     studentId: student.id,
                     studentName: student.name,
                     className: student.className,
-                    title: `🕌 Laporan Ibadah: Sholat ${pType} Berjamaah`,
-                    message: `Alhamdulillah, ananda ${student.name} telah melaksanakan Sholat ${pType} Berjamaah di Masjid SMPN 1 Boyolangu hari ini.`,
+                    title: notifTitle,
+                    message: notifMsg,
                     category: 'ATTENDANCE'
                 }
             });
+
+            const parentUsername = `P${student.nisn || student.username}`;
+            const parentUser = await prisma.user.findFirst({
+                where: {
+                    OR: [
+                        { username: parentUsername },
+                        { nisn: student.nisn || student.username, role: 'PARENT' }
+                    ]
+                }
+            });
+            if (parentUser) {
+                await sendFcmToUser(parentUser.id, notifTitle, notifMsg, {
+                    type: 'PRAYER_CHECK_IN',
+                    studentId: student.id,
+                    studentName: student.name
+                }).catch(e => console.warn('[FCM Prayer In Parent]', e.message));
+            }
         } catch (nErr) {}
+
+        const successMessage = isBerhalangan
+            ? `🌸 Presensi Berhasil! Kehadiran Anda tercatat resmi sebagai BERHALANGAN / KEPUTRIAN (Uzur Syar'i). Notifikasi telah terkirim ke Orang Tua.`
+            : `Alhamdulillah! Presensi masuk Sholat ${pType} Berjamaah berhasil dicatat pukul ${timeWithSec} WIB. Notifikasi telah terkirim ke Orang Tua.`;
 
         res.json({
             success: true,
-            message: `Alhamdulillah! Presensi Sholat ${pType} Berjamaah berhasil dicatat.`,
+            message: successMessage,
             record: newRecord
         });
     } catch (error: any) {
@@ -514,7 +697,91 @@ export const batchPaiMarkStudentPrayer = async (req: Request, res: Response) => 
         });
     } catch (error: any) {
         console.error('Error batchPaiMarkStudentPrayer:', error);
-        res.status(500).json({ success: false, message: 'Gagal melakukan presensi massal: ' + error.message });
+    }
+};
+
+// 4c. Siswi Melaporkan Uzur Syar'i (Haid/Berhalangan) 1-Tap Hari Ini
+export const studentReportUzur = async (req: Request, res: Response) => {
+    try {
+        const user = (req as any).user;
+        const student = await prisma.user.findUnique({ where: { id: user.id } });
+        if (!student) {
+            return res.status(404).json({ success: false, message: 'Data siswa tidak ditemukan.' });
+        }
+
+        const gender = (student.gender || 'L').toUpperCase();
+        if (gender !== 'P' && !gender.includes('PEREMPUAN')) {
+            return res.status(400).json({
+                success: false,
+                message: '⛔ Konfirmasi berhalangan sholat (haid/uzur) hanya berlaku untuk siswi perempuan.'
+            });
+        }
+
+        const todayStr = new Date().toISOString().substring(0, 10);
+        const pType = new Date().getDay() === 5 ? 'JUMAT' : 'DHUHUR';
+
+        const existing = await (prisma as any).studentPrayerAttendance.findFirst({
+            where: {
+                studentId: student.id,
+                date: todayStr
+            }
+        });
+
+        if (existing) {
+            if (existing.status === 'BERHALANGAN_HAID') {
+                return res.json({
+                    success: true,
+                    alreadyRecorded: true,
+                    message: `🌸 Status berhalangan (uzur syar'i) hari ini sudah tercatat pada pukul ${new Date(existing.createdAt).toTimeString().substring(0, 5)} WIB.`
+                });
+            }
+            await (prisma as any).studentPrayerAttendance.update({
+                where: { id: existing.id },
+                data: {
+                    status: 'BERHALANGAN_HAID',
+                    method: 'STUDENT_APP_UZUR',
+                    notes: "Konfirmasi mandiri siswi berhalangan (uzur syar'i/haid) via aplikasi APK"
+                }
+            });
+        } else {
+            await (prisma as any).studentPrayerAttendance.create({
+                data: {
+                    studentId: student.id,
+                    studentName: student.name,
+                    className: student.className || '-',
+                    gender: 'P',
+                    prayerType: pType,
+                    date: todayStr,
+                    status: 'BERHALANGAN_HAID',
+                    method: 'STUDENT_APP_UZUR',
+                    recordedById: student.id,
+                    recordedByName: student.name,
+                    notes: "Konfirmasi mandiri siswi berhalangan (uzur syar'i/haid) via aplikasi APK"
+                }
+            });
+        }
+
+        // Kirim Notifikasi ke Orang Tua
+        try {
+            await (prisma as any).notificationMessage.create({
+                data: {
+                    recipientRole: 'PARENT',
+                    studentId: student.id,
+                    studentName: student.name,
+                    className: student.className,
+                    title: `🌸 Konfirmasi Keputrian: ${student.name}`,
+                    message: `Ananda ${student.name} mengonfirmasi sedang berhalangan syar'i (haid) pada hari ini (${todayStr}). Tercatat resmi di rekap Guru PAI.`,
+                    category: 'ATTENDANCE'
+                }
+            });
+        } catch (nErr) {}
+
+        return res.json({
+            success: true,
+            message: `🌸 Konfirmasi berhalangan (uzur syar'i) hari ini berhasil dicatat. Orang tua dan Guru PAI telah dinotifikasi.`
+        });
+    } catch (error: any) {
+        return res.status(500).json({ success: false, message: 'Gagal mencatat konfirmasi uzur: ' + error.message });
     }
 };
 
@@ -522,10 +789,6 @@ export const batchPaiMarkStudentPrayer = async (req: Request, res: Response) => 
 export const getPaiMonitoringByClass = async (req: Request, res: Response) => {
     try {
         const { className, date, prayerType } = req.query;
-        if (!className) {
-            return res.status(400).json({ success: false, message: 'Kelas wajib dipilih.' });
-        }
-
         const targetDate = String(date || new Date().toISOString().substring(0, 10));
         const targetDateObj = new Date(targetDate + 'T12:00:00+07:00');
         const dayOfWeek = targetDateObj.getDay();
@@ -536,9 +799,18 @@ export const getPaiMonitoringByClass = async (req: Request, res: Response) => {
             where: { dayOfWeek, isActive: true }
         });
 
+        let targetClass = String(className || '').trim();
+        if (!targetClass) {
+            if (schedule?.classNames && schedule.classNames !== 'ALL_MALE' && schedule.classNames !== 'ALL') {
+                targetClass = schedule.classNames.split(',')[0].trim();
+            } else {
+                targetClass = 'VII-A';
+            }
+        }
+
         // Ambil seluruh siswa di kelas tersebut
         const students = await prisma.user.findMany({
-            where: { role: 'STUDENT', className: String(className).trim() },
+            where: { role: 'STUDENT', className: targetClass },
             select: {
                 id: true,
                 name: true,
@@ -554,7 +826,7 @@ export const getPaiMonitoringByClass = async (req: Request, res: Response) => {
         // Ambil catatan presensi sholat hari tersebut
         const attendances = await (prisma as any).studentPrayerAttendance.findMany({
             where: {
-                className: String(className).trim(),
+                className: targetClass,
                 date: targetDate,
                 prayerType: pType
             }
@@ -597,7 +869,7 @@ export const getPaiMonitoringByClass = async (req: Request, res: Response) => {
 
         res.json({
             success: true,
-            className,
+            className: targetClass,
             date: targetDate,
             prayerType: pType,
             schedule: schedule ? {
@@ -770,7 +1042,7 @@ export const exportPrayerAttendancePdf = async (req: Request, res: Response) => 
                     const att = attMap.get(s.id);
                     const genderStr = (s.gender || 'L').toUpperCase().startsWith('P') ? 'P' : 'L';
                     const status = att ? att.status : 'ALPHA';
-                    const recTime = att?.createdAt ? new Date(att.createdAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WIB' : '-';
+                    const recTime = att?.createdAt ? formatTimeWibWithSuffix(att.createdAt) : '-';
                     const method = att?.method === 'STATIC_BARCODE' ? 'Scan Barcode' : (att?.method === 'MANUAL_PAI' ? 'Guru PAI' : '-');
 
                     let badgeHtml = '';
@@ -991,7 +1263,7 @@ export const exportPrayerAttendancePdf = async (req: Request, res: Response) => 
             let alphaCount = 0;
 
             if (isWeekly) {
-                // Tentukan tanggal Senin sampai Jumat pekan ini
+                // Tentukan tanggal Senin sampai Sabtu pekan ini (6 hari operasional sekolah)
                 const refDate = new Date(targetDate + 'T12:00:00+07:00');
                 const day = refDate.getDay();
                 const diffToMonday = day === 0 ? -6 : 1 - day;
@@ -999,8 +1271,8 @@ export const exportPrayerAttendancePdf = async (req: Request, res: Response) => 
                 mondayDate.setDate(refDate.getDate() + diffToMonday);
 
                 const weekDays: { dateStr: string; dayName: string }[] = [];
-                const dayLabels = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat'];
-                for (let i = 0; i < 5; i++) {
+                const dayLabels = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+                for (let i = 0; i < 6; i++) {
                     const d = new Date(mondayDate);
                     d.setDate(mondayDate.getDate() + i);
                     weekDays.push({
@@ -1060,7 +1332,7 @@ export const exportPrayerAttendancePdf = async (req: Request, res: Response) => 
                     haidCount += sHaid;
                     alphaCount += sAlpha;
 
-                    const percent = ((sSholat / 5) * 100).toFixed(0);
+                    const percent = ((sSholat / weekDays.length) * 100).toFixed(0);
                     const genderStr = (s.gender || 'L').toUpperCase().startsWith('P') ? 'P' : 'L';
 
                     return `
@@ -1078,7 +1350,7 @@ export const exportPrayerAttendancePdf = async (req: Request, res: Response) => 
                     `;
                 }).join('');
 
-                periodSubtitle = `PERIODE 1 MINGGU PENUH (${weekDays[0].dateStr} s.d. ${weekDays[4].dateStr})`;
+                periodSubtitle = `PERIODE 1 MINGGU PENUH (${weekDays[0].dateStr} s.d. ${weekDays[weekDays.length - 1].dateStr})`;
             } else {
                 // DAILY RECAP
                 const attendances = await (prisma as any).studentPrayerAttendance.findMany({
@@ -1107,7 +1379,7 @@ export const exportPrayerAttendancePdf = async (req: Request, res: Response) => 
                     const att = attMap.get(s.id);
                     const genderStr = (s.gender || 'L').toUpperCase().startsWith('P') ? 'P' : 'L';
                     const status = att ? att.status : 'ALPHA';
-                    const recTime = att?.createdAt ? new Date(att.createdAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WIB' : '-';
+                    const recTime = att?.createdAt ? formatTimeWibWithSuffix(att.createdAt) : '-';
                     const method = att?.method === 'STATIC_BARCODE' ? 'Scan Barcode Masjid' : (att?.method === 'MANUAL_PAI' ? 'Verifikasi Guru PAI' : '-');
 
                     let badgeHtml = '';
@@ -1280,3 +1552,173 @@ export const exportPrayerAttendancePdf = async (req: Request, res: Response) => 
         res.status(500).send('Gagal mengekspor laporan presensi sholat: ' + error.message);
     }
 };
+
+/**
+ * Guru PAI scan barcode/kartu pelajar siswa yang tidak membawa/mempunyai HP.
+ * Otomatis mencatat Sholat Mushola DAN otomatis Gate In / Gate Out sekolah!
+ * POST /api/prayer/pai-scan-student-card
+ */
+export const paiScanStudentCard = async (req: Request, res: Response) => {
+    try {
+        const teacher = (req as any).user;
+        const { barcode, prayerType, status } = req.body;
+
+        if (!barcode) {
+            return res.status(400).json({ success: false, message: 'Barcode / ID kartu pelajar wajib diisi' });
+        }
+
+        const cleanCode = String(barcode).trim();
+        // Cari siswa berdasarkan nisn, nis, rfidChipUid, username, atau id
+        const student = await prisma.user.findFirst({
+            where: {
+                role: 'STUDENT',
+                OR: [
+                    { nisn: cleanCode },
+                    { nis: cleanCode },
+                    { rfidChipUid: cleanCode },
+                    { username: cleanCode },
+                    { id: cleanCode }
+                ]
+            }
+        });
+
+        if (!student) {
+            return res.status(404).json({
+                success: false,
+                message: `Siswa dengan barcode/kartu "${cleanCode}" tidak ditemukan di database sekolah.`
+            });
+        }
+
+        const today = new Date();
+        const todayStr = today.toISOString().split('T')[0];
+        const nowTimeStr = today.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+        const pType = prayerType || 'DHUHUR';
+        const pStatus = status || 'SHOLAT_BERJAMAAH';
+
+        // 1. Simpan Presensi Sholat Siswa
+        const existingPrayer = await (prisma as any).prayerAttendance.findFirst({
+            where: {
+                userId: student.id,
+                date: {
+                    gte: new Date(`${todayStr}T00:00:00.000Z`),
+                    lte: new Date(`${todayStr}T23:59:59.999Z`)
+                },
+                prayerType: pType
+            }
+        });
+
+        if (existingPrayer) {
+            await (prisma as any).prayerAttendance.update({
+                where: { id: existingPrayer.id },
+                data: {
+                    status: pStatus,
+                    verifiedBy: teacher?.name || 'Guru PAI',
+                    method: 'PAI_ASSISTED_CARD_SCAN',
+                    note: `Discan langsung oleh Guru PAI (${teacher?.name || 'PAI'}) via Kartu Pelajar Fisik`
+                }
+            });
+        } else {
+            await (prisma as any).prayerAttendance.create({
+                data: {
+                    userId: student.id,
+                    userName: student.name,
+                    className: student.className || '-',
+                    prayerType: pType,
+                    status: pStatus,
+                    date: today,
+                    verifiedBy: teacher?.name || 'Guru PAI',
+                    method: 'PAI_ASSISTED_CARD_SCAN',
+                    note: `Discan langsung oleh Guru PAI (${teacher?.name || 'PAI'}) via Kartu Pelajar Fisik`
+                }
+            });
+        }
+
+        // 2. Integrasi Otomatis Gate In & Gate Out Sekolah
+        const existingGateIn = await prisma.attendance.findFirst({
+            where: {
+                userId: student.id,
+                type: 'GATE_IN',
+                scanTime: {
+                    gte: new Date(`${todayStr}T00:00:00.000Z`),
+                    lte: new Date(`${todayStr}T23:59:59.999Z`)
+                }
+            }
+        });
+
+        let gateInRecorded = false;
+        if (!existingGateIn) {
+            await prisma.attendance.create({
+                data: {
+                    userId: student.id,
+                    type: 'GATE_IN',
+                    status: 'PRESENT',
+                    scanTime: today,
+                    method: 'CARD_SCAN_PAI',
+                    note: 'Hadir Sekolah & Mushola (Bantuan Scan Guru PAI)'
+                }
+            });
+            gateInRecorded = true;
+        }
+
+        let gateOutRecorded = false;
+        const hourNow = today.getHours();
+        const minuteNow = today.getMinutes();
+        const totalMinutes = hourNow * 60 + minuteNow;
+
+        // Jika jam 12:00 ke atas (720 menit)
+        if (totalMinutes >= 720) {
+            const existingGateOut = await prisma.attendance.findFirst({
+                where: {
+                    userId: student.id,
+                    type: 'GATE_OUT',
+                    scanTime: {
+                        gte: new Date(`${todayStr}T00:00:00.000Z`),
+                        lte: new Date(`${todayStr}T23:59:59.999Z`)
+                    }
+                }
+            });
+
+            if (!existingGateOut) {
+                await prisma.attendance.create({
+                    data: {
+                        userId: student.id,
+                        type: 'GATE_OUT',
+                        status: 'PRESENT',
+                        scanTime: today,
+                        method: 'CARD_SCAN_PAI',
+                        note: 'Kepulangan Otomatis Mushola (Bantuan Scan Guru PAI)'
+                    }
+                });
+                gateOutRecorded = true;
+            }
+        }
+
+        let summaryMsg = `Alhamdulillah! Presensi Sholat ${pType} untuk ${student.name} (Kelas ${student.className || '-'}) berhasil dicatat.`;
+        if (gateInRecorded && gateOutRecorded) {
+            summaryMsg += ` Sekaligus Gate-In masuk dan Gate-Out kepulangan sekolah telah otomatis terekam!`;
+        } else if (gateInRecorded) {
+            summaryMsg += ` Sekaligus Gate-In masuk sekolah telah otomatis terekam!`;
+        } else if (gateOutRecorded) {
+            summaryMsg += ` Sekaligus Gate-Out kepulangan sekolah telah otomatis terekam!`;
+        }
+
+        return res.json({
+            success: true,
+            message: summaryMsg,
+            student: {
+                id: student.id,
+                name: student.name,
+                nisn: student.nisn,
+                className: student.className,
+                prayerType: pType,
+                time: nowTimeStr,
+                gateInRecorded,
+                gateOutRecorded
+            }
+        });
+    } catch (error: any) {
+        console.error('Error in paiScanStudentCard:', error);
+        return res.status(500).json({ success: false, message: 'Gagal memproses scan kartu: ' + error.message });
+    }
+};
+

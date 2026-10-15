@@ -297,6 +297,18 @@ export const reassignBookBorrower = async (req: Request, res: Response) => {
         const due = new Date();
         due.setDate(now.getDate() + 180); // 1 semester pinjaman buku paket
 
+        // Tutup riwayat peminjaman siswa sebelumnya jika sedang aktif dipinjam
+        if (copy.status === 'BORROWED' || copy.currentBorrowerId) {
+            await prisma.libraryBorrowing.updateMany({
+                where: { bookCopyId: copy.id, status: 'BORROWED' },
+                data: {
+                    status: 'RETURNED',
+                    returnDate: now,
+                    notes: `Buku dialihkan/dimutasi ke [${newStudent.name}] oleh ${officer ? officer.name : 'Operator'}.`
+                }
+            });
+        }
+
         // Update status kepemilikan di BookCopy
         const updatedCopy = await prisma.bookCopy.update({
             where: { id: copy.id },

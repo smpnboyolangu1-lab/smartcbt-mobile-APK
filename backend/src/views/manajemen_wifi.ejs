@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>📶 Manajemen Wi-Fi & MikroTik - Smart School Panel</title>
+    <script src="/js/tailwind.js"></script>
+    <link rel="stylesheet" href="/css/portal-theme.css">
+</head>
+<body class="bg-[#f8fafc] text-slate-800 flex h-screen overflow-hidden">
+    <%- include('partials/sidebar_admin') %>
+
+    <%
+        const cfg = typeof initialConfig !== 'undefined' && initialConfig ? initialConfig : {
+            ssidName: 'SMPN 1 BOYOLANGU - RESMI',
+            hotspotServer: 'Hotspot-SMPN1',
+            activeUntilTime: '17:00',
+            gracePeriodHours: 2,
+            isEnabled: true,
+            maxDevicesPerUser: 1,
+            mikrotikHost: '192.168.88.1',
+            mikrotikPort: 80,
+            mikrotikUser: 'admin',
+            mikrotikPassword: ''
+        };
+        const sessions = typeof initialSessions !== 'undefined' && Array.isArray(initialSessions) ? initialSessions : [];
+        const counts = typeof initialCounts !== 'undefined' && initialCounts ? initialCounts : {
+            activeNow: sessions.length,
+            activatedToday: sessions.length,
+            totalAllTime: sessions.length,
+            blacklisted: 0
+        };
+    %>
+
+    <main class="flex-1 ml-64 p-4 md:p-8 overflow-y-auto h-screen bg-slate-50/60">
+        <!-- Header -->
+        <div class="flex flex-wrap justify-between items-center mb-6 pb-4 border-b border-slate-200 gap-4">
+            <div>
+                <h1 class="text-2xl font-black text-slate-900 flex items-center gap-2.5">
+                    <span>📶</span> Manajemen Wi-Fi Siswa &amp; MikroTik
+                </h1>
+                <p class="text-xs text-slate-500 mt-1">
+                    Kontrol otentikasi kartu pelajar, bypass hotspot MikroTik otomatis, limitasi 1 perangkat per siswa, dan pemantauan real-time.
+                </p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                <button onclick="testMikrotik()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold shadow flex items-center gap-1.5 transition-all" title="Uji koneksi REST API ke router MikroTik">
+                    <span>📡</span> Uji Koneksi MikroTik
+                </button>
+                <button onclick="syncToMikrotik()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold shadow flex items-center gap-1.5 transition-all" title="Sinkronkan sesi & blacklist ke hardware router MikroTik">
+                    <span>⚡</span> Sinkron ke Router
+                </button>
+                <button onclick="refreshData()" class="bg-blue-600 hover:bg-blue-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold shadow flex items-center gap-1.5 transition-all">
+                    <span>🔄</span> Refresh
+                </button>
+                <button onclick="confirmResetAll()" class="bg-rose-600 hover:bg-rose-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold shadow flex items-center gap-1.5 transition-all" title="Reset semua sesi aktif sekarang">
+                    <span>🧹</span> Reset Hari Ini
+                </button>
+            </div>
+        </div>
+
+        <!-- Stat Cards -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex items-center gap-4">
+                <div class="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-2xl font-black shadow-inner">
+                    🟢
+                </div>
+                <div>
+                    <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Aktif Saat Ini</span>
+                    <h3 id="statActiveNow" class="text-2xl font-black text-slate-800 mt-0.5"><%= counts.activeNow %></h3>
+                    <span class="text-[10px] text-emerald-600 font-bold">Terhubung ke Router</span>
+                </div>
+            </div>
+
+            <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex items-center gap-4">
+                <div class="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center text-2xl font-black shadow-inner">
+                    📱
+                </div>
+                <div>
+                    <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Aktivasi Hari Ini</span>
+                    <h3 id="statToday" class="text-2xl font-black text-slate-800 mt-0.5"><%= counts.activatedToday %></h3>
+                    <span class="text-[10px] text-blue-600 font-bold">Siswa tap kartu</span>
+                </div>
+            </div>
+
+            <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex items-center gap-4">
+                <div class="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center text-2xl font-black shadow-inner">
+                    📊
+                </div>
+                <div>
+                    <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Riwayat</span>
+                    <h3 id="statTotal" class="text-2xl font-black text-slate-800 mt-0.5"><%= counts.totalAllTime %></h3>
+                    <span class="text-[10px] text-indigo-600 font-bold">Sesi tercatat</span>
+                </div>
+            </div>
+
+            <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex items-center gap-4">
+                <div class="w-12 h-12 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center text-2xl font-black shadow-inner">
+                    🚫
+                </div>
+                <div>
+                    <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Blacklist MAC</span>
+                    <h3 id="statBlacklist" class="text-2xl font-black text-slate-800 mt-0.5"><%= counts.blacklisted %></h3>
+                    <span class="text-[10px] text-rose-600 font-bold">Perangkat dicekal</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 2 Kolom Layout -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Kolom Kiri: Tabel Sesi Aktif Real-time (2 Kolom) -->
+            <div class="lg:col-span-2 space-y-6">
+                <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                    <div class="p-4 border-b border-slate-100 flex flex-wrap justify-between items-center gap-3 bg-slate-50/50">
+                        <div class="flex items-center gap-2">
+                            <span class="text-lg">📋</span>
+                            <h2 class="font-bold text-sm text-slate-800 uppercase tracking-wider">Daftar Sesi Wi-Fi Aktif Hari Ini</h2>
+                        </div>
+                        <input type="text" id="searchSession" oninput="filterSessionsTable()" placeholder="🔍 Cari siswa, kelas, MAC..." class="text-xs border rounded-xl px-3 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 w-56">
+                    </div>
+
+                    <div class="overflow-x-auto max-h-[520px]">
+                        <table class="w-full text-left text-xs text-slate-600">
+                            <thead class="bg-slate-100/70 text-[11px] font-bold text-slate-700 uppercase tracking-wider sticky top-0">
+                                <tr>
+                                    <th class="p-3">Siswa &amp; Kelas</th>
+                                    <th class="p-3">Perangkat / MAC</th>
+                                    <th class="p-3">Jam Aktif</th>
+                                    <th class="p-3">Berlaku s/d</th>
+                                    <th class="p-3">IP Address</th>
+                                    <th class="p-3 text-center">Aksi</th>
+                                </tr>
+                            </thead>
+                            <tbody id="sessionTableBody" class="divide-y divide-slate-100 font-medium">
+                                <% if (sessions.length > 0) { %>
+                                    <% sessions.forEach(s => { %>
+                                        <tr class="hover:bg-blue-50/40 transition-colors" id="row-<%= s.id %>">
+                                            <td class="p-3">
+                                                <div class="font-bold text-slate-800"><%= s.studentName %></div>
+                                                <div class="text-[10px] text-slate-400">NISN: <%= s.nisn %> • Kelas: <span class="text-blue-600 font-bold"><%= s.className %></span></div>
+                                            </td>
+                                            <td class="p-3 font-mono text-[11px]">
+                                                <div class="font-bold text-slate-700"><%= s.deviceMac %></div>
+                                                <div class="text-[10px] text-slate-400"><%= s.deviceName || 'Android' %></div>
+                                            </td>
+                                            <td class="p-3 text-slate-500">
+                                                <%= new Date(s.activatedAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) %> WIB
+                                            </td>
+                                            <td class="p-3 text-emerald-600 font-bold">
+                                                <%= new Date(s.expiresAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) %> WIB
+                                            </td>
+                                            <td class="p-3 font-mono text-slate-500 text-[11px]">
+                                                <%= s.ipAddress || '-' %>
+                                            </td>
+                                            <td class="p-3 text-center">
+                                                <div class="flex items-center justify-center gap-1.5">
+                                                    <button onclick="revokeSession('<%= s.id %>', '<%= s.studentName.replace(/'/g, "\\'") %>')" class="px-2 py-1 bg-amber-50 text-amber-700 hover:bg-amber-600 hover:text-white rounded-lg text-[10px] font-bold border border-amber-200 transition-all" title="Cabut Akses Wi-Fi">
+                                                        Cabut
+                                                    </button>
+                                                    <button onclick="quickBlacklist('<%= s.deviceMac %>', '<%= s.studentName.replace(/'/g, "\\'") %>')" class="px-2 py-1 bg-rose-50 text-rose-700 hover:bg-rose-600 hover:text-white rounded-lg text-[10px] font-bold border border-rose-200 transition-all" title="Cekal & Blacklist MAC">
+                                                        ⛔ Cekal
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    <% }); %>
+                                <% } else { %>
+                                    <tr>
+                                        <td colspan="6" class="p-8 text-center text-slate-400">
+                                            <span class="text-3xl block mb-2">📡</span>
+                                            Belum ada siswa yang mengaktifkan Wi-Fi hari ini.
+                                        </td>
+                                    </tr>
+                                <% } %>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Grafik Statistik 7 Hari -->
+                <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
+                    <h3 class="font-bold text-xs uppercase text-slate-500 tracking-wider mb-4 flex items-center gap-2">
+                        <span>📈</span> Tren Penggunaan Wi-Fi Siswa (7 Hari Terakhir)
+                    </h3>
+                    <div class="w-full h-44 flex items-end gap-3 justify-between pt-4 pb-2 px-2 border-b border-slate-100" id="chartContainer">
+                        <!-- Bar chart dinamis akan di-render via Javascript -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Kolom Kanan: Konfigurasi & Blacklist (1 Kolom) -->
+            <div class="space-y-6">
+                <!-- Panel Konfigurasi Wi-Fi & MikroTik -->
+                <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
+                    <div class="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
+                        <h3 class="font-bold text-xs uppercase text-slate-800 tracking-wider flex items-center gap-2">
+                            <span>⚙️</span> Pengaturan Wi-Fi &amp; Router
+                        </h3>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" id="cfgIsEnabled" class="sr-only peer" <%= cfg.isEnabled ? 'checked' : '' %> onchange="saveConfig(false)">
+                            <div class="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                        </label>
+                    </div>
+
+                    <form id="formConfig" onsubmit="handleSaveConfig(event)" class="space-y-3.5 text-xs">
+                        <div>
+                            <label class="block font-bold text-slate-700 mb-1">Nama SSID Sekolah</label>
+                            <input type="text" id="cfgSsidName" value="<%= cfg.ssidName %>" required class="w-full border rounded-xl p-2.5 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="block font-bold text-slate-700 mb-1">Jam Aktif (WIB)</label>
+                                <input type="text" id="cfgActiveUntilTime" value="<%= cfg.activeUntilTime %>" placeholder="17:00" required class="w-full border rounded-xl p-2.5 bg-slate-50 focus:bg-white focus:outline-none">
+                            </div>
+                            <div>
+                                <label class="block font-bold text-slate-700 mb-1">Limit HP/Siswa</label>
+                                <input type="number" id="cfgMaxDevices" value="<%= cfg.maxDevicesPerUser %>" min="1" max="3" class="w-full border rounded-xl p-2.5 bg-slate-50 focus:bg-white focus:outline-none">
+                            </div>
+                        </div>
+
+                        <div class="pt-2 border-t border-slate-100">
+                            <span class="font-black text-[11px] text-blue-900 uppercase tracking-wider block mb-2">🌐 Koneksi RouterOS MikroTik</span>
+                            
+                            <div class="grid grid-cols-3 gap-2 mb-2">
+                                <div class="col-span-2">
+                                    <label class="block text-[11px] font-semibold text-slate-600 mb-0.5">Host / IP Router</label>
+                                    <input type="text" id="cfgMikrotikHost" value="<%= cfg.mikrotikHost %>" placeholder="192.168.88.1" class="w-full border rounded-xl p-2 bg-slate-50 font-mono text-[11px]">
+                                </div>
+                                <div>
+                                    <label class="block text-[11px] font-semibold text-slate-600 mb-0.5">Port (REST)</label>
+                                    <input type="number" id="cfgMikrotikPort" value="<%= cfg.mikrotikPort %>" placeholder="80" class="w-full border rounded-xl p-2 bg-slate-50 font-mono text-[11px]">
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-2 mb-2">
+                                <div>
+                                    <label class="block text-[11px] font-semibold text-slate-600 mb-0.5">Username API</label>
+                                    <input type="text" id="cfgMikrotikUser" value="<%= cfg.mikrotikUser %>" class="w-full border rounded-xl p-2 bg-slate-50 font-mono text-[11px]">
+                                </div>
+                                <div>
+                                    <label class="block text-[11px] font-semibold text-slate-600 mb-0.5">Password API</label>
+                                    <input type="password" id="cfgMikrotikPassword" value="<%= cfg.mikrotikPassword || '' %>" placeholder="••••••••" class="w-full border rounded-xl p-2 bg-slate-50 font-mono text-[11px]">
+                                </div>
+                            </div>
+
+                            <label class="flex items-center gap-2 text-[11px] text-slate-600 font-medium cursor-pointer mt-1">
+                                <input type="checkbox" id="cfgMikrotikUseTls" <%= cfg.mikrotikUseTls ? 'checked' : '' %> class="rounded text-blue-600">
+                                <span>Gunakan HTTPS (TLS)</span>
+                            </label>
+                        </div>
+
+                        <button type="submit" class="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 rounded-xl shadow transition-all flex items-center justify-center gap-1.5 mt-2">
+                            <span>💾</span> Simpan Pengaturan
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Panel Blacklist MAC Address -->
+                <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
+                    <h3 class="font-bold text-xs uppercase text-slate-800 tracking-wider mb-3 flex items-center gap-2">
+                        <span>🚫</span> Pencekalan MAC Address
+                    </h3>
+
+                    <form onsubmit="handleAddBlacklist(event)" class="space-y-2 mb-4">
+                        <input type="text" id="inputBlacklistMac" placeholder="AA:BB:CC:DD:EE:FF" required class="w-full border rounded-xl p-2 text-xs font-mono uppercase bg-slate-50 focus:bg-white focus:outline-none">
+                        <input type="text" id="inputBlacklistReason" placeholder="Alasan (contoh: Kloning MAC)" class="w-full border rounded-xl p-2 text-xs bg-slate-50 focus:bg-white focus:outline-none">
+                        <button type="submit" class="w-full bg-rose-600 hover:bg-rose-700 text-white font-bold py-2 rounded-xl text-xs shadow transition-all">
+                            + Tambah ke Blacklist
+                        </button>
+                    </form>
+
+                    <div class="max-h-48 overflow-y-auto divide-y divide-slate-100 text-xs" id="blacklistContainer">
+                        <!-- Daftar blacklist dimuat via AJAX -->
+                        <div class="text-center py-4 text-slate-400 text-[11px]">Memuat daftar blacklist...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Toast Notifikasi Ringan -->
+    <div id="toastNotification" class="fixed bottom-5 right-5 bg-slate-900 text-white px-4 py-3 rounded-2xl text-xs font-bold shadow-2xl transition-all duration-300 opacity-0 pointer-events-none transform translate-y-4 z-50 flex items-center gap-2">
+        <span id="toastIcon">ℹ️</span>
+        <span id="toastMessage">Pesan</span>
+    </div>
+
+    <script>
+        function showToast(msg, icon = 'ℹ️') {
+            const toast = document.getElementById('toastNotification');
+            document.getElementById('toastMessage').innerText = msg;
+            document.getElementById('toastIcon').innerText = icon;
+            toast.classList.remove('opacity-0', 'pointer-events-none', 'translate-y-4');
+            setTimeout(() => {
+                toast.classList.add('opacity-0', 'pointer-events-none', 'translate-y-4');
+            }, 3500);
+        }
+
+        async function refreshData() {
+            try {
+                const res = await fetch('/api/admin/wifi/dashboard');
+                const data = await res.json();
+                if (data.success) {
+                    document.getElementById('statActiveNow').innerText = data.counts.activeNow;
+                    document.getElementById('statToday').innerText = data.counts.activatedToday;
+                    document.getElementById('statTotal').innerText = data.counts.totalAllTime;
+                    document.getElementById('statBlacklist').innerText = data.counts.blacklisted;
+                    renderTable(data.activeSessions);
+                    showToast('Data Wi-Fi berhasil dimuat ulang', '✅');
+                }
+            } catch (e) {
+                showToast('Gagal memuat data dari server', '❌');
+            }
+        }
+
+        function renderTable(sessions) {
+            const tbody = document.getElementById('sessionTableBody');
+            if (!sessions || sessions.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="6" class="p-8 text-center text-slate-400"><span class="text-3xl block mb-2">📡</span>Belum ada siswa yang mengaktifkan Wi-Fi hari ini.</td></tr>`;
+                return;
+            }
+            tbody.innerHTML = sessions.map(s => `
+                <tr class="hover:bg-blue-50/40 transition-colors" id="row-${s.id}">
+                    <td class="p-3">
+                        <div class="font-bold text-slate-800">${s.studentName}</div>
+                        <div class="text-[10px] text-slate-400">NISN: ${s.nisn} • Kelas: <span class="text-blue-600 font-bold">${s.className}</span></div>
+                    </td>
+                    <td class="p-3 font-mono text-[11px]">
+                        <div class="font-bold text-slate-700">${s.deviceMac}</div>
+                        <div class="text-[10px] text-slate-400">${s.deviceName || 'Android'}</div>
+                    </td>
+                    <td class="p-3 text-slate-500">
+                        ${new Date(s.activatedAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB
+                    </td>
+                    <td class="p-3 text-emerald-600 font-bold">
+                        ${new Date(s.expiresAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB
+                    </td>
+                    <td class="p-3 font-mono text-slate-500 text-[11px]">
+                        ${s.ipAddress || '-'}
+                    </td>
+                    <td class="p-3 text-center">
+                        <div class="flex items-center justify-center gap-1.5">
+                            <button onclick="revokeSession('${s.id}', '${s.studentName.replace(/'/g, "\\'")}')" class="px-2 py-1 bg-amber-50 text-amber-700 hover:bg-amber-600 hover:text-white rounded-lg text-[10px] font-bold border border-amber-200 transition-all" title="Cabut Sesi">
+                                Cabut
+                            </button>
+                            <button onclick="quickBlacklist('${s.deviceMac}', '${s.studentName.replace(/'/g, "\\'")}')" class="px-2 py-1 bg-rose-50 text-rose-700 hover:bg-rose-600 hover:text-white rounded-lg text-[10px] font-bold border border-rose-200 transition-all" title="Cekal & Blacklist MAC">
+                                ⛔ Cekal
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        async function revokeSession(id, name) {
+            if (!confirm(`Cabut akses Wi-Fi siswa ${name}? Perangkat akan langsung diputus dari internet.`)) return;
+            try {
+                const res = await fetch(`/api/admin/wifi/revoke/${id}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ reason: 'Dicabut manual dari panel admin' })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast(data.message, '✅');
+                    document.getElementById(`row-${id}`)?.remove();
+                    refreshData();
+                } else {
+                    showToast(data.message, '❌');
+                }
+            } catch (e) {
+                showToast('Gagal mencabut sesi', '❌');
+            }
+        }
+
+        async function confirmResetAll() {
+            if (!confirm('PERINGATAN: Anda akan mereset dan memutus SEMUA sesi Wi-Fi aktif hari ini. Siswa harus scan kartu kembali besok pagi. Lanjutkan?')) return;
+            try {
+                const res = await fetch('/api/admin/wifi/reset-daily', { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    showToast(data.message, '⚡');
+                    refreshData();
+                }
+            } catch (e) {
+                showToast('Gagal mereset sesi', '❌');
+            }
+        }
+
+        async function handleSaveConfig(e) {
+            e.preventDefault();
+            const payload = {
+                ssidName: document.getElementById('cfgSsidName').value,
+                activeUntilTime: document.getElementById('cfgActiveUntilTime').value,
+                maxDevicesPerUser: Number(document.getElementById('cfgMaxDevices').value),
+                isEnabled: document.getElementById('cfgIsEnabled').checked,
+                mikrotikHost: document.getElementById('cfgMikrotikHost').value,
+                mikrotikPort: Number(document.getElementById('cfgMikrotikPort').value),
+                mikrotikUser: document.getElementById('cfgMikrotikUser').value,
+                mikrotikPassword: document.getElementById('cfgMikrotikPassword').value,
+                mikrotikUseTls: document.getElementById('cfgMikrotikUseTls').checked
+            };
+
+            try {
+                const res = await fetch('/api/admin/wifi/config', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast('Pengaturan Wi-Fi & Router disimpan', '💾');
+                }
+            } catch (e) {
+                showToast('Gagal menyimpan konfigurasi', '❌');
+            }
+        }
+
+        async function loadBlacklist() {
+            try {
+                const res = await fetch('/api/admin/wifi/blacklist');
+                const data = await res.json();
+                const container = document.getElementById('blacklistContainer');
+                if (data.success && data.blacklist.length > 0) {
+                    container.innerHTML = data.blacklist.map(b => `
+                        <div class="py-2 flex items-center justify-between">
+                            <div>
+                                <div class="font-mono font-bold text-slate-800 text-[11px]">${b.macAddress}</div>
+                                <div class="text-[10px] text-slate-400">${b.reason || '-'}</div>
+                            </div>
+                            <button onclick="deleteBlacklist('${b.macAddress}')" class="text-rose-600 hover:text-rose-800 font-bold text-[10px] p-1">Hapus</button>
+                        </div>
+                    `).join('');
+                } else {
+                    container.innerHTML = `<div class="text-center py-4 text-slate-400 text-[11px]">Tidak ada MAC yang dicekal</div>`;
+                }
+            } catch (e) {}
+        }
+
+        async function handleAddBlacklist(e) {
+            e.preventDefault();
+            const mac = document.getElementById('inputBlacklistMac').value;
+            const reason = document.getElementById('inputBlacklistReason').value;
+            try {
+                const res = await fetch('/api/admin/wifi/blacklist', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ macAddress: mac, reason })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast(data.message, '🚫');
+                    document.getElementById('inputBlacklistMac').value = '';
+                    document.getElementById('inputBlacklistReason').value = '';
+                    loadBlacklist();
+                    refreshData();
+                } else {
+                    showToast(data.message, '❌');
+                }
+            } catch (e) {}
+        }
+
+        async function deleteBlacklist(mac) {
+            if (!confirm(`Hapus cekal untuk MAC ${mac}?`)) return;
+            try {
+                const res = await fetch(`/api/admin/wifi/blacklist/${encodeURIComponent(mac)}`, { method: 'DELETE' });
+                const data = await res.json();
+                if (data.success) {
+                    showToast(data.message, '✅');
+                    loadBlacklist();
+                }
+            } catch (e) {}
+        }
+
+        async function loadChart() {
+            try {
+                const res = await fetch('/api/admin/wifi/stats');
+                const data = await res.json();
+                if (data.success && data.stats) {
+                    const maxVal = Math.max(...data.stats.map(s => s.count), 5);
+                    const container = document.getElementById('chartContainer');
+                    container.innerHTML = data.stats.map(s => {
+                        const pct = Math.round((s.count / maxVal) * 100);
+                        return `
+                            <div class="flex-1 flex flex-col items-center gap-1.5 h-full justify-end group">
+                                <span class="text-[10px] font-black text-slate-700 opacity-0 group-hover:opacity-100 transition-opacity">${s.count}</span>
+                                <div class="w-full bg-blue-100 hover:bg-blue-600 rounded-t-lg transition-all" style="height: ${Math.max(pct, 8)}%"></div>
+                                <span class="text-[9px] font-bold text-slate-400 truncate w-full text-center">${s.date}</span>
+                            </div>
+                        `;
+                    }).join('');
+                }
+            } catch (e) {}
+        }
+
+        async function quickBlacklist(mac, name) {
+            const reason = prompt(`Masukkan alasan cekal / blacklist untuk ${name} (MAC: ${mac}):`, 'Pelanggaran ketertiban Wi-Fi');
+            if (!reason) return;
+            try {
+                const res = await fetch('/api/admin/wifi/blacklist', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ macAddress: mac, reason })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast(data.message, '🚫');
+                    loadBlacklist();
+                    refreshData();
+                } else {
+                    showToast(data.message, '❌');
+                }
+            } catch (e) {
+                showToast('Gagal memproses cekal: ' + e.message, '❌');
+            }
+        }
+
+        async function testMikrotik() {
+            const modal = document.getElementById('mikrotikTestModal');
+            const statusEl = document.getElementById('mikrotikTestStatus');
+            const contentEl = document.getElementById('mikrotikTestContent');
+            
+            modal.classList.remove('hidden');
+            statusEl.innerText = 'Menguji koneksi ke MikroTik...';
+            contentEl.innerHTML = `
+                <div class="flex items-center justify-center py-8">
+                    <div class="animate-spin text-3xl">⚙️</div>
+                </div>
+            `;
+
+            try {
+                const res = await fetch('/api/admin/wifi/test-connection', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+                const d = await res.json();
+                if (d.success && d.routerInfo) {
+                    statusEl.innerText = '✅ Terhubung ke RouterOS v7';
+                    contentEl.innerHTML = `
+                        <div class="space-y-3">
+                            <div class="p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
+                                <div class="text-xs font-bold text-emerald-800">${d.message}</div>
+                            </div>
+                            <div class="grid grid-cols-2 gap-2 text-xs">
+                                <div class="p-2.5 bg-slate-50 rounded-lg border">
+                                    <span class="text-slate-400 block text-[10px]">Model Router</span>
+                                    <span class="font-bold text-slate-800">${d.routerInfo.boardName}</span>
+                                </div>
+                                <div class="p-2.5 bg-slate-50 rounded-lg border">
+                                    <span class="text-slate-400 block text-[10px]">Versi RouterOS</span>
+                                    <span class="font-bold text-slate-800">${d.routerInfo.version}</span>
+                                </div>
+                                <div class="p-2.5 bg-slate-50 rounded-lg border">
+                                    <span class="text-slate-400 block text-[10px]">Latensi Ping</span>
+                                    <span class="font-bold text-emerald-600 font-mono">${d.latencyMs} ms</span>
+                                </div>
+                                <div class="p-2.5 bg-slate-50 rounded-lg border">
+                                    <span class="text-slate-400 block text-[10px]">CPU Load</span>
+                                    <span class="font-bold text-slate-800 font-mono">${d.routerInfo.cpuLoad}</span>
+                                </div>
+                                <div class="p-2.5 bg-slate-50 rounded-lg border">
+                                    <span class="text-slate-400 block text-[10px]">Uptime</span>
+                                    <span class="font-bold text-slate-800">${d.routerInfo.uptime}</span>
+                                </div>
+                                <div class="p-2.5 bg-slate-50 rounded-lg border">
+                                    <span class="text-slate-400 block text-[10px]">Protokol</span>
+                                    <span class="font-bold text-slate-800">${d.useTls ? 'HTTPS (TLS)' : 'HTTP REST'} :${d.port}</span>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    statusEl.innerText = '❌ Gagal Terhubung ke MikroTik';
+                    contentEl.innerHTML = `
+                        <div class="p-4 bg-rose-50 border border-rose-200 rounded-xl space-y-2">
+                            <div class="text-xs font-bold text-rose-800">${d.message || 'Koneksi gagal'}</div>
+                            <p class="text-[11px] text-rose-600">Pastikan service REST API aktif di MikroTik (/ip service enable www/www-ssl) dan kredensial di Pengaturan Wi-Fi sudah benar.</p>
+                        </div>
+                    `;
+                }
+            } catch (e) {
+                statusEl.innerText = '❌ Kesalahan Jaringan';
+                contentEl.innerHTML = `<div class="p-4 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800">Error: ${e.message}</div>`;
+            }
+        }
+
+        async function syncToMikrotik() {
+            if (!confirm('Lakukan sinkronisasi menyeluruh? Sistem akan memeriksa dan mendaftarkan ulang semua sesi aktif ke IP-Binding MikroTik serta memastikan seluruh MAC Blacklist terblokir di router.')) return;
+            try {
+                showToast('Sedang menyinkronkan dengan router MikroTik...', '🔄');
+                const res = await fetch('/api/admin/wifi/sync-mikrotik', { method: 'POST' });
+                const d = await res.json();
+                if (d.success) {
+                    showToast(d.message, '✅');
+                    refreshData();
+                } else {
+                    showToast(d.message || 'Gagal sinkronisasi', '❌');
+                }
+            } catch (e) {
+                showToast('Kesalahan: ' + e.message, '❌');
+            }
+        }
+
+        // Auto Refresh tiap 30 detik
+        setInterval(refreshData, 30000);
+        window.addEventListener('DOMContentLoaded', () => {
+            loadBlacklist();
+            loadChart();
+        });
+    </script>
+
+    <!-- Modal Uji Koneksi MikroTik -->
+    <div id="mikrotikTestModal" class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div class="flex items-center gap-2">
+                    <span class="text-xl">📡</span>
+                    <h3 id="mikrotikTestStatus" class="font-bold text-sm text-slate-800">Uji Koneksi MikroTik</h3>
+                </div>
+                <button onclick="document.getElementById('mikrotikTestModal').classList.add('hidden')" class="text-slate-400 hover:text-slate-600 font-bold text-lg leading-none">&times;</button>
+            </div>
+            <div id="mikrotikTestContent" class="py-4">
+            </div>
+            <div class="pt-3 border-t border-slate-100 flex justify-end gap-2">
+                <button onclick="testMikrotik()" class="px-3 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-xl text-xs font-bold transition-all">
+                    Uji Ulang
+                </button>
+                <button onclick="document.getElementById('mikrotikTestModal').classList.add('hidden')" class="px-4 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold transition-all">
+                    Tutup
+                </button>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

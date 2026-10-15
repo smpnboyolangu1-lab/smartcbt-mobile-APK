@@ -42,6 +42,13 @@
         // Definisi awal switchTab agar tombol navigasi dapat diklik seketika tanpa delay
         window.switchTab = function(tab) {
             window._pendingBkTab = tab;
+            if (window.innerWidth < 768) {
+                document.body.classList.remove('sidebar-mobile-open');
+                var backdrop = document.getElementById('portalSidebarBackdrop');
+                if (backdrop) backdrop.classList.add('hidden');
+                var expandBtn = document.getElementById('sidebarExpandBtn');
+                if (expandBtn) expandBtn.classList.remove('hidden');
+            }
             try {
                 document.querySelectorAll('.tab-nav').forEach(function(b) {
                     b.className = 'tab-nav w-full text-left px-3.5 py-2.5 rounded-xl hover:bg-slate-800 text-slate-200 hover:text-white transition-all text-[13.5px] flex items-center gap-2.5';
@@ -105,15 +112,22 @@
     <script src="/js/chart.js"></script>
 </head>
 <body class="bg-slate-50 flex h-screen overflow-hidden text-slate-800">
+    <!-- Mobile Backdrop Overlay to prevent screen blocking -->
+    <div id="portalSidebarBackdrop" onclick="togglePortalSidebar()" class="fixed inset-0 bg-black/60 z-30 hidden backdrop-blur-xs transition-opacity" title="Klik untuk menutup sidebar"></div>
 
-    <!-- Floating Expand Button (Visible when Sidebar is Collapsed) -->
-    <button type="button" onclick="togglePortalSidebar()" id="sidebarExpandBtn" title="Tampilkan Sidebar (Shortcut: Ctrl+B)" class="fixed top-3 left-4 z-50 bg-slate-900/95 hover:bg-teal-600 text-white px-3.5 py-2 rounded-xl shadow-2xl border border-slate-700/80 backdrop-blur-md transition-all duration-300 hidden flex items-center gap-2.5 text-xs font-bold hover:scale-105 group cursor-pointer">
-        <svg class="w-5 h-5 text-teal-400 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 6h16M4 12h16M4 18h16"></path>
-        </svg>
-        <span class="font-extrabold tracking-wide">Menu BK</span>
-        <span class="text-[10px] bg-white/15 px-1.5 py-0.5 rounded text-slate-300">Ctrl+B</span>
-    </button>
+    <!-- Floating Expand & Theme Button (Visible when Sidebar is Collapsed or on Mobile) -->
+    <div class="fixed top-3 left-4 z-50 flex items-center gap-2">
+        <button type="button" onclick="togglePortalSidebar()" id="sidebarExpandBtn" title="Tampilkan Sidebar (Shortcut: Ctrl+B)" class="bg-slate-900/95 hover:bg-teal-600 text-white px-3.5 py-2 rounded-xl shadow-2xl border border-slate-700/80 backdrop-blur-md transition-all duration-300 hidden flex items-center gap-2.5 text-xs font-bold hover:scale-105 group cursor-pointer">
+            <svg class="w-5 h-5 text-teal-400 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 6h16M4 12h16M4 18h16"></path>
+            </svg>
+            <span class="font-extrabold tracking-wide">Menu BK</span>
+            <span class="text-[10px] bg-white/15 px-1.5 py-0.5 rounded text-slate-300">Ctrl+B</span>
+        </button>
+        <button type="button" onclick="togglePortalTheme()" id="floatingThemeToggleBtn" title="Ganti Mode Terang / Gelap" class="bg-slate-900/95 hover:bg-slate-800 text-white p-2 rounded-xl shadow-2xl border border-slate-700/80 backdrop-blur-md transition-all duration-300 hidden flex items-center justify-center cursor-pointer">
+            <span id="floatingThemeIcon" class="text-sm">🌙</span>
+        </button>
+    </div>
 
     <!-- Sidebar BK (Refreshed Slate & Teal Theme) -->
     <aside id="portalSidebar" class="w-64 bg-slate-900 h-screen text-white flex flex-col fixed left-0 top-0 shadow-2xl z-40 border-r border-slate-800 transition-all duration-300 ease-in-out select-none">
@@ -129,12 +143,19 @@
                 </div>
             </div>
 
-            <!-- Toggle Button to Hide / Collapse Sidebar -->
-            <button type="button" onclick="togglePortalSidebar()" id="sidebarCollapseBtn" title="Sembunyikan Sidebar (Ctrl+B)" class="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-all flex items-center justify-center group flex-shrink-0 cursor-pointer" aria-label="Sembunyikan Sidebar">
-                <svg class="w-5 h-5 transition-transform group-hover:-translate-x-0.5 text-slate-400 group-hover:text-teal-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M11 19l-7-7 7-7m8 14l-7-7 7-7"></path>
-                </svg>
-            </button>
+            <div class="flex items-center gap-1">
+                <!-- Theme Toggle Button -->
+                <button type="button" onclick="togglePortalTheme()" id="themeToggleBtn" title="Ganti Mode Terang / Gelap" class="p-2 rounded-xl text-slate-300 hover:text-amber-400 hover:bg-slate-800 transition-all flex items-center justify-center flex-shrink-0 cursor-pointer" aria-label="Ganti Tema">
+                    <span id="themeToggleIcon" class="text-base">🌙</span>
+                </button>
+
+                <!-- Toggle Button to Hide / Collapse Sidebar -->
+                <button type="button" onclick="togglePortalSidebar()" id="sidebarCollapseBtn" title="Sembunyikan Sidebar (Ctrl+B)" class="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-all flex items-center justify-center group flex-shrink-0 cursor-pointer" aria-label="Sembunyikan Sidebar">
+                    <svg class="w-5 h-5 transition-transform group-hover:-translate-x-0.5 text-slate-400 group-hover:text-teal-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M11 19l-7-7 7-7m8 14l-7-7 7-7"></path>
+                    </svg>
+                </button>
+            </div>
         </div>
 
         <!-- Counselor Profile Box -->
@@ -553,7 +574,7 @@
         <!-- TAB 2: REKAP ABSENSI SISWA -->
         <div id="section-absensi" class="hidden space-y-6">
             <!-- Stats Row -->
-            <div class="grid grid-cols-2 md:grid-cols-6 gap-3">
+            <div class="grid grid-cols-2 md:grid-cols-7 gap-3">
                 <div class="bg-white p-3.5 rounded-xl border text-center">
                     <p class="text-[11px] text-gray-500 font-bold uppercase">Total Siswa</p>
                     <h3 class="text-xl font-bold text-gray-800 mt-1" id="attStatTotal">0</h3>
@@ -561,6 +582,10 @@
                 <div class="bg-white p-3.5 rounded-xl border text-center">
                     <p class="text-[11px] text-green-600 font-bold uppercase">Hadir Tepat</p>
                     <h3 class="text-xl font-bold text-green-600 mt-1" id="attStatPresent">0</h3>
+                </div>
+                <div class="bg-sky-50 p-3.5 rounded-xl border border-sky-200 text-center">
+                    <p class="text-[11px] text-sky-700 font-bold uppercase">[?] Tdk Scan</p>
+                    <h3 class="text-xl font-bold text-sky-700 mt-1" id="attStatUnconfirmedOut">0</h3>
                 </div>
                 <div class="bg-white p-3.5 rounded-xl border text-center">
                     <p class="text-[11px] text-yellow-600 font-bold uppercase">Terlambat</p>
@@ -643,10 +668,11 @@
                             <th class="p-3 text-blue-700">Jam Pulang (Gate-Out)</th>
                             <th class="p-3">Status</th>
                             <th class="p-3">Keterangan & Catatan Berita</th>
+                            <th class="p-3 text-center">Cetak PDF</th>
                         </tr>
                     </thead>
                     <tbody id="attTableBody">
-                        <tr><td colspan="8" class="p-4 text-center text-gray-400">Memuat data presensi...</td></tr>
+                        <tr><td colspan="9" class="p-4 text-center text-gray-400">Memuat data presensi...</td></tr>
                     </tbody>
                 </table>
                 <div class="p-4 border-t bg-gray-50 flex flex-col sm:flex-row justify-between items-center gap-3 text-xs text-gray-600">
@@ -708,8 +734,8 @@
                         <span>⚙️</span> Kelola Jadwal Rombel
                     </button>
                 </div>
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3" id="bkPrayerWeekGrid">
-                    <div class="col-span-full py-4 text-center text-slate-400 text-xs">Memuat jadwal sepekan...</div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3" id="bkPrayerWeekGrid">
+                    <div class="col-span-full py-4 text-center text-slate-400 text-xs">Memuat jadwal sepekan (Senin - Sabtu)...</div>
                 </div>
             </div>
 
@@ -1545,6 +1571,7 @@
                             <option value="3">RABU</option>
                             <option value="4">KAMIS</option>
                             <option value="5">JUMAT (Sholat Jumat / Keputrian)</option>
+                            <option value="6">SABTU (Sholat Dhuhur Berjamaah)</option>
                         </select>
                     </div>
                     <div>
@@ -1657,7 +1684,7 @@
                     <label class="block font-bold text-slate-700 mb-1">Periode Rekap:</label>
                     <select id="pdfPrayerPeriod" class="w-full border rounded-xl p-2.5 font-bold text-xs bg-purple-50 border-purple-200 text-purple-700">
                         <option value="DAILY">Harian (Per Hari)</option>
-                        <option value="WEEKLY">1 Minggu Penuh (Senin-Jumat)</option>
+                        <option value="WEEKLY">1 Minggu Penuh (Senin-Sabtu)</option>
                     </select>
                 </div>
                 <div class="flex justify-end gap-2 pt-3 border-t">
@@ -1763,11 +1790,14 @@
                     <span id="manualStudentCount" class="text-[10px] text-gray-400 mt-1 block">Memuat daftar siswa...</span>
                 </div>
                 <div>
-                    <label class="block font-semibold text-gray-700 mb-1">Status Kehadiran *</label>
+                    <label class="block font-semibold text-gray-700 mb-1">Status Kehadiran / Izin *</label>
                     <select id="manualStatus" class="w-full border p-2 rounded text-xs font-bold" required>
-                        <option value="SICK">Sakit (SICK)</option>
-                        <option value="PERMISSION">Izin Resmi (PERMISSION)</option>
-                        <option value="PRESENT">Hadir (Manual)</option>
+                        <option value="SICK">🩺 Izin Sakit (Surat Dokter / Ortu)</option>
+                        <option value="PERMISSION_KELUARGA">🏠 Izin Keperluan Keluarga</option>
+                        <option value="PERMISSION">📋 Izin Resmi Lainnya (Dispensasi)</option>
+                        <option value="HP_ERROR">📱 Kendala Teknis HP Siswa (Rusak / Error / Baterai)</option>
+                        <option value="PRESENT">✅ Hadir Normal (Manual / Lupa Kartu)</option>
+                        <option value="LATE">⚠️ Terlambat Masuk (Bypass Guru BK)</option>
                     </select>
                 </div>
                 <div>
@@ -2084,8 +2114,8 @@
                     <p class="text-slate-600">Mengetahui,</p>
                     <p class="font-bold text-slate-900" id="bapSignHeadmasterTitle">Kepala SMPN 1 Boyolangu</p>
                     <div class="h-14"></div>
-                    <p class="font-bold underline text-slate-900" id="bapSignHeadmasterName">(Drs. H. SUKIRNO, M.Pd.)</p>
-                    <p class="text-[10px] text-slate-500 font-mono" id="bapSignHeadmasterNip">NIP. 19680514 199412 1 002</p>
+                    <p class="font-bold underline text-slate-900" id="bapSignHeadmasterName">ADI SUTIGNYO, S.Pd.</p>
+                    <p class="text-[10px] text-slate-500 font-mono" id="bapSignHeadmasterNip">NIP. 196801211991031004</p>
                 </div>
             </div>
         </div>
@@ -2313,8 +2343,8 @@
                             <p class="font-semibold text-slate-700" id="spSignHeadmasterTitle">Kepala SMP Negeri 1 Boyolangu,</p>
                         </div>
                         <div>
-                            <p class="font-bold underline text-slate-900" id="spSignHeadmasterName">(Kepala Sekolah)</p>
-                            <p class="text-[10px] text-slate-600 font-mono" id="spSignHeadmasterNip">NIP. -</p>
+                            <p class="font-bold underline text-slate-900" id="spSignHeadmasterName">ADI SUTIGNYO, S.Pd.</p>
+                            <p class="text-[10px] text-slate-600 font-mono" id="spSignHeadmasterNip">NIP. 196801211991031004</p>
                         </div>
                     </div>
                 </div>
@@ -2731,6 +2761,34 @@
         }
         if(!token) window.location.href = '/';
 
+        function formatBkTimeWib(scanTime, fallback) {
+            if (fallback && typeof fallback === 'string' && fallback.includes('WIB')) return fallback;
+            if (!scanTime) return '-';
+            try {
+                const d = new Date(scanTime);
+                if (isNaN(d.getTime())) return String(scanTime);
+                const hh = String(d.getUTCHours()).padStart(2, '0');
+                const mm = String(d.getUTCMinutes()).padStart(2, '0');
+                return `${hh}:${mm} WIB`;
+            } catch (e) {
+                return '-';
+            }
+        }
+        function formatBkTimeWibSec(scanTime, fallback) {
+            if (fallback && typeof fallback === 'string' && fallback.includes('WIB')) return fallback;
+            if (!scanTime) return '-';
+            try {
+                const d = new Date(scanTime);
+                if (isNaN(d.getTime())) return String(scanTime);
+                const hh = String(d.getUTCHours()).padStart(2, '0');
+                const mm = String(d.getUTCMinutes()).padStart(2, '0');
+                const ss = String(d.getUTCSeconds()).padStart(2, '0');
+                return `${hh}:${mm}:${ss} WIB`;
+            } catch (e) {
+                return '-';
+            }
+        }
+
         async function authFetch(url, options = {}) {
             options.headers = options.headers || {};
             let curToken = localStorage.getItem('token');
@@ -2788,13 +2846,16 @@
         let chartCounselingPie = null;
         let chartClassAttendance = null;
 
-        // Inisialisasi awal aman
+        // Inisialisasi awal aman & responsif (non-blocking)
         window.addEventListener('DOMContentLoaded', () => {
             try {
-                loadGateSettings();
                 loadClassList();
-                loadAllStudents();
-                loadInlineClassBarcodes();
+                // Defer background loaders agar tab aktif langsung tampil tanpa freeze
+                setTimeout(() => {
+                    loadGateSettings();
+                    loadAllStudents();
+                    loadInlineClassBarcodes();
+                }, 150);
             } catch(e) {
                 console.error('Error during init loaders:', e);
             }
@@ -3286,7 +3347,7 @@
                     : '<span class="text-blue-600 font-bold">L</span>';
 
                 const timeMethod = s.recordedAt 
-                    ? `<div class="font-mono text-[10px] text-slate-700">${new Date(s.recordedAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB</div><div class="text-[9px] text-slate-400 font-bold uppercase">${s.method || 'Scan'}</div>`
+                    ? `<div class="font-mono text-[10px] text-slate-700">${formatBkTimeWib(s.recordedAt)}</div><div class="text-[9px] text-slate-400 font-bold uppercase">${s.method || 'Scan'}</div>`
                     : '<span class="text-slate-400">-</span>';
 
                 const haidBtn = s.isFemale ? `
@@ -3476,29 +3537,27 @@
                     const consSessSel = document.getElementById('consSessStudentSelect');
                     const careerSel = document.getElementById('careerStudentSelect');
 
-                    if(uksSel) uksSel.innerHTML = '<option value="">Pilih Siswa...</option>';
-                    if(discSel) discSel.innerHTML = '<option value="">Pilih Siswa...</option>';
-                    if(consSel) consSel.innerHTML = '<option value="">Pilih Siswa...</option>';
-                    if(consSessSel) consSessSel.innerHTML = '<option value="">Pilih Siswa...</option>';
-                    if(careerSel) careerSel.innerHTML = '<option value="">Pilih Siswa...</option>';
-
+                    let optHtml = '';
                     const classSet = new Set();
                     allStudents.forEach(s => {
                         if(s.className) classSet.add(s.className);
-                        const opt = `<option value="${s.id}">${s.name} (${s.className || '-'} - ${s.username})</option>`;
-                        if(uksSel) uksSel.innerHTML += opt;
-                        if(discSel) discSel.innerHTML += opt;
-                        if(consSel) consSel.innerHTML += opt;
-                        if(consSessSel) consSessSel.innerHTML += opt;
-                        if(careerSel) careerSel.innerHTML += opt;
+                        optHtml += `<option value="${s.id}">${s.name} (${s.className || '-'} - ${s.username})</option>`;
                     });
+
+                    const baseOption = '<option value="">Pilih Siswa...</option>';
+                    if(uksSel) uksSel.innerHTML = baseOption + optHtml;
+                    if(discSel) discSel.innerHTML = baseOption + optHtml;
+                    if(consSel) consSel.innerHTML = baseOption + optHtml;
+                    if(consSessSel) consSessSel.innerHTML = baseOption + optHtml;
+                    if(careerSel) careerSel.innerHTML = baseOption + optHtml;
 
                     const filterManClass = document.getElementById('filterManualClass');
                     if(filterManClass) {
-                        filterManClass.innerHTML = '<option value="ALL">Semua Kelas</option>';
+                        let classOptions = '<option value="ALL">Semua Kelas</option>';
                         Array.from(classSet).sort().forEach(c => {
-                            filterManClass.innerHTML += `<option value="${c}">Kelas ${c}</option>`;
+                            classOptions += `<option value="${c}">Kelas ${c}</option>`;
                         });
+                        filterManClass.innerHTML = classOptions;
                     }
 
                     filterManualStudentSelect();
@@ -3734,8 +3793,8 @@
                             btnEmerg.innerText = '✅ Pulang Lebih Awal AKTIF (Klik untuk Normal)';
                             btnEmerg.className = 'px-5 py-2.5 rounded-xl font-bold text-xs shadow transition-all bg-green-600 hover:bg-green-700 text-white';
                         }
-                        document.getElementById('emergencyStatusTitle').innerText = '🚨 Gate-Out Darurat (Pulang Lebih Awal) Sedang AKTIF';
-                        document.getElementById('emergencyStatusDesc').innerText = 'Keterangan: ' + (currentSettings.emergencyReason || 'Acara Sekolah') + '. Seluruh siswa dapat scan barcode pulang sekarang.';
+                        document.getElementById('emergencyStatusTitle').innerText = '🚨 Gate-Out Darurat (Pulang Lebih Awal 1x Hari Ini) Sedang AKTIF';
+                        document.getElementById('emergencyStatusDesc').innerText = 'Keterangan: ' + (currentSettings.emergencyReason || 'Acara Sekolah') + '. Berlaku khusus hari ini (Besok otomatis kembali normal). Seluruh siswa dapat scan kepulangan langsung tanpa tertahan jadwal sholat.';
                     } else {
                         if(btnEmerg) {
                             btnEmerg.innerText = '🚨 Aktifkan Pulang Lebih Awal';
@@ -3892,13 +3951,14 @@
 
         function renderBarcodeCards(list) {
             const container = document.getElementById('printableBarcodeContainer');
-            container.innerHTML = '';
+            if(!container) return;
 
+            let cardsHtml = '';
             list.forEach(k => {
                 const fallbackIn = k.gateInQrFallback || ('https://quickchart.io/qr?size=250&text=' + encodeURIComponent(k.gateInCode));
                 const fallbackOut = k.gateOutQrFallback || ('https://quickchart.io/qr?size=250&text=' + encodeURIComponent(k.gateOutCode));
 
-                container.innerHTML += `
+                cardsHtml += `
                     <div class="border-2 border-dashed border-gray-400 p-5 rounded-2xl text-center bg-white space-y-3 page-break shadow-sm">
                         <div class="bg-gray-900 text-white py-2 px-4 rounded-xl font-black text-lg tracking-wider">
                             RUANG KELAS ${k.className}
@@ -3919,6 +3979,7 @@
                     </div>
                 `;
             });
+            container.innerHTML = cardsHtml;
         }
 
         async function loadInlineClassBarcodes() {
@@ -3957,18 +4018,18 @@
         function renderInlineBarcodeGrid(list) {
             const grid = document.getElementById('inlineBarcodeGrid');
             if(!grid) return;
-            grid.innerHTML = '';
 
             if(!list || list.length === 0) {
                 grid.innerHTML = '<div class="col-span-full text-center py-6 text-gray-400 text-xs">Belum ada data barcode ruang kelas.</div>';
                 return;
             }
 
+            let gridHtml = '';
             list.forEach(k => {
                 const fallbackIn = k.gateInQrFallback || ('https://quickchart.io/qr?size=250&text=' + encodeURIComponent(k.gateInCode));
                 const fallbackOut = k.gateOutQrFallback || ('https://quickchart.io/qr?size=250&text=' + encodeURIComponent(k.gateOutCode));
 
-                grid.innerHTML += `
+                gridHtml += `
                     <div class="border rounded-2xl p-4 bg-gray-50/50 hover:bg-white transition-all shadow-sm flex flex-col justify-between space-y-3">
                         <div class="flex justify-between items-center border-b pb-2">
                             <div>
@@ -3998,6 +4059,7 @@
                     </div>
                 `;
             });
+            grid.innerHTML = gridHtml;
         }
 
         function printBarcodesDirectly() {
@@ -4044,6 +4106,9 @@
                 if(data.counts) {
                     document.getElementById('attStatTotal').innerText = data.counts.total;
                     document.getElementById('attStatPresent').innerText = data.counts.present;
+                    if(document.getElementById('attStatUnconfirmedOut')) {
+                        document.getElementById('attStatUnconfirmedOut').innerText = data.counts.unconfirmedOut ?? 0;
+                    }
                     document.getElementById('attStatLate').innerText = data.counts.late;
                     document.getElementById('attStatSick').innerText = data.counts.sick;
                     document.getElementById('attStatPermission').innerText = data.counts.permission;
@@ -4082,6 +4147,11 @@
             window.open('/api/attendance/export-pdf?' + params, '_blank');
         }
 
+        function printStudentBkPdf(studentId) {
+            if(!studentId) return alert('ID siswa tidak ditemukan');
+            window.open(`/api/teacher/wali-kelas/export-pdf?type=student&studentId=${studentId}&token=${encodeURIComponent(token)}`, '_blank');
+        }
+
         function filterAttTable() {
             const q = document.getElementById('attSearch').value.toLowerCase();
             filteredAttRecords = allAttendanceRecords.filter(r => {
@@ -4097,7 +4167,7 @@
             const total = filteredAttRecords.length;
 
             if(total === 0) {
-                tbody.innerHTML = '<tr><td colspan="8" class="p-4 text-center text-gray-400">Tidak ada data presensi</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="9" class="p-4 text-center text-gray-400">Tidak ada data presensi</td></tr>';
                 document.getElementById('attPageInfo').innerText = '0 dari 0 data';
                 return;
             }
@@ -4111,12 +4181,13 @@
             pageRecords.forEach((r, idx) => {
                 let badge = '<span class="bg-gray-100 text-gray-600 px-2 py-0.5 rounded font-bold">Belum Scan</span>';
                 if(r.status === 'PRESENT') badge = '<span class="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded font-bold">Hadir Tepat</span>';
+                if(r.status === 'UNCONFIRMED_OUT' || r.statusCode === '?') badge = '<span class="bg-sky-100 text-sky-800 px-2 py-0.5 rounded font-bold">[?] Tdk Scan</span>';
                 if(r.status === 'LATE') badge = '<span class="bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded font-bold">Terlambat</span>';
                 if(r.status === 'SICK') badge = '<span class="bg-blue-100 text-blue-800 px-2 py-0.5 rounded font-bold">Sakit (UKS)</span>';
                 if(r.status === 'PERMISSION') badge = '<span class="bg-purple-100 text-purple-800 px-2 py-0.5 rounded font-bold">Izin</span>';
                 if(r.status === 'ABSENT') badge = '<span class="bg-red-100 text-red-800 px-2 py-0.5 rounded font-bold">⚠️ ALPA</span>';
 
-                const inTime = r.gateInTime || (r.scanTime ? new Date(r.scanTime).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ' WIB' : '-');
+                const inTime = formatBkTimeWibSec(r.scanTime, r.gateInTime);
                 const outTime = r.gateOutTime || '-';
 
                 tbody.innerHTML += `
@@ -4129,6 +4200,11 @@
                         <td class="p-3 font-mono font-bold text-blue-700">${outTime}</td>
                         <td class="p-3">${badge}</td>
                         <td class="p-3 text-xs ${r.status === 'ABSENT' ? 'text-red-700 font-semibold' : 'text-gray-500'}">${r.note || '-'}</td>
+                        <td class="p-3 text-center">
+                            <button onclick="printStudentBkPdf('${r.studentId || r.userId || r.id}')" class="px-2.5 py-1 bg-slate-800 hover:bg-black text-white rounded-lg font-bold text-[11px] shadow-sm flex items-center gap-1 mx-auto" title="Cetak Rekap Presensi Siswa PDF">
+                                <span>📄</span> PDF
+                            </button>
+                        </td>
                     </tr>
                 `;
             });
@@ -4192,20 +4268,55 @@
 
         document.getElementById('manualAttForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-            const payload = {
-                userId: document.getElementById('manualStudentSelect').value,
-                status: document.getElementById('manualStatus').value,
-                note: document.getElementById('manualNote').value
-            };
-            const res = await fetch('/api/attendance/manual', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-                body: JSON.stringify(payload)
-            });
-            if(res.ok) {
-                alert('Presensi manual berhasil disimpan');
-                document.getElementById('modalManualAtt').classList.add('hidden');
-                loadAttendanceData();
+            const studentId = document.getElementById('manualStudentSelect').value;
+            const status = document.getElementById('manualStatus').value;
+            const note = document.getElementById('manualNote').value.trim();
+
+            if (!studentId) {
+                alert('Pilih siswa terlebih dahulu');
+                return;
+            }
+
+            try {
+                let res;
+                if (status === 'SICK' || status === 'PERMISSION_KELUARGA') {
+                    res = await fetch('/api/bk/quick-leave', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+                        body: JSON.stringify({
+                            studentId: studentId,
+                            leaveType: status === 'SICK' ? 'SAKIT' : 'KEPERLUAN_KELUARGA',
+                            reason: note || (status === 'SICK' ? 'Izin Sakit Siswa' : 'Izin Keperluan Keluarga')
+                        })
+                    });
+                } else {
+                    const finalNote = status === 'HP_ERROR' 
+                        ? `[Kendala Teknis HP Siswa (Rusak/Error/Baterai)] ${note}` 
+                        : note;
+                    const finalStatus = status === 'HP_ERROR' ? 'PRESENT' : status;
+
+                    res = await fetch('/api/attendance/manual', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+                        body: JSON.stringify({
+                            userId: studentId,
+                            status: finalStatus,
+                            note: finalNote
+                        })
+                    });
+                }
+
+                const json = await res.json();
+                if (res.ok && json.success !== false) {
+                    alert(json.message || 'Presensi / izin siswa berhasil disimpan dan disinkronkan ke rekap orang tua!');
+                    document.getElementById('modalManualAtt').classList.add('hidden');
+                    loadAttendanceData();
+                } else {
+                    alert(json.message || 'Gagal menyimpan presensi manual.');
+                }
+            } catch (err) {
+                console.error(err);
+                alert('Terjadi kesalahan jaringan atau server');
             }
         });
 
@@ -4718,7 +4829,7 @@
                     if(Array.isArray(data.visits) && data.visits.length > 0) {
                         data.visits.forEach(v => {
                             const inTime = new Date(v.checkInTime).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short' });
-                            const outTime = v.checkOutTime ? new Date(v.checkOutTime).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : '<span class="text-amber-600 font-bold">Sedang Dirawat</span>';
+                            const outTime = v.checkOutTime ? formatBkTimeWib(v.checkOutTime) : '<span class="text-amber-600 font-bold">Sedang Dirawat</span>';
                             tbody.innerHTML += `
                                 <tr class="hover:bg-rose-50/40 border-b">
                                     <td class="p-2.5 font-mono text-gray-600">${inTime}</td>
@@ -6103,31 +6214,48 @@
             }
         }
 
+        // ==================== PORTAL DARK / LIGHT THEME ====================
+        function updateThemeUI(isDark) {
+            const icon1 = document.getElementById('themeToggleIcon');
+            const icon2 = document.getElementById('floatingThemeIcon');
+            if (icon1) icon1.innerText = isDark ? '☀️' : '🌙';
+            if (icon2) icon2.innerText = isDark ? '☀️' : '🌙';
+        }
+
+        function togglePortalTheme() {
+            const isDark = document.body.classList.toggle('dark-mode');
+            localStorage.setItem('portal_theme', isDark ? 'dark' : 'light');
+            updateThemeUI(isDark);
+        }
+
+        // Auto-apply saved theme on page load
+        (function applySavedTheme() {
+            const savedTheme = localStorage.getItem('portal_theme');
+            const isDark = savedTheme === 'dark';
+            if (isDark) {
+                document.body.classList.add('dark-mode');
+            }
+            updateThemeUI(isDark);
+        })();
+
         // ==================== SIDEBAR TOGGLE & PERSISTENCE ====================
         function togglePortalSidebar() {
-            const sidebar = document.getElementById('portalSidebar');
+            const isMobile = window.innerWidth < 768;
             const expandBtn = document.getElementById('sidebarExpandBtn');
-            const mainEls = document.querySelectorAll('main, .main-content-portal');
-            if (!sidebar) return;
+            const floatingTheme = document.getElementById('floatingThemeToggleBtn');
+            const backdrop = document.getElementById('portalSidebarBackdrop');
+            const sidebar = document.getElementById('portalSidebar');
 
-            const isCurrentlyHidden = sidebar.classList.contains('-translate-x-full');
-
-            if (isCurrentlyHidden) {
-                sidebar.classList.remove('-translate-x-full');
-                if (expandBtn) expandBtn.classList.add('hidden');
-                mainEls.forEach(m => {
-                    m.classList.add('ml-64');
-                    m.classList.remove('ml-0');
-                });
-                localStorage.setItem('portal_sidebar_collapsed', 'false');
+            if (isMobile) {
+                const isOpen = document.body.classList.toggle('sidebar-mobile-open');
+                if (backdrop) backdrop.classList.toggle('hidden', !isOpen);
+                if (expandBtn) expandBtn.classList.toggle('hidden', isOpen);
+                if (floatingTheme) floatingTheme.classList.toggle('hidden', isOpen);
             } else {
-                sidebar.classList.add('-translate-x-full');
-                if (expandBtn) expandBtn.classList.remove('hidden');
-                mainEls.forEach(m => {
-                    m.classList.remove('ml-64');
-                    m.classList.add('ml-0');
-                });
-                localStorage.setItem('portal_sidebar_collapsed', 'true');
+                const isCollapsed = document.body.classList.toggle('sidebar-collapsed');
+                if (expandBtn) expandBtn.classList.toggle('hidden', !isCollapsed);
+                if (floatingTheme) floatingTheme.classList.toggle('hidden', !isCollapsed);
+                localStorage.setItem('portal_sidebar_collapsed', isCollapsed ? 'true' : 'false');
             }
         }
 
@@ -6141,18 +6269,27 @@
 
         // Apply saved state
         (function applySavedSidebarState() {
-            const isCollapsed = localStorage.getItem('portal_sidebar_collapsed') === 'true';
-            const sidebar = document.getElementById('portalSidebar');
+            const isMobile = window.innerWidth < 768;
             const expandBtn = document.getElementById('sidebarExpandBtn');
-            const mainEls = document.querySelectorAll('main, .main-content-portal');
-            
-            if (isCollapsed && sidebar) {
-                sidebar.classList.add('-translate-x-full');
+            const floatingTheme = document.getElementById('floatingThemeToggleBtn');
+            const backdrop = document.getElementById('portalSidebarBackdrop');
+
+            if (isMobile) {
+                document.body.classList.remove('sidebar-mobile-open');
+                if (backdrop) backdrop.classList.add('hidden');
                 if (expandBtn) expandBtn.classList.remove('hidden');
-                mainEls.forEach(m => {
-                    m.classList.remove('ml-64');
-                    m.classList.add('ml-0');
-                });
+                if (floatingTheme) floatingTheme.classList.remove('hidden');
+            } else {
+                const savedCollapsed = localStorage.getItem('portal_sidebar_collapsed');
+                if (savedCollapsed === 'true') {
+                    document.body.classList.add('sidebar-collapsed');
+                    if (expandBtn) expandBtn.classList.remove('hidden');
+                    if (floatingTheme) floatingTheme.classList.remove('hidden');
+                } else {
+                    document.body.classList.remove('sidebar-collapsed');
+                    if (expandBtn) expandBtn.classList.add('hidden');
+                    if (floatingTheme) floatingTheme.classList.add('hidden');
+                }
             }
         })();
 
@@ -6267,16 +6404,16 @@
                 if (!data.success || !Array.isArray(data.schedules)) return;
 
                 currentBkAllSchedules = data.schedules;
-                const dayNames = ['', 'SENIN', 'SELASA', 'RABU', 'KAMIS', 'JUMAT'];
+                const dayNames = ['', 'SENIN', 'SELASA', 'RABU', 'KAMIS', 'JUMAT', 'SABTU'];
                 const todayDay = new Date().getDay();
 
                 let html = '';
-                for (let d = 1; d <= 5; d++) {
+                for (let d = 1; d <= 6; d++) {
                     const sched = currentBkAllSchedules.find(s => Number(s.dayOfWeek) === d) || {
                         dayOfWeek: d,
                         dayName: dayNames[d],
                         prayerType: d === 5 ? 'JUMAT' : 'DHUHUR',
-                        classNames: d === 5 ? 'ALL_MALE' : 'Belum diatur',
+                        classNames: d === 5 ? 'ALL_MALE' : (d === 6 ? 'ALL' : 'Belum diatur'),
                         wudhuTime: '11:45',
                         scanStartTime: '12:00',
                         scanEndTime: '12:30'
@@ -6433,7 +6570,7 @@
                 }
 
                 const gender = s.gender === 'P' || s.gender === 'FEMALE' ? 'P' : 'L';
-                const timeStr = s.scanTime ? new Date(s.scanTime).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WIB' : '-';
+                const timeStr = formatBkTimeWib(s.scanTime);
                 const methodStr = s.method || (st === 'SHOLAT_BERJAMAAH' ? 'SCAN' : '-');
 
                 let actionBtns = `
@@ -6575,7 +6712,7 @@
             if (!modal) return;
 
             const targetDay = dayOfWeek !== undefined ? Number(dayOfWeek) : (new Date().getDay() || 1);
-            const cleanDay = (targetDay >= 1 && targetDay <= 5) ? targetDay : 1;
+            const cleanDay = (targetDay >= 1 && targetDay <= 6) ? targetDay : 1;
 
             const daySelect = document.getElementById('modalPaiDayOfWeek');
             if (daySelect) daySelect.value = String(cleanDay);
@@ -6628,11 +6765,13 @@
                 if (end) end.value = '12:30';
                 if (bKey) bKey.value = dayOfWeek === 5 ? 'BARCODE_SHOLAT_JUMAT_MASJID' : 'BARCODE_SHOLAT_DHUHUR_MASJID';
                 if (notes) notes.value = `Jadwal Sholat ${dayOfWeek === 5 ? 'Jumat' : 'Dhuhur'} di Masjid Sekolah`;
-                if (inputClasses) inputClasses.value = dayOfWeek === 5 ? 'ALL_MALE' : 'VII-A,VII-B,VII-C,VII-D,VII-E';
-
+                
                 if (dayOfWeek === 5) {
-                    inputClasses.value = 'ALL_MALE';
+                    if (inputClasses) inputClasses.value = 'ALL_MALE';
+                } else if (dayOfWeek === 6) {
+                    if (inputClasses) inputClasses.value = 'ALL';
                 } else {
+                    if (inputClasses) inputClasses.value = 'VII-A,VII-B,VII-C,VII-D,VII-E';
                     ['VII-A', 'VII-B', 'VII-C', 'VII-D', 'VII-E'].forEach(c => selectedPrayerClassSet.add(c));
                 }
             }
@@ -6648,7 +6787,7 @@
         async function handleSavePrayerScheduleModal(e) {
             e.preventDefault();
             const dayOfWeek = Number(document.getElementById('modalPaiDayOfWeek').value);
-            const dayNames = ['', 'SENIN', 'SELASA', 'RABU', 'KAMIS', 'JUMAT'];
+            const dayNames = ['', 'SENIN', 'SELASA', 'RABU', 'KAMIS', 'JUMAT', 'SABTU'];
             const prayerType = document.getElementById('modalPaiPrayerType').value;
             const wudhuTime = document.getElementById('modalPaiWudhuTime').value;
             const scanStartTime = document.getElementById('modalPaiScanStartTime').value;
@@ -6780,7 +6919,7 @@
             }
 
             tbody.innerHTML = filtered.map(g => {
-                const timeStr = new Date(g.createdAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WIB';
+                const timeStr = formatBkTimeWib(g.createdAt);
                 const dateStr = new Date(g.createdAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
                 const catBadge = g.leaveCategory === 'sick'
                     ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-700">🏥 Sakit</span>'

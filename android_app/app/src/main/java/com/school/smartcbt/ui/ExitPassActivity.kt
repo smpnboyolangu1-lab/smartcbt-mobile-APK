@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.View
+import android.view.ViewGroup
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import androidx.cardview.widget.CardView
@@ -55,6 +56,12 @@ class ExitPassActivity : AppCompatActivity() {
     private lateinit var tvCounselorNotes: TextView
     private lateinit var btnScanBkStation: Button
     private lateinit var btnCheckApprovalStatus: Button
+    private var btnHistoryExitPass: Button? = null
+    private var btnHistoryExitPassForm: Button? = null
+    private var btnReapplyLeavePass: Button? = null
+    private var btnReapplyFromActive: Button? = null
+    private var qrRotationHandler: Handler? = null
+    private var qrRotationRunnable: Runnable? = null
 
     // UI Elements - Digital Exit Pass
     private lateinit var cardDigitalExitPass: CardView
@@ -71,6 +78,10 @@ class ExitPassActivity : AppCompatActivity() {
     private lateinit var tvExitPassCheckoutTime: TextView
     private lateinit var ivExitPassQrBitmap: ImageView
     private lateinit var tvExitPassQrPayload: TextView
+    private var tvExitPassSerialNo: TextView? = null
+    private var layoutSatpamCheckoutStamp: LinearLayout? = null
+    private var tvSatpamCheckoutStampTitle: TextView? = null
+    private var tvSatpamCheckoutStampSub: TextView? = null
 
     private var activeLeaveId: String? = null
     private var isClockRunning = false
@@ -98,8 +109,13 @@ class ExitPassActivity : AppCompatActivity() {
                         tvExitPassCountdown.text = String.format("%02d:%02d Menit Tersisa", min, sec)
                         layoutCountdownTimer.setBackgroundColor(Color.parseColor("#047857"))
                     } else {
-                        tvExitPassCountdown.text = "⏳ TIKET EXPIRED (45 Menit Habis)"
+                        tvExitPassCountdown.text = "⏳ TIKET TELAH KADALUARSA"
                         layoutCountdownTimer.setBackgroundColor(Color.parseColor("#DC2626"))
+                        ivExitPassQrBitmap.visibility = View.GONE
+                        tvExitPassQrPayload.text = "SUDAH DIGUNAKAN / KADALUARSA"
+                        layoutSatpamCheckoutStamp?.visibility = View.VISIBLE
+                        tvSatpamCheckoutStampTitle?.text = "⏳ TIKET TELAH KADALUARSA"
+                        tvSatpamCheckoutStampSub?.text = "Batas waktu penggunaan tiket telah berakhir. QR tidak berlaku."
                     }
                 }
 
@@ -121,8 +137,10 @@ class ExitPassActivity : AppCompatActivity() {
     private fun initViews() {
         findViewById<ImageButton>(R.id.btnBackExitPass).setOnClickListener { finish() }
         findViewById<ImageButton>(R.id.btnRefreshExitPass).setOnClickListener {
-            Toast.makeText(this, "Memperbarui status gatepass...", Toast.LENGTH_SHORT).show()
-            fetchActiveLeave()
+            fetchActiveLeave(isUserInitiated = true)
+        }
+        findViewById<Button>(R.id.btnUpdateExitPass).setOnClickListener {
+            com.school.smartcbt.utils.AppUpdateChecker.checkForUpdates(this, showToastIfLatest = true)
         }
 
         // Form
@@ -136,6 +154,9 @@ class ExitPassActivity : AppCompatActivity() {
         etReason = findViewById(R.id.etReason)
         etPickupPerson = findViewById(R.id.etPickupPerson)
         btnSubmitLeave = findViewById(R.id.btnSubmitLeave)
+        btnHistoryExitPassForm = findViewById(R.id.btnHistoryExitPassForm)
+        btnReapplyLeavePass = findViewById(R.id.btnReapplyLeavePass)
+        btnReapplyFromActive = btnReapplyLeavePass
 
         // Status
         cardActiveStatus = findViewById(R.id.cardActiveStatus)
@@ -148,7 +169,9 @@ class ExitPassActivity : AppCompatActivity() {
         tvActivePickup = findViewById(R.id.tvActivePickup)
         tvCounselorNotes = findViewById(R.id.tvCounselorNotes)
         btnScanBkStation = findViewById(R.id.btnScanBkStation)
+        btnScanBkStation.visibility = View.GONE
         btnCheckApprovalStatus = findViewById(R.id.btnCheckApprovalStatus)
+        btnHistoryExitPass = findViewById(R.id.btnHistoryExitPass)
 
         // Digital Exit Pass (#10B981)
         cardDigitalExitPass = findViewById(R.id.cardDigitalExitPass)
@@ -165,6 +188,10 @@ class ExitPassActivity : AppCompatActivity() {
         tvExitPassCheckoutTime = findViewById(R.id.tvExitPassCheckoutTime)
         ivExitPassQrBitmap = findViewById(R.id.ivExitPassQrBitmap)
         tvExitPassQrPayload = findViewById(R.id.tvExitPassQrPayload)
+        tvExitPassSerialNo = findViewById(R.id.tvExitPassSerialNo)
+        layoutSatpamCheckoutStamp = findViewById(R.id.layoutSatpamCheckoutStamp)
+        tvSatpamCheckoutStampTitle = findViewById(R.id.tvSatpamCheckoutStampTitle)
+        tvSatpamCheckoutStampSub = findViewById(R.id.tvSatpamCheckoutStampSub)
     }
 
     private fun setupListeners() {
@@ -183,7 +210,17 @@ class ExitPassActivity : AppCompatActivity() {
         }
 
         btnCheckApprovalStatus.setOnClickListener {
-            fetchActiveLeave()
+            fetchActiveLeave(isUserInitiated = true)
+        }
+
+        btnHistoryExitPass?.setOnClickListener {
+            showLeaveHistoryDialog()
+        }
+
+        btnReapplyLeavePass?.setOnClickListener { showFormOnly() }
+        btnReapplyFromActive?.setOnClickListener { showFormOnly() }
+        btnHistoryExitPassForm?.setOnClickListener {
+            showLeaveHistoryDialog()
         }
 
         btnScanBkStation.setOnClickListener {
@@ -269,7 +306,10 @@ class ExitPassActivity : AppCompatActivity() {
         })
     }
 
-    private fun fetchActiveLeave() {
+    private fun fetchActiveLeave(isUserInitiated: Boolean = false) {
+        if (isUserInitiated) {
+            Toast.makeText(this, "Memeriksa status persetujuan Guru BK...", Toast.LENGTH_SHORT).show()
+        }
         ApiClient.getClient(this).getActiveGatepass().enqueue(object : Callback<StudentLeaveActiveResponse> {
             override fun onResponse(call: Call<StudentLeaveActiveResponse>, response: Response<StudentLeaveActiveResponse>) {
                 val body = response.body()
@@ -277,13 +317,35 @@ class ExitPassActivity : AppCompatActivity() {
                     val leave = body.data
                     activeLeaveId = leave.id
                     renderLeaveState(body, leave)
+                    if (isUserInitiated) {
+                        if (body.isCheckedOut) {
+                            Toast.makeText(this@ExitPassActivity, "✅ Disetujui Guru BK! Tiket Gatepass Resmi Satpam Aktif.", Toast.LENGTH_LONG).show()
+                        } else if (leave.status.contains("REJECT", ignoreCase = true)) {
+                            AlertDialog.Builder(this@ExitPassActivity)
+                                .setTitle("❌ Permohonan Izin Ditolak")
+                                .setMessage("Permohonan izin Anda tidak disetujui Guru BK.\n\nCatatan BK: ${leave.counselorNotes ?: "Silakan temui Guru BK di Ruang Konseling."}")
+                                .setPositiveButton("Tutup", null)
+                                .show()
+                        } else {
+                            AlertDialog.Builder(this@ExitPassActivity)
+                                .setTitle("⏳ Menunggu Persetujuan Guru BK")
+                                .setMessage("Permohonan izin Anda telah diterima dan sedang menunggu persetujuan Guru BK. Begitu disetujui, Tiket Gatepass Resmi Satpam (Hijau) akan otomatis muncul.")
+                                .setPositiveButton("Mengerti", null)
+                                .show()
+                        }
+                    }
                 } else {
                     showFormOnly()
+                    if (isUserInitiated) {
+                        Toast.makeText(this@ExitPassActivity, "Tidak ada permohonan izin aktif saat ini.", Toast.LENGTH_SHORT).show()
+                    }
                 }
             }
 
             override fun onFailure(call: Call<StudentLeaveActiveResponse>, t: Throwable) {
-                // Keep current state on network failure
+                if (isUserInitiated) {
+                    Toast.makeText(this@ExitPassActivity, "Koneksi terganggu: ${t.message}", Toast.LENGTH_SHORT).show()
+                }
             }
         })
     }
@@ -330,14 +392,29 @@ class ExitPassActivity : AppCompatActivity() {
             }
             tvExitPassCheckoutTime.text = outTimeStr
 
-            // Token & QR Code Payload
-            val qrPayload = leave.qrVerificationPayload ?: "SMARTCBT-GATEPASS:${leave.singleUseCheckoutToken ?: leave.id}:${leave.id}"
-            tvExitPassQrPayload.text = "*${leave.singleUseCheckoutToken ?: leave.id.take(8).uppercase()}*"
+            val passSerial = "PASS-${leave.id.take(8).uppercase()}"
+            tvExitPassSerialNo?.text = passSerial
 
-            // Generate Single-Use Checkout QR Code Bitmap
-            val qrBitmap = QrCodeHelper.generateQrCodeBitmap(qrPayload, 450)
-            if (qrBitmap != null) {
-                ivExitPassQrBitmap.setImageBitmap(qrBitmap)
+            val isAlreadyCompleted = leave.status.equals("COMPLETED", ignoreCase = true)
+            if (isAlreadyCompleted) {
+                layoutSatpamCheckoutStamp?.visibility = View.VISIBLE
+                tvSatpamCheckoutStampTitle?.text = "✓ SUDAH DIGUNAKAN (CHECKOUT SELESAI)"
+                tvSatpamCheckoutStampSub?.text = "Diverifikasi Resmi Petugas Satpam Pos Gerbang Utama"
+                ivExitPassQrBitmap.visibility = View.GONE
+                tvExitPassQrPayload.text = "SUDAH DIGUNAKAN / KADALUARSA"
+            } else {
+                layoutSatpamCheckoutStamp?.visibility = View.GONE
+                ivExitPassQrBitmap.visibility = View.VISIBLE
+
+                // Token & QR Code Payload
+                val qrPayload = leave.qrVerificationPayload ?: "SMARTCBT-GATEPASS:${leave.singleUseCheckoutToken ?: leave.id}:${leave.id}"
+                tvExitPassQrPayload.text = "*${leave.singleUseCheckoutToken ?: leave.id.take(8).uppercase()}*"
+
+                // Generate Single-Use Checkout QR Code Bitmap
+                val qrBitmap = QrCodeHelper.generateQrCodeBitmap(qrPayload, 450)
+                if (qrBitmap != null) {
+                    ivExitPassQrBitmap.setImageBitmap(qrBitmap)
+                }
             }
 
             // Expiry countdown setup (45 Minutes)
@@ -345,14 +422,14 @@ class ExitPassActivity : AppCompatActivity() {
                 try {
                     val iso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.getDefault())
                     val expDate = iso.parse(leave.validUntil)
-                    targetExpiryMillis = expDate?.time ?: (System.currentTimeMillis() + 45 * 60 * 1000)
+                    targetExpiryMillis = expDate?.time ?: (System.currentTimeMillis() + 30 * 60 * 1000)
                 } catch (e: Exception) {
-                    targetExpiryMillis = System.currentTimeMillis() + (leave.remainingSeconds ?: (45 * 60L)) * 1000
+                    targetExpiryMillis = System.currentTimeMillis() + (leave.remainingSeconds ?: (30 * 60L)) * 1000
                 }
             } else if (leave.remainingSeconds != null && leave.remainingSeconds > 0) {
                 targetExpiryMillis = System.currentTimeMillis() + leave.remainingSeconds * 1000
             } else {
-                targetExpiryMillis = System.currentTimeMillis() + 45 * 60 * 1000
+                targetExpiryMillis = System.currentTimeMillis() + 30 * 60 * 1000
             }
 
             // Load Student Profile Photo
@@ -383,32 +460,578 @@ class ExitPassActivity : AppCompatActivity() {
                 tvCounselorNotes.visibility = View.GONE
             }
 
-            if (res.isScanLocked) {
-                // Status 'PENDING': SCAN LOCKED
+            btnScanBkStation.visibility = View.GONE
+
+            val isRejected = leave.status.contains("REJECT", ignoreCase = true)
+            if (isRejected) {
+                layoutStatusBanner.setBackgroundColor(Color.parseColor("#FEE2E2"))
+                tvStatusIcon.text = "❌"
+                tvStatusTitle.text = "Permohonan Izin Ditolak Guru BK"
+                tvStatusTitle.setTextColor(Color.parseColor("#991B1B"))
+                tvStatusSubtitle.text = "Pengajuan izin tidak disetujui Guru BK. Silakan temui Guru BK di Ruang Konseling."
+                tvStatusSubtitle.setTextColor(Color.parseColor("#B91C1C"))
+            } else {
                 layoutStatusBanner.setBackgroundColor(Color.parseColor("#FEF3C7"))
                 tvStatusIcon.text = "⏳"
-                tvStatusTitle.text = "Menunggu Verifikasi Guru BK"
+                tvStatusTitle.text = "Menunggu Persetujuan Guru BK"
                 tvStatusTitle.setTextColor(Color.parseColor("#92400E"))
-                tvStatusSubtitle.text = "Pengajuan Anda telah diterima Guru BK. Silakan datang langsung ke Ruang BK untuk verifikasi tatap muka."
+                tvStatusSubtitle.text = "Pengajuan izin Anda sedang ditinjau Guru BK. Begitu disetujui, Tiket Gatepass Resmi Satpam (Hijau) akan otomatis muncul."
                 tvStatusSubtitle.setTextColor(Color.parseColor("#B45309"))
-
-                btnScanBkStation.isEnabled = true
-                btnScanBkStation.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#059669"))
-                btnScanBkStation.text = "📷 Pindai Dynamic Rotating QR di Layar Guru BK"
-            } else {
-                // Status 'WAITING_BK_SCAN' / Ready for scan
-                layoutStatusBanner.setBackgroundColor(Color.parseColor("#D1FAE5"))
-                tvStatusIcon.text = "✅"
-                tvStatusTitle.text = "Disetujui! Silakan Pindai QR di Layar Guru BK"
-                tvStatusTitle.setTextColor(Color.parseColor("#065F46"))
-                tvStatusSubtitle.text = "Berdirilah di depan Guru BK dan pindai Dynamic Rotating QR di layar HP/Komputer Guru BK."
-                tvStatusSubtitle.setTextColor(Color.parseColor("#047857"))
-
-                btnScanBkStation.isEnabled = true
-                btnScanBkStation.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#059669"))
-                btnScanBkStation.text = "📷 Pindai Dynamic Rotating QR di Layar Guru BK"
             }
         }
+    }
+
+    private fun showLeaveHistoryDialog() {
+        val density = resources.displayMetrics.density
+        fun dp(v: Int): Int = (v * density).toInt()
+
+        val dialog = android.app.Dialog(this, android.R.style.Theme_Material_Light_NoActionBar_Fullscreen)
+        dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
+
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+            setBackgroundColor(Color.parseColor("#F1F5F9"))
+        }
+
+        // ================= HEADER BERWARNA TEAL GRADIENT =================
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val grad = android.graphics.drawable.GradientDrawable(
+                android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT,
+                intArrayOf(Color.parseColor("#065F46"), Color.parseColor("#047857"), Color.parseColor("#0D9488"))
+            )
+            background = grad
+            setPadding(dp(16), dp(16), dp(16), dp(18))
+        }
+
+        val topBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+        }
+
+        val btnBack = ImageView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(dp(36), dp(36))
+            setImageResource(R.drawable.ic_arrow_back)
+            setColorFilter(Color.WHITE)
+            setPadding(dp(6), dp(6), dp(6), dp(6))
+            setOnClickListener { dialog.dismiss() }
+        }
+        topBar.addView(btnBack)
+
+        val titleContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginStart = dp(10)
+            }
+        }
+
+        val tvTitle = TextView(this).apply {
+            text = "🎫 Riwayat Digital Gatepass"
+            textSize = 17.5f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+        }
+        val tvSub = TextView(this).apply {
+            text = "Histori Surat Izin, Dispensasi, & Check-out Satpam"
+            textSize = 11.5f
+            setTextColor(Color.parseColor("#D1FAE5"))
+        }
+        titleContainer.addView(tvTitle)
+        titleContainer.addView(tvSub)
+        topBar.addView(titleContainer)
+
+        val btnNewLeave = TextView(this).apply {
+            text = "➕ Ajukan Baru"
+            textSize = 11.5f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            setTextColor(Color.parseColor("#065F46"))
+            val btnShape = android.graphics.drawable.GradientDrawable().apply {
+                setColor(Color.WHITE)
+                cornerRadius = dp(16).toFloat()
+            }
+            background = btnShape
+            setPadding(dp(12), dp(7), dp(12), dp(7))
+            setOnClickListener {
+                dialog.dismiss()
+                showFormOnly()
+            }
+        }
+        topBar.addView(btnNewLeave)
+        header.addView(topBar)
+        root.addView(header)
+
+        // Filter Bar (Semua, Aktif/Disetujui, Selesai, Menunggu/Ditolak)
+        val filterScroll = HorizontalScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            setBackgroundColor(Color.WHITE)
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+            isHorizontalScrollBarEnabled = false
+        }
+        val filterContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+        filterScroll.addView(filterContainer)
+        root.addView(filterScroll)
+
+        val scroll = androidx.core.widget.NestedScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f)
+            setPadding(dp(14), dp(10), dp(14), dp(14))
+        }
+        val listContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        scroll.addView(listContainer)
+
+        val tvLoading = TextView(this).apply {
+            text = "⏳ Memuat seluruh riwayat perizinan dari server..."
+            textSize = 12f
+            setTextColor(Color.parseColor("#64748B"))
+            setPadding(0, dp(30), 0, dp(30))
+            gravity = android.view.Gravity.CENTER
+        }
+        listContainer.addView(tvLoading)
+        root.addView(scroll)
+
+        dialog.setContentView(root)
+        dialog.show()
+
+        ApiClient.getClient(this).getStudentGatepassHistory().enqueue(object : Callback<StudentGatepassHistoryResponse> {
+            override fun onResponse(call: Call<StudentGatepassHistoryResponse>, response: Response<StudentGatepassHistoryResponse>) {
+                val fullList = response.body()?.data ?: emptyList()
+                var activeFilter = "ALL" // ALL, APPROVED, COMPLETED, PENDING, REJECTED
+
+                fun renderFilteredList() {
+                    listContainer.removeAllViews()
+                    val filtered = fullList.filter { item ->
+                        val st = item.status.uppercase()
+                        when (activeFilter) {
+                            "APPROVED" -> st.contains("APPROVED") && !st.contains("COMPLETED") && !st.contains("EXPIRED")
+                            "COMPLETED" -> st.contains("COMPLETED")
+                            "PENDING" -> !st.contains("APPROVED") && !st.contains("REJECT") && !st.contains("COMPLETED") && !st.contains("EXPIRED")
+                            "REJECTED" -> st.contains("REJECT") || st.contains("EXPIRED")
+                            else -> true
+                        }
+                    }
+
+                    if (filtered.isEmpty()) {
+                        val cardEmpty = CardView(this@ExitPassActivity).apply {
+                            radius = dp(16).toFloat()
+                            cardElevation = dp(2).toFloat()
+                            setCardBackgroundColor(Color.WHITE)
+                            useCompatPadding = true
+                        }
+                        val innerEmpty = LinearLayout(this@ExitPassActivity).apply {
+                            orientation = LinearLayout.VERTICAL
+                            val p = dp(28)
+                            setPadding(p, p, p, p)
+                            gravity = android.view.Gravity.CENTER
+                        }
+                        val tvEmptyIcon = TextView(this@ExitPassActivity).apply {
+                            text = "📭"
+                            textSize = 36f
+                            gravity = android.view.Gravity.CENTER
+                        }
+                        val tvEmpty = TextView(this@ExitPassActivity).apply {
+                            text = "Tidak ada riwayat perizinan pada kategori ini."
+                            textSize = 13f
+                            setTextColor(Color.parseColor("#94A3B8"))
+                            setPadding(0, dp(8), 0, 0)
+                            gravity = android.view.Gravity.CENTER
+                        }
+                        innerEmpty.addView(tvEmptyIcon)
+                        innerEmpty.addView(tvEmpty)
+                        cardEmpty.addView(innerEmpty)
+                        listContainer.addView(cardEmpty)
+                        return
+                    }
+
+                    filtered.forEach { item ->
+                        val card = CardView(this@ExitPassActivity).apply {
+                            radius = dp(16).toFloat()
+                            cardElevation = dp(3).toFloat()
+                            setCardBackgroundColor(Color.WHITE)
+                            useCompatPadding = true
+                            layoutParams = LinearLayout.LayoutParams(
+                                LinearLayout.LayoutParams.MATCH_PARENT,
+                                LinearLayout.LayoutParams.WRAP_CONTENT
+                            ).apply { bottomMargin = dp(8) }
+                        }
+
+                        val inner = LinearLayout(this@ExitPassActivity).apply {
+                            orientation = LinearLayout.VERTICAL
+                            val p = dp(14)
+                            setPadding(p, p, p, p)
+                        }
+
+                        val stUpper = item.status.uppercase()
+                        val isApproved = stUpper.contains("APPROVED") && !stUpper.contains("COMPLETED") && !stUpper.contains("EXPIRED")
+                        val isCompleted = stUpper.contains("COMPLETED")
+                        val (stLabel, stColor, stBg, stAccent) = when {
+                            isCompleted -> Quadruple("✅ Selesai (Keluar Gerbang)", "#065F46", "#D1FAE5", "#059669")
+                            isApproved -> Quadruple("🟢 Disetujui Guru BK (Siap Scan Satpam)", "#15803D", "#DCFCE7", "#16A34A")
+                            stUpper.contains("REJECT") -> Quadruple("❌ Ditolak Guru BK", "#991B1B", "#FEE2E2", "#DC2626")
+                            stUpper.contains("EXPIRED") -> Quadruple("⌛ Kadaluwarsa (> 30 Menit)", "#475569", "#F1F5F9", "#64748B")
+                            else -> Quadruple("⏳ Menunggu Verifikasi BK", "#92400E", "#FEF3C7", "#D97706")
+                        }
+
+                        val dateStr = try {
+                            if (!item.createdAt.isNullOrEmpty()) {
+                                val iso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.getDefault())
+                                val d = iso.parse(item.createdAt)
+                                SimpleDateFormat("EEEE, dd MMM yyyy • HH:mm 'WIB'", Locale("id", "ID")).format(d ?: Date())
+                            } else "-"
+                        } catch (e: Exception) { item.createdAt ?: "-" }
+
+                        // Category & Date Row
+                        val rowTop = LinearLayout(this@ExitPassActivity).apply {
+                            orientation = LinearLayout.HORIZONTAL
+                            gravity = android.view.Gravity.CENTER_VERTICAL
+                        }
+
+                        val categoryEmoji = when {
+                            (item.categoryLabel ?: item.leaveType ?: "").contains("Sakit", ignoreCase = true) -> "🤒"
+                            (item.categoryLabel ?: item.leaveType ?: "").contains("Mendesak", ignoreCase = true) -> "🚨"
+                            (item.categoryLabel ?: item.leaveType ?: "").contains("Dispen", ignoreCase = true) -> "🏅"
+                            else -> "📋"
+                        }
+
+                        val tvCat = TextView(this@ExitPassActivity).apply {
+                            text = "$categoryEmoji ${item.categoryLabel ?: item.leaveType ?: "Izin Keluar"}"
+                            textSize = 14f
+                            typeface = android.graphics.Typeface.DEFAULT_BOLD
+                            setTextColor(Color.parseColor("#0F172A"))
+                            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                        }
+                        rowTop.addView(tvCat)
+
+                        val tvStatusBadge = TextView(this@ExitPassActivity).apply {
+                            text = stLabel
+                            textSize = 10f
+                            typeface = android.graphics.Typeface.DEFAULT_BOLD
+                            setTextColor(Color.parseColor(stColor))
+                            setBackgroundColor(Color.parseColor(stBg))
+                            val p = dp(6)
+                            setPadding(p, dp(3), p, dp(3))
+                        }
+                        rowTop.addView(tvStatusBadge)
+                        inner.addView(rowTop)
+
+                        val tvDate = TextView(this@ExitPassActivity).apply {
+                            text = "📅 $dateStr"
+                            textSize = 11f
+                            setTextColor(Color.parseColor("#64748B"))
+                            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                                topMargin = dp(4)
+                            }
+                            layoutParams = lp
+                        }
+                        inner.addView(tvDate)
+
+                        // Reason Box
+                        val reasonBox = LinearLayout(this@ExitPassActivity).apply {
+                            orientation = LinearLayout.VERTICAL
+                            setBackgroundColor(Color.parseColor("#F8FAFC"))
+                            val p = dp(8)
+                            setPadding(p, p, p, p)
+                            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                                topMargin = dp(8)
+                            }
+                            layoutParams = lp
+                        }
+                        val tvReason = TextView(this@ExitPassActivity).apply {
+                            text = "📝 Alasan: \"${item.reason ?: "-"}\""
+                            textSize = 11.5f
+                            setTextColor(Color.parseColor("#334155"))
+                        }
+                        reasonBox.addView(tvReason)
+                        inner.addView(reasonBox)
+
+                        // Meta details: Penjemput, BK, Satpam
+                        val metaBox = LinearLayout(this@ExitPassActivity).apply {
+                            orientation = LinearLayout.VERTICAL
+                            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                                topMargin = dp(6)
+                            }
+                            layoutParams = lp
+                        }
+                        val tvPickup = TextView(this@ExitPassActivity).apply {
+                            text = "🚗 Penjemput: ${item.pickupBy ?: "Orang Tua / Mandiri"}"
+                            textSize = 11f
+                            setTextColor(Color.parseColor("#64748B"))
+                        }
+                        val bkName = item.approvedByBk ?: "Guru BK"
+                        val satpamName = if (!item.checkoutSatpam.isNullOrEmpty()) item.checkoutSatpam else "Belum Checkout"
+                        val tvOfficers = TextView(this@ExitPassActivity).apply {
+                            text = "👨‍🏫 Guru BK: $bkName • 👮 Satpam: $satpamName"
+                            textSize = 10.5f
+                            setTextColor(Color.parseColor("#64748B"))
+                            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                                topMargin = dp(2)
+                            }
+                            layoutParams = lp
+                        }
+                        metaBox.addView(tvPickup)
+                        metaBox.addView(tvOfficers)
+                        inner.addView(metaBox)
+
+                        // Highlight Action if Approved
+                        if (isApproved) {
+                            val btnShowQr = TextView(this@ExitPassActivity).apply {
+                                text = "📲 BUKA QR CODE SATPAM (TIKET AKTIF) →"
+                                textSize = 11.5f
+                                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                                setTextColor(Color.WHITE)
+                                setBackgroundColor(Color.parseColor("#059669"))
+                                gravity = android.view.Gravity.CENTER
+                                val p = dp(8)
+                                setPadding(p, p, p, p)
+                                val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                                    topMargin = dp(10)
+                                }
+                                layoutParams = lp
+                                setOnClickListener {
+                                    showHistoryItemDetailDialog(item, dialog)
+                                }
+                            }
+                            inner.addView(btnShowQr)
+                        } else {
+                            val btnDetail = TextView(this@ExitPassActivity).apply {
+                                text = "Lihat Detail Tiket & Audit Trail →"
+                                textSize = 11f
+                                setTextColor(Color.parseColor("#0284C7"))
+                                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                                gravity = android.view.Gravity.END
+                                val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                                    topMargin = dp(8)
+                                }
+                                layoutParams = lp
+                                setOnClickListener {
+                                    showHistoryItemDetailDialog(item, dialog)
+                                }
+                            }
+                            inner.addView(btnDetail)
+                        }
+
+                        card.addView(inner)
+                        listContainer.addView(card)
+                    }
+                }
+
+                // Render Filter Buttons
+                val filterButtons = listOf(
+                    Pair("ALL", "Semua (${fullList.size})"),
+                    Pair("APPROVED", "🟢 Disetujui"),
+                    Pair("COMPLETED", "✅ Selesai"),
+                    Pair("PENDING", "⏳ Menunggu"),
+                    Pair("REJECTED", "❌ Ditolak/Expired")
+                )
+
+                filterContainer.removeAllViews()
+                filterButtons.forEach { (mode, label) ->
+                    val btn = TextView(this@ExitPassActivity).apply {
+                        text = label
+                        textSize = 11f
+                        typeface = android.graphics.Typeface.DEFAULT_BOLD
+                        val p = dp(8)
+                        setPadding(p, dp(4), p, dp(4))
+                        val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                            marginEnd = dp(6)
+                        }
+                        layoutParams = lp
+                        setOnClickListener {
+                            activeFilter = mode
+                            renderFilteredList()
+                        }
+                    }
+                    filterContainer.addView(btn)
+                }
+
+                renderFilteredList()
+            }
+
+            override fun onFailure(call: Call<StudentGatepassHistoryResponse>, t: Throwable) {
+                listContainer.removeAllViews()
+                val tvErr = TextView(this@ExitPassActivity).apply {
+                    text = "Gagal memuat riwayat: ${t.message}"
+                    textSize = 12f
+                    setTextColor(Color.parseColor("#DC2626"))
+                    gravity = android.view.Gravity.CENTER
+                }
+                listContainer.addView(tvErr)
+            }
+        })
+    }
+
+    private data class Quadruple<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
+
+    private fun showHistoryItemDetailDialog(item: GatepassHistoryItem, parentDialog: android.app.Dialog) {
+        val density = resources.displayMetrics.density
+        fun dp(v: Int): Int = (v * density).toInt()
+
+        val isApproved = item.status.contains("APPROVED", ignoreCase = true)
+        val isCompleted = item.status.contains("COMPLETED", ignoreCase = true)
+        val isExpired = item.status.contains("EXPIRED", ignoreCase = true)
+
+        val detailDialog = AlertDialog.Builder(this).create()
+        val scroll = androidx.core.widget.NestedScrollView(this)
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(18), dp(18), dp(18))
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(Color.WHITE)
+                cornerRadius = dp(20).toFloat()
+            }
+        }
+
+        val tvTitle = TextView(this).apply {
+            text = "📋 Rincian Resmi Digital Gatepass"
+            textSize = 16f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            setTextColor(Color.parseColor("#065F46"))
+        }
+        val tvSerial = TextView(this).apply {
+            text = "NO. TIKET: PASS-${item.id.takeLast(6).uppercase()}"
+            textSize = 10f
+            typeface = android.graphics.Typeface.MONOSPACE
+            setTextColor(Color.parseColor("#64748B"))
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(2)
+                bottomMargin = dp(10)
+            }
+            layoutParams = lp
+        }
+        root.addView(tvTitle)
+        root.addView(tvSerial)
+
+        val detailTable = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#F8FAFC"))
+            val p = dp(12)
+            setPadding(p, p, p, p)
+        }
+
+        fun addRow(label: String, value: String) {
+            val r = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    bottomMargin = dp(6)
+                }
+                layoutParams = lp
+            }
+            val l = TextView(this).apply {
+                text = label
+                textSize = 11f
+                setTextColor(Color.parseColor("#64748B"))
+                layoutParams = LinearLayout.LayoutParams(dp(110), ViewGroup.LayoutParams.WRAP_CONTENT)
+            }
+            val v = TextView(this).apply {
+                text = value
+                textSize = 11.5f
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                setTextColor(Color.parseColor("#1E293B"))
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            r.addView(l)
+            r.addView(v)
+            detailTable.addView(r)
+        }
+
+        addRow("Jenis Izin", item.categoryLabel ?: item.leaveType ?: "Izin Keluar")
+        addRow("Status Tiket", item.status)
+        addRow("Alasan", item.reason ?: "-")
+        addRow("Penjemput", item.pickupBy ?: "Orang Tua / Mandiri")
+        addRow("Guru BK Penyetuju", item.approvedByBk ?: "Guru BK")
+        addRow("Checkout Gerbang", item.checkoutSatpam ?: "Belum Checkout")
+        addRow("Tanggal Pengajuan", item.createdAt ?: "-")
+        root.addView(detailTable)
+
+        // Jika approved & belum keluar, tampilkan QR Code Satpam dengan visual modern
+        if (isApproved && !isCompleted && !isExpired) {
+            val qrContainer = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = android.view.Gravity.CENTER
+                setPadding(dp(12), dp(12), dp(12), dp(12))
+                val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = dp(12)
+                }
+                layoutParams = lp
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    setColor(Color.parseColor("#F0FDF4"))
+                    cornerRadius = dp(14).toFloat()
+                    setStroke(dp(1), Color.parseColor("#86EFAC"))
+                }
+            }
+
+            val tvQrTitle = TextView(this).apply {
+                text = "🛡️ QR CODE CHECKOUT SATPAM"
+                textSize = 12f
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                setTextColor(Color.parseColor("#166534"))
+            }
+            qrContainer.addView(tvQrTitle)
+
+            val ivQr = ImageView(this).apply {
+                val lp = LinearLayout.LayoutParams(dp(200), dp(200)).apply {
+                    topMargin = dp(8)
+                    bottomMargin = dp(8)
+                }
+                layoutParams = lp
+            }
+            val rawToken = item.singleUseCheckoutToken ?: item.id
+            val qrBitmap = QrCodeHelper.generateQrCodeBitmap("SMARTCBT-GATEPASS:$rawToken:${item.id}", 400)
+            if (qrBitmap != null) ivQr.setImageBitmap(qrBitmap)
+            qrContainer.addView(ivQr)
+
+            val tvQrNotes = TextView(this).apply {
+                text = "⏱️ Tiket berlaku 30 menit setelah persetujuan Guru BK.\n👮 Tunjukkan QR ini ke Petugas Satpam saat melewati gerbang sekolah."
+                textSize = 10.5f
+                setTextColor(Color.parseColor("#15803D"))
+                gravity = android.view.Gravity.CENTER
+            }
+            qrContainer.addView(tvQrNotes)
+            root.addView(qrContainer)
+        }
+
+        // Tombol Aksi Bawah
+        val btnRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(14)
+            }
+            layoutParams = lp
+        }
+
+        val btnClose = Button(this).apply {
+            text = "Tutup"
+            setTextColor(Color.parseColor("#64748B"))
+            setBackgroundColor(Color.parseColor("#F1F5F9"))
+            textSize = 12f
+            layoutParams = LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginEnd = dp(4) }
+            setOnClickListener { detailDialog.dismiss() }
+        }
+        btnRow.addView(btnClose)
+
+        val btnNewApply = Button(this).apply {
+            text = "➕ Ajukan Izin Baru"
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#059669"))
+            textSize = 12f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            layoutParams = LinearLayout.LayoutParams(0, dp(44), 1.5f).apply { marginStart = dp(4) }
+            setOnClickListener {
+                detailDialog.dismiss()
+                parentDialog.dismiss()
+                showFormOnly()
+            }
+        }
+        btnRow.addView(btnNewApply)
+        root.addView(btnRow)
+
+        scroll.addView(root)
+        detailDialog.setView(scroll)
+        detailDialog.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
+        detailDialog.show()
     }
 
     private fun showManualScanDialog() {

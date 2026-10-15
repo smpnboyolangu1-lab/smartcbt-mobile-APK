@@ -28,4 +28,7 @@ interface PendingAttendanceDao {
 
     @Query("DELETE FROM pending_attendance WHERE isSynced = 1")
     suspend fun deleteSynced()
+
+    @Query("DELETE FROM pending_attendance")
+    suspend fun deleteAll()
 }

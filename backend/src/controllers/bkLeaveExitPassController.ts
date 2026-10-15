@@ -226,16 +226,23 @@ export const getActiveStudentLeave = async (req: Request, res: Response) => {
         }
 
         const now = new Date();
-        const validUntil = gatepass?.validUntil || null;
+        const validUntil = gatepass?.validUntil || (leave?.approvedAt ? new Date(new Date(leave.approvedAt).getTime() + 45 * 60 * 1000) : null);
         const remainingSeconds = validUntil
             ? Math.max(0, Math.floor((new Date(validUntil).getTime() - now.getTime()) / 1000))
             : 0;
 
-        const isCheckedOut = leave?.status === 'checked_out' || gatepass?.status === 'ACTIVE_APPROVED' || gatepass?.status === 'COMPLETED';
-        const isReadyForScan = leave?.status === 'approved_by_bk' || gatepass?.status === 'WAITING_BK_SCAN' || (!isCheckedOut && (leave?.status === 'submitted' || gatepass?.status === 'PENDING'));
-        const isScanLocked = !isCheckedOut && !isReadyForScan;
+        // Saat disetujui BK, tiket digital izin sah langsung AKTIF untuk ditunjukkan ke Satpam gerbang!
+        const isCheckedOut = leave?.status === 'checked_out' || 
+            leave?.status === 'approved_by_bk' || 
+            leave?.status === 'APPROVED' ||
+            gatepass?.status === 'ACTIVE_APPROVED' || 
+            gatepass?.status === 'COMPLETED' ||
+            gatepass?.status === 'APPROVED';
 
-        const singleUseToken = gatepass?.singleUseCheckoutToken || `GP-${gatepass?.id || leave?.id}`;
+        const isReadyForScan = false;
+        const isScanLocked = false;
+
+        const singleUseToken = gatepass?.singleUseCheckoutToken || `GP-${(gatepass?.id || leave?.id || 'RESMI').substring(0, 8).toUpperCase()}`;
         const qrVerificationPayload = `SMARTCBT-GATEPASS:${singleUseToken}:${gatepass?.id || leave?.id}`;
 
         return res.json({
@@ -253,16 +260,16 @@ export const getActiveStudentLeave = async (req: Request, res: Response) => {
                 eventName: leave?.eventName || null,
                 pickupPerson: gatepass?.pickupBy || leave?.pickupPerson || 'Mandiri',
                 pickupBy: gatepass?.pickupBy || leave?.pickupPerson || 'Mandiri',
-                status: gatepass?.status || leave?.status,
+                status: isCheckedOut ? 'ACTIVE_APPROVED' : (gatepass?.status || leave?.status),
                 appliedAt: gatepass?.createdAt || leave?.appliedAt,
-                approvedAt: gatepass?.verifiedAt || leave?.approvedAt,
-                checkedOutAt: gatepass?.verifiedAt || leave?.checkedOutAt,
+                approvedAt: gatepass?.verifiedAt || leave?.approvedAt || now,
+                checkedOutAt: gatepass?.verifiedAt || leave?.checkedOutAt || now,
                 validUntil,
-                remainingSeconds,
+                remainingSeconds: remainingSeconds > 0 ? remainingSeconds : (45 * 60),
                 singleUseCheckoutToken: singleUseToken,
                 qrVerificationPayload,
-                statusText: isCheckedOut ? 'SAH KELUAR GERBANG (IZIN RESMI BK - AKTIF 45 MENIT)' : 'MENUNGGU VERIFIKASI BK',
-                counselorNotes: gatepass?.rejectionReason || leave?.counselorNotes,
+                statusText: isCheckedOut ? 'SAH KELUAR GERBANG (IZIN RESMI BK - TUNJUKKAN KE SATPAM)' : 'MENUNGGU PERSETUJUAN GURU BK',
+                counselorNotes: gatepass?.rejectionReason || leave?.counselorNotes || 'Telah disetujui Guru BK. Tunjukkan QR ini ke Satpam pos gerbang.',
                 stationName: leave?.station?.stationName || 'Ruang Konseling BK',
                 approvedByBkName: gatepass?.approvedByBk?.name || 'Guru BK',
                 student: leave?.student || (gatepass ? { id: gatepass.studentId } : null)
@@ -369,18 +376,37 @@ export const approveCounselorLeave = async (req: Request, res: Response) => {
             return res.status(400).json({ success: false, message: 'Izin ini sudah selesai checkout di meja BK.' });
         }
 
+        const now = new Date();
+        const validUntil = new Date(now.getTime() + 45 * 60 * 1000);
+        const singleToken = `GP-${leave.id.substring(0, 8).toUpperCase()}-${Math.floor(1000 + Math.random() * 9000)}`;
+
         const updated = await (prisma as any).studentLeave.update({
             where: { id },
             data: {
                 status: 'approved_by_bk',
                 counselorId: counselorId || null,
-                counselorNotes: counselorNotes?.trim() || 'Disetujui oleh Guru BK. Silakan datang ke Ruang BK untuk checkout fisik.',
-                approvedAt: new Date()
+                counselorNotes: counselorNotes?.trim() || 'Disetujui oleh Guru BK. Tiket izin resmi telah aktif. Tunjukkan QR ke Satpam di pos gerbang.',
+                approvedAt: now,
+                checkedOutAt: now
             },
             include: { student: true }
         });
 
-        // Kirim notifikasi realtime ke HP Siswa
+        // Sinkronkan ke model gatepassRequest jika ada
+        try {
+            await (prisma as any).gatepassRequest.updateMany({
+                where: { studentId: leave.studentId, status: { in: ['PENDING', 'WAITING_BK_SCAN'] } },
+                data: {
+                    status: 'ACTIVE_APPROVED',
+                    approvedByBkId: counselorId || null,
+                    singleUseCheckoutToken: singleToken,
+                    validUntil: validUntil,
+                    verifiedAt: now
+                }
+            });
+        } catch (e) {}
+
+        // Kirim notifikasi realtime ke HP Siswa (Hanya untuk siswa yang bersangkutan!)
         try {
             await (prisma as any).notificationMessage.create({
                 data: {
@@ -388,8 +414,8 @@ export const approveCounselorLeave = async (req: Request, res: Response) => {
                     studentId: leave.studentId,
                     studentName: leave.student.name,
                     className: leave.student.className || '-',
-                    title: '✅ Izin Disetujui Guru BK!',
-                    message: `Pengajuan ${leave.leaveType} Anda telah disetujui oleh ${counselorName}. Tombol pemindai QR telah AKTIF. Silakan lakukan scan QR di Meja BK untuk mengambil Digital Exit Pass.`,
+                    title: '✅ Izin Keluar Disetujui Guru BK!',
+                    message: `Pengajuan izin ${leave.leaveType || 'keluar sekolah'} Anda telah disetujui oleh ${counselorName}. Tiket digital dan barcode izin resmi kini telah AKTIF. Tunjukkan kode QR di aplikasi Anda ke Satpam pos gerbang.`,
                     category: 'STUDENT_LEAVE'
                 }
             });
@@ -397,7 +423,7 @@ export const approveCounselorLeave = async (req: Request, res: Response) => {
 
         return res.json({
             success: true,
-            message: `Izin ${leave.student.name} berhasil disetujui. Tombol scanner di HP siswa kini telah AKTIF.`,
+            message: `Izin ${leave.student.name} berhasil disetujui. Tiket QR keluar gerbang untuk Satpam telah aktif di aplikasi siswa.`,
             data: updated
         });
     } catch (error: any) {
@@ -503,7 +529,7 @@ export const antiTruantCheckHook = async (
                     studentName: student.name,
                     className: student.className || '-',
                     title: `🚨 PERINGATAN DARURAT: Siswa Terdeteksi Bolos Pelajaran!`,
-                    message: `PERHATIAN ORANG TUA: Ananda ${student.name} tercatat hadir di gerbang sekolah pagi ini, namun terdeteksi TIDAK BERADA DI KELAS pada jam pelajaran ${periodSessionInfo?.subjectName || 'KBM'} tanpa izin resmi dari Ruang BK. Tindakan ini diklasifikasikan sebagai pelanggaran BOLOS dan telah dikenakan sanksi ${penaltyPoints} Poin Kedisiplinan.`,
+                    message: `PERHATIAN ORANG TUA: Ananda ${student.name} tercatat hadir di area SMP Negeri 1 Boyolangu pagi ini, namun terdeteksi TIDAK BERADA DI KELAS pada jam pelajaran ${periodSessionInfo?.subjectName || 'KBM'} tanpa izin resmi dari Ruang BK. Tindakan ini diklasifikasikan sebagai pelanggaran BOLOS dan telah dikenakan sanksi ${penaltyPoints} Poin Kedisiplinan.`,
                     category: 'DISCIPLINE_EMERGENCY'
                 }
             });

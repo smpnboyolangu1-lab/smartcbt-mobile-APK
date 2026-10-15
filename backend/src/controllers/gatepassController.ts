@@ -1,12 +1,15 @@
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import crypto from 'crypto';
+import jwt from 'jsonwebtoken';
+import { extractWebToken } from '../middlewares/authMiddleware';
 
 const prisma = new PrismaClient();
+const getJwtSecret = () => process.env.JWT_SECRET || 'cbt_prod_secret_f9a83b27c64e10d592a8174fec01849a62bc38102d7e481b9201948271039841';
 
 const DYNAMIC_QR_SECRET_SALT = process.env.GATEPASS_QR_SECRET || 'SMARTCBT_BK_GATEPASS_HMAC_SECRET_2026';
 const ROTATION_WINDOW_MS = 45 * 1000; // 45 Detik rotasi anti-fraud
-const GATEPASS_VALIDITY_MINUTES = 45; // 45 Menit batas waktu keluar gerbang satpam
+const GATEPASS_VALIDITY_MINUTES = 30; // 30 Menit batas waktu keluar gerbang satpam
 
 /**
  * Helper: Hitung HMAC-SHA256 untuk Dynamic Rotating QR Ruang BK
@@ -340,43 +343,56 @@ export const updateGatepassStatusByBk = async (req: Request, res: Response) => {
             });
         }
 
-        // Default: WAITING_BK_SCAN
-        const updated = await prisma.gatepassRequest.update({
-            where: { id: gatepassId },
-            data: {
-                status: 'WAITING_BK_SCAN',
-                approvedByBkId: bkUser?.id || null
-            },
-            include: { student: true }
-        });
+        // BK MENYETUJUI: Langsung ACTIVE_APPROVED + terbitkan token QR checkout siswa (Valid 30 Menit)
+        const verifiedAt = new Date();
+        const validUntil = new Date(verifiedAt.getTime() + GATEPASS_VALIDITY_MINUTES * 60 * 1000);
+        const singleUseToken = `GP-CHK-${crypto.randomBytes(12).toString('hex').toUpperCase()}`;
+        const norm = normalizeCategory(gatepass.leaveCategory);
 
-        try {
-            await (prisma as any).studentLeave.updateMany({
-                where: { studentId: gatepass.studentId, status: 'submitted' },
+        const updated = await prisma.$transaction(async (tx: any) => {
+            const up = await tx.gatepassRequest.update({
+                where: { id: gatepassId },
                 data: {
-                    status: 'approved_by_bk',
-                    counselorId: bkUser?.id || null,
-                    counselorNotes: counselorNotes || 'Silakan pindai Dynamic QR di layar Guru BK.',
-                    approvedAt: new Date()
-                }
+                    status: 'ACTIVE_APPROVED',
+                    approvedByBkId: bkUser?.id || null,
+                    verifiedAt,
+                    validUntil,
+                    singleUseCheckoutToken: singleUseToken,
+                    counselorNotes: counselorNotes || 'Disetujui Guru BK. Tunjukkan QR Code di HP kepada Satpam di gerbang.'
+                },
+                include: { student: true, approvedByBk: true }
             });
 
-            await prisma.notificationMessage.create({
+            try {
+                await tx.studentLeave.updateMany({
+                    where: { studentId: gatepass.studentId, status: { in: ['submitted', 'approved_by_bk'] } },
+                    data: {
+                        status: 'approved_by_bk',
+                        counselorId: bkUser?.id || null,
+                        counselorNotes: counselorNotes || 'Disetujui Guru BK. Tunjukkan QR ke Satpam gerbang.',
+                        approvedAt: verifiedAt
+                    }
+                });
+            } catch (e) {}
+
+            await tx.notificationMessage.create({
                 data: {
                     recipientRole: 'STUDENT',
                     studentId: gatepass.studentId,
                     studentName: studentName,
                     className: studentClass,
-                    title: '✅ Panggilan Verifikasi Ruang BK',
-                    message: `Permohonan Gatepass Anda telah diverifikasi awal oleh Guru BK. Silakan menghadap Guru BK dan pindai Dynamic Rotating QR di layar BK.`,
+                    title: '✅ Dispensasi / Izin Disetujui Guru BK!',
+                    message: `Permohonan Gatepass Anda telah disetujui Guru BK (${bkUser?.name || 'Guru BK'}). Buka aplikasi Smart CBT dan tunjukkan QR Code Anda kepada Petugas Keamanan (Satpam) di gerbang keluar sekolah.`,
                     category: 'STUDENT_LEAVE'
                 }
             });
-        } catch (e) {}
+
+            return up;
+        });
 
         return res.json({
             success: true,
-            message: `Status diperbarui ke WAITING_BK_SCAN. Siswa ${studentName} kini dapat memindai Dynamic QR BK.`,
+            message: `Dispensasi siswa ${studentName} disetujui! Siswa kini memegang QR Code Dinamis untuk di-scan Satpam gerbang.`,
             data: updated
         });
     } catch (error: any) {
@@ -391,7 +407,7 @@ export const updateGatepassStatusByBk = async (req: Request, res: Response) => {
  * Mengubah status -> ACTIVE_APPROVED + 3 Trigger Otomatis dalam 1 Atomic Database Transaction:
  *   - Trigger 1: Auto-Sync Presensi Sisa Mata Pelajaran (SIAKAD) -> SICK / PERMISSION (Locked)
  *   - Trigger 2: Instant Push Notification ke Orang Tua (dengan Jam Keluar & Nama Guru BK)
- *   - Trigger 3: Penerbitan Digital Gatepass Card (#10B981) + Single-Use Checkout Token (Valid 45 Menit)
+ *   - Trigger 3: Penerbitan Digital Gatepass Card (#10B981) + Single-Use Checkout Token (Valid 30 Menit)
  */
 export const verifyGatepassByBkScan = async (req: Request, res: Response) => {
     try {
@@ -634,17 +650,8 @@ export const verifyGatepassByBkScan = async (req: Request, res: Response) => {
                 }
             }
 
-            // C. Catat Presensi Gerbang (GATE_OUT)
-            await tx.attendance.create({
-                data: {
-                    userId: studentId,
-                    type: 'GATE_OUT',
-                    method: 'BK_EXIT_PASS',
-                    status: norm.attendanceStatus,
-                    scanTime: verifiedAt,
-                    note: `[Gatepass Disetujui BK: ${verifiedBkName}] Kategori: ${norm.label}. Alasan: ${gatepass!.reason}. Penjemput: ${gatepass!.pickupBy || 'Mandiri'}`
-                }
-            });
+            // C. Status Keluar Gerbang (GATE_OUT) dicatat secara resmi oleh Satpam saat checkout di gerbang sekolah
+            // Mencegah duplikasi catatan GATE_OUT ganda antara Ruang BK dan Pos Satpam.
 
             // D. TRIGGER 2: Instant Push Notification ke Orang Tua Siswa
             const timeFormatted = verifiedAt.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
@@ -654,8 +661,15 @@ export const verifyGatepassByBkScan = async (req: Request, res: Response) => {
                     studentId,
                     studentName: gatepass!.student.name,
                     className: gatepass!.student.className || '-',
-                    title: `🚪 Izin Pulang Disetujui BK: ${gatepass!.student.name}`,
-                    message: `Pemberitahuan Resmi Sekolah: Ananda ${gatepass!.student.name} (${gatepass!.student.className || '-'}) telah diizinkan pulang lebih awal pada pukul ${timeFormatted} WIB dengan kategori [${norm.label}]. Alasan: "${gatepass!.reason}". Diverifikasi tatap muka oleh Guru BK: ${verifiedBkName}. Penjemput: ${gatepass!.pickupBy || 'Mandiri'}.`,
+                    title: `🕊️ [SIBOY IZIN RESMI] Ananda Diizinkan Pulang Lebih Awal via BK`,
+                    message: `Yth. Bapak/Ibu Wali Murid dari ananda ${gatepass!.student.name} (Kelas ${gatepass!.student.className || '-'}):\n\n` +
+                             `Kami menginformasikan bahwa ananda telah diverifikasi secara sah di Ruang Konseling BK untuk meninggalkan sekolah lebih awal:\n` +
+                             `• Waktu Persetujuan: ${timeFormatted} WIB\n` +
+                             `• Kategori Izin: ${norm.label}\n` +
+                             `• Alasan / Keterangan: ${gatepass!.reason}\n` +
+                             `• Guru BK Pemverifikasi: ${verifiedBkName}\n` +
+                             `• Penjemput: ${gatepass!.pickupBy || 'Mandiri'}\n\n` +
+                             `Ananda memegang Tiket Digital Gatepass untuk pemeriksaan akhir di Pos Keamanan SMP Negeri 1 Boyolangu. Mohon pantau kepulangan ananda hingga tiba di rumah. Terima kasih.`,
                     category: 'STUDENT_LEAVE'
                 }
             });
@@ -673,7 +687,7 @@ export const verifyGatepassByBkScan = async (req: Request, res: Response) => {
 
         return res.json({
             success: true,
-            message: '🎉 Verifikasi QR Ruang BK Berhasil! Kartu Digital Gatepass Hijau (#10B981) telah aktif selama 45 menit.',
+            message: '🎉 Verifikasi QR Ruang BK Berhasil! Kartu Digital Gatepass Hijau (#10B981) telah aktif selama 30 menit.',
             data: formatted,
             exitPass: formatted
         });
@@ -767,7 +781,7 @@ export const checkoutGatepassBySatpam = async (req: Request, res: Response) => {
             return res.status(403).json({
                 success: false,
                 code: 'GATEPASS_EXPIRED',
-                message: '⏳ Batas waktu 45 menit Digital Gatepass telah HABIS (EXPIRED)! Siswa wajib kembali ke Ruang BK untuk perpanjangan izin.'
+                message: '⏳ Batas waktu 30 menit Digital Gatepass telah HABIS (EXPIRED)! Siswa wajib kembali ke Ruang BK untuk perpanjangan izin.'
             });
         }
 
@@ -781,13 +795,47 @@ export const checkoutGatepassBySatpam = async (req: Request, res: Response) => {
                 if (satpamExists) satpamIdToSave = satpamExists.id;
             }
 
-            const updated = await tx.gatepassRequest.update({
-                where: { id: gatepass.id },
+            // K-1 ATOMIC CONDITIONAL UPDATE: Mencegah race condition dari 2 scan checkout simultan
+            const updateResult = await tx.gatepassRequest.updateMany({
+                where: {
+                    id: gatepass.id,
+                    status: 'ACTIVE_APPROVED',
+                    OR: [
+                        { validUntil: null },
+                        { validUntil: { gte: now } }
+                    ]
+                },
                 data: {
                     status: 'COMPLETED',
                     exitTimestamp: now,
                     checkoutSatpamId: satpamIdToSave
-                },
+                }
+            });
+
+            if (updateResult.count === 0) {
+                const currentStatus = await tx.gatepassRequest.findUnique({
+                    where: { id: gatepass.id },
+                    select: { status: true, exitTimestamp: true, validUntil: true }
+                });
+
+                if (currentStatus?.status === 'COMPLETED') {
+                    const err: any = new Error('GATEPASS_ALREADY_USED');
+                    err.code = 'GATEPASS_ALREADY_USED';
+                    err.exitTimestamp = currentStatus.exitTimestamp;
+                    throw err;
+                }
+                if (currentStatus?.validUntil && currentStatus.validUntil < now) {
+                    const err: any = new Error('GATEPASS_EXPIRED');
+                    err.code = 'GATEPASS_EXPIRED';
+                    throw err;
+                }
+                const err: any = new Error('GATEPASS_NOT_ACTIVE');
+                err.code = 'GATEPASS_NOT_ACTIVE';
+                throw err;
+            }
+
+            const updated = await tx.gatepassRequest.findUnique({
+                where: { id: gatepass.id },
                 include: {
                     student: { select: { id: true, name: true, className: true, nisn: true, profilePicUrl: true } },
                     approvedByBk: { select: { id: true, name: true } },
@@ -795,7 +843,67 @@ export const checkoutGatepassBySatpam = async (req: Request, res: Response) => {
                 }
             });
 
-            // Kirim notifikasi konfirmasi keluar gerbang ke Orang Tua
+            // 1. Catat Presensi Gerbang Keluar (GATE_OUT) secara Idempoten (hanya 1 catatan per hari)
+            const wibOffsetMs = 7 * 60 * 60 * 1000;
+            const wibNow = new Date(now.getTime() + wibOffsetMs);
+            const dateKey = wibNow.toISOString().split('T')[0];
+            const todayStart = new Date(`${dateKey}T00:00:00.000+07:00`);
+            const todayEnd = new Date(`${dateKey}T23:59:59.999+07:00`);
+
+            const existingGateOut = await tx.attendance.findFirst({
+                where: {
+                    userId: gatepass.studentId,
+                    type: 'GATE_OUT',
+                    scanTime: { gte: todayStart, lte: todayEnd }
+                }
+            });
+
+            if (!existingGateOut) {
+                await tx.attendance.create({
+                    data: {
+                        userId: gatepass.studentId,
+                        type: 'GATE_OUT',
+                        method: 'SATPAM_QR_SCAN',
+                        status: norm.attendanceStatus,
+                        scanTime: now,
+                        note: `[Checkout Gerbang Satpam: ${satpamName}] Gatepass Disetujui BK (${gatepass.approvedByBk?.name || 'Guru BK'}). Kategori: ${norm.label}. Alasan: ${gatepass.reason}. Penjemput: ${gatepass.pickupBy || 'Mandiri'}`
+                    }
+                });
+            }
+
+            try {
+                const activeTeachingSessions = await tx.teachingSession.findMany({
+                    where: {
+                        className: gatepass.student.className,
+                        startedAt: { gte: todayStart, lte: todayEnd }
+                    }
+                });
+                for (const tSess of activeTeachingSessions) {
+                    await tx.studentSubjectAttendance.upsert({
+                        where: {
+                            sessionId_studentId: {
+                                sessionId: tSess.id,
+                                studentId: gatepass.studentId
+                            }
+                        },
+                        update: {
+                            status: norm.attendanceStatus,
+                            isLockedByGate: true,
+                            notes: `[Gatepass BK: ${norm.label}] Checkout Satpam (${now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB)`
+                        },
+                        create: {
+                            sessionId: tSess.id,
+                            studentId: gatepass.studentId,
+                            status: norm.attendanceStatus,
+                            morningGateStatus: norm.attendanceStatus,
+                            isLockedByGate: true,
+                            notes: `[Gatepass BK: ${norm.label}] Checkout Satpam`
+                        }
+                    });
+                }
+            } catch (sessErr) {}
+
+            // 3. Kirim notifikasi konfirmasi keluar gerbang ke Orang Tua
             const exitTimeStr = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
             await tx.notificationMessage.create({
                 data: {
@@ -803,8 +911,8 @@ export const checkoutGatepassBySatpam = async (req: Request, res: Response) => {
                     studentId: gatepass.studentId,
                     studentName: gatepass.student.name,
                     className: gatepass.student.className || '-',
-                    title: `✅ Siswa Telah Melewati Gerbang Sekolah: ${gatepass.student.name}`,
-                    message: `Konfirmasi Pos Keamanan: Ananda ${gatepass.student.name} (${gatepass.student.className || '-'}) telah melewati gerbang utama sekolah pada pukul ${exitTimeStr} WIB (Diverifikasi Satpam: ${satpamName}). Status Izin: ${norm.label}.`,
+                    title: `✅ Siswa Telah Melewati Area SMP Negeri 1 Boyolangu: ${gatepass.student.name}`,
+                    message: `Konfirmasi Pos Keamanan: Ananda ${gatepass.student.name} (${gatepass.student.className || '-'}) telah melewati gerbang utama sekolah pada pukul ${exitTimeStr} WIB (Diverifikasi Satpam: ${satpamName}). Status Izin: ${norm.label}. Penjemput: ${gatepass.pickupBy || 'Mandiri'}.`,
                     category: 'STUDENT_LEAVE'
                 }
             });
@@ -819,6 +927,27 @@ export const checkoutGatepassBySatpam = async (req: Request, res: Response) => {
         });
     } catch (error: any) {
         console.error('Error checkoutGatepassBySatpam:', error);
+        if (error.code === 'GATEPASS_ALREADY_USED') {
+            return res.status(400).json({
+                success: false,
+                code: 'GATEPASS_ALREADY_USED',
+                message: `⚠️ Tiket Gatepass ini SUDAH DIGUNAKAN (Single-Use) pada pukul ${error.exitTimestamp ? new Date(error.exitTimestamp).toLocaleTimeString('id-ID') : '-'} WIB.`
+            });
+        }
+        if (error.code === 'GATEPASS_EXPIRED') {
+            return res.status(403).json({
+                success: false,
+                code: 'GATEPASS_EXPIRED',
+                message: '⏳ Batas waktu 30 menit Digital Gatepass telah HABIS (EXPIRED)! Siswa wajib kembali ke Ruang BK untuk perpanjangan izin.'
+            });
+        }
+        if (error.code === 'GATEPASS_NOT_ACTIVE') {
+            return res.status(403).json({
+                success: false,
+                code: 'GATEPASS_NOT_ACTIVE',
+                message: '⛔ Status Gatepass siswa belum aktif atau belum diverifikasi di Ruang BK!'
+            });
+        }
         return res.status(500).json({
             success: false,
             message: error.message || 'Gagal memproses checkout gerbang satpam.'
@@ -850,15 +979,20 @@ export const generateGatepassDynamicQr = async (req: Request, res: Response) => 
             return res.status(404).json({ success: false, message: 'Data Gatepass tidak ditemukan.' });
         }
 
-        // Siswa hanya boleh meminta QR untuk gatepass miliknya sendiri (kecuali staff/admin/satpam)
+        // Otorisasi: Siswa hanya boleh meminta QR untuk tiketnya sendiri; Staff/Admin/Satpam/BK diizinkan
+        const allowedStaffRoles = ['ADMIN', 'OPERATOR', 'COUNSELOR', 'SATPAM', 'SECURITY'];
         if (user && user.role === 'PARENT') {
             return res.status(403).json({
                 success: false,
                 message: 'Digital Gatepass tidak berlaku untuk akun Orang Tua.'
             });
         }
-        if (user && user.role === 'STUDENT' && gatepass.studentId !== user.id) {
-            return res.status(403).json({ success: false, message: 'Akses ditolak.' });
+        if (user && !allowedStaffRoles.includes(user.role)) {
+            if (user.role === 'STUDENT' && gatepass.studentId !== user.id) {
+                return res.status(403).json({ success: false, message: 'Akses ditolak. Anda hanya dapat melihat QR tiket Anda sendiri.' });
+            } else if (user.role !== 'STUDENT') {
+                return res.status(403).json({ success: false, message: 'Akses ditolak.' });
+            }
         }
 
         const now = new Date();
@@ -971,16 +1105,30 @@ export const generateGatepassDynamicQr = async (req: Request, res: Response) => 
  */
 export const verifyGatepassScan = async (req: Request, res: Response) => {
     try {
-        const satpamUser = (req as any).user;
+        let satpamUser = (req as any).user;
+        if (!satpamUser) {
+            const tok = extractWebToken(req);
+            if (tok) {
+                try {
+                    satpamUser = jwt.verify(tok, getJwtSecret());
+                } catch (e) {}
+            }
+        }
         const { qrPayload, token, checkoutToken, gatepassId, action, satpamNotes } = req.body;
-        const rawInput = String(qrPayload || checkoutToken || token || gatepassId || '').trim();
+        let rawInput = String(qrPayload || checkoutToken || token || gatepassId || '').trim();
         const currentAction = (action || 'CHECKOUT').toUpperCase();
 
         if (!rawInput) {
             return res.status(400).json({
                 success: false,
-                message: 'QR Code atau Token Gatepass wajib dikirim.'
+                message: 'QR Code, Token Gatepass, atau NISN Siswa wajib dikirim.'
             });
+        }
+
+        // Jika pindaian berupa Kartu Pelajar (STUDENT_MEMBER:<id>:<nisn>:...)
+        if (rawInput.startsWith('STUDENT_MEMBER:')) {
+            const sparts = rawInput.split(':');
+            rawInput = sparts[2] || sparts[1] || rawInput;
         }
 
         let lookupToken = rawInput;
@@ -1027,7 +1175,7 @@ export const verifyGatepassScan = async (req: Request, res: Response) => {
             lookupToken = parts[2] || rawInput;
         }
 
-        const gatepass = await prisma.gatepassRequest.findFirst({
+        let gatepass = await prisma.gatepassRequest.findFirst({
             where: {
                 OR: [
                     { singleUseCheckoutToken: lookupToken },
@@ -1047,6 +1195,36 @@ export const verifyGatepassScan = async (req: Request, res: Response) => {
                 }
             }
         });
+
+        // Fallback: Jika tidak ditemukan via Token/ID, cari berdasarkan NISN / Username siswa hari ini
+        if (!gatepass) {
+            const todayStart = new Date();
+            todayStart.setHours(0, 0, 0, 0);
+            gatepass = await prisma.gatepassRequest.findFirst({
+                where: {
+                    createdAt: { gte: todayStart },
+                    student: {
+                        OR: [
+                            { nisn: rawInput },
+                            { username: rawInput },
+                            { id: rawInput }
+                        ]
+                    }
+                },
+                include: {
+                    student: {
+                        select: { id: true, name: true, className: true, nisn: true, profilePicUrl: true, parentPhone: true }
+                    },
+                    approvedByBk: {
+                        select: { id: true, name: true }
+                    },
+                    checkoutSatpam: {
+                        select: { id: true, name: true }
+                    }
+                },
+                orderBy: { createdAt: 'desc' }
+            });
+        }
 
         if (!gatepass) {
             return res.status(404).json({
@@ -1172,7 +1350,7 @@ export const verifyGatepassScan = async (req: Request, res: Response) => {
                     studentId: gatepass.studentId,
                     studentName: gatepass.student.name,
                     className: gatepass.student.className || '-',
-                    title: `🚪 Siswa Telah Melewati Gerbang Sekolah: ${gatepass.student.name}`,
+                    title: `🚪 Siswa Telah Melewati Area SMP Negeri 1 Boyolangu: ${gatepass.student.name}`,
                     message: `Konfirmasi Pos Keamanan: Ananda ${gatepass.student.name} (${gatepass.student.className || '-'}) telah melewati gerbang utama sekolah pada pukul ${exitTimeStr} WIB (Diverifikasi Satpam: ${satpamName}). Status Izin: ${norm.label}. Penjemput: ${gatepass.pickupBy || 'Mandiri'}.`,
                     category: 'STUDENT_LEAVE'
                 }
@@ -1421,7 +1599,59 @@ function formatGatepassResponse(gatepass: any, bkName: string, stationName: stri
         qrVerificationPayload: `SMARTCBT-GATEPASS:${checkoutToken}:${gatepass.id}`,
         statusText: gatepass.status === 'COMPLETED'
             ? 'SUDAH KELUAR GERBANG (TERVERIFIKASI SATPAM)'
-            : 'SAH KELUAR GERBANG (IZIN RESMI BK - AKTIF 45 MENIT)',
+            : 'SAH KELUAR GERBANG (IZIN RESMI BK - AKTIF 30 MENIT)',
         student: gatepass.student
     };
 }
+
+/**
+ * 8. RIWAYAT PERIZINAN KELUAR SEKOLAH SISWA
+ * GET /api/v1/gatepass/history
+ */
+export const getStudentLeaveHistory = async (req: Request, res: Response) => {
+    try {
+        const studentId = (req as any).user?.id;
+        if (!studentId) {
+            return res.status(401).json({ success: false, message: 'Autentikasi diperlukan.' });
+        }
+
+        const list = await prisma.gatepassRequest.findMany({
+            where: { studentId },
+            include: {
+                approvedByBk: { select: { id: true, name: true } },
+                checkoutSatpam: { select: { id: true, name: true } }
+            },
+            orderBy: { createdAt: 'desc' },
+            take: 50
+        });
+
+        const formatted = list.map(g => {
+            const norm = normalizeCategory(g.leaveCategory);
+            return {
+                id: g.id,
+                leaveCategory: g.leaveCategory,
+                categoryLabel: norm.label,
+                leaveType: norm.leaveType,
+                reason: g.reason,
+                pickupBy: g.pickupBy || 'Mandiri',
+                status: g.status,
+                rejectionReason: g.rejectionReason,
+                counselorNotes: (g as any).counselorNotes || g.rejectionReason || null,
+                approvedByBk: g.approvedByBk?.name || null,
+                checkoutSatpam: g.checkoutSatpam?.name || null,
+                createdAt: g.createdAt,
+                verifiedAt: g.verifiedAt,
+                exitTimestamp: g.exitTimestamp
+            };
+        });
+
+        return res.json({
+            success: true,
+            count: formatted.length,
+            data: formatted
+        });
+    } catch (error: any) {
+        console.error('Error getStudentLeaveHistory:', error);
+        return res.status(500).json({ success: false, message: error.message || 'Gagal memuat riwayat perizinan.' });
+    }
+};

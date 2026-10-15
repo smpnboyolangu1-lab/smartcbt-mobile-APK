@@ -36,6 +36,9 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         sessionManager = SessionManager(this)
 
+        // Inisialisasi engine audio & TTS suara resmi sekolah sejak awal startup
+        com.school.smartcbt.utils.TtsVoiceHelper.init(this)
+
         // Langsung periksa ketersediaan pembaruan APK saat aplikasi pertama kali dibuka
         com.school.smartcbt.utils.AppUpdateChecker.checkForUpdates(this)
 
@@ -45,6 +48,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        com.school.smartcbt.utils.DialogHelper.dismissMandatoryAllFilesDialogIfGranted(this)
         com.school.smartcbt.utils.AppUpdateChecker.resumePendingInstallIfAny(this)
         if (hasRequestedInitialPermissions) {
             checkMandatoryConditionsAndProceed()
@@ -61,13 +65,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun isAllFilesAccessGranted(): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            Environment.isExternalStorageManager()
-        } else {
-            val read = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
-            val write = ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
-            read && write
-        }
+        return com.school.smartcbt.utils.DialogHelper.isAllFilesAccessGranted(this)
     }
 
     private fun areBasicPermissionsGranted(): Boolean {
@@ -163,38 +161,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showAllFilesPermissionDialog() {
-        if (blockingDialog?.isShowing == true) return
-
-        blockingDialog = AlertDialog.Builder(this)
-            .setTitle("📁 Izin Akses Semua Berkas Wajib")
-            .setMessage("Untuk kelancaran sinkronisasi materi tugas, modul ujian CBT, dan telemetri perangkat sekolah, aplikasi Smart CBT WAJIB memiliki izin 'Akses Semua Berkas' (All Files Access).\n\nKlik tombol di bawah untuk mengaktifkan izin ini pada pengaturan.")
-            .setCancelable(false)
-            .setPositiveButton("Aktifkan Akses Berkas") { _, _ ->
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    try {
-                        val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
-                            data = Uri.parse("package:$packageName")
-                        }
-                        startActivity(intent)
-                    } catch (e: Exception) {
-                        try {
-                            val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
-                            startActivity(intent)
-                        } catch (e2: Exception) {}
-                    }
-                } else {
-                    try {
-                        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                            data = Uri.parse("package:$packageName")
-                        }
-                        startActivity(intent)
-                    } catch (e: Exception) {}
-                }
-            }
-            .setNegativeButton("Keluar") { _, _ ->
-                finishAffinity()
-            }
-            .create().apply { show() }
+        com.school.smartcbt.utils.DialogHelper.showMandatoryAllFilesDialog(this)
     }
 
     private fun showGpsActivationDialog() {
@@ -219,20 +186,37 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun proceedToNextScreen() {
+        val triggerUpdate = intent.getBooleanExtra("EXTRA_TRIGGER_UPDATE", false)
         // PERMANENT SESSION: Langsung masuk ke Dashboard tanpa auto-logout
         if (sessionManager.isLoggedIn()) {
             val role = sessionManager.getRole()
-            if (role == "TEACHER" || role == "GURU") {
-                startActivity(Intent(this, TeacherMainActivity::class.java))
+            val targetIntent = if (role == "SECURITY" || role == "SATPAM") {
+                Intent(this, com.school.smartcbt.ui.SatpamMainActivity::class.java)
+            } else if (role == "KANTIN" || role == "CANTIN" || role == "KASIR" || role == "STAND_KANTIN") {
+                Intent(this, com.school.smartcbt.ui.KantinMainActivity::class.java)
+            } else if (role == "COUNSELOR" || role == "BK") {
+                Intent(this, com.school.smartcbt.ui.BkActivity::class.java)
+            } else if (role == "OPERATOR" || role == "ADMIN") {
+                Intent(this, com.school.smartcbt.ui.OperatorMainActivity::class.java)
+            } else if (role == "TEACHER" || role == "GURU") {
+                Intent(this, TeacherMainActivity::class.java)
             } else if (role == "PARENT" || role == "ORANGTUA") {
-                startActivity(Intent(this, ParentMainActivity::class.java))
+                Intent(this, ParentMainActivity::class.java)
             } else if (role == "STUDENT" || role == "SISWA") {
-                startActivity(Intent(this, StudentMainActivity::class.java))
+                Intent(this, StudentMainActivity::class.java)
             } else {
-                startActivity(Intent(this, LoginActivity::class.java))
+                Intent(this, LoginActivity::class.java)
             }
+            if (triggerUpdate) {
+                targetIntent.putExtra("EXTRA_TRIGGER_UPDATE", true)
+            }
+            startActivity(targetIntent)
         } else {
-            startActivity(Intent(this, LoginActivity::class.java))
+            val loginIntent = Intent(this, LoginActivity::class.java)
+            if (triggerUpdate) {
+                loginIntent.putExtra("EXTRA_TRIGGER_UPDATE", true)
+            }
+            startActivity(loginIntent)
         }
         finish()
     }

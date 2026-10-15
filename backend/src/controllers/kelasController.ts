@@ -2,6 +2,10 @@ import { Request, Response } from 'express';
 import { supabase } from '../utils/supabaseClient';
 import prisma from '../utils/db';
 import { invalidateCommitteeCache, getClassCommittee, checkStudentCommitteeRole } from '../utils/classCommittee';
+import { compareClassNames } from '../utils/classSort';
+
+let cachedSupabaseData: { supabaseMap: Record<string, any>; guruMap: Record<string, any>; timestamp: number } | null = null;
+const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes cache
 
 export const getKelas = async (req: Request, res: Response) => {
     try {
@@ -10,23 +14,41 @@ export const getKelas = async (req: Request, res: Response) => {
             orderBy: { name: 'asc' }
         });
 
-        // Coba sinkronisasi jika Supabase tersedia
+        // Coba sinkronisasi jika Supabase tersedia dengan in-memory cache
         let supabaseMap: Record<string, any> = {};
         let guruMap: Record<string, any> = {};
-        try {
-            const { data: kData } = await supabase.from('kelas').select('*');
-            if (Array.isArray(kData)) {
-                kData.forEach(k => { supabaseMap[k.nama] = k; });
+
+        if (cachedSupabaseData && (Date.now() - cachedSupabaseData.timestamp < CACHE_TTL_MS)) {
+            supabaseMap = cachedSupabaseData.supabaseMap;
+            guruMap = cachedSupabaseData.guruMap;
+        } else {
+            try {
+                // Timeout 1.5 detik agar tidak memblokir SQLite lokal
+                const fetchPromise = Promise.all([
+                    supabase.from('kelas').select('*'),
+                    supabase.from('guru').select('*')
+                ]);
+                const timeoutPromise = new Promise<null>((_, reject) => setTimeout(() => reject(new Error('Supabase timeout')), 1500));
+                const [kRes, gRes] = await Promise.race([fetchPromise, timeoutPromise]) as any;
+
+                if (kRes && Array.isArray(kRes.data)) {
+                    kRes.data.forEach((k: any) => { supabaseMap[k.nama] = k; });
+                }
+                if (gRes && Array.isArray(gRes.data)) {
+                    gRes.data.forEach((g: any) => { guruMap[g.id] = g; });
+                }
+                cachedSupabaseData = { supabaseMap, guruMap, timestamp: Date.now() };
+            } catch (e) {
+                if (cachedSupabaseData) {
+                    supabaseMap = cachedSupabaseData.supabaseMap;
+                    guruMap = cachedSupabaseData.guruMap;
+                }
             }
-            const { data: gData } = await supabase.from('guru').select('*');
-            if (Array.isArray(gData)) {
-                gData.forEach(g => { guruMap[g.id] = g; });
-            }
-        } catch (e) {}
+        }
 
         const localTeachers = await prisma.user.findMany({
-            where: { role: 'TEACHER' },
-            select: { id: true, name: true, username: true }
+            where: { OR: [{ role: { in: ['TEACHER', 'COUNSELOR', 'KURIKULUM', 'GURU', 'OPERATOR', 'ADMIN'] } }, { className: { not: null } }] },
+            select: { id: true, name: true, username: true, className: true }
         });
 
         // Jika localClasses kosong, seed dari siswa atau buat rombel default VII-A s/d IX-H
@@ -45,9 +67,9 @@ export const getKelas = async (req: Request, res: Response) => {
                         barcodeCode: `GATE-CLASS-${n}`,
                         gateInBarcode: `GATE_IN_${n}`,
                         gateOutBarcode: `GATE_OUT_${n}`,
-                        lat: -8.125506,
-                        lng: 111.893526,
-                        radiusMeters: 10
+                        lat: -8.125157,
+                        lng: 111.893912,
+                        radiusMeters: 50
                     }
                 });
             }
@@ -79,6 +101,23 @@ export const getKelas = async (req: Request, res: Response) => {
                 }
             }
 
+            // Fallback ke guru lokal jika belum didapatkan dari Supabase
+            if (!waliKelasNama) {
+                const matchedLocal = localTeachers.find(t => t.className === c.name);
+                if (matchedLocal) {
+                    waliKelasNama = matchedLocal.name;
+                    waliKelasNip = matchedLocal.username;
+                    waliKelasId = matchedLocal.id;
+                }
+            }
+
+            let officersParsed = null;
+            if (c.officers) {
+                try {
+                    officersParsed = typeof c.officers === 'string' ? JSON.parse(c.officers) : c.officers;
+                } catch(e) {}
+            }
+
             return {
                 id: c.id,
                 nama: c.name,
@@ -88,15 +127,19 @@ export const getKelas = async (req: Request, res: Response) => {
                 wali_kelas_nip: waliKelasNip,
                 counselorId: c.counselorId || null,
                 counselorName: c.counselorName || null,
+                officers: officersParsed,
                 isGpsLocked: Boolean(c.isGpsLocked),
-                lat: c.lat ?? -8.125506,
-                lng: c.lng ?? 111.893526,
-                radiusMeters: c.radiusMeters ?? 10,
+                lat: c.lat ?? -8.125157,
+                lng: c.lng ?? 111.893912,
+                radiusMeters: c.radiusMeters ?? 50,
                 barcodeCode: c.barcodeCode || `GATE-CLASS-${c.name}`,
                 gateInBarcode: c.gateInBarcode || `GATE_IN_${c.name}`,
                 gateOutBarcode: c.gateOutBarcode || `GATE_OUT_${c.name}`
             };
         });
+
+        // Selalu urutkan daftar kelas diawali dari VII, VIII, lalu IX
+        combined.sort((a, b) => compareClassNames(a.nama, b.nama));
 
         res.json(combined);
     } catch (error) {
@@ -132,7 +175,7 @@ export const updateKelasCoordinates = async (req: Request, res: Response) => {
             data: {
                 lat: Number(lat),
                 lng: Number(lng),
-                radiusMeters: radiusMeters ? Number(radiusMeters) : 10
+                radiusMeters: radiusMeters ? Number(radiusMeters) : 50
             }
         });
 
@@ -232,17 +275,17 @@ export const createKelas = async (req: Request, res: Response) => {
         const local = await prisma.class.upsert({
             where: { name: nama },
             update: {
-                lat: lat ? Number(lat) : -8.125506,
-                lng: lng ? Number(lng) : 111.893526
+                lat: lat ? Number(lat) : -8.125157,
+                lng: lng ? Number(lng) : 111.893912
             },
             create: {
                 name: nama,
                 barcodeCode: `GATE-CLASS-${nama}`,
                 gateInBarcode: `GATE_IN_${nama}`,
                 gateOutBarcode: `GATE_OUT_${nama}`,
-                lat: lat ? Number(lat) : -8.125506,
-                lng: lng ? Number(lng) : 111.893526,
-                radiusMeters: 10
+                lat: lat ? Number(lat) : -8.125157,
+                lng: lng ? Number(lng) : 111.893912,
+                radiusMeters: 50
             }
         });
 
@@ -495,5 +538,230 @@ export const updateClassOfficers = async (req: Request, res: Response) => {
     } catch (error) {
         console.error('Error updating class officers:', error);
         res.status(500).json({ message: 'Gagal memperbarui struktur pengurus kelas' });
+    }
+};
+
+/**
+ * 1. FCFS Claim Posisi Pengurus Kelas oleh Siswa
+ * Posisi: 'Ketua Kelas', 'Wakil Ketua Kelas', 'Sekretaris 1', 'Sekretaris 2', 'Bendahara 1', 'Bendahara 2'
+ * First-Come, First-Served: Jika posisi kosong, siswa langsung mengklaim.
+ */
+export const claimClassOfficer = async (req: Request, res: Response) => {
+    try {
+        const user = (req as any).user;
+        const { position, className: reqClassName } = req.body;
+
+        const studentId = user?.id;
+        const studentName = user?.name || 'Siswa';
+        const targetClassName = user?.className || reqClassName;
+
+        if (!studentId || !targetClassName) {
+            return res.status(400).json({ success: false, message: 'Identitas siswa dan kelas wajib disertakan.' });
+        }
+
+        const validPositions = [
+            'Ketua Kelas',
+            'Wakil Ketua Kelas',
+            'Sekretaris 1',
+            'Sekretaris 2',
+            'Bendahara 1',
+            'Bendahara 2'
+        ];
+
+        if (!position || !validPositions.includes(position)) {
+            return res.status(400).json({
+                success: false,
+                message: `Posisi tidak valid. Pilih salah satu dari: ${validPositions.join(', ')}`
+            });
+        }
+
+        const cls = await prisma.class.findFirst({
+            where: { OR: [{ name: targetClassName }, { id: targetClassName }] }
+        });
+
+        if (!cls) {
+            return res.status(404).json({ success: false, message: `Kelas ${targetClassName} tidak ditemukan.` });
+        }
+
+        let officers: any = {};
+        if (cls.officers) {
+            try {
+                officers = JSON.parse(cls.officers);
+            } catch (_) {}
+        }
+
+        // Mapping field
+        const keyMap: Record<string, string> = {
+            'Ketua Kelas': 'ketuaId',
+            'Wakil Ketua Kelas': 'wakilId',
+            'Sekretaris 1': 'sekretaris1Id',
+            'Sekretaris 2': 'sekretaris2Id',
+            'Bendahara 1': 'bendahara1Id',
+            'Bendahara 2': 'bendahara2Id'
+        };
+
+        const officerKey = keyMap[position];
+        const existingOfficerId = officers[officerKey];
+
+        // Cek jika sudah terisi di JSON atau di tabel User
+        if (existingOfficerId && existingOfficerId !== studentId) {
+            const occupant = await prisma.user.findUnique({
+                where: { id: existingOfficerId },
+                select: { name: true }
+            });
+            return res.status(409).json({
+                success: false,
+                message: `⚠️ Posisi [${position}] sudah terisi oleh ${occupant?.name || 'siswa lain'}. Sistem FCFS (First-Come First-Served) mengunci posisi yang sudah diambil.`
+            });
+        }
+
+        // Cek siswa yang punya classRole ini di kelas yang sama
+        const userHolding = await prisma.user.findFirst({
+            where: {
+                className: cls.name,
+                classRole: position,
+                isActive: true,
+                id: { not: studentId }
+            },
+            select: { name: true }
+        });
+
+        if (userHolding) {
+            return res.status(409).json({
+                success: false,
+                message: `⚠️ Posisi [${position}] telah diambil oleh ${userHolding.name}.`
+            });
+        }
+
+        // Lepas posisi lama siswa jika sebelumnya punya jabatan lain di kelas ini
+        for (const k of Object.keys(keyMap)) {
+            const field = keyMap[k];
+            if (officers[field] === studentId) {
+                officers[field] = null;
+            }
+        }
+
+        // Isi posisi baru (FCFS)
+        officers[officerKey] = studentId;
+        officers[officerKey + '_claimedAt'] = new Date();
+        officers[officerKey + '_verified'] = false; // Menunggu verifikasi Walas
+
+        await prisma.class.update({
+            where: { id: cls.id },
+            data: { officers: JSON.stringify(officers) }
+        });
+
+        await prisma.user.update({
+            where: { id: studentId },
+            data: { classRole: position }
+        });
+
+        invalidateCommitteeCache(cls.name);
+
+        res.json({
+            success: true,
+            message: `🎉 Selamat! Posisi [${position}] Kelas ${cls.name} berhasil Anda klaim (FCFS). Menunggu verifikasi akhir Wali Kelas.`,
+            position,
+            className: cls.name,
+            officers
+        });
+    } catch (error: any) {
+        console.error('Error claiming class officer:', error);
+        res.status(500).json({ success: false, message: 'Gagal mengklaim posisi pengurus kelas' });
+    }
+};
+
+/**
+ * 2. Verifikasi Pengurus Kelas oleh Wali Kelas
+ */
+export const verifyClassOfficers = async (req: Request, res: Response) => {
+    try {
+        const user = (req as any).user;
+        const { id, className: reqClassName, status = 'VERIFIED', notes } = req.body;
+        const classTarget = id || reqClassName || req.params.id || user?.className;
+
+        if (!classTarget) {
+            return res.status(400).json({ success: false, message: 'Target kelas wajib disertakan.' });
+        }
+
+        const cls = await prisma.class.findFirst({
+            where: { OR: [{ id: String(classTarget) }, { name: String(classTarget) }] }
+        });
+
+        if (!cls) {
+            return res.status(404).json({ success: false, message: 'Kelas tidak ditemukan.' });
+        }
+
+        let officers: any = {};
+        if (cls.officers) {
+            try {
+                officers = JSON.parse(cls.officers);
+            } catch (_) {}
+        }
+
+        officers.isVerifiedByWalas = status === 'VERIFIED';
+        officers.walasVerifiedAt = new Date();
+        officers.walasVerifierName = user?.name || 'Wali Kelas';
+        officers.walasNotes = notes || null;
+
+        await prisma.class.update({
+            where: { id: cls.id },
+            data: { officers: JSON.stringify(officers) }
+        });
+
+        invalidateCommitteeCache(cls.name);
+
+        res.json({
+            success: true,
+            message: `✅ Struktur Pengurus Kelas ${cls.name} telah diverifikasi oleh Wali Kelas (${user?.name || 'Walas'}).`,
+            officers
+        });
+    } catch (error: any) {
+        console.error('Error verifying class officers:', error);
+        res.status(500).json({ success: false, message: 'Gagal memverifikasi pengurus kelas' });
+    }
+};
+
+/**
+ * 3. Reset Pengurus Kelas oleh Admin / Operator
+ */
+export const resetClassOfficers = async (req: Request, res: Response) => {
+    try {
+        const user = (req as any).user;
+        const classIdentifier = req.params.id || req.body.classId || req.body.className;
+
+        if (!classIdentifier) {
+            return res.status(400).json({ success: false, message: 'Target ID/Nama kelas wajib disertakan untuk reset.' });
+        }
+
+        const cls = await prisma.class.findFirst({
+            where: { OR: [{ id: String(classIdentifier) }, { name: String(classIdentifier) }] }
+        });
+
+        if (!cls) {
+            return res.status(404).json({ success: false, message: 'Kelas tidak ditemukan.' });
+        }
+
+        // 1. Kosongkan officers di Class
+        await prisma.class.update({
+            where: { id: cls.id },
+            data: { officers: null }
+        });
+
+        // 2. Reset classRole seluruh siswa di kelas tersebut
+        await prisma.user.updateMany({
+            where: { className: cls.name, role: 'STUDENT' },
+            data: { classRole: null }
+        });
+
+        invalidateCommitteeCache(cls.name);
+
+        res.json({
+            success: true,
+            message: `🔄 Struktur Pengurus Kelas ${cls.name} berhasil di-reset total oleh Administrator (${user?.name || 'Admin'}). Seluruh posisi kembali terbuka.`
+        });
+    } catch (error: any) {
+        console.error('Error resetting class officers:', error);
+        res.status(500).json({ success: false, message: 'Gagal mereset pengurus kelas' });
     }
 };

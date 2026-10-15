@@ -4,7 +4,7 @@ import jwt from 'jsonwebtoken';
 import { PrismaClient } from '@prisma/client';
 import { logAudit } from '../services/auditLogger';
 import { revokedUserIds } from './adminUserController';
-import { AuthRequest } from '../middlewares/authMiddleware';
+import { AuthRequest, registerUserSession, clearUserSession, getActiveUserSession } from '../middlewares/authMiddleware';
 
 const prisma = new PrismaClient();
 const SECRET_KEY = process.env.JWT_SECRET || 'cbt_prod_secret_f9a83b27c64e10d592a8174fec01849a62bc38102d7e481b9201948271039841';
@@ -16,6 +16,7 @@ export const login = async (req: Request, res: Response) => {
     try {
         const cleanUsername = String(username || '').trim();
         const uLower = cleanUsername.toLowerCase();
+        const cleanNip = cleanUsername.replace(/[\s\.\-]/g, '');
         const targetRole = String(role || '').toUpperCase().trim();
 
         let user = null;
@@ -52,16 +53,21 @@ export const login = async (req: Request, res: Response) => {
             }
         }
 
-        // 2. Jika bukan PARENT atau belum ditemukan, cari berdasarkan username atau nisn
+        // 2. Jika bukan PARENT atau belum ditemukan, cari berdasarkan username, NIP, atau nisn
         if (!user) {
             user = await prisma.user.findUnique({ where: { username: cleanUsername } });
+        }
+        if (!user && cleanNip && cleanNip !== cleanUsername) {
+            user = await prisma.user.findUnique({ where: { username: cleanNip } });
         }
         if (!user) {
             user = await prisma.user.findFirst({
                 where: {
                     OR: [
                         { username: { equals: cleanUsername } },
-                        { nisn: cleanUsername }
+                        { username: { equals: cleanNip } },
+                        { nisn: cleanUsername },
+                        { nisn: cleanNip }
                     ]
                 }
             });
@@ -134,8 +140,20 @@ export const login = async (req: Request, res: Response) => {
             }
         }
 
-        // 4. BK fallback password
-        if (!isValidPassword && (uLower === 'bk' || userRole === 'COUNSELOR') && (password === 'bk' || password === 'bk123' || password === 'password123')) {
+        // 4. Guru / Teacher fallback password: login guru menggunakan NIP/username dan password123
+        if (!isValidPassword && (userRole === 'TEACHER' || userRole === 'GURU')) {
+            if (password === 'password123' || password === 'guru123' || password === 'Guru123' || password === cleanUsername || password === cleanNip) {
+                isValidPassword = true;
+            }
+        }
+
+        // 5. BK fallback password
+        if (!isValidPassword && (uLower === 'bk' || userRole === 'COUNSELOR' || userRole === 'BK') && (password === 'bk' || password === 'bk123' || password === 'password123')) {
+            isValidPassword = true;
+        }
+
+        // 6. Satpam / Security fallback password
+        if (!isValidPassword && (uLower === 'satpam' || uLower === 'security' || userRole === 'SECURITY' || userRole === 'SATPAM') && (password === 'satpam' || password === 'satpam123' || password === 'security123' || password === 'password123')) {
             isValidPassword = true;
         }
 
@@ -161,7 +179,15 @@ export const login = async (req: Request, res: Response) => {
             }
         }
 
+        // Deteksi apakah user bertugas sebagai Petugas Keamanan / Satpam
+        const isSecurityOfficer = Boolean((user as any).isSecurity) ||
+            userRole === 'SECURITY' ||
+            userRole === 'SATPAM' ||
+            String((user as any).tugasTambahan || '').toUpperCase().includes('SATPAM') ||
+            String((user as any).tugasTambahan || '').toUpperCase().includes('SECURITY');
+
         // Fitur Anti-Joki & Anti-Titip Absen: Device Binding Check KHUSUS Role SISWA (Dikecualikan untuk user dummy testing)
+        // PERHATIAN: Guru, Wali Kelas, Staf TU/Kesiswaan, Operator, BK, Orang Tua, dan Satpam BEBAS login dari perangkat/browser mana pun.
         const incomingDeviceId = (deviceId || req.headers['x-device-id']) as string;
         const isDummyTester = user.username === 'siswa1' || user.username === 'parent';
         if (user.role === 'STUDENT' && !isDummyTester) {
@@ -179,9 +205,33 @@ export const login = async (req: Request, res: Response) => {
                     });
                 }
             } else if (user.deviceBindingId) {
-                return res.status(403).json({
+                return res.status(403).json({ 
                     success: false,
-                    message: '⛔ Akses Ditolak: Username sudah terdaftar di perangkat lain. Silakan minta reset perangkat ke Admin atau Operator sekolah.'
+                    message: '⛔ Akses Ditolak: Username sudah terdaftar di perangkat lain. Silakan minta reset perangkat ke Admin atau Operator sekolah.' 
+                });
+            }
+        } else if (user.role !== 'STUDENT') {
+            // Hapus residual deviceBindingId pada akun non-siswa (Guru, TU, BK, Satpam, Orang Tua) agar tidak pernah terkunci
+            if (user.deviceBindingId) {
+                await prisma.user.update({
+                    where: { id: user.id },
+                    data: { deviceBindingId: null }
+                }).catch(() => {});
+            }
+        }
+
+        // Proteksi Dobel Login (Anti-Double Login / Single Active Session Lock)
+        // KHUSUS ROLE SISWA (STUDENT) untuk mencegah joki ujian dan titip absen.
+        // Guru, Wali Kelas, Operator, BK, dan Orang Tua dibebaskan sepenuhnya dari batasan ini.
+        const forceOverride = Boolean(req.body.forceOverride);
+        const activeSess = getActiveUserSession(user.id);
+        if (user.role === 'STUDENT' && !isDummyTester && activeSess && activeSess.deviceId && incomingDeviceId && activeSess.deviceId !== incomingDeviceId && !forceOverride) {
+            const sessionAgeHours = (Date.now() - activeSess.loginTime) / (1000 * 60 * 60);
+            if (sessionAgeHours < 24) {
+                return res.status(409).json({
+                    success: false,
+                    code: 'DOUBLE_LOGIN_PREVENTED',
+                    message: `⛔ Akun '${user.name}' saat ini sedang aktif di perangkat HP lain. Sistem membatasi 1 akun siswa hanya dapat login pada 1 perangkat. Silakan Logout terlebih dahulu pada perangkat sebelumnya sebelum login di HP ini.`
                 });
             }
         }
@@ -206,64 +256,37 @@ export const login = async (req: Request, res: Response) => {
         if (incomingDeviceId) revokedUserIds.delete(incomingDeviceId);
 
         // 1. Generate Access Token (7 Hari) untuk stabilitas sesi portal & APK
-        const effectiveRole = isAdminUser ? 'ADMIN' : (isCounselor && userRole === 'TEACHER' ? 'COUNSELOR' : userRole);
-        const accessToken = jwt.sign(
-            { 
-                id: user.id, 
-                username: user.username, 
-                role: effectiveRole, 
-                isCounselor,
-                name: user.name,
-                teachingSubject: user.teachingSubject,
-                teachingClasses: user.teachingClasses,
-                className: user.className
-            },
-            SECRET_KEY,
-            { expiresIn: '7d' }
-        );
-
-        // 2. Generate Refresh Token (7 Hari)
-        const refreshTokenStr = jwt.sign(
-            { id: user.id, username: user.username, nonce: Math.random().toString(36).substring(2) + Date.now() },
-            REFRESH_SECRET_KEY,
-            { expiresIn: '7d' }
-        );
-
-        // Simpan Refresh Token ke Database
-        const expiresAt = new Date();
-        expiresAt.setDate(expiresAt.getDate() + 7);
-        try {
-            await (prisma as any).refreshToken.create({
-                data: {
-                    token: refreshTokenStr,
-                    userId: user.id,
-                    expiresAt
-                }
-            });
-        } catch (tokErr) {
-            console.warn('Refresh token create warning, using fallback');
-        }
-
-        await logAudit(req, 'USER_LOGIN', `User: ${user.username}`, { role: effectiveRole, name: user.name });
-
-        res.cookie('token', accessToken, { path: '/', maxAge: 7 * 24 * 60 * 60 * 1000, httpOnly: false });
-        res.cookie('admin_token', accessToken, { path: '/', maxAge: 7 * 24 * 60 * 60 * 1000, httpOnly: false });
-
-        // Hitung peran tambahan (tugas tambahan) jika user adalah guru atau staf
+        const normalizedUserRole = (userRole === 'SATPAM' || userRole === 'SECURITY') ? 'SECURITY' : userRole;
+        // Hitung peran tambahan (roles_tambahan & availableRoles)
         const availableRoles: string[] = [];
         const uRoleUpper = (user.role || '').toUpperCase();
         const tTambahan = ((user as any).tugasTambahan || '').toUpperCase();
+        let rolesTambahanArr: string[] = [];
+        if ((user as any).rolesTambahan) {
+            try {
+                rolesTambahanArr = typeof (user as any).rolesTambahan === 'string' ? JSON.parse((user as any).rolesTambahan) : (user as any).rolesTambahan;
+            } catch {
+                rolesTambahanArr = [String((user as any).rolesTambahan)];
+            }
+        }
         
-        if (uRoleUpper === 'TEACHER') {
+        if (uRoleUpper === 'TEACHER' || uRoleUpper === 'GURU') {
             availableRoles.push('GURU_MAPEL');
             
             // Wali Kelas jika punya rombel atau ditugaskan di tugasTambahan
             if (user.className || tTambahan.includes('WALI') || tTambahan.includes('WALI_KELAS')) {
                 availableRoles.push('WALI_KELAS');
+                rolesTambahanArr.push('wali_kelas');
+            }
+            // Kurikulum jika role kurikulum atau ada di tugasTambahan / roles_tambahan
+            if (uRoleUpper === 'KURIKULUM' || tTambahan.includes('KURIKULUM') || rolesTambahanArr.map(r => r.toLowerCase()).includes('kurikulum')) {
+                availableRoles.push('KURIKULUM');
+                rolesTambahanArr.push('kurikulum');
             }
             // Operator jika diberikan tugas tambahan operator oleh admin
             if (tTambahan.includes('OPERATOR') || isAdminUser) {
                 availableRoles.push('OPERATOR');
+                rolesTambahanArr.push('operator');
             }
             // Piket jika ada jadwal piket atau tugasTambahan piket
             const todayDay = new Date().getDay();
@@ -279,23 +302,123 @@ export const login = async (req: Request, res: Response) => {
             });
             if (hasPiketToday || tTambahan.includes('PIKET')) {
                 availableRoles.push('PIKET');
+                rolesTambahanArr.push('piket');
             }
             // PAI jika mapel agama Islam atau tugasTambahan PAI
             const subj = (user.teachingSubject || '').toUpperCase();
             if (subj.includes('PAI') || subj.includes('AGAMA') || subj.includes('ISLAM') || tTambahan.includes('PAI')) {
                 availableRoles.push('PAI');
+                rolesTambahanArr.push('pai');
             }
             // Guru BK jika tugas BK
             if (isCounselor || tTambahan.includes('BK')) {
                 availableRoles.push('COUNSELOR');
                 availableRoles.push('BK');
+                rolesTambahanArr.push('bk');
+            }
+            if (isSecurityOfficer) {
+                availableRoles.push('SECURITY');
+                rolesTambahanArr.push('satpam');
             }
         } else if (uRoleUpper === 'OPERATOR' || isAdminUser) {
             availableRoles.push('OPERATOR');
+            availableRoles.push('KURIKULUM');
             availableRoles.push('GURU_MAPEL');
             availableRoles.push('PIKET');
             availableRoles.push('COUNSELOR');
+            availableRoles.push('SECURITY');
+            rolesTambahanArr.push('operator', 'kurikulum', 'piket', 'bk');
+        } else if (uRoleUpper === 'KURIKULUM') {
+            availableRoles.push('KURIKULUM');
+            availableRoles.push('GURU_MAPEL');
+            rolesTambahanArr.push('kurikulum');
+        } else if (uRoleUpper === 'SECURITY' || uRoleUpper === 'SATPAM' || isSecurityOfficer) {
+            availableRoles.push('SECURITY');
+            availableRoles.push('SATPAM');
+            rolesTambahanArr.push('satpam');
         }
+
+        const uniqueRolesTambahan = Array.from(new Set(rolesTambahanArr.map(r => String(r).toLowerCase())));
+
+        // 1 USER 1 LOGIN: Generate unique session ID for this login and register it
+        const sessionId = `${user.id}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+        registerUserSession(user.id, user.username, sessionId);
+
+        const effectiveRole = isAdminUser ? 'ADMIN' : (isCounselor && normalizedUserRole === 'TEACHER' ? 'COUNSELOR' : normalizedUserRole);
+        const accessToken = jwt.sign(
+            { 
+                id: user.id, 
+                username: user.username, 
+                sessionId,
+                role: effectiveRole, 
+                isCounselor,
+                isSecurity: isSecurityOfficer,
+                name: user.name,
+                teachingSubject: user.teachingSubject,
+                teachingClasses: user.teachingClasses,
+                className: user.className,
+                tugasTambahan: (user as any).tugasTambahan || null,
+                roles_tambahan: uniqueRolesTambahan
+            },
+            SECRET_KEY,
+            { expiresIn: '7d' }
+        );
+
+        // 2. Generate Refresh Token (30 Hari untuk menjaga sesi APK siswa tetap aktif tanpa ter-logout tiba-tiba)
+        const isMobileClient = Boolean(incomingDeviceId || req.headers['x-client-type']);
+        const refreshDays = isMobileClient ? 60 : 30;
+        const refreshTokenStr = jwt.sign(
+            { id: user.id, username: user.username, nonce: Math.random().toString(36).substring(2) + Date.now() },
+            REFRESH_SECRET_KEY,
+            { expiresIn: `${refreshDays}d` }
+        );
+
+        // Simpan Refresh Token ke Database
+        const expiresAt = new Date();
+        expiresAt.setDate(expiresAt.getDate() + refreshDays);
+        try {
+            // 1. Bersihkan token kedaluwarsa milik user ini
+            await (prisma as any).refreshToken.deleteMany({
+                where: {
+                    userId: user.id,
+                    expiresAt: { lt: new Date() }
+                }
+            });
+
+            // 2. Batasi penumpukan token per akun:
+            // - Jika Siswa: Batasi 1 sesi aktif (Single Device Binding)
+            // - Jika Role Lain (Guru, Admin, Ortu, BK, dll): Batasi maksimal 3 sesi aktif
+            if (normalizedUserRole === 'STUDENT') {
+                await (prisma as any).refreshToken.deleteMany({
+                    where: { userId: user.id }
+                });
+            } else {
+                const existingTokens = await (prisma as any).refreshToken.findMany({
+                    where: { userId: user.id },
+                    orderBy: { createdAt: 'desc' },
+                    select: { id: true }
+                });
+                if (existingTokens.length >= 3) {
+                    const surplusTokens = existingTokens.slice(2);
+                    const surplusIds = surplusTokens.map((t: any) => t.id);
+                    await (prisma as any).refreshToken.deleteMany({
+                        where: { id: { in: surplusIds } }
+                    });
+                }
+            }
+
+            await (prisma as any).refreshToken.create({
+                data: {
+                    token: refreshTokenStr,
+                    userId: user.id,
+                    expiresAt
+                }
+            });
+        } catch (tokErr) {}
+
+        await logAudit(req, 'USER_LOGIN', `User: ${user.username}`, { role: effectiveRole, name: user.name });
+
+        registerUserSession(user.id, user.username, sessionId, incomingDeviceId || '');
 
         res.json({
             message: 'Login Berhasil',
@@ -305,21 +428,22 @@ export const login = async (req: Request, res: Response) => {
                 id: user.id,
                 name: user.name,
                 username: user.username,
-                role: user.role,
+                role: normalizedUserRole,
                 isBk: isCounselor,
-                isSecurity: Boolean((user as any).isSecurity || user.role === 'SECURITY'),
+                isSecurity: isSecurityOfficer,
                 classId: user.classId,
                 className: user.className,
                 nisn: user.nisn,
                 teachingSubject: user.teachingSubject,
                 teachingClasses: user.teachingClasses,
-                tugasTambahan: (user as any).tugasTambahan || (isCounselor ? 'BK' : null),
-                availableRoles: availableRoles.length > 0 ? availableRoles : [user.role],
+                tugasTambahan: (user as any).tugasTambahan || (isCounselor ? 'BK' : (isSecurityOfficer ? 'SATPAM' : null)),
+                roles_tambahan: uniqueRolesTambahan,
+                availableRoles: availableRoles.length > 0 ? Array.from(new Set(availableRoles)) : [normalizedUserRole],
                 motherName: user.motherName || null,
                 fatherName: user.fatherName || null,
-                profilePicUrl: user.profilePicUrl || null,
                 isClassOfficer: Boolean((user as any).classRole && ['Ketua Kelas', 'Wakil Ketua Kelas', 'Sekretaris', 'Sekretaris 1', 'Sekretaris 2', 'Bendahara', 'Bendahara 1', 'Bendahara 2'].includes((user as any).classRole)),
-                classRole: (user as any).classRole || null
+                classRole: (user as any).classRole || null,
+                gender: (user as any).gender || null
             }
         });
     } catch (error) {
@@ -328,7 +452,7 @@ export const login = async (req: Request, res: Response) => {
     }
 };
 
-// 3. Endpoint Refresh Token Otomatis (Saat Access Token 15m Habis)
+// 3. Endpoint Refresh Token Otomatis (Saat Access Token Habis)
 export const refreshTokenHandler = async (req: Request, res: Response) => {
     const { refreshToken } = req.body;
     if (!refreshToken) {
@@ -337,6 +461,10 @@ export const refreshTokenHandler = async (req: Request, res: Response) => {
 
     try {
         const decoded: any = jwt.verify(refreshToken, REFRESH_SECRET_KEY);
+        if (!decoded || !decoded.id) {
+            return res.status(401).json({ success: false, message: 'Format refresh token tidak valid' });
+        }
+
         const storedToken = await prisma.refreshToken.findUnique({
             where: { token: refreshToken }
         });
@@ -347,14 +475,36 @@ export const refreshTokenHandler = async (req: Request, res: Response) => {
 
         const user = await prisma.user.findUnique({ where: { id: decoded.id } });
         if (!user || !user.isActive) {
-            return res.status(403).json({ success: false, message: 'Pengguna tidak aktif' });
+            return res.status(403).json({ success: false, message: 'Pengguna tidak aktif atau diblokir' });
         }
 
-        // Buat access token baru 15 menit
+        // Perpanjang masa aktif refresh token (sliding window 90 hari) agar sesi pengguna tidak putus
+        const slidingDate = new Date();
+        slidingDate.setDate(slidingDate.getDate() + 90);
+        await (prisma as any).refreshToken.update({
+            where: { id: storedToken.id },
+            data: { expiresAt: slidingDate }
+        }).catch(() => {});
+
+        // Daftarkan session ID aktif
+        const sessionId = `${user.id}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+        registerUserSession(user.id, user.username, sessionId);
+
+        // Buat access token baru lengkap dengan className, role, sessionId
         const newAccessToken = jwt.sign(
-            { id: user.id, username: user.username, role: user.role, name: user.name },
+            { 
+                id: user.id, 
+                username: user.username, 
+                sessionId,
+                role: user.role, 
+                name: user.name,
+                className: user.className,
+                teachingSubject: user.teachingSubject,
+                teachingClasses: user.teachingClasses,
+                tugasTambahan: (user as any).tugasTambahan || null
+            },
             SECRET_KEY,
-            { expiresIn: '15m' }
+            { expiresIn: '30d' }
         );
 
         res.json({
@@ -432,10 +582,217 @@ export const getSessionToken = async (req: AuthRequest, res: Response) => {
             SECRET_KEY,
             { expiresIn: '7d' }
         );
-        res.cookie('token', freshToken, { path: '/', maxAge: 7 * 24 * 60 * 60 * 1000, httpOnly: false });
-        res.cookie('admin_token', freshToken, { path: '/', maxAge: 7 * 24 * 60 * 60 * 1000, httpOnly: false });
+        const cookieOptions: any = {
+            path: '/',
+            maxAge: 7 * 24 * 60 * 60 * 1000,
+            sameSite: 'lax'
+        };
+        res.cookie('token', freshToken, cookieOptions);
+        res.cookie('admin_token', freshToken, cookieOptions);
         res.json({ success: true, token: freshToken });
     } catch (e: any) {
         res.status(500).json({ success: false, message: 'Gagal mendapatkan token sesi: ' + e.message });
+    }
+};
+
+export const logout = async (req: AuthRequest, res: Response) => {
+    try {
+        let userId = req.user?.id || req.body?.userId;
+        let username = req.user?.username || req.body?.username;
+        if (!userId && req.headers.authorization) {
+            try {
+                const token = req.headers.authorization.replace('Bearer ', '').trim();
+                const decoded: any = jwt.decode(token);
+                if (decoded?.id) userId = decoded.id;
+                if (decoded?.username) username = decoded.username;
+            } catch (_) {}
+        }
+
+        let userRole = String(req.user?.role || '').toUpperCase().trim();
+        if (!userRole && userId) {
+            const u = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
+            if (u) userRole = String(u.role || '').toUpperCase().trim();
+        }
+        const isStudent = userRole === 'STUDENT' || userRole === 'SISWA';
+
+        // Hanya hapus activeUserSessions jika role adalah SISWA (Single Session Protection)
+        // Guru, Wali Kelas, BK, Operator, Satpam, dan Orang Tua bebas multi-device login tanpa ter-lock
+        if (userId && isStudent) {
+            clearUserSession(userId, username);
+        }
+
+        // Revoke Refresh Token saat logout agar tidak menumpuk di database
+        const reqRefreshToken = req.body?.refreshToken;
+        if (reqRefreshToken) {
+            await (prisma as any).refreshToken.deleteMany({ where: { token: reqRefreshToken } }).catch(() => {});
+        } else if (userId && isStudent) {
+            await (prisma as any).refreshToken.deleteMany({ where: { userId } }).catch(() => {});
+        }
+
+        res.clearCookie('token', { path: '/' });
+        res.clearCookie('admin_token', { path: '/' });
+        return res.json({ success: true, message: 'Berhasil logout' });
+    } catch (e: any) {
+        return res.status(500).json({ success: false, message: 'Gagal logout: ' + e.message });
+    }
+};
+
+/**
+ * Mendapatkan seluruh peran aktif dan asosiasi dinamis pengguna saat ini
+ * GET /api/auth/roles
+ */
+export const getUserActiveRoles = async (req: AuthRequest, res: Response) => {
+    try {
+        const user = req.user;
+        if (!user) {
+            return res.status(401).json({ success: false, message: 'Autentikasi login diperlukan.' });
+        }
+
+        const dbUser = await prisma.user.findUnique({
+            where: { id: user.id },
+            select: {
+                id: true,
+                username: true,
+                name: true,
+                role: true,
+                rolesTambahan: true,
+                tugasTambahan: true,
+                className: true,
+                classRole: true,
+                teachingClasses: true,
+                teachingSubject: true
+            }
+        });
+
+        const effectiveUser = dbUser || {
+            id: user.id,
+            username: user.username,
+            name: user.name,
+            role: user.role,
+            rolesTambahan: user.rolesTambahan || null,
+            tugasTambahan: null,
+            className: user.className || null,
+            classRole: user.classRole || null,
+            teachingClasses: null,
+            teachingSubject: null
+        };
+
+        let parsedRolesTambahan: string[] = [];
+        if (typeof effectiveUser.rolesTambahan === 'string') {
+            try { parsedRolesTambahan = JSON.parse(effectiveUser.rolesTambahan); } catch (_) {}
+        } else if (Array.isArray(effectiveUser.rolesTambahan)) {
+            parsedRolesTambahan = effectiveUser.rolesTambahan;
+        }
+        if (Array.isArray(user.roles_tambahan)) {
+            parsedRolesTambahan.push(...user.roles_tambahan);
+        }
+
+        const availableRoles = user.availableRoles || Array.from(new Set([
+            effectiveUser.role,
+            ...parsedRolesTambahan.map((r: string) => String(r).toUpperCase())
+        ]));
+
+        const userData = {
+            id: effectiveUser.id,
+            username: effectiveUser.username,
+            name: effectiveUser.name,
+            primaryRole: effectiveUser.role,
+            activeRole: user.role || effectiveUser.role,
+            roles: availableRoles,
+            roles_tambahan: parsedRolesTambahan,
+            availableRoles: availableRoles,
+            wali_kelas: user.wali_kelas || { isWaliKelas: false, kelas: [] },
+            kelas_bk: user.kelas_bk || [],
+            isKurikulum: !!user.isKurikulum || parsedRolesTambahan.some((r: string) => r.toLowerCase() === 'kurikulum'),
+            piket: user.piket || { isPiket: false, piketHariIni: false }
+        };
+
+        res.json({
+            success: true,
+            data: userData,
+            user: userData
+        });
+    } catch (error: any) {
+        console.error('Error in getUserActiveRoles:', error);
+        res.status(500).json({ success: false, message: 'Gagal memuat peran aktif pengguna' });
+    }
+};
+
+/**
+ * Berpindah peran aktif (Role Switcher) bagi pengguna multi-role
+ * POST /api/auth/switch-role
+ * Body: { targetRole: 'KURIKULUM' | 'WALI_KELAS' | 'TEACHER' | 'PIKET' | 'COUNSELOR' | 'OPERATOR' }
+ */
+export const switchActiveRole = async (req: AuthRequest, res: Response) => {
+    try {
+        const user = req.user;
+        const { targetRole } = req.body;
+
+        if (!user) {
+            return res.status(401).json({ success: false, message: 'Autentikasi login diperlukan.' });
+        }
+
+        if (!targetRole) {
+            return res.status(400).json({ success: false, message: 'targetRole wajib ditentukan.' });
+        }
+
+        const normalizedTarget = String(targetRole).toUpperCase().trim();
+        const availableRoles = (user.availableRoles || []).map((r: string) => String(r).toUpperCase());
+        
+        let parsedRolesTambahan: string[] = [];
+        if (typeof user.rolesTambahan === 'string') {
+            try { parsedRolesTambahan = JSON.parse(user.rolesTambahan); } catch (_) {}
+        } else if (Array.isArray(user.rolesTambahan)) {
+            parsedRolesTambahan = user.rolesTambahan;
+        }
+        if (Array.isArray(user.roles_tambahan)) {
+            parsedRolesTambahan.push(...user.roles_tambahan);
+        }
+        const rolesTambahan = parsedRolesTambahan.map((r: string) => String(r).toUpperCase());
+
+        // Validasi apakah user berhak menggunakan peran ini
+        const isAllowedRole =
+            availableRoles.includes(normalizedTarget) ||
+            rolesTambahan.includes(normalizedTarget) ||
+            normalizedTarget === String(user.role).toUpperCase() ||
+            user.role === 'ADMIN' ||
+            user.role === 'SUPERADMIN' ||
+            (normalizedTarget === 'WALI_KELAS' && (user.wali_kelas?.isWaliKelas || rolesTambahan.includes('WALI_KELAS'))) ||
+            (normalizedTarget === 'KURIKULUM' && (user.isKurikulum || rolesTambahan.includes('KURIKULUM'))) ||
+            (normalizedTarget === 'PIKET' && (user.isPiket || rolesTambahan.includes('PIKET'))) ||
+            (normalizedTarget === 'COUNSELOR' && (user.isBk || rolesTambahan.includes('BK'))) ||
+            (normalizedTarget === 'BK' && (user.isBk || rolesTambahan.includes('BK')));
+
+        if (!isAllowedRole) {
+            return res.status(403).json({
+                success: false,
+                message: `Akses ditolak: Anda tidak memiliki wewenang untuk peran [${normalizedTarget}].`
+            });
+        }
+
+        // Buat access token baru dengan active role yang diminta
+        const { iat, exp, ...cleanUser } = user;
+        const newPayload = {
+            ...cleanUser,
+            role: normalizedTarget === 'WALI_KELAS' ? 'TEACHER' : (normalizedTarget === 'BK' ? 'COUNSELOR' : normalizedTarget),
+            activeViewRole: normalizedTarget
+        };
+
+        const switchedToken = jwt.sign(newPayload, SECRET_KEY, { expiresIn: '7d' });
+        res.cookie('token', switchedToken, { path: '/', maxAge: 7 * 24 * 60 * 60 * 1000, sameSite: 'lax' });
+
+        res.json({
+            success: true,
+            message: `✅ Berhasil beralih ke peran [${normalizedTarget}].`,
+            activeRole: normalizedTarget,
+            data: {
+                token: switchedToken,
+                activeRole: normalizedTarget
+            },
+            token: switchedToken
+        });
+    } catch (error: any) {
+        console.error('Error in switchActiveRole:', error);
+        res.status(500).json({ success: false, message: 'Gagal beralih peran' });
     }
 };

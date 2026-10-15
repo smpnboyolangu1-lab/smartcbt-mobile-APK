@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<title>Checklist Fitur Smart CBT v2.8.118 (Build 128)</title>
+<style>
+  @page {
+    size: A4 portrait;
+    margin: 12mm 12mm 12mm 12mm;
+  }
+  @media print {
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .no-print { display: none !important; }
+    .page-break { page-break-before: always; }
+  }
+  body {
+    font-family: 'Segoe UI', Calibri, Arial, sans-serif;
+    color: #0f172a;
+    background: #fff;
+    margin: 0;
+    padding: 10px;
+    font-size: 9pt;
+    line-height: 1.25;
+  }
+  .container {
+    max-width: 900px;
+    margin: 0 auto;
+  }
+  .header {
+    text-align: center;
+    border-bottom: 3px double #0f172a;
+    padding-bottom: 6px;
+    margin-bottom: 10px;
+  }
+  .header h1 {
+    font-size: 15pt;
+    font-weight: 800;
+    margin: 0;
+    letter-spacing: 0.5px;
+    color: #0f172a;
+  }
+  .header h2 {
+    font-size: 11pt;
+    font-weight: 700;
+    color: #1e3a8a;
+    margin: 2px 0;
+  }
+  .header h3 {
+    font-size: 10.5pt;
+    font-weight: 700;
+    color: #047857;
+    margin: 2px 0 0 0;
+    text-transform: uppercase;
+  }
+  .meta-box {
+    background: #f8fafc;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    padding: 6px 10px;
+    margin-bottom: 12px;
+  }
+  .meta-grid {
+    display: flex;
+    justify-content: space-between;
+    font-size: 8.5pt;
+  }
+  .meta-col {
+    flex: 1;
+  }
+  .section-title {
+    background: #1e3a8a;
+    color: #fff;
+    padding: 4px 8px;
+    font-size: 9.5pt;
+    font-weight: 700;
+    margin: 12px 0 4px 0;
+    border-radius: 2px;
+    text-transform: uppercase;
+  }
+  table.check-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 8px;
+    font-size: 8.5pt;
+  }
+  table.check-table th {
+    background: #e2e8f0;
+    color: #0f172a;
+    border: 1px solid #94a3b8;
+    padding: 4px;
+    text-align: center;
+    font-weight: 700;
+  }
+  table.check-table td {
+    border: 1px solid #cbd5e1;
+    padding: 4px 6px;
+    vertical-align: middle;
+  }
+  table.check-table tr:nth-child(even) {
+    background: #f8fafc;
+  }
+  .col-no { width: 4%; text-align: center; font-weight: bold; }
+  .col-name { width: 24%; font-weight: bold; color: #0f172a; }
+  .col-desc { width: 46%; color: #334155; }
+  .col-box { width: 6%; text-align: center; font-weight: bold; font-size: 11pt; }
+  .col-status { width: 8%; text-align: center; font-size: 8pt; color: #64748b; }
+  .col-note { width: 12%; }
+  .print-btn-bar {
+    background: #f1f5f9;
+    padding: 10px;
+    margin-bottom: 15px;
+    border-radius: 6px;
+    border: 1px solid #cbd5e1;
+    text-align: center;
+  }
+  .btn-print {
+    background: #0284c7;
+    color: #fff;
+    border: none;
+    padding: 8px 18px;
+    font-size: 11pt;
+    font-weight: bold;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .btn-print:hover { background: #0369a1; }
+  .sign-table {
+    width: 100%;
+    margin-top: 20px;
+    border-collapse: collapse;
+    font-size: 9pt;
+  }
+  .sign-table td {
+    width: 33.3%;
+    text-align: center;
+    vertical-align: top;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="print-btn-bar no-print">
+    <button class="btn-print" onclick="window.print()">🖨️ CETAK SEKARANG KE PRINTER / PDF (A4)</button>
+    <div style="font-size: 9pt; color: #475569; margin-top: 4px;">Atau tekan <strong>Ctrl + P</strong> di keyboard untuk mencetak langsung dengan margin rapi.</div>
+  </div>
+
+  <div class="header">
+    <h1>SMP NEGERI 1 BOYOLANGU</h1>
+    <h2>SISTEM INFORMASI MANAJEMEN SEKOLAH &amp; CBT DIGITAL (SMART SCHOOL)</h2>
+    <h3>LEMBAR REKAPITULASI FITUR &amp; CHECKLIST UJI KELAYAKAN APLIKASI (APK)</h3>
+  </div>
+
+  <div class="meta-box">
+    <div class="meta-grid">
+      <div class="meta-col">
+        <div><strong>Versi APK:</strong> v2.8.118 (Build 128) - Rilis Resmi</div>
+        <div><strong>Platform:</strong> Android 8.0 s/d 14+ (ARM64/v7a)</div>
+      </div>
+      <div class="meta-col">
+        <div><strong>Server:</strong> Online (PM2 Node.js + Cloudflare)</div>
+        <div><strong>Tanggal Uji:</strong> ..................................... 2026</div>
+      </div>
+      <div class="meta-col">
+        <div><strong>Nama Penguji:</strong> .................................................</div>
+        <div><strong>Status Sesi:</strong> Siap Operasi Lapangan</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-title">BAGIAN 1: PORTAL GURU & SESI MENGAJAR KBM CERDAS</div>
+  <table class="check-table">
+    <thead>
+      <tr>
+        <th class="col-no">No</th>
+        <th class="col-name">Nama Fitur</th>
+        <th class="col-desc">Deskripsi &amp; Parameter Uji Fungsi</th>
+        <th class="col-box">Cek</th>
+        <th class="col-status">Status</th>
+        <th class="col-note">Catatan</th>
+      </tr>
+    </thead>
+    <tbody>
+
+      <tr>
+        <td class="col-no">1</td>
+        <td class="col-name">Presensi Mandiri Guru (1-Tap GPS)</td>
+        <td class="col-desc">Presensi kedatangan & kepulangan berbasis geolokasi sekolah. Validasi radius otomatis tanpa perlu scan kamera.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">2</td>
+        <td class="col-name">Tombol Masuk KBM (Standby - Abu-abu)</td>
+        <td class="col-desc">Tombol kiri berwarna Abu-abu Slate ('👆 TAP ABSEN / MASUK KBM'). Siap digunakan untuk memilih kelas / tap sesi.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">3</td>
+        <td class="col-name">Pemilih Kelas Cerdas (Tombol Kanan)</td>
+        <td class="col-desc">Tombol kanan Teal ('🏷️ PILIH KELAS') membuka dialog daftar rombel interaktif (VII-A s/d IX-K) bebas layar putih.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">4</td>
+        <td class="col-name">Sesi KBM Berjalan (Indikator Hijau)</td>
+        <td class="col-desc">Saat jam KBM berjalan, badge sesi dan tombol otomatis berubah menjadi Hijau Emerald dengan rincian kelas aktif.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">5</td>
+        <td class="col-name">Peringatan 15 Menit Selesai (Merah)</td>
+        <td class="col-desc">15 menit sebelum jam pelajaran berakhir, tombol otomatis berubah menjadi Merah ('⏰ ABSEN KELUAR & SELESAI KBM').</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">6</td>
+        <td class="col-name">Presensi Siswa di Kelas (Cek & Presensi)</td>
+        <td class="col-desc">Guru dapat melihat daftar siswa rombel, menandai status Hadir, Bolos, Sakit, atau Izin secara langsung per jam pelajaran.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">7</td>
+        <td class="col-name">Rekap Mapel Guru (Presensi Riil)</td>
+        <td class="col-desc">Menampilkan seluruh kelas binaan guru beserta rincian nama siswa, NISN, dan kehadiran riil presensi harian (tidak kosong).</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">8</td>
+        <td class="col-name">Jadwal Mengajar Mingguan</td>
+        <td class="col-desc">Tabel jadwal KBM Senin s/d Jumat lengkap dengan jam pelajaran (JP), nama rombel, dan mata pelajaran yang diampu.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">9</td>
+        <td class="col-name">Bank Tugas & Penilaian Siswa</td>
+        <td class="col-desc">Guru membuat tugas/PR, menentukan tenggat waktu, memeriksa file jawaban siswa, serta memberikan nilai dan umpan balik.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">10</td>
+        <td class="col-name">Pengawasan CBT & Token Proktor</td>
+        <td class="col-desc">Monitoring sesi ujian aktif, acak token 15 menitan, tombol salin token, cetak lembar slip token A4, dan pantau status siswa.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">11</td>
+        <td class="col-name">Izin Guru & Form Disposisi</td>
+        <td class="col-desc">Pengajuan surat izin/cuti mengajar guru, unggah berkas pendukung, dan pantau riwayat persetujuan dari Waka Kurikulum.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">12</td>
+        <td class="col-name">Broadcast Kelas & Pengumuman</td>
+        <td class="col-desc">Kirim pesan informasi atau materi pelajaran khusus ke seluruh siswa di rombel yang diampu dalam satu sentuhan.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">13</td>
+        <td class="col-name">Berkas E-File & PDF Viewer Guru</td>
+        <td class="col-desc">Penyimpanan modul ajar, silabus, ATP, dan RPP dengan pembaca PDF bawaan aplikasi tanpa aplikasi pihak ketiga.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+    </tbody>
+  </table>
+
+  <div class="section-title">BAGIAN 2: HUB MANAJEMEN SEKOLAH (7 PILAR TATA KELOLA)</div>
+  <table class="check-table">
+    <thead>
+      <tr>
+        <th class="col-no">No</th>
+        <th class="col-name">Nama Fitur</th>
+        <th class="col-desc">Deskripsi &amp; Parameter Uji Fungsi</th>
+        <th class="col-box">Cek</th>
+        <th class="col-status">Status</th>
+        <th class="col-note">Catatan</th>
+      </tr>
+    </thead>
+    <tbody>
+
+      <tr>
+        <td class="col-no">14</td>
+        <td class="col-name">Hub Manajemen Utama (7 Modul)</td>
+        <td class="col-desc">Dialog pusat kendali manajemen 7 modul multi-color (Kurikulum, Piket, Wali Kelas, BK, PAI, CBT, Sarpras) terbuka lancar.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">15</td>
+        <td class="col-name">Pusat Kurikulum & Pembelajaran</td>
+        <td class="col-desc">Approval izin guru, rekap bulanan KBM, presensi guru lengkap, monitoring kelas kosong, dan ekspor laporan format resmi.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">16</td>
+        <td class="col-name">Posko Guru Piket</td>
+        <td class="col-desc">Monitoring KBM real-time per jam, penanganan laporan kelas kosong dari siswa, serta penugasan guru pengganti (inval).</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">17</td>
+        <td class="col-name">Portal Wali Kelas</td>
+        <td class="col-desc">Leger nilai siswa, verifikasi surat izin dari orang tua siswa binaan, rekap presensi kelas, dan rekam catatan pembinaan.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">18</td>
+        <td class="col-name">Bimbingan & Konseling (BK)</td>
+        <td class="col-desc">Pencatatan poin pelanggaran (SP 1, SP 2, SP 3), catatan prestasi, penanganan aduan anonim, dan penjadwalan konseling.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">19</td>
+        <td class="col-name">Pembina PAI & Sholat Berjamaah</td>
+        <td class="col-desc">Monitoring sholat Dhuha & Dhuhur, persentase kehadiran ibadah per rombel, dan verifikasi barcode mushola sekolah.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">20</td>
+        <td class="col-name">Klinik UKS (Kesehatan Siswa)</td>
+        <td class="col-desc">Pendataan siswa yang beristirahat di UKS, catatan riwayat obat/keluhan, rekam golongan darah, dan rujukan faskes.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">21</td>
+        <td class="col-name">Akses Jaringan Wi-Fi Sekolah</td>
+        <td class="col-desc">Dialog manajemen Wi-Fi guru & siswa, verifikasi barcode kartu, dan panduan koneksi SSID resmi sekolah.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+    </tbody>
+  </table>
+
+  <div class="section-title">BAGIAN 3: PORTAL SISWA & PENGURUS KELAS</div>
+  <table class="check-table">
+    <thead>
+      <tr>
+        <th class="col-no">No</th>
+        <th class="col-name">Nama Fitur</th>
+        <th class="col-desc">Deskripsi &amp; Parameter Uji Fungsi</th>
+        <th class="col-box">Cek</th>
+        <th class="col-status">Status</th>
+        <th class="col-note">Catatan</th>
+      </tr>
+    </thead>
+    <tbody>
+
+      <tr>
+        <td class="col-no">22</td>
+        <td class="col-name">Presensi Masuk & Pulang Gerbang</td>
+        <td class="col-desc">Pencatatan otomatis jam masuk (Gate In) & jam pulang (Gate Out) melalui scan kartu / barcode gerbang sekolah.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">23</td>
+        <td class="col-name">Integrasi Barcode Mushola & Gate Out</td>
+        <td class="col-desc">Scan barcode mushola saat sholat dan jam pulang otomatis merekam kehadiran ibadah sekaligus jam pulang gerbang.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">24</td>
+        <td class="col-name">Kartu Sesi KBM Berjalan di Kelas</td>
+        <td class="col-desc">Menampilkan guru yang sedang mengajar di kelas, mata pelajaran, jam ke-, serta tombol izin keluar kelas ('Tap Out').</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">25</td>
+        <td class="col-name">Fitur Khusus Pengurus Kelas</td>
+        <td class="col-desc">Ketua/pengurus kelas dapat melaporkan kelas kosong ke guru piket dan membantu presensi teman yang tidak membawa HP.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">26</td>
+        <td class="col-name">Modul Tugas & PR Siswa</td>
+        <td class="col-desc">Tab navigasi tugas (Semua, Menunggu, Dikumpulkan, Dinilai), unggah berkas/foto lembar kerja, dan notifikasi nilai.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">27</td>
+        <td class="col-name">Pas Keluar Sekolah (Exit Pass)</td>
+        <td class="col-desc">Pengajuan izin keluar gerbang sekolah saat jam aktif KBM, verifikasi persetujuan BK/Piket, dan barcode satpam.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">28</td>
+        <td class="col-name">Perpustakaan Digital (Smart Library)</td>
+        <td class="col-desc">Katalog e-Book pelajaran, status peminjaman buku fisik perpustakaan, tanggal jatuh tempo, dan riwayat pengembalian.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">29</td>
+        <td class="col-name">E-Voting Pemilihan Ketua OSIS</td>
+        <td class="col-desc">Bilik suara digital, profil visi-misi pasangan calon, verifikasi 1 suara per akun, dan quick count hasil pemilihan.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">30</td>
+        <td class="col-name">Kartu Pelajar Digital Siswa</td>
+        <td class="col-desc">Kartu identitas siswa digital dilengkapi foto profil, NISN, barcode resmi, dan tombol ganti foto / cetak kartu.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">31</td>
+        <td class="col-name">Konseling & Aduan Siswa ke BK</td>
+        <td class="col-desc">Siswa dapat berkonsultasi secara privat, mengecek poin pelanggaran/prestasi, serta mengirim laporan pengaduan tertutup.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+    </tbody>
+  </table>
+<div class="page-break"></div>
+  <div class="section-title">BAGIAN 4: ASESMEN CBT & KEAMANAN UJIAN (EXAMBRO KIOSK)</div>
+  <table class="check-table">
+    <thead>
+      <tr>
+        <th class="col-no">No</th>
+        <th class="col-name">Nama Fitur</th>
+        <th class="col-desc">Deskripsi &amp; Parameter Uji Fungsi</th>
+        <th class="col-box">Cek</th>
+        <th class="col-status">Status</th>
+        <th class="col-note">Catatan</th>
+      </tr>
+    </thead>
+    <tbody>
+
+      <tr>
+        <td class="col-no">32</td>
+        <td class="col-name">Gateway Keamanan Ujian (Exambro)</td>
+        <td class="col-desc">Pemeriksaan integritas perangkat: pencegahan split-screen, pemblokiran floating app, dan kunci aplikasi (LockTaskMode).</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">33</td>
+        <td class="col-name">Sistem Deteksi Kecurangan (Anti-Cheat)</td>
+        <td class="col-desc">Peringatan otomatis saat siswa mencoba berpindah aplikasi, membuka notifikasi, atau screenshot selama ujian berjalan.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">34</td>
+        <td class="col-name">Lembar Soal Pilihan Ganda & Essai</td>
+        <td class="col-desc">Navigasi soal dinamis (nomor 1 s/d N), indikator status (Terjawab, Ragu-ragu, Belum), dan input essai dengan counter kata.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">35</td>
+        <td class="col-name">Pemutar Audio Ujian (Listening Section)</td>
+        <td class="col-desc">Player audio khusus ujian bahasa dengan kontrol durasi dan pembatasan jumlah pemutaran sesuai aturan proktor.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">36</td>
+        <td class="col-name">Auto-Save Jawaban Offline & Online</td>
+        <td class="col-desc">Jawaban tersimpan otomatis ke database lokal (SQLite Room) seketika dan sinkron ke server sehingga aman dari putus koneksi.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">37</td>
+        <td class="col-name">Sinkronisasi Timer & Submit Otomatis</td>
+        <td class="col-desc">Countdown waktu ujian tersinkronisasi dengan server proktor; lembar ujian otomatis tersimpan saat waktu habis.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+    </tbody>
+  </table>
+
+  <div class="section-title">BAGIAN 5: PORTAL ORANG TUA / WALI MURID</div>
+  <table class="check-table">
+    <thead>
+      <tr>
+        <th class="col-no">No</th>
+        <th class="col-name">Nama Fitur</th>
+        <th class="col-desc">Deskripsi &amp; Parameter Uji Fungsi</th>
+        <th class="col-box">Cek</th>
+        <th class="col-status">Status</th>
+        <th class="col-note">Catatan</th>
+      </tr>
+    </thead>
+    <tbody>
+
+      <tr>
+        <td class="col-no">38</td>
+        <td class="col-name">Pantauan Realtime Kehadiran Anak</td>
+        <td class="col-desc">Notifikasi dan laporan instan jam datang gerbang, jam pulang, dan status keterlambatan anak setiap hari.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">39</td>
+        <td class="col-name">Pengajuan Izin Sakit / Keperluan Cepat</td>
+        <td class="col-desc">Form pengajuan izin siswa oleh orang tua lengkap dengan tanggal izin, alasan, dan lampiran foto surat dokter/keterangan.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">40</td>
+        <td class="col-name">Pantauan Nilai & Hasil Ujian Anak</td>
+        <td class="col-desc">Orang tua dapat melihat riwayat nilai ujian harian, PTS, PAS, dan status ketuntasan akademik anak secara transparan.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">41</td>
+        <td class="col-name">Pantauan Tugas & PR Anak</td>
+        <td class="col-desc">Informasi daftar PR yang diberikan guru, tenggat waktu pengerjaan, dan catatan apakah anak sudah mengumpulkan atau belum.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">42</td>
+        <td class="col-name">Buku Surat Resmi & Pengumuman Sekolah</td>
+        <td class="col-desc">Menerima edaran resmi dinas/sekolah dalam format PDF, surat pemanggilan, dan agenda kegiatan penting madrasah.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">43</td>
+        <td class="col-name">Pilihan Multi-Anak (Ganti Anak)</td>
+        <td class="col-desc">Bagi orang tua yang memiliki lebih dari satu putra/putri di sekolah, dapat berpindah data anak dengan 1 tombol ('Ganti Anak').</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+    </tbody>
+  </table>
+<div class="page-break"></div>
+  <div class="section-title">BAGIAN 6: POS KEAMANAN (SATPAM) & OPERATOR ADMIN SEKOLAH</div>
+  <table class="check-table">
+    <thead>
+      <tr>
+        <th class="col-no">No</th>
+        <th class="col-name">Nama Fitur</th>
+        <th class="col-desc">Deskripsi &amp; Parameter Uji Fungsi</th>
+        <th class="col-box">Cek</th>
+        <th class="col-status">Status</th>
+        <th class="col-note">Catatan</th>
+      </tr>
+    </thead>
+    <tbody>
+
+      <tr>
+        <td class="col-no">44</td>
+        <td class="col-name">Scan Barcode Gate Out Siswa (Satpam)</td>
+        <td class="col-desc">Kamera scanner cepat di pos satpam untuk memindai kartu izin keluar gerbang (Checkout) dan mencatat jam aktual.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">45</td>
+        <td class="col-name">Scan Siswa Kembali ke Sekolah (Satpam)</td>
+        <td class="col-desc">Pemindaian saat siswa kembali ke sekolah (Checkin Return) dengan peringatan keterlambatan jika melebihi batas waktu izin.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">46</td>
+        <td class="col-name">Input Token Izin Manual di Pos Gerbang</td>
+        <td class="col-desc">Fitur fallback ketik kode izin 6 karakter jika kartu fisik siswa basah, rusak, atau kamera scanner pos silau.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">47</td>
+        <td class="col-name">Reset Device Binding Siswa (Operator)</td>
+        <td class="col-desc">Membuka kunci ikatan ID perangkat (kunci HP) bagi siswa yang berganti ponsel atau mengalami kerusakan perangkat.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">48</td>
+        <td class="col-name">Buka Kunci Biodata Siswa (Operator)</td>
+        <td class="col-desc">Membuka akses edit bagi orang tua siswa untuk merevisi data Dapodik yang salah tanpa harus mengisi formulir dari nol.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">49</td>
+        <td class="col-name">Ubah Status Siswa Tanpa HP (Operator)</td>
+        <td class="col-desc">Mengatur penanda siswa tanpa smartphone agar dapat diabsenkan menggunakan kartu fisik oleh pengurus kelas tanpa limit.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">50</td>
+        <td class="col-name">Broadcast PDF & Pengumuman Sekolah</td>
+        <td class="col-desc">Pengiriman surat edaran berlampiran file PDF langsung ke seluruh HP siswa dan orang tua dalam hitungan detik.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">51</td>
+        <td class="col-name">Jadwal Rotasi Sholat Masjid (Operator)</td>
+        <td class="col-desc">Pengaturan rotasi giliran ruang/kelas yang sholat berjamaah di masjid per hari secara terstruktur dan otomatis.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">52</td>
+        <td class="col-name">Cetak Dokumen Rekap Presensi A4</td>
+        <td class="col-desc">Ekspor dan cetak langsung laporan presensi siswa resmi skala kertas A4 (Hadir, Terlambat, Sakit, Izin, Alpa).</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+    </tbody>
+  </table>
+
+  <div class="section-title">BAGIAN 7: INFRASTRUKTUR SISTEM, SENSOR & PEMBARUAN MANDIRI (OTA)</div>
+  <table class="check-table">
+    <thead>
+      <tr>
+        <th class="col-no">No</th>
+        <th class="col-name">Nama Fitur</th>
+        <th class="col-desc">Deskripsi &amp; Parameter Uji Fungsi</th>
+        <th class="col-box">Cek</th>
+        <th class="col-status">Status</th>
+        <th class="col-note">Catatan</th>
+      </tr>
+    </thead>
+    <tbody>
+
+      <tr>
+        <td class="col-no">53</td>
+        <td class="col-name">In-App OTA Self-Updater (Pembaruan Mandiri)</td>
+        <td class="col-desc">Aplikasi mendeteksi rilis build terbaru dari server sekolah, menampilkan catatan rilis, dan menginstal APK secara mandiri.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">54</td>
+        <td class="col-name">Geofencing GPS & Anti-Fake GPS</td>
+        <td class="col-desc">Perlindungan keakuratan presensi dengan verifikasi koordinat riil dan penolakan otomatis penggunaan aplikasi GPS Palsu / Mock.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">55</td>
+        <td class="col-name">NFC Hardware Reader (Estafet KBM)</td>
+        <td class="col-desc">Dukungan sensor NFC fisik untuk tap tag ruangan KBM dan pembacaan kartu identitas pintar siswa/guru.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">56</td>
+        <td class="col-name">Antrian Presensi Offline (SQLite Room)</td>
+        <td class="col-desc">Data presensi tersimpan aman di database internal HP saat internet padam dan otomatis terkirim saat sinyal kembali online.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">57</td>
+        <td class="col-name">Push Notification Firebase (FCM)</td>
+        <td class="col-desc">Notifikasi instan kehadiran anak ke HP orang tua, pengumuman sekolah, tugas baru, dan pengingat KBM guru.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+      <tr>
+        <td class="col-no">58</td>
+        <td class="col-name">Pembersihan Total Blank Screen Dialog</td>
+        <td class="col-desc">Seluruh dialog modal Android (Sholat PAI, Pilih Kelas, Manajemen, WiFi, Presensi Siswa) tampil jernih tanpa layar putih.</td>
+        <td class="col-box">&#9633;</td>
+        <td class="col-status">[ &nbsp;OK&nbsp; ]</td>
+        <td class="col-note">&nbsp;</td>
+      </tr>
+
+    </tbody>
+  </table>
+
+  <div style="background: #f8fafc; border: 1px solid #cbd5e1; padding: 8px; margin-top: 15px; font-size: 8.5pt;">
+    <strong>KESIMPULAN HASIL UJI KELAYAKAN:</strong><br>
+    [ &nbsp; ] Layak Dioperasikan Penuh &nbsp; &nbsp; &nbsp; &nbsp;
+    [ &nbsp; ] Layak dengan Catatan Perbaikan &nbsp; &nbsp; &nbsp; &nbsp;
+    [ &nbsp; ] Perlu Penyesuaian Lanjutan
+  </div>
+
+  <table class="sign-table">
+    <tr>
+      <td>
+        Mengetahui,<br>
+        <strong>Kepala SMPN 1 Boyolangu</strong><br><br><br><br>
+        ( .................................................. )<br>
+        NIP. ..........................................
+      </td>
+      <td>
+        Diverifikasi Oleh,<br>
+        <strong>Waka Kurikulum / Sarpras</strong><br><br><br><br>
+        ( .................................................. )<br>
+        NIP. ..........................................
+      </td>
+      <td>
+        Boyolangu, .................... 2026<br>
+        <strong>Tim Penguji / Operator CBT</strong><br><br><br><br>
+        ( .................................................. )<br>
+        NIP/NUPTK. ................................
+      </td>
+    </tr>
+  </table>
+</div>
+</body>
+</html>

@@ -1,13 +1,30 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/db';
-import { getClassExamToken, getClassProctors } from './cbtController';
+import { getClassExamToken, getClassProctors, setClassProctor, generate5CharToken } from './cbtController';
 
 export const getTeacherExams = async (req: Request, res: Response) => {
     try {
+        const user = (req as any).user;
+        const isOfficialAdmin = user && ['ADMIN', 'OPERATOR', 'KURIKULUM', 'KEPSEK'].includes(String(user.role).toUpperCase());
+        
+        const whereClause: any = {};
+        if (!isOfficialAdmin && user) {
+            // Guru biasa: HANYA tampilkan Ulangan Harian (UH/FORMATIF) miliknya sendiri atau buatannya
+            // Ujian Resmi (SAS/STS/ASAT/US) dikelola oleh Kurikulum & Operator, disembunyikan dari guru
+            whereClause.OR = [
+                { teacherId: user.id },
+                { authorTeacherIds: { contains: user.id } },
+                { authorTeacherIds: { contains: user.name } }
+            ];
+            whereClause.examType = { in: ['UH', 'FORMATIF', 'HARIAN', 'ULANGAN_HARIAN', 'REMEDIAL'] };
+        }
+
         const [exams, classes] = await Promise.all([
             prisma.exam.findMany({
+                where: whereClause,
                 include: {
                     subject: true,
+                    proctorAssignments: true,
                     _count: { select: { questions: true, studentExams: true } }
                 },
                 orderBy: { createdAt: 'desc' }
@@ -30,7 +47,16 @@ export const getTeacherExams = async (req: Request, res: Response) => {
                 classTokensMap[cls] = getClassExamToken(exam.id, cls, exam.token);
             }
 
-            const classProctorsMap = getClassProctors(exam.id);
+            const classProctorsMap: Record<string, any> = { ...getClassProctors(exam.id) };
+            if ((exam as any).proctorAssignments && Array.isArray((exam as any).proctorAssignments)) {
+                for (const pa of (exam as any).proctorAssignments) {
+                    classProctorsMap[pa.className] = {
+                        proctorId: pa.proctorId,
+                        proctorName: pa.proctorName,
+                        roomName: pa.roomName
+                    };
+                }
+            }
 
             return {
                 ...exam,
@@ -48,7 +74,13 @@ export const getTeacherExams = async (req: Request, res: Response) => {
 };
 
 export const createExam = async (req: Request, res: Response) => {
-    const { title, subjectName, durationMinutes, minDurationMinutes, assignedClasses, sessionName, executionDate, startTimeStr, endTimeStr, randomizeQuestions, randomizeOptions, showScoreToStudent, maxStrikes, examType, roomName, proctorName, passingGrade, level } = req.body;
+    const {
+        title, subjectName, durationMinutes, minDurationMinutes, assignedClasses,
+        sessionName, executionDate, startTimeStr, endTimeStr, randomizeQuestions,
+        randomizeOptions, showScoreToStudent, maxStrikes, examType, roomName,
+        proctorName, passingGrade, level, packageCode, status, authorTeacherIds,
+        isOptionDOnly, isSpecialExam, autoActiveOnSchedule
+    } = req.body;
     const user = (req as any).user;
 
     try {
@@ -58,17 +90,19 @@ export const createExam = async (req: Request, res: Response) => {
             subject = await prisma.subject.create({ data: { name: subName } });
         }
 
-        const tokenStr = Math.random().toString(36).substring(2, 8).toUpperCase();
+        const tokenStr = generate5CharToken();
 
         const exam = await prisma.exam.create({
             data: {
                 title: title || 'Paket Ujian Baru',
+                packageCode: packageCode || `PKG-${tokenStr}`,
                 subjectId: subject.id,
                 durationMinutes: Number(durationMinutes) || 90,
                 minDurationMinutes: Number(minDurationMinutes) || 30,
                 token: tokenStr,
                 isTokenActive: false,
-                assignedClasses: assignedClasses || 'ALL',
+                status: status || 'DRAFT',
+                assignedClasses: Array.isArray(assignedClasses) ? assignedClasses.join(',') : (assignedClasses || 'ALL'),
                 sessionName: sessionName || 'Sesi 1 (Pagi)',
                 roomName: roomName || 'Lab Komputer 1',
                 proctorName: proctorName || 'Proktor Utama',
@@ -80,28 +114,44 @@ export const createExam = async (req: Request, res: Response) => {
                 endTimeStr: endTimeStr || '09:30',
                 randomizeQuestions: randomizeQuestions !== undefined ? Boolean(randomizeQuestions) : true,
                 randomizeOptions: randomizeOptions !== undefined ? Boolean(randomizeOptions) : true,
+                isOptionDOnly: isOptionDOnly !== undefined ? Boolean(isOptionDOnly) : true,
+                isSpecialExam: isSpecialExam !== undefined ? Boolean(isSpecialExam) : false,
+                autoActiveOnSchedule: autoActiveOnSchedule !== undefined ? Boolean(autoActiveOnSchedule) : true,
                 showScoreToStudent: Boolean(showScoreToStudent),
                 maxStrikes: Number(maxStrikes) || 3,
+                authorTeacherIds: authorTeacherIds ? (typeof authorTeacherIds === 'string' ? authorTeacherIds : JSON.stringify(authorTeacherIds)) : (user?.id ? JSON.stringify([user.id]) : null),
                 teacherId: user ? user.id : null
             },
             include: { subject: true }
         });
-        res.json(exam);
+        res.json({
+            success: true,
+            message: 'Ulangan CBT berhasil dibuat!',
+            ...exam
+        });
     } catch (error) {
         console.error('Error creating exam:', error);
-        res.status(500).json({ message: 'Error creating exam' });
+        res.status(500).json({ success: false, message: 'Error creating exam' });
     }
 };
 
 export const scheduleNationalExam = async (req: Request, res: Response) => {
     const id = req.params.id as string;
-    const { title, subjectName, durationMinutes, minDurationMinutes, assignedClasses, sessionName, executionDate, startTimeStr, endTimeStr, isTokenActive, randomizeQuestions, randomizeOptions, showScoreToStudent, maxStrikes, resetToken, examType, roomName, proctorName, passingGrade, level } = req.body;
+    const {
+        title, subjectName, durationMinutes, minDurationMinutes, assignedClasses,
+        sessionName, executionDate, startTimeStr, endTimeStr, isTokenActive,
+        randomizeQuestions, randomizeOptions, showScoreToStudent, maxStrikes,
+        resetToken, examType, roomName, proctorName, passingGrade, level,
+        packageCode, status, isOptionDOnly, isSpecialExam, autoActiveOnSchedule
+    } = req.body;
     try {
         const updateData: any = {};
         if (title) updateData.title = title;
+        if (packageCode) updateData.packageCode = packageCode;
+        if (status) updateData.status = status;
         if (durationMinutes) updateData.durationMinutes = Number(durationMinutes);
         if (minDurationMinutes !== undefined) updateData.minDurationMinutes = Number(minDurationMinutes);
-        if (assignedClasses !== undefined) updateData.assignedClasses = assignedClasses;
+        if (assignedClasses !== undefined) updateData.assignedClasses = Array.isArray(assignedClasses) ? assignedClasses.join(',') : assignedClasses;
         if (sessionName !== undefined) updateData.sessionName = sessionName;
         if (roomName !== undefined) updateData.roomName = roomName;
         if (proctorName !== undefined) updateData.proctorName = proctorName;
@@ -114,6 +164,9 @@ export const scheduleNationalExam = async (req: Request, res: Response) => {
         if (isTokenActive !== undefined) updateData.isTokenActive = Boolean(isTokenActive);
         if (randomizeQuestions !== undefined) updateData.randomizeQuestions = Boolean(randomizeQuestions);
         if (randomizeOptions !== undefined) updateData.randomizeOptions = Boolean(randomizeOptions);
+        if (isOptionDOnly !== undefined) updateData.isOptionDOnly = Boolean(isOptionDOnly);
+        if (isSpecialExam !== undefined) updateData.isSpecialExam = Boolean(isSpecialExam);
+        if (autoActiveOnSchedule !== undefined) updateData.autoActiveOnSchedule = Boolean(autoActiveOnSchedule);
         if (showScoreToStudent !== undefined) updateData.showScoreToStudent = Boolean(showScoreToStudent);
         if (maxStrikes !== undefined) updateData.maxStrikes = Number(maxStrikes);
         if (resetToken) updateData.token = Math.random().toString(36).substring(2, 8).toUpperCase();
@@ -132,6 +185,20 @@ export const scheduleNationalExam = async (req: Request, res: Response) => {
             include: { subject: true }
         });
 
+        const { proctorAssignments } = req.body;
+        if (Array.isArray(proctorAssignments) && proctorAssignments.length > 0) {
+            for (const p of proctorAssignments) {
+                if (p.className && p.proctorId) {
+                    await (prisma as any).examProctorAssignment.upsert({
+                        where: { examId_className: { examId: id, className: p.className } },
+                        create: { examId: id, className: p.className, proctorId: p.proctorId, proctorName: p.proctorName || '', roomName: p.roomName || '' },
+                        update: { proctorId: p.proctorId, proctorName: p.proctorName || '', roomName: p.roomName || '' }
+                    }).catch(() => null);
+                    setClassProctor(id, p.className, p.proctorName || '', p.roomName, p.proctorId);
+                }
+            }
+        }
+
         res.json({ message: 'Penjadwalan dan konfigurasi Ujian berhasil disimpan', exam: updated });
     } catch (error) {
         console.error('Error scheduling exam:', error);
@@ -141,7 +208,8 @@ export const scheduleNationalExam = async (req: Request, res: Response) => {
 
 export const getExamResults = async (req: Request, res: Response) => {
     try {
-        const { examId, className } = req.query;
+        const examId = (req.params.id || req.query.examId) as string;
+        const className = (req.query.className || req.query.targetClass) as string;
 
         const whereClause: any = {};
         if (examId && examId !== 'ALL') {
@@ -212,9 +280,11 @@ export const uploadQuestionImage = async (req: Request, res: Response) => {
 
         let ext = 'png';
         let base64Data = imageBase64;
+        const allowedImageExts = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
         const matches = imageBase64.match(/^data:image\/([a-zA-Z0-9+]+);base64,(.+)$/);
         if (matches) {
-            ext = matches[1] === 'jpeg' ? 'jpg' : matches[1];
+            const rawExt = matches[1] === 'jpeg' ? 'jpg' : matches[1].toLowerCase();
+            ext = allowedImageExts.includes(rawExt) ? rawExt : 'png';
             base64Data = matches[2];
         }
 
@@ -235,6 +305,45 @@ export const uploadQuestionImage = async (req: Request, res: Response) => {
     }
 };
 
+export const uploadQuestionAudio = async (req: Request, res: Response) => {
+    try {
+        const { audioBase64, fileName } = req.body;
+        if (!audioBase64) {
+            return res.status(400).json({ message: 'Data audio (base64) wajib dikirim' });
+        }
+
+        const uploadDir = path.join(process.cwd(), 'uploads', 'questions', 'audio');
+        if (!fs.existsSync(uploadDir)) {
+            fs.mkdirSync(uploadDir, { recursive: true });
+        }
+
+        let ext = 'mp3';
+        let base64Data = audioBase64;
+        const allowedAudioExts = ['mp3', 'wav', 'ogg', 'm4a', 'aac'];
+        const matches = audioBase64.match(/^data:audio\/([a-zA-Z0-9+]+);base64,(.+)$/);
+        if (matches) {
+            const rawExt = matches[1].toLowerCase();
+            ext = allowedAudioExts.includes(rawExt) ? rawExt : 'mp3';
+            base64Data = matches[2];
+        }
+
+        const safeFileName = `audio_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${ext}`;
+        const targetPath = path.join(uploadDir, safeFileName);
+
+        fs.writeFileSync(targetPath, Buffer.from(base64Data, 'base64'));
+
+        const publicUrl = `/uploads/questions/audio/${safeFileName}`;
+        res.json({
+            success: true,
+            message: 'Audio soal listening berhasil diunggah',
+            audioUrl: publicUrl
+        });
+    } catch (error: any) {
+        console.error('Error uploading question audio:', error);
+        res.status(500).json({ message: 'Gagal mengunggah audio listening' });
+    }
+};
+
 export const getQuestions = async (req: Request, res: Response) => {
     try {
         const examId = req.params.examId as string;
@@ -248,9 +357,18 @@ export const getQuestions = async (req: Request, res: Response) => {
     }
 };
 
+function normalizeCorrectOption(raw: any): string {
+    if (!raw) return 'A';
+    const s = String(raw).trim();
+    if (s.includes(',')) {
+        return s.split(',').map(x => x.trim().toUpperCase()).filter(Boolean).sort().join(',');
+    }
+    return s.toUpperCase();
+}
+
 export const createQuestion = async (req: Request, res: Response) => {
     const examId = req.params.examId as string;
-    const { content, type, correctOption, options, imageUrl, audioUrl, cognitiveLevel, kdTag } = req.body;
+    const { content, type, correctOption, options, imageUrl, audioUrl, cognitiveLevel, kdTag, explanation } = req.body;
     try {
         const count = await prisma.question.count({ where: { examId } });
         const mediaType = imageUrl && audioUrl ? 'BOTH' : (imageUrl ? 'IMAGE' : (audioUrl ? 'AUDIO' : 'NONE'));
@@ -263,10 +381,11 @@ export const createQuestion = async (req: Request, res: Response) => {
                 imageUrl: imageUrl || null,
                 audioUrl: audioUrl || null,
                 mediaType,
-                correctOption: correctOption || 'A',
+                correctOption: normalizeCorrectOption(correctOption),
                 options: typeof options === 'object' ? JSON.stringify(options) : options,
                 cognitiveLevel: cognitiveLevel || 'C3',
                 kdTag: kdTag || null,
+                explanation: explanation || null,
                 orderNum: count + 1
             }
         });
@@ -279,12 +398,12 @@ export const createQuestion = async (req: Request, res: Response) => {
 
 export const updateQuestion = async (req: Request, res: Response) => {
     const id = req.params.id as string;
-    const { content, type, correctOption, options, imageUrl, audioUrl, cognitiveLevel, kdTag, orderNum } = req.body;
+    const { content, type, correctOption, options, imageUrl, audioUrl, cognitiveLevel, kdTag, orderNum, explanation } = req.body;
     try {
         const mediaType = imageUrl && audioUrl ? 'BOTH' : (imageUrl ? 'IMAGE' : (audioUrl ? 'AUDIO' : 'NONE'));
         const updateData: any = {
             content,
-            correctOption,
+            correctOption: normalizeCorrectOption(correctOption),
             options: typeof options === 'object' ? JSON.stringify(options) : options,
             imageUrl: imageUrl || null,
             audioUrl: audioUrl || null,
@@ -294,6 +413,7 @@ export const updateQuestion = async (req: Request, res: Response) => {
         if (cognitiveLevel !== undefined) updateData.cognitiveLevel = cognitiveLevel;
         if (kdTag !== undefined) updateData.kdTag = kdTag;
         if (orderNum !== undefined) updateData.orderNum = Number(orderNum);
+        if (explanation !== undefined) updateData.explanation = explanation;
 
         const question = await prisma.question.update({
             where: { id },
@@ -339,6 +459,13 @@ export const getStudentExamLjs = async (req: Request, res: Response) => {
             return res.status(404).json({ message: 'Lembar Ujian Siswa tidak ditemukan' });
         }
 
+        const authUser = (req as any).user;
+        if (authUser && authUser.role === 'STUDENT') {
+            if (studentExam.userId !== authUser.id) {
+                return res.status(403).json({ message: 'Akses ditolak: Lembar ujian ini bukan milik Anda.' });
+            }
+        }
+
         // Parse student answers
         let answersObj: Record<string, string> = {};
         if (studentExam.answers) {
@@ -379,6 +506,8 @@ export const getStudentExamLjs = async (req: Request, res: Response) => {
                 totalWrong++;
             }
 
+            const isStudentRole = Boolean(authUser && authUser.role === 'STUDENT');
+
             return {
                 id: q.id,
                 orderNum: q.orderNum,
@@ -386,10 +515,11 @@ export const getStudentExamLjs = async (req: Request, res: Response) => {
                 type: q.type,
                 options: q.options,
                 imageUrl: q.imageUrl,
-                correctOption,
+                correctOption: isStudentRole ? null : correctOption,
                 studentAnswer,
-                isCorrect: q.type === 'ESSAY' ? null : isCorrect,
-                status: !hasAnswer ? 'KOSONG' : (isCorrect ? 'BENAR' : 'SALAH')
+                explanation: isStudentRole ? '' : ((q as any).explanation || ''),
+                isCorrect: isStudentRole ? null : (q.type === 'ESSAY' ? null : isCorrect),
+                status: isStudentRole ? (!hasAnswer ? 'KOSONG' : 'DIJAWAB') : (!hasAnswer ? 'KOSONG' : (isCorrect ? 'BENAR' : 'SALAH'))
             };
         });
 
@@ -566,6 +696,79 @@ export const exportExamResultsCsv = async (req: Request, res: Response) => {
     } catch (error) {
         console.error('Error exporting exam results CSV:', error);
         res.status(500).json({ message: 'Gagal mengekspor rekap nilai ujian' });
+    }
+};
+
+export const duplicateExam = async (req: Request, res: Response) => {
+    try {
+        const id = req.params.id as string;
+        const sourceExam = await prisma.exam.findUnique({
+            where: { id },
+            include: { questions: true }
+        });
+
+        if (!sourceExam) {
+            return res.status(404).json({ success: false, message: 'Paket soal sumber tidak ditemukan' });
+        }
+
+        let tokenStr = Math.random().toString(36).substring(2, 8).toUpperCase();
+        while (await prisma.exam.findUnique({ where: { token: tokenStr } })) {
+            tokenStr = Math.random().toString(36).substring(2, 8).toUpperCase();
+        }
+
+        const newExam = await prisma.exam.create({
+            data: {
+                title: `Salinan - ${sourceExam.title}`,
+                subjectId: sourceExam.subjectId,
+                durationMinutes: sourceExam.durationMinutes,
+                minDurationMinutes: sourceExam.minDurationMinutes,
+                token: tokenStr,
+                isTokenActive: false,
+                assignedClasses: sourceExam.assignedClasses,
+                sessionName: sourceExam.sessionName,
+                roomName: sourceExam.roomName,
+                proctorName: sourceExam.proctorName,
+                passingGrade: sourceExam.passingGrade,
+                level: sourceExam.level,
+                examType: sourceExam.examType,
+                executionDate: sourceExam.executionDate,
+                startTimeStr: sourceExam.startTimeStr,
+                endTimeStr: sourceExam.endTimeStr,
+                randomizeQuestions: sourceExam.randomizeQuestions,
+                randomizeOptions: sourceExam.randomizeOptions,
+                showScoreToStudent: sourceExam.showScoreToStudent,
+                maxStrikes: sourceExam.maxStrikes,
+                teacherId: sourceExam.teacherId,
+                questions: {
+                    create: sourceExam.questions.map(q => ({
+                        type: q.type,
+                        content: q.content,
+                        imageUrl: q.imageUrl,
+                        audioUrl: q.audioUrl,
+                        mediaType: q.mediaType,
+                        correctOption: q.correctOption,
+                        options: q.options,
+                        orderNum: q.orderNum,
+                        cognitiveLevel: q.cognitiveLevel,
+                        kdTag: q.kdTag,
+                        explanation: q.explanation
+                    }))
+                }
+            },
+            include: {
+                subject: true,
+                _count: { select: { questions: true } }
+            }
+        });
+
+        res.json({
+            success: true,
+            message: `Paket soal berhasil diduplikasi menjadi "${newExam.title}" (${newExam._count.questions} soal)`,
+            exam: newExam
+        });
+    } catch (error: any) {
+        console.error('Error duplicating exam:', error);
+        res.status(500).json({ success: false, message: 'Gagal menduplikasi paket soal: ' + error.message });
     }
 };
 

@@ -13,6 +13,7 @@ import android.view.View
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
@@ -41,6 +42,8 @@ class ExambroGatewayActivity : AppCompatActivity() {
     private lateinit var binding: ActivityExambroGatewayBinding
     private lateinit var sessionManager: SessionManager
     private var allExams: List<ExamItemDto> = emptyList()
+    private var fullSchedules: List<com.school.smartcbt.data.model.CbtScheduleAgendaDto> = emptyList()
+    private var serverTodayDate: String? = null
     private var isCompletedTabActive: Boolean = false
 
     private var pendingTokenDialogExamId: String? = null
@@ -87,6 +90,17 @@ class ExambroGatewayActivity : AppCompatActivity() {
         setupTabs()
         checkBatteryTelemetry()
         loadActiveExams()
+
+        if (!com.school.smartcbt.utils.DialogHelper.isAllFilesAccessGranted(this)) {
+            com.school.smartcbt.utils.DialogHelper.showMandatoryAllFilesDialog(this)
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (!com.school.smartcbt.utils.DialogHelper.dismissMandatoryAllFilesDialogIfGranted(this)) {
+            com.school.smartcbt.utils.DialogHelper.showMandatoryAllFilesDialog(this)
+        }
     }
 
     private fun setupHeader() {
@@ -94,6 +108,10 @@ class ExambroGatewayActivity : AppCompatActivity() {
         binding.btnRefreshExambro.setOnClickListener {
             Toast.makeText(this, "Menyegarkan jadwal ujian...", Toast.LENGTH_SHORT).show()
             loadActiveExams()
+        }
+
+        binding.cardCalendarAgenda.setOnClickListener {
+            showFullCalendarAgendaDialog()
         }
 
         val name = sessionManager.getName().ifEmpty { "Peserta CBT" }
@@ -127,8 +145,8 @@ class ExambroGatewayActivity : AppCompatActivity() {
             binding.btnTabExamActive.setTextColor(Color.WHITE)
             binding.btnTabExamCompleted.setBackgroundColor(Color.TRANSPARENT)
             binding.btnTabExamCompleted.setTextColor(Color.parseColor("#64748B"))
-            binding.tvExamSectionTitle.text = "📝 DAFTAR JADWAL UJIAN AKTIF"
-            binding.tvExamSectionSubtitle.text = "Pilih sesi ujian yang tersedia untuk memasukkan token dan memulai ujian."
+            binding.tvExamSectionTitle.text = "📝 DAFTAR JADWAL UJIAN HARI INI"
+            binding.tvExamSectionSubtitle.text = "Pilih sesi ujian aktif hari ini untuk memasukkan token dan memulai ujian."
         } else {
             binding.btnTabExamCompleted.setBackgroundColor(Color.parseColor("#0A2E5C"))
             binding.btnTabExamCompleted.setTextColor(Color.WHITE)
@@ -165,7 +183,7 @@ class ExambroGatewayActivity : AppCompatActivity() {
             val emptyMsg = if (isCompletedTabActive) {
                 "Belum ada sesi ujian CBT yang telah diselesaikan untuk akun Anda."
             } else {
-                "Saat ini tidak ada sesi ujian CBT aktif yang perlu dikerjakan untuk kelas Anda."
+                "Tidak ada jadwal ujian CBT aktif untuk hari ini. Gunakan menu 'Agenda Kalender Semua Jadwal Ujian' untuk melihat jadwal lengkap."
             }
             renderEmptyExamState(emptyMsg)
         }
@@ -175,6 +193,8 @@ class ExambroGatewayActivity : AppCompatActivity() {
         ApiClient.getClient(this).getStudentCbtExams().enqueue(object : Callback<ActiveExamsResponse> {
             override fun onResponse(call: Call<ActiveExamsResponse>, response: Response<ActiveExamsResponse>) {
                 val exams = response.body()?.exams ?: emptyList()
+                fullSchedules = response.body()?.schedules ?: emptyList()
+                serverTodayDate = response.body()?.todayDate
                 allExams = exams
                 updateExamProgress()
                 renderCurrentTabExams()
@@ -424,11 +444,18 @@ class ExambroGatewayActivity : AppCompatActivity() {
             stateListAnimator = null
             elevation = 0f
             if (isCompleted) {
-                text = "✓ Jawaban Berhasil Disimpan di Server"
+                text = "🔒 SUDAH SELESAI (TIDAK BISA DIULANG)"
                 setTextColor(Color.parseColor("#475569"))
                 textSize = 12f
                 setTypeface(null, Typeface.BOLD)
-                isEnabled = false
+                isEnabled = true
+                setOnClickListener {
+                    AlertDialog.Builder(this@ExambroGatewayActivity)
+                        .setTitle("🔒 Ujian Sudah Diselesaikan")
+                        .setMessage("Anda telah menyelesaikan ujian ini dan lembar jawaban tersimpan resmi di Server Proktor.\n\nSesuai regulasi Asesmen CBT, siswa tidak diperkenankan mengulang pengerjaan atau meminta token kembali.")
+                        .setPositiveButton("Mengerti", null)
+                        .show()
+                }
             } else {
                 text = if (isTokenActive) "🔑 Masukkan Token & Buka Ujian" else "🚀 Buka ExamBrowser Sekarang"
                 setTextColor(Color.WHITE)
@@ -443,6 +470,14 @@ class ExambroGatewayActivity : AppCompatActivity() {
             }
             btnStart.setOnClickListener(clickListener)
             card.setOnClickListener(clickListener)
+        } else {
+            card.setOnClickListener {
+                AlertDialog.Builder(this@ExambroGatewayActivity)
+                    .setTitle("🔒 Ujian Sudah Diselesaikan")
+                    .setMessage("Anda telah menyelesaikan ujian ini dan lembar jawaban tersimpan resmi di Server Proktor.\n\nSesuai regulasi Asesmen CBT, siswa tidak diperkenankan mengulang pengerjaan atau meminta token kembali.")
+                    .setPositiveButton("Mengerti", null)
+                    .show()
+            }
         }
 
         root.addView(btnStart)
@@ -452,7 +487,7 @@ class ExambroGatewayActivity : AppCompatActivity() {
 
     private fun handleExamClick(examId: String, title: String, subject: String, duration: Int, isTokenActive: Boolean, expectedToken: String?) {
         if (!isTokenActive) {
-            launchExamSession(examId, title, subject, duration, expectedToken ?: "UNBK26")
+            showParticipantConfirmationFullScreen(examId, title, subject, duration, expectedToken ?: "UNBK26")
         } else {
             promptExamToken(examId, title, subject, duration, expectedToken)
         }
@@ -468,9 +503,9 @@ class ExambroGatewayActivity : AppCompatActivity() {
         val tvTitle = dialogView.findViewById<TextView>(com.school.smartcbt.R.id.tvTokenDialogTitle)
         val tvSubject = dialogView.findViewById<TextView>(com.school.smartcbt.R.id.tvTokenDialogSubject)
         val tvClass = dialogView.findViewById<TextView>(com.school.smartcbt.R.id.tvTokenDialogClass)
+        val cbIntegrity = dialogView.findViewById<android.widget.CheckBox>(com.school.smartcbt.R.id.cbAgreeIntegrity)
         val etToken = dialogView.findViewById<EditText>(com.school.smartcbt.R.id.etExamTokenInput)
         val btnPaste = dialogView.findViewById<Button>(com.school.smartcbt.R.id.btnPasteToken)
-        val btnScanQr = dialogView.findViewById<Button>(com.school.smartcbt.R.id.btnScanQrToken)
         val layoutError = dialogView.findViewById<LinearLayout>(com.school.smartcbt.R.id.layoutTokenError)
         val tvErrorMessage = dialogView.findViewById<TextView>(com.school.smartcbt.R.id.tvTokenErrorMessage)
         val pbLoading = dialogView.findViewById<ProgressBar>(com.school.smartcbt.R.id.pbTokenLoading)
@@ -478,18 +513,30 @@ class ExambroGatewayActivity : AppCompatActivity() {
         val btnSubmit = dialogView.findViewById<Button>(com.school.smartcbt.R.id.btnSubmitTokenDialog)
 
         activeEtTokenInput = etToken
+        etToken.filters = arrayOf(android.text.InputFilter.AllCaps(), android.text.InputFilter.LengthFilter(15))
+        etToken.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) {
+                val upper = s?.toString()?.uppercase()
+                if (upper != null && upper != s.toString()) {
+                    val pos = etToken.selectionStart
+                    etToken.setText(upper)
+                    etToken.setSelection(pos.coerceAtMost(upper.length))
+                }
+            }
+        })
 
         tvTitle.text = title
         tvSubject.text = "$subject • $duration Menit"
-        val studentClass = sessionManager.getClassName().ifEmpty { "VII-A" }
-        tvClass.text = "🏛️ Ruang / Rombel: Kelas $studentClass • Terhubung Pengawas"
+        val studentClass = sessionManager.getClassName().trim()
+        tvClass.text = if (studentClass.isNotEmpty()) "🏛️ Ruang / Rombel: Kelas $studentClass" else "🏛️ Ruang / Rombel: Peserta CBT"
 
-        val dialog = AlertDialog.Builder(this)
+        val dialog = AlertDialog.Builder(this, android.R.style.Theme_Material_Light_NoActionBar_Fullscreen)
             .setView(dialogView)
             .setCancelable(true)
             .create()
 
-        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
         activeTokenDialog = dialog
 
         // Paste dari Clipboard
@@ -515,23 +562,25 @@ class ExambroGatewayActivity : AppCompatActivity() {
             }
         }
 
-        // Scan QR Pengawas
-        btnScanQr.setOnClickListener {
-            val scanIntent = Intent(this, ScannerActivity::class.java).apply {
-                putExtra(ScannerActivity.EXTRA_SCAN_MODE, ScannerActivity.MODE_EXAM_TOKEN)
-            }
-            scanTokenQrLauncher.launch(scanIntent)
-        }
-
         btnCancel.setOnClickListener {
             dialog.dismiss()
         }
 
         btnSubmit.setOnClickListener {
+            if (!com.school.smartcbt.utils.DialogHelper.isAllFilesAccessGranted(this)) {
+                com.school.smartcbt.utils.DialogHelper.showMandatoryAllFilesDialog(this)
+                return@setOnClickListener
+            }
+            if (cbIntegrity != null && !cbIntegrity.isChecked) {
+                layoutError.visibility = View.VISIBLE
+                tvErrorMessage.text = "⚠️ Anda wajib menyetujui Tata Tertib & Pakta Integritas sebelum memulai ujian."
+                vibrateError()
+                return@setOnClickListener
+            }
             val entered = etToken.text.toString().trim().uppercase()
             if (entered.isEmpty()) {
                 layoutError.visibility = View.VISIBLE
-                tvErrorMessage.text = "⚠️ Token ujian tidak boleh kosong."
+                tvErrorMessage.text = "⚠️ Token ujian tidak boleh kosong. Masukkan kode dari Pengawas Ruang."
                 vibrateError()
                 return@setOnClickListener
             }
@@ -539,6 +588,11 @@ class ExambroGatewayActivity : AppCompatActivity() {
         }
 
         dialog.show()
+        dialog.window?.setLayout(
+            android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+            android.view.ViewGroup.LayoutParams.MATCH_PARENT
+        )
+        dialog.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.parseColor("#F8FAFC")))
     }
 
     private fun verifyAndLaunchExam(
@@ -567,13 +621,35 @@ class ExambroGatewayActivity : AppCompatActivity() {
 
                     if (response.isSuccessful && response.body()?.valid == true) {
                         dialog?.dismiss()
-                        Toast.makeText(this@ExambroGatewayActivity, "✅ Token Valid! Membuka Ruang Ujian...", Toast.LENGTH_SHORT).show()
-                        launchExamSession(examId, title, subject, duration, token)
+                        com.school.smartcbt.utils.ClientLogger.logCbt(
+                            context = this@ExambroGatewayActivity,
+                            action = "VERIFY_TOKEN",
+                            outcome = "SUCCESS",
+                            message = "Token valid ($token) untuk ujian $title",
+                            examId = examId,
+                            token = token
+                        )
+                        Toast.makeText(this@ExambroGatewayActivity, "✅ Token Valid! Membuka Konfirmasi Data...", Toast.LENGTH_SHORT).show()
+                        showParticipantConfirmationFullScreen(examId, title, subject, duration, token)
                     } else {
-                        val errMsg = response.body()?.message ?: "Token ujian tidak valid atau belum dirilis Pengawas."
+                        val errMsg = response.body()?.message ?: try {
+                            val errJson = response.errorBody()?.string()
+                            org.json.JSONObject(errJson ?: "").optString("message", "Token ujian tidak valid atau belum dirilis Pengawas.")
+                        } catch (e: Exception) { "Token ujian tidak valid atau belum dirilis Pengawas." }
+
+                        com.school.smartcbt.utils.ClientLogger.logCbt(
+                            context = this@ExambroGatewayActivity,
+                            action = "VERIFY_TOKEN",
+                            outcome = "REJECTED",
+                            message = "Token ditolak: $errMsg",
+                            examId = examId,
+                            token = token
+                        )
+
                         layoutError?.visibility = View.VISIBLE
-                        tvErrorMessage?.text = errMsg
+                        tvErrorMessage?.text = "❌ $errMsg"
                         vibrateError()
+                        Toast.makeText(this@ExambroGatewayActivity, "⚠️ Akses Ditolak: $errMsg", Toast.LENGTH_LONG).show()
                     }
                 }
 
@@ -582,10 +658,20 @@ class ExambroGatewayActivity : AppCompatActivity() {
                     btnSubmit?.isEnabled = true
                     btnSubmit?.text = "🚀 Verifikasi & Mulai"
 
-                    // Fallback jika network error / offline server
-                    dialog?.dismiss()
-                    Toast.makeText(this@ExambroGatewayActivity, "🚀 Menghubungkan ke Ruang Ujian...", Toast.LENGTH_SHORT).show()
-                    launchExamSession(examId, title, subject, duration, token)
+                    val netMsg = t.message ?: "Koneksi terputus"
+                    com.school.smartcbt.utils.ClientLogger.logCbt(
+                        context = this@ExambroGatewayActivity,
+                        action = "VERIFY_TOKEN",
+                        outcome = "ERROR",
+                        message = "Koneksi verifikasi token gagal: $netMsg",
+                        examId = examId,
+                        token = token
+                    )
+
+                    layoutError?.visibility = View.VISIBLE
+                    tvErrorMessage?.text = "⚠️ Gagal memverifikasi token ke Server: $netMsg. Pastikan perangkat terhubung ke Wi-Fi sekolah."
+                    vibrateError()
+                    Toast.makeText(this@ExambroGatewayActivity, "❌ Verifikasi Token Gagal: Soal tidak dapat diakses!", Toast.LENGTH_LONG).show()
                 }
             })
     }
@@ -612,5 +698,520 @@ class ExambroGatewayActivity : AppCompatActivity() {
             putExtra("EXAM_TOKEN", token)
         }
         startActivity(intent)
+    }
+
+    private fun showParticipantConfirmationFullScreen(
+        examId: String,
+        title: String,
+        subject: String,
+        duration: Int,
+        token: String
+    ) {
+        val density = resources.displayMetrics.density
+        val studentName = sessionManager.getName().ifEmpty { "Peserta CBT" }
+        val studentNisn = sessionManager.getNisn().ifEmpty { sessionManager.getUsername() }.ifEmpty { "0013929592" }
+        val studentClass = sessionManager.getClassName().ifEmpty { "VII-A" }
+
+        val rootLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#0F172A"))
+            layoutParams = android.view.ViewGroup.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        }
+
+        // Header Form Formal
+        val headerLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val p = (20 * density).toInt()
+            setPadding(p, p, p, (14 * density).toInt())
+            setBackgroundColor(Color.parseColor("#0A2540"))
+        }
+
+        val tvBadgeFormal = TextView(this).apply {
+            text = "🏛️ SISTEM ASESMEN CBT TERSTANDAR SMP"
+            setTextColor(Color.parseColor("#38BDF8"))
+            textSize = 11f
+            setTypeface(null, Typeface.BOLD)
+            letterSpacing = 0.05f
+        }
+        headerLayout.addView(tvBadgeFormal)
+
+        val tvHeaderTitle = TextView(this).apply {
+            text = "LEMBAR KONFIRMASI DATA UJIAN"
+            setTextColor(Color.WHITE)
+            textSize = 19f
+            setTypeface(null, Typeface.BOLD)
+            setPadding(0, (4 * density).toInt(), 0, (2 * density).toInt())
+        }
+        headerLayout.addView(tvHeaderTitle)
+
+        val tvHeaderSub = TextView(this).apply {
+            text = "Periksa kelengkapan identitas peserta & paket ujian sebelum memulai pengerjaan."
+            setTextColor(Color.parseColor("#94A3B8"))
+            textSize = 12f
+        }
+        headerLayout.addView(tvHeaderSub)
+        rootLayout.addView(headerLayout)
+
+        // Scroll Content
+        val scrollView = ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f)
+            val p = (16 * density).toInt()
+            setPadding(p, p, p, p)
+        }
+
+        val contentLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+
+        // Card 1: Identitas Peserta
+        val cardPeserta = CardView(this).apply {
+            radius = 16 * density
+            cardElevation = 3 * density
+            setCardBackgroundColor(Color.WHITE)
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = (12 * density).toInt()
+            }
+        }
+        val innerPeserta = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val p = (16 * density).toInt()
+            setPadding(p, p, p, p)
+        }
+        val tvSection1 = TextView(this).apply {
+            text = "👤 IDENTITAS PESERTA UJIAN"
+            setTextColor(Color.parseColor("#1E3A8A"))
+            textSize = 13f
+            setTypeface(null, Typeface.BOLD)
+            setPadding(0, 0, 0, (10 * density).toInt())
+        }
+        innerPeserta.addView(tvSection1)
+        innerPeserta.addView(createDataRow("Nama Peserta", studentName, density))
+        innerPeserta.addView(createDataRow("Nomor Peserta / NISN", studentNisn, density))
+        innerPeserta.addView(createDataRow("Rombel / Kelas", "Kelas $studentClass", density))
+        innerPeserta.addView(createDataRow("Sekolah", "SMP NEGERI 1 BOYOLANGU", density))
+        cardPeserta.addView(innerPeserta)
+        contentLayout.addView(cardPeserta)
+
+        // Card 2: Rincian Paket Ujian
+        val cardExam = CardView(this).apply {
+            radius = 16 * density
+            cardElevation = 3 * density
+            setCardBackgroundColor(Color.WHITE)
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = (12 * density).toInt()
+            }
+        }
+        val innerExam = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val p = (16 * density).toInt()
+            setPadding(p, p, p, p)
+        }
+        val tvSection2 = TextView(this).apply {
+            text = "📑 RINCIAN SESI & NASKAH UJIAN"
+            setTextColor(Color.parseColor("#0F766E"))
+            textSize = 13f
+            setTypeface(null, Typeface.BOLD)
+            setPadding(0, 0, 0, (10 * density).toInt())
+        }
+        innerExam.addView(tvSection2)
+        innerExam.addView(createDataRow("Mata Pelajaran", subject, density))
+        innerExam.addView(createDataRow("Judul Asesmen", title, density))
+        innerExam.addView(createDataRow("Alokasi Waktu", "$duration Menit", density))
+        innerExam.addView(createDataRow("Format Soal", "Pilihan Ganda (4 Opsi A-D Standar SMP) & Isian", density))
+        innerExam.addView(createDataRow("Token Pengawas", "$token (Valid)", density))
+        cardExam.addView(innerExam)
+        contentLayout.addView(cardExam)
+
+        // Card 3: Pakta Integritas & Kiosk Lock
+        val cardWarning = CardView(this).apply {
+            radius = 16 * density
+            cardElevation = 3 * density
+            setCardBackgroundColor(Color.parseColor("#FFF1F2"))
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = (14 * density).toInt()
+            }
+        }
+        val innerWarning = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val p = (16 * density).toInt()
+            setPadding(p, p, p, p)
+        }
+        val tvWarningHead = TextView(this).apply {
+            text = "🛡️ PAKTA INTEGRITAS & ATURAN LOCKDOWN"
+            setTextColor(Color.parseColor("#BE123C"))
+            textSize = 13f
+            setTypeface(null, Typeface.BOLD)
+        }
+        innerWarning.addView(tvWarningHead)
+
+        val tvWarningBody = TextView(this).apply {
+            text = "1. Aplikasi ini terkunci dalam Mode Kiosk CBT. Tombol navigasi keluar dan recent apps dinonaktifkan.\n" +
+                    "2. Membuka jendela lain atau menekan tombol home dihitung sebagai pelanggaran (Strike).\n" +
+                    "3. ⚠️ PENTING: Sekali Anda menekan 'Selesai' atau mengumpulkan lembar ujian, status ujian dinyatakan SELESAI dan Anda TIDAK BISA DIULANG KEMBALI atau meminta token lagi!"
+            setTextColor(Color.parseColor("#9F1239"))
+            textSize = 11.5f
+            setPadding(0, (8 * density).toInt(), 0, 0)
+            setLineSpacing(0f, 1.2f)
+        }
+        innerWarning.addView(tvWarningBody)
+        cardWarning.addView(innerWarning)
+        contentLayout.addView(cardWarning)
+
+        scrollView.addView(contentLayout)
+        rootLayout.addView(scrollView)
+
+        // Sticky Footer: Action Buttons
+        val footer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val p = (16 * density).toInt()
+            setPadding(p, p, p, p)
+            setBackgroundColor(Color.parseColor("#0A2540"))
+        }
+
+        val dialog = AlertDialog.Builder(this, android.R.style.Theme_Material_Light_NoActionBar_Fullscreen)
+            .setView(rootLayout)
+            .setCancelable(false)
+            .create()
+
+        val btnStartNow = androidx.appcompat.widget.AppCompatButton(this).apply {
+            text = "🚀 MULAI MENGERJAKAN UJIAN SEKARANG"
+            setTextColor(Color.WHITE)
+            textSize = 14f
+            setTypeface(null, Typeface.BOLD)
+            val gd = android.graphics.drawable.GradientDrawable().apply {
+                cornerRadius = 12 * density
+                setColor(Color.parseColor("#059669"))
+            }
+            background = gd
+            stateListAnimator = null
+            elevation = 0f
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, (50 * density).toInt())
+            setOnClickListener {
+                dialog.dismiss()
+                launchExamSession(examId, title, subject, duration, token)
+            }
+        }
+        footer.addView(btnStartNow)
+
+        val btnCancel = Button(this).apply {
+            text = "Batal / Kembali"
+            setBackgroundColor(Color.TRANSPARENT)
+            setTextColor(Color.parseColor("#94A3B8"))
+            textSize = 12f
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, (42 * density).toInt()).apply {
+                topMargin = (6 * density).toInt()
+            }
+            setOnClickListener {
+                dialog.dismiss()
+            }
+        }
+        footer.addView(btnCancel)
+        rootLayout.addView(footer)
+
+        dialog.show()
+    }
+
+    private fun createDataRow(label: String, value: String, density: Float): LinearLayout {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, (4 * density).toInt(), 0, (4 * density).toInt())
+        }
+        val tvLabel = TextView(this).apply {
+            text = label
+            setTextColor(Color.parseColor("#64748B"))
+            textSize = 12f
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.2f)
+        }
+        val tvVal = TextView(this).apply {
+            text = value
+            setTextColor(Color.parseColor("#0F172A"))
+            textSize = 12f
+            setTypeface(null, Typeface.BOLD)
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 2f)
+        }
+        row.addView(tvLabel)
+        row.addView(tvVal)
+        return row
+    }
+
+    private fun showFullCalendarAgendaDialog() {
+        val density = resources.displayMetrics.density
+
+        val rootLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#F8FAFC"))
+            layoutParams = android.view.ViewGroup.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        }
+
+        // Header
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            val p = (16 * density).toInt()
+            setPadding(p, p, p, p)
+            setBackgroundColor(Color.parseColor("#0A2E5C"))
+        }
+
+        val tvTitle = TextView(this).apply {
+            text = "📅 AGENDA SEMUA JADWAL UJIAN CBT"
+            setTextColor(Color.WHITE)
+            textSize = 15f
+            setTypeface(null, Typeface.BOLD)
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        header.addView(tvTitle)
+
+        val dialog = AlertDialog.Builder(this, android.R.style.Theme_Material_Light_NoActionBar_Fullscreen)
+            .setView(rootLayout)
+            .setCancelable(true)
+            .create()
+
+        val btnClose = androidx.appcompat.widget.AppCompatButton(this).apply {
+            text = "✕ Tutup"
+            setTextColor(Color.WHITE)
+            textSize = 11f
+            setTypeface(null, Typeface.BOLD)
+            val gd = android.graphics.drawable.GradientDrawable().apply {
+                cornerRadius = 8 * density
+                setColor(Color.parseColor("#1E3A8A"))
+            }
+            background = gd
+            stateListAnimator = null
+            elevation = 0f
+            setOnClickListener { dialog.dismiss() }
+        }
+        header.addView(btnClose)
+        rootLayout.addView(header)
+
+        // Subheader Info
+        val subheader = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val p = (14 * density).toInt()
+            setPadding(p, p, p, p)
+            setBackgroundColor(Color.parseColor("#EFF6FF"))
+        }
+        val tvSub = TextView(this).apply {
+            text = "Daftar lengkap sesi ujian yang terjadwal di kalender untuk kelas Anda. Ujian yang aktif pada tanggal hari ini dapat langsung dikerjakan dari beranda."
+            setTextColor(Color.parseColor("#1E40AF"))
+            textSize = 11.5f
+        }
+        subheader.addView(tvSub)
+        rootLayout.addView(subheader)
+
+        val scroll = ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f)
+            val p = (16 * density).toInt()
+            setPadding(p, p, p, p)
+        }
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+
+        // Tab Selector: [🔥 Sesi Ujian Aktif] vs [✅ Riwayat Selesai]
+        val tabBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            val p = (12 * density).toInt()
+            setPadding(p, (8 * density).toInt(), p, (8 * density).toInt())
+            setBackgroundColor(Color.WHITE)
+        }
+
+        var isCompletedAgendaTab = false
+        val activeCount = fullSchedules.count { !it.isCompleted }
+        val completedCount = fullSchedules.count { it.isCompleted }
+
+        val btnAgendaActive = androidx.appcompat.widget.AppCompatButton(this).apply {
+            text = "🔥 Sesi Ujian ($activeCount)"
+            textSize = 11.5f
+            setTypeface(null, Typeface.BOLD)
+            layoutParams = LinearLayout.LayoutParams(0, (40 * density).toInt(), 1f).apply { marginEnd = (4 * density).toInt() }
+        }
+
+        val btnAgendaCompleted = androidx.appcompat.widget.AppCompatButton(this).apply {
+            text = "✅ Riwayat Selesai ($completedCount)"
+            textSize = 11.5f
+            setTypeface(null, Typeface.BOLD)
+            layoutParams = LinearLayout.LayoutParams(0, (40 * density).toInt(), 1f).apply { marginStart = (4 * density).toInt() }
+        }
+
+        fun updateAgendaTabStyles() {
+            if (!isCompletedAgendaTab) {
+                btnAgendaActive.setTextColor(Color.WHITE)
+                btnAgendaActive.background = android.graphics.drawable.GradientDrawable().apply {
+                    cornerRadius = 10 * density
+                    setColor(Color.parseColor("#0A2E5C"))
+                }
+                btnAgendaCompleted.setTextColor(Color.parseColor("#64748B"))
+                btnAgendaCompleted.background = android.graphics.drawable.GradientDrawable().apply {
+                    cornerRadius = 10 * density
+                    setColor(Color.parseColor("#F1F5F9"))
+                }
+            } else {
+                btnAgendaCompleted.setTextColor(Color.WHITE)
+                btnAgendaCompleted.background = android.graphics.drawable.GradientDrawable().apply {
+                    cornerRadius = 10 * density
+                    setColor(Color.parseColor("#059669"))
+                }
+                btnAgendaActive.setTextColor(Color.parseColor("#64748B"))
+                btnAgendaActive.background = android.graphics.drawable.GradientDrawable().apply {
+                    cornerRadius = 10 * density
+                    setColor(Color.parseColor("#F1F5F9"))
+                }
+            }
+        }
+
+        fun renderAgendaList() {
+            container.removeAllViews()
+            val filtered = if (!isCompletedAgendaTab) {
+                fullSchedules.filter { !it.isCompleted }
+            } else {
+                fullSchedules.filter { it.isCompleted }
+            }
+
+            if (filtered.isEmpty()) {
+                val tvEmpty = TextView(this).apply {
+                    text = if (!isCompletedAgendaTab) {
+                        "📭 Tidak ada sesi ujian aktif atau mendatang yang tersisa untuk kelas Anda."
+                    } else {
+                        "📭 Belum ada riwayat ujian yang telah diselesaikan."
+                    }
+                    setTextColor(Color.parseColor("#64748B"))
+                    textSize = 13f
+                    gravity = Gravity.CENTER
+                    setPadding(0, (40 * density).toInt(), 0, (40 * density).toInt())
+                }
+                container.addView(tvEmpty)
+            } else {
+                val grouped = filtered.groupBy { it.executionDate ?: "Jadwal Terbuka" }
+                grouped.forEach { (dateStr, items) ->
+                    val isToday = items.any { it.isToday }
+                    val headerDate = LinearLayout(this).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        gravity = Gravity.CENTER_VERTICAL
+                        setPadding(0, (12 * density).toInt(), 0, (6 * density).toInt())
+                    }
+                    val tvDate = TextView(this).apply {
+                        text = "🗓️ Tanggal: $dateStr"
+                        setTextColor(Color.parseColor(if (isToday) "#0A2E5C" else "#334155"))
+                        textSize = 14f
+                        setTypeface(null, Typeface.BOLD)
+                        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                    }
+                    headerDate.addView(tvDate)
+
+                    if (isToday) {
+                        val tvTodayBadge = TextView(this).apply {
+                            text = "🔥 HARI INI"
+                            setTextColor(Color.parseColor("#BE123C"))
+                            textSize = 10f
+                            setTypeface(null, Typeface.BOLD)
+                            val gd = android.graphics.drawable.GradientDrawable().apply {
+                                cornerRadius = 6 * density
+                                setColor(Color.parseColor("#FFE4E6"))
+                            }
+                            background = gd
+                            val pB = (6 * density).toInt()
+                            setPadding(pB, (2 * density).toInt(), pB, (2 * density).toInt())
+                        }
+                        headerDate.addView(tvTodayBadge)
+                    }
+                    container.addView(headerDate)
+
+                    items.forEach { sched ->
+                        val c = CardView(this).apply {
+                            radius = 12 * density
+                            cardElevation = 2 * density
+                            useCompatPadding = true
+                            setCardBackgroundColor(Color.WHITE)
+                            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                                bottomMargin = (6 * density).toInt()
+                            }
+                        }
+                        val itemLayout = LinearLayout(this).apply {
+                            orientation = LinearLayout.VERTICAL
+                            val p = (12 * density).toInt()
+                            setPadding(p, p, p, p)
+                        }
+
+                        val rowTop = LinearLayout(this).apply {
+                            orientation = LinearLayout.HORIZONTAL
+                            gravity = Gravity.CENTER_VERTICAL
+                        }
+                        val tvMapel = TextView(this).apply {
+                            text = "${sched.subject} - ${sched.title}"
+                            setTextColor(Color.parseColor("#0F172A"))
+                            textSize = 13f
+                            setTypeface(null, Typeface.BOLD)
+                            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                        }
+                        val tvStatus = TextView(this).apply {
+                            val (sText, sFg, sBg) = when {
+                                sched.isCompleted -> Triple("✅ Selesai", "#15803D", "#DCFCE7")
+                                sched.isToday -> Triple("🚀 Aktif Hari Ini", "#1D4ED8", "#DBEAFE")
+                                else -> Triple("⏳ Terjadwal", "#475569", "#F1F5F9")
+                            }
+                            text = sText
+                            setTextColor(Color.parseColor(sFg))
+                            textSize = 10f
+                            setTypeface(null, Typeface.BOLD)
+                            val gd = android.graphics.drawable.GradientDrawable().apply {
+                                cornerRadius = 6 * density
+                                setColor(Color.parseColor(sBg))
+                            }
+                            background = gd
+                            val hP = (8 * density).toInt()
+                            setPadding(hP, (3 * density).toInt(), hP, (3 * density).toInt())
+                        }
+                        rowTop.addView(tvMapel)
+                        rowTop.addView(tvStatus)
+                        itemLayout.addView(rowTop)
+
+                        val tvDetails = TextView(this).apply {
+                            text = "🕒 Jam: ${sched.startTimeStr ?: "07:30"} - ${sched.endTimeStr ?: "12:00"} WIB • ⏱️ ${sched.durationMinutes} Menit • 🏛️ ${sched.sessionName ?: "Sesi CBT"}"
+                            setTextColor(Color.parseColor("#64748B"))
+                            textSize = 11f
+                            setPadding(0, (4 * density).toInt(), 0, 0)
+                        }
+                        itemLayout.addView(tvDetails)
+
+                        c.addView(itemLayout)
+                        container.addView(c)
+                    }
+                }
+            }
+        }
+
+        btnAgendaActive.setOnClickListener {
+            if (isCompletedAgendaTab) {
+                isCompletedAgendaTab = false
+                updateAgendaTabStyles()
+                renderAgendaList()
+            }
+        }
+
+        btnAgendaCompleted.setOnClickListener {
+            if (!isCompletedAgendaTab) {
+                isCompletedAgendaTab = true
+                updateAgendaTabStyles()
+                renderAgendaList()
+            }
+        }
+
+        updateAgendaTabStyles()
+        renderAgendaList()
+
+        tabBar.addView(btnAgendaActive)
+        tabBar.addView(btnAgendaCompleted)
+        rootLayout.addView(tabBar)
+
+        scroll.addView(container)
+        rootLayout.addView(scroll)
+        dialog.show()
     }
 }

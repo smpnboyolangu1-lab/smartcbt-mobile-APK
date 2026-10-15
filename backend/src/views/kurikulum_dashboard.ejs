@@ -1,0 +1,1060 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Portal Kurikulum • SMP Negeri 1 Boyolangu</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #F8FAFC; }
+        .tab-btn.active {
+            background: linear-gradient(135deg, #064E3B 0%, #059669 100%);
+            color: #FFFFFF;
+            box-shadow: 0 4px 12px rgba(5, 150, 105, 0.25);
+        }
+        @media print {
+            .no-print { display: none !important; }
+            .print-only { display: block !important; }
+            body { background: #FFFFFF !important; font-size: 11pt; }
+        }
+        .print-only { display: none; }
+    </style>
+    <link rel="stylesheet" href="/css/portal-theme.css">
+</head>
+<body class="text-slate-800 antialiased flex flex-col min-h-screen">
+
+    <!-- TOPBAR RESMI SIBOY FRESH -->
+    <header class="no-print bg-slate-900 border-b border-slate-800 text-white sticky top-0 z-40 shadow-sm">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-2xl bg-emerald-600 flex items-center justify-center font-black text-xl shadow-md border border-emerald-400/40">
+                    🏛️
+                </div>
+                <div>
+                    <h1 class="text-sm sm:text-base font-black tracking-tight text-white flex items-center gap-2">
+                        PORTAL KURIKULUM
+                        <span class="bg-emerald-500/20 text-emerald-400 text-[10px] font-extrabold px-2 py-0.5 rounded-full border border-emerald-400/30">SIBOY FRESH</span>
+                    </h1>
+                    <p class="text-[11px] text-slate-400 font-medium truncate">SMP Negeri 1 Boyolangu • Terakreditasi A</p>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-3">
+                <div class="hidden sm:flex flex-col text-right">
+                    <span class="text-xs font-bold text-slate-200" id="headerUserName">Tim Kurikulum</span>
+                    <span class="text-[10px] text-emerald-400 font-semibold" id="headerServerTime">WIB</span>
+                </div>
+                <div class="h-6 w-[1px] bg-slate-800 hidden sm:block"></div>
+                <a href="/guru" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-300 transition-all flex items-center gap-1.5 border border-slate-700">
+                    <span>👨‍🏫</span> <span class="hidden md:inline">Portal Guru</span>
+                </a>
+                <button type="button" onclick="togglePortalTheme()" id="themeToggleBtn" title="Ganti Mode Terang / Gelap" class="p-2 rounded-xl text-slate-300 hover:text-amber-400 hover:bg-slate-800 transition-all flex items-center justify-center flex-shrink-0 cursor-pointer" aria-label="Ganti Tema">
+                    <span id="themeToggleIcon" class="text-base">🌙</span>
+                </button>
+                <a href="/logout" class="px-3 py-1.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-400 text-xs font-bold transition-all border border-rose-500/30">
+                    Keluar
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <!-- NAVIGATION TABS (7 FITUR INTI KURIKULUM) -->
+    <nav class="no-print bg-white border-b border-slate-200 shadow-sm sticky top-16 z-30 overflow-x-auto scroll-smooth" style="-webkit-overflow-scrolling: touch;">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex gap-1.5 py-2.5 min-w-max">
+            <button onclick="switchTab('dashboard')" id="btnTab-dashboard" class="tab-btn active px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all">
+                <span>🏠</span> <span>Dashboard</span>
+            </button>
+            <button onclick="switchTab('approval')" id="btnTab-approval" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 flex items-center gap-2 transition-all">
+                <span>✅</span> <span>Approval Izin Guru</span>
+                <span id="badgePendingIzin" class="bg-rose-500 text-white text-[10px] font-black px-1.5 py-0.2 rounded-full hidden">0</span>
+            </button>
+            <button onclick="switchTab('rekap-guru')" id="btnTab-rekap-guru" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 flex items-center gap-2 transition-all">
+                <span>📊</span> <span>Presensi Guru</span>
+            </button>
+            <button onclick="switchTab('rekap-siswa')" id="btnTab-rekap-siswa" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 flex items-center gap-2 transition-all">
+                <span>👥</span> <span>Presensi Siswa</span>
+            </button>
+            <button onclick="switchTab('kelas-kosong')" id="btnTab-kelas-kosong" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 flex items-center gap-2 transition-all">
+                <span>📡</span> <span>Monitoring Kelas Kosong</span>
+                <span id="badgeEmptyClasses" class="bg-amber-500 text-white text-[10px] font-black px-1.5 py-0.2 rounded-full hidden">0</span>
+            </button>
+            <button onclick="switchTab('cbt')" id="btnTab-cbt" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 flex items-center gap-2 transition-all">
+                <span>🖥️</span> <span>Monitoring &amp; Proktor CBT</span>
+            </button>
+            <a href="/kurikulum/cbt" class="px-4 py-2 rounded-xl text-xs font-bold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 flex items-center gap-2 transition-all border border-indigo-200">
+                <span>📝</span> <span>Pusat CBT Terpadu</span>
+            </a>
+            <button onclick="switchTab('laporan')" id="btnTab-laporan" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 flex items-center gap-2 transition-all">
+                <span>📄</span> <span>Laporan &amp; Cetak</span>
+            </button>
+        </div>
+    </nav>
+
+    <!-- MAIN CONTENT CONTAINER -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex-1 w-full">
+
+        <!-- 1. TAB DASHBOARD -->
+        <section id="section-dashboard" class="space-y-6">
+            <!-- Header Banner -->
+            <div class="bg-gradient-to-r from-emerald-800 via-teal-800 to-slate-900 rounded-3xl p-6 sm:p-8 text-white shadow-lg relative overflow-hidden">
+                <div class="relative z-10 max-w-2xl">
+                    <span class="bg-emerald-500/30 text-emerald-300 text-xs uppercase px-3 py-1 rounded-full font-black border border-emerald-400/30">
+                        SISTEM TERPADU KURIKULUM SIBOY
+                    </span>
+                    <h2 class="text-2xl sm:text-3xl font-black mt-3 leading-tight">Selamat Datang di Pusat Komando Kurikulum</h2>
+                    <p class="text-emerald-100 text-xs sm:text-sm mt-2 leading-relaxed">
+                        Data kehadiran, persetujuan perizinan guru, monitoring kelas kosong real-time, dan pemantauan asesmen CBT secara langsung dari database sekolah tanpa data dummy.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Stats Grid -->
+            <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
+                    <span class="text-slate-500 text-xs font-semibold">Total Guru Aktif</span>
+                    <p class="text-2xl font-black text-slate-800 mt-2" id="statTotalGuru">-</p>
+                    <span class="text-[10px] text-emerald-600 font-bold mt-1">Staf Pengajar</span>
+                </div>
+                <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
+                    <span class="text-slate-500 text-xs font-semibold">Total Siswa</span>
+                    <p class="text-2xl font-black text-slate-800 mt-2" id="statTotalSiswa">-</p>
+                    <span class="text-[10px] text-blue-600 font-bold mt-1">Peserta Didik</span>
+                </div>
+                <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
+                    <span class="text-slate-500 text-xs font-semibold">Total Rombel</span>
+                    <p class="text-2xl font-black text-slate-800 mt-2" id="statTotalKelas">-</p>
+                    <span class="text-[10px] text-purple-600 font-bold mt-1">Kelas VII - IX</span>
+                </div>
+                <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
+                    <span class="text-slate-500 text-xs font-semibold">Izin Guru Pending</span>
+                    <p class="text-2xl font-black text-rose-600 mt-2" id="statPendingIzin">-</p>
+                    <span class="text-[10px] text-rose-600 font-bold mt-1">Perlu Verifikasi</span>
+                </div>
+                <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
+                    <span class="text-slate-500 text-xs font-semibold">Kelas Kosong Hari Ini</span>
+                    <p class="text-2xl font-black text-amber-600 mt-2" id="statKelasKosong">-</p>
+                    <span class="text-[10px] text-amber-600 font-bold mt-1">> 5 Menit Tanpa Guru</span>
+                </div>
+                <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
+                    <span class="text-slate-500 text-xs font-semibold">Asesmen CBT Aktif</span>
+                    <p class="text-2xl font-black text-teal-600 mt-2" id="statCbtAktif">-</p>
+                    <span class="text-[10px] text-teal-600 font-bold mt-1">Ujian Berjalan</span>
+                </div>
+            </div>
+
+            <!-- Two Columns: Kehadiran Hari Ini & Posko Piket -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- Kehadiran Realtime -->
+                <div class="lg:col-span-2 bg-white rounded-3xl border border-slate-200 p-6 shadow-sm">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="font-black text-base text-slate-800 flex items-center gap-2">
+                            <span>📈</span> Tingkat Kehadiran KBM Hari Ini
+                        </h3>
+                        <span class="text-xs font-bold text-slate-400" id="dashTodayDate">-</span>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <!-- Guru -->
+                        <div class="p-5 rounded-2xl bg-slate-50 border border-slate-100 flex flex-col justify-between">
+                            <div>
+                                <span class="text-xs font-bold text-slate-500 uppercase tracking-wider">Presensi Mengajar Guru</span>
+                                <div class="flex items-baseline gap-2 mt-2">
+                                    <span class="text-3xl font-black text-slate-800" id="dashGuruPercent">0%</span>
+                                    <span class="text-xs font-bold px-2 py-0.5 rounded-full" id="dashGuruBadge">Memuat...</span>
+                                </div>
+                            </div>
+                            <div class="w-full bg-slate-200 h-2.5 rounded-full mt-4 overflow-hidden">
+                                <div id="dashGuruBar" class="bg-emerald-600 h-2.5 rounded-full transition-all duration-500" style="width: 0%"></div>
+                            </div>
+                        </div>
+
+                        <!-- Siswa -->
+                        <div class="p-5 rounded-2xl bg-slate-50 border border-slate-100 flex flex-col justify-between">
+                            <div>
+                                <span class="text-xs font-bold text-slate-500 uppercase tracking-wider">Presensi Masuk Siswa</span>
+                                <div class="flex items-baseline gap-2 mt-2">
+                                    <span class="text-3xl font-black text-slate-800" id="dashSiswaPercent">0%</span>
+                                    <span class="text-xs font-bold px-2 py-0.5 rounded-full" id="dashSiswaBadge">Memuat...</span>
+                                </div>
+                            </div>
+                            <div class="w-full bg-slate-200 h-2.5 rounded-full mt-4 overflow-hidden">
+                                <div id="dashSiswaBar" class="bg-teal-600 h-2.5 rounded-full transition-all duration-500" style="width: 0%"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mt-4 p-4 rounded-xl bg-emerald-50 border border-emerald-100 text-xs text-emerald-800 flex items-center gap-2">
+                        <span>ℹ️</span> <span>Standar Evaluasi SIBOY FRESH: <b>🟢 Baik (&gt;80%)</b>, <b>🟡 Perlu Perhatian (60-80%)</b>, <b>🔴 Bermasalah (&lt;60%)</b>.</span>
+                    </div>
+                </div>
+
+                <!-- Guru Piket Bertugas Hari Ini -->
+                <div class="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm flex flex-col">
+                    <h3 class="font-black text-base text-slate-800 flex items-center gap-2 mb-3">
+                        <span>🛡️</span> Posko Piket Hari Ini
+                    </h3>
+                    <p class="text-xs text-slate-500 mb-4">Guru piket yang siaga menerima disposisi pendampingan kelas kosong dan izin guru.</p>
+                    
+                    <div id="dashPiketList" class="space-y-2.5 flex-1 overflow-y-auto max-h-64">
+                        <p class="text-xs text-slate-400 py-4 text-center">Memuat guru piket...</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 2. TAB APPROVAL IZIN GURU -->
+        <section id="section-approval" class="space-y-6 hidden">
+            <div class="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+                    <div>
+                        <h3 class="font-black text-lg text-slate-800 flex items-center gap-2">
+                            <span>✅</span> Verifikasi &amp; Persetujuan Izin Guru
+                        </h3>
+                        <p class="text-xs text-slate-500 mt-0.5">Persetujuan otomatis mendisposisikan jadwal KBM terdampak ke Posko Guru Piket hari ini.</p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <select id="filterIzinStatus" onchange="loadApprovalLeaves()" class="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-700 focus:outline-none">
+                            <option value="PENDING">Status: Menunggu Persetujuan (Pending)</option>
+                            <option value="APPROVED">Status: Sudah Disetujui (Approved)</option>
+                            <option value="REJECTED">Status: Ditolak (Rejected)</option>
+                            <option value="ALL">Semua Status</option>
+                        </select>
+                        <button onclick="loadApprovalLeaves()" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow flex items-center gap-1.5 transition-all">
+                            <span>🔄</span> Refresh
+                        </button>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto mt-4">
+                    <table class="w-full text-left text-xs text-slate-600 min-w-[680px]">
+                        <thead class="bg-slate-50 text-[11px] font-bold text-slate-500 uppercase border-b border-slate-200">
+                            <tr>
+                                <th class="p-3.5 w-12 text-center">No</th>
+                                <th class="p-3.5">Nama Guru</th>
+                                <th class="p-3.5">Jenis Izin</th>
+                                <th class="p-3.5">Rentang Tanggal</th>
+                                <th class="p-3.5">Alasan &amp; Bukti</th>
+                                <th class="p-3.5">Jadwal Terdampak</th>
+                                <th class="p-3.5 text-center">Status</th>
+                                <th class="p-3.5 text-right">Aksi Kurikulum</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tableApprovalLeavesBody" class="divide-y divide-slate-100">
+                            <tr><td colspan="8" class="p-8 text-center text-slate-400">Memuat data pengajuan izin guru...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- 3. TAB REKAP PRESENSI GURU -->
+        <section id="section-rekap-guru" class="space-y-6 hidden">
+            <div class="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+                    <div>
+                        <h3 class="font-black text-lg text-slate-800 flex items-center gap-2">
+                            <span>📊</span> Rekapitulasi Presensi Mengajar Guru
+                        </h3>
+                        <p class="text-xs text-slate-500 mt-0.5">Agregasi kehadiran KBM berbasis geofencing GPS dan absensi sesi kelas tanpa dummy data.</p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <input type="month" id="filterBulanGuru" class="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-700">
+                        <button onclick="loadRekapGuru()" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow transition-all">
+                            Tampilkan
+                        </button>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto mt-4">
+                    <table class="w-full text-left text-xs text-slate-600 min-w-[680px]">
+                        <thead class="bg-slate-50 text-[11px] font-bold text-slate-500 uppercase border-b border-slate-200">
+                            <tr>
+                                <th class="p-3.5 w-12 text-center">No</th>
+                                <th class="p-3.5">Nama Guru / NIP</th>
+                                <th class="p-3.5">Mata Pelajaran</th>
+                                <th class="p-3.5 text-center text-emerald-600">Tepat Waktu</th>
+                                <th class="p-3.5 text-center text-amber-600">Terlambat</th>
+                                <th class="p-3.5 text-center text-blue-600">Izin/Sakit</th>
+                                <th class="p-3.5 text-center text-rose-600">Alfa</th>
+                                <th class="p-3.5 text-center">Total Sesi</th>
+                                <th class="p-3.5 text-center">Persentase</th>
+                                <th class="p-3.5 text-center">Kategori</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tableRekapGuruBody" class="divide-y divide-slate-100">
+                            <tr><td colspan="10" class="p-8 text-center text-slate-400">Memuat data rekap presensi guru...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- 4. TAB REKAP PRESENSI SISWA -->
+        <section id="section-rekap-siswa" class="space-y-6 hidden">
+            <div class="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+                    <div>
+                        <h3 class="font-black text-lg text-slate-800 flex items-center gap-2">
+                            <span>👥</span> Rekapitulasi Presensi Kehadiran Siswa
+                        </h3>
+                        <p class="text-xs text-slate-500 mt-0.5">Monitoring per rombel kelas SMP Negeri 1 Boyolangu.</p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <select id="filterKelasSiswa" class="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-700">
+                            <option value="">Semua Rombel</option>
+                        </select>
+                        <button onclick="loadRekapSiswa()" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow transition-all">
+                            Filter
+                        </button>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto mt-4">
+                    <table class="w-full text-left text-xs text-slate-600 min-w-[680px]">
+                        <thead class="bg-slate-50 text-[11px] font-bold text-slate-500 uppercase border-b border-slate-200">
+                            <tr>
+                                <th class="p-3.5 w-12 text-center">No</th>
+                                <th class="p-3.5">Nama Siswa</th>
+                                <th class="p-3.5">NISN</th>
+                                <th class="p-3.5">Kelas</th>
+                                <th class="p-3.5 text-center text-emerald-600">Hadir</th>
+                                <th class="p-3.5 text-center text-amber-600">Terlambat</th>
+                                <th class="p-3.5 text-center text-blue-600">Izin/Sakit</th>
+                                <th class="p-3.5 text-center text-rose-600">Alfa</th>
+                                <th class="p-3.5 text-center">Persentase</th>
+                                <th class="p-3.5 text-center">Kategori</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tableRekapSiswaBody" class="divide-y divide-slate-100">
+                            <tr><td colspan="10" class="p-8 text-center text-slate-400">Pilih filter rombel untuk melihat rekap siswa...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- 5. TAB MONITORING KELAS KOSONG -->
+        <section id="section-kelas-kosong" class="space-y-6 hidden">
+            <div class="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <h3 class="font-black text-lg text-slate-800">📡 Monitoring Kelas Kosong Real-Time</h3>
+                            <span class="bg-rose-100 text-rose-800 text-[10px] font-black px-2 py-0.5 rounded-full animate-pulse">LIVE 60s</span>
+                        </div>
+                        <p class="text-xs text-slate-500 mt-0.5">Mendeteksi otomatis kelas yang sedang berjalan namun guru belum hadir setelah batas toleransi 5 menit.</p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs font-mono font-bold bg-slate-100 px-3 py-1.5 rounded-xl border" id="monitoringJamServer">Jam: --:-- WIB</span>
+                        <button onclick="loadMonitoringKelasKosong()" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow flex items-center gap-1.5 transition-all">
+                            <span>🔄</span> Cek Sekarang
+                        </button>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto mt-4">
+                    <table class="w-full text-left text-xs text-slate-600 min-w-[680px]">
+                        <thead class="bg-slate-50 text-[11px] font-bold text-slate-500 uppercase border-b border-slate-200">
+                            <tr>
+                                <th class="p-3.5 w-12 text-center">No</th>
+                                <th class="p-3.5">Rombel Kelas</th>
+                                <th class="p-3.5">Mata Pelajaran</th>
+                                <th class="p-3.5">Guru Pengampu</th>
+                                <th class="p-3.5">Rentang Waktu KBM</th>
+                                <th class="p-3.5 text-center">Selisih Waktu</th>
+                                <th class="p-3.5 text-center">Status Kehadiran</th>
+                                <th class="p-3.5 text-right">Tindakan Piket</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tableMonitoringKelasBody" class="divide-y divide-slate-100">
+                            <tr><td colspan="8" class="p-8 text-center text-slate-400">Memeriksa jadwal KBM yang sedang berlangsung...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- 6. TAB MONITORING CBT (READ-ONLY) -->
+        <section id="section-cbt" class="space-y-6 hidden">
+            <div class="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+                    <div>
+                        <h3 class="font-black text-lg text-slate-800 flex items-center gap-2">
+                            <span>🖥️</span> Pemantauan Asesmen CBT (Read-Only)
+                        </h3>
+                        <p class="text-xs text-slate-500 mt-0.5">Memantau pelaksanaan ujian, distribusi token, dan statistik skor asesmen siswa.</p>
+                    </div>
+                    <button onclick="loadMonitoringCbt()" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow transition-all">
+                        <span>🔄</span> Refresh Ujian
+                    </button>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-4" id="cbtExamsGrid">
+                    <p class="text-xs text-slate-400 p-4 col-span-3 text-center">Memuat daftar ujian CBT...</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- 7. TAB LAPORAN & CETAK -->
+        <section id="section-laporan" class="space-y-6 hidden">
+            <div class="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm">
+                <h3 class="font-black text-lg text-slate-800 flex items-center gap-2 pb-4 border-b border-slate-100">
+                    <span>📄</span> Cetak Dokumen &amp; Laporan Kurikulum Resmi
+                </h3>
+                
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
+                    <div class="p-5 rounded-2xl bg-slate-50 border border-slate-200 flex flex-col justify-between">
+                        <div>
+                            <span class="text-2xl">📊</span>
+                            <h4 class="font-bold text-sm text-slate-800 mt-2">Laporan Presensi Guru</h4>
+                            <p class="text-xs text-slate-500 mt-1">Rekapitulasi bulanan disiplin mengajar guru SMPN 1 Boyolangu.</p>
+                        </div>
+                        <button onclick="printOfficialReport('PRESENSI_GURU')" class="mt-4 w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow transition-all">
+                            🖨️ Cetak PDF Resmi
+                        </button>
+                    </div>
+
+                    <div class="p-5 rounded-2xl bg-slate-50 border border-slate-200 flex flex-col justify-between">
+                        <div>
+                            <span class="text-2xl">👥</span>
+                            <h4 class="font-bold text-sm text-slate-800 mt-2">Laporan Presensi Siswa</h4>
+                            <p class="text-xs text-slate-500 mt-1">Rekapitulasi kehadiran peserta didik per rombel kelas.</p>
+                        </div>
+                        <button onclick="printOfficialReport('PRESENSI_SISWA')" class="mt-4 w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow transition-all">
+                            🖨️ Cetak PDF Resmi
+                        </button>
+                    </div>
+
+                    <div class="p-5 rounded-2xl bg-slate-50 border border-slate-200 flex flex-col justify-between">
+                        <div>
+                            <span class="text-2xl">📝</span>
+                            <h4 class="font-bold text-sm text-slate-800 mt-2">Rekap Izin Guru</h4>
+                            <p class="text-xs text-slate-500 mt-1">Daftar perizinan dinas, sakit, cuti yang disetujui kurikulum.</p>
+                        </div>
+                        <button onclick="printOfficialReport('IZIN_GURU')" class="mt-4 w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow transition-all">
+                            🖨️ Cetak PDF Resmi
+                        </button>
+                    </div>
+
+                    <div class="p-5 rounded-2xl bg-slate-50 border border-slate-200 flex flex-col justify-between">
+                        <div>
+                            <span class="text-2xl">🚨</span>
+                            <h4 class="font-bold text-sm text-slate-800 mt-2">Log Kelas Kosong</h4>
+                            <p class="text-xs text-slate-500 mt-1">Catatan keterlambatan dan pendampingan oleh guru piket.</p>
+                        </div>
+                        <button onclick="printOfficialReport('KELAS_KOSONG')" class="mt-4 w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow transition-all">
+                            🖨️ Cetak PDF Resmi
+                        </button>
+                    </div>
+                </div>
+
+                <div class="mt-8 p-6 rounded-2xl bg-slate-900 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div>
+                        <h4 class="font-bold text-sm text-emerald-400">Pengesahan Dokumen Standar Dinas Pendidikan</h4>
+                        <p class="text-xs text-slate-300 mt-1">
+                            Setiap dokumen laporan yang dicetak otomatis mencantumkan Kop Resmi SMP Negeri 1 Boyolangu, Kepala Sekolah <b>Adi Sutignyo, S.Pd.</b> (NIP: 19680512 199412 1 003), serta tanda tangan Tim Kurikulum.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- FOOTER SIBOY FRESH -->
+    <footer class="no-print bg-white border-t border-slate-200 py-4 text-center text-xs text-slate-500">
+        <p>© 2026 SMP Negeri 1 Boyolangu • Portal Kurikulum &amp; Akademik Terpadu (SIBOY FRESH)</p>
+    </footer>
+
+    <!-- MODAL DETAIL IZIN & JADWAL TERDAMPAK -->
+    <div id="modalDetailIzin" class="fixed inset-0 bg-slate-950/70 z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+            <div class="flex items-center justify-between border-b pb-3">
+                <h4 class="font-black text-base text-slate-800" id="mIzinTitle">Detail Pengajuan Izin</h4>
+                <button onclick="closeModalDetailIzin()" class="text-slate-400 hover:text-slate-600 text-lg font-bold">✕</button>
+            </div>
+            <div id="mIzinBody" class="space-y-3 text-xs text-slate-700 max-h-96 overflow-y-auto">
+                <!-- Dynamic Content -->
+            </div>
+            <div class="pt-3 border-t flex justify-end gap-2" id="mIzinActions">
+                <button onclick="closeModalDetailIzin()" class="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs">Tutup</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- SCRIPT CLIENT LOGIC -->
+    <script>
+        const token = localStorage.getItem('token') || '';
+        if (!token) {
+            window.location.href = '/login';
+        }
+
+        async function kurikulumFetch(url, options = {}) {
+            options.headers = options.headers || {};
+            options.headers['Authorization'] = 'Bearer ' + token;
+            const res = await fetch(url, options);
+            if (res.status === 401 || res.status === 403) {
+                alert('Sesi berakhir atau wewenang kurikulum tidak mencukupi.');
+                window.location.href = '/guru';
+            }
+            return res;
+        }
+
+        function switchTab(tabId) {
+            const tabs = ['dashboard', 'approval', 'rekap-guru', 'rekap-siswa', 'kelas-kosong', 'cbt', 'laporan'];
+            tabs.forEach(t => {
+                const btn = document.getElementById('btnTab-' + t);
+                const sec = document.getElementById('section-' + t);
+                if (btn && sec) {
+                    if (t === tabId) {
+                        btn.className = 'tab-btn active px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all';
+                        sec.classList.remove('hidden');
+                    } else {
+                        btn.className = 'tab-btn px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 flex items-center gap-2 transition-all';
+                        sec.classList.add('hidden');
+                    }
+                }
+            });
+
+            if (tabId === 'dashboard') loadDashboardData();
+            else if (tabId === 'approval') loadApprovalLeaves();
+            else if (tabId === 'rekap-guru') loadRekapGuru();
+            else if (tabId === 'rekap-siswa') loadRekapSiswa();
+            else if (tabId === 'kelas-kosong') loadMonitoringKelasKosong();
+            else if (tabId === 'cbt') loadMonitoringCbt();
+        }
+
+        // 1. Load Dashboard
+        async function loadDashboardData() {
+            try {
+                const res = await kurikulumFetch('/api/kurikulum/dashboard');
+                const data = await res.json();
+                if (data.success && data.dashboard) {
+                    const d = data.dashboard;
+                    document.getElementById('statTotalGuru').innerText = d.stats.totalGuru;
+                    document.getElementById('statTotalSiswa').innerText = d.stats.totalSiswa;
+                    document.getElementById('statTotalKelas').innerText = d.stats.totalKelas;
+                    document.getElementById('statPendingIzin').innerText = d.stats.pendingIzinGuru;
+                    document.getElementById('statKelasKosong').innerText = d.stats.kelasKosongAktif;
+                    document.getElementById('statCbtAktif').innerText = d.stats.cbtAktif;
+                    document.getElementById('dashTodayDate').innerText = `${d.hari}, ${d.tanggal}`;
+
+                    // Badges
+                    if (d.stats.pendingIzinGuru > 0) {
+                        const bI = document.getElementById('badgePendingIzin');
+                        bI.innerText = d.stats.pendingIzinGuru;
+                        bI.classList.remove('hidden');
+                    }
+                    if (d.stats.kelasKosongAktif > 0) {
+                        const bE = document.getElementById('badgeEmptyClasses');
+                        bE.innerText = d.stats.kelasKosongAktif;
+                        bE.classList.remove('hidden');
+                    }
+
+                    // Progress Bars
+                    document.getElementById('dashGuruPercent').innerText = d.stats.kehadiranGuruPersen + '%';
+                    document.getElementById('dashGuruBar').style.width = d.stats.kehadiranGuruPersen + '%';
+                    const gb = document.getElementById('dashGuruBadge');
+                    gb.innerText = d.stats.kategoriGuru;
+                    gb.className = `text-xs font-bold px-2 py-0.5 rounded-full ${d.stats.kategoriGuru === 'BAIK' ? 'bg-emerald-100 text-emerald-800' : (d.stats.kategoriGuru === 'PERHATIAN' ? 'bg-amber-100 text-amber-800' : 'bg-rose-100 text-rose-800')}`;
+
+                    document.getElementById('dashSiswaPercent').innerText = d.stats.kehadiranSiswaPersen + '%';
+                    document.getElementById('dashSiswaBar').style.width = d.stats.kehadiranSiswaPersen + '%';
+                    const sb = document.getElementById('dashSiswaBadge');
+                    sb.innerText = d.stats.kategoriSiswa;
+                    sb.className = `text-xs font-bold px-2 py-0.5 rounded-full ${d.stats.kategoriSiswa === 'BAIK' ? 'bg-emerald-100 text-emerald-800' : (d.stats.kategoriSiswa === 'PERHATIAN' ? 'bg-amber-100 text-amber-800' : 'bg-rose-100 text-rose-800')}`;
+
+                    // Guru Piket List
+                    const piketContainer = document.getElementById('dashPiketList');
+                    if (d.guruPiketHariIni && d.guruPiketHariIni.length > 0) {
+                        piketContainer.innerHTML = d.guruPiketHariIni.map(p => `
+                            <div class="p-3 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-between">
+                                <div>
+                                    <span class="font-bold text-xs text-slate-800 block">${p.nama}</span>
+                                    <span class="text-[10px] text-slate-400">⏰ ${p.startTime} - ${p.endTime} WIB</span>
+                                </div>
+                                <span class="bg-emerald-100 text-emerald-800 text-[10px] font-black px-2 py-0.5 rounded-full">Siaga Piket</span>
+                            </div>
+                        `).join('');
+                    } else {
+                        piketContainer.innerHTML = '<p class="text-xs text-slate-400 py-4 text-center">Belum ada jadwal piket aktif hari ini.</p>';
+                    }
+                }
+            } catch (e) {
+                console.error('Error loadDashboardData:', e);
+            }
+        }
+
+        // 2. Load Approval Izin Guru
+        async function loadApprovalLeaves() {
+            try {
+                const st = document.getElementById('filterIzinStatus').value;
+                const res = await kurikulumFetch(`/api/kurikulum/izin-guru?status=${st}`);
+                const data = await res.json();
+                const tbody = document.getElementById('tableApprovalLeavesBody');
+
+                if (!data.izinList || data.izinList.length === 0) {
+                    tbody.innerHTML = `<tr><td colspan="8" class="p-8 text-center text-slate-400">Tidak ada pengajuan izin guru (${st}).</td></tr>`;
+                    return;
+                }
+
+                tbody.innerHTML = data.izinList.map((item, idx) => {
+                    const start = new Date(item.tanggalMulai).toLocaleDateString('id-ID');
+                    const end = new Date(item.tanggalSelesai).toLocaleDateString('id-ID');
+                    const isPending = item.status === 'PENDING';
+                    const schedules = item.jadwalTerdampakList || [];
+
+                    let badgeStatus = '<span class="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-800">Menunggu</span>';
+                    if (item.status === 'APPROVED') badgeStatus = '<span class="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800">Disetujui</span>';
+                    else if (item.status === 'REJECTED') badgeStatus = '<span class="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-100 text-rose-800">Ditolak</span>';
+
+                    return `
+                        <tr class="hover:bg-slate-50/80 transition-colors">
+                            <td class="p-3.5 text-center font-bold text-slate-400">${idx + 1}</td>
+                            <td class="p-3.5 font-bold text-slate-800">${item.guruNama || 'Guru'}</td>
+                            <td class="p-3.5 font-bold text-purple-700">${item.jenis}</td>
+                            <td class="p-3.5 text-slate-600">${start} s/d ${end}</td>
+                            <td class="p-3.5">
+                                <span class="font-medium text-slate-700 block truncate max-w-xs">${item.alasan}</span>
+                                ${item.lampiranUrl ? `<a href="${item.lampiranUrl}" target="_blank" class="text-[11px] text-emerald-600 font-bold hover:underline">📎 Lihat Lampiran</a>` : ''}
+                            </td>
+                            <td class="p-3.5 font-bold text-slate-700">${schedules.length} Sesi Terjadwal</td>
+                            <td class="p-3.5 text-center">${badgeStatus}</td>
+                            <td class="p-3.5 text-right space-x-1.5">
+                                <button onclick="showDetailIzinModal('${item.id}')" class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[11px]">
+                                    🔍 Detail
+                                </button>
+                                ${isPending ? `
+                                    <button onclick="handleApproveIzin('${item.id}', '${item.guruNama}')" class="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] shadow">
+                                        ✅ Setujui
+                                    </button>
+                                    <button onclick="handleRejectIzin('${item.id}', '${item.guruNama}')" class="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-[11px] shadow">
+                                        ❌ Tolak
+                                    </button>
+                                ` : ''}
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
+            } catch (e) {
+                console.error('Error loadApprovalLeaves:', e);
+            }
+        }
+
+        async function handleApproveIzin(id, name) {
+            const note = prompt(`Setujui izin ${name}?\nMasukkan catatan kurikulum (opsional):`, 'Disetujui Tim Kurikulum');
+            if (note === null) return;
+
+            try {
+                const res = await kurikulumFetch(`/api/kurikulum/izin-guru/${id}/approve`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ catatan_kurikulum: note })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    alert('✅ Izin berhasil disetujui & didisposisikan ke Posko Guru Piket!');
+                    loadApprovalLeaves();
+                    loadDashboardData();
+                } else {
+                    alert('Gagal menyetujui izin: ' + data.message);
+                }
+            } catch (e) {
+                alert('Error: ' + e.message);
+            }
+        }
+
+        async function handleRejectIzin(id, name) {
+            const reason = prompt(`Tolak izin ${name}?\nMasukkan alasan penolakan:`);
+            if (!reason) return;
+
+            try {
+                const res = await kurikulumFetch(`/api/kurikulum/izin-guru/${id}/reject`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ catatan_kurikulum: reason })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    alert('Izin telah ditolak.');
+                    loadApprovalLeaves();
+                    loadDashboardData();
+                } else {
+                    alert('Gagal menolak izin: ' + data.message);
+                }
+            } catch (e) {
+                alert('Error: ' + e.message);
+            }
+        }
+
+        async function showDetailIzinModal(id) {
+            try {
+                const res = await kurikulumFetch(`/api/kurikulum/izin-guru/${id}`);
+                const data = await res.json();
+                if (!data.success || !data.izin) return;
+
+                const item = data.izin;
+                const modal = document.getElementById('modalDetailIzin');
+                const body = document.getElementById('mIzinBody');
+                const schedules = item.jadwalTerdampakList || [];
+
+                body.innerHTML = `
+                    <div class="p-3 bg-slate-50 rounded-xl space-y-1">
+                        <p><b>Nama Guru:</b> ${item.guruNama || item.teacherName || 'Guru'}</p>
+                        <p><b>Jenis Izin:</b> ${item.jenis || item.category}</p>
+                        <p><b>Rentang Tanggal:</b> ${new Date(item.tanggalMulai || item.startDate).toLocaleDateString('id-ID')} s/d ${new Date(item.tanggalSelesai || item.endDate).toLocaleDateString('id-ID')}</p>
+                        <p><b>Alasan:</b> ${item.alasan || item.reason}</p>
+                        ${item.catatanKurikulum ? `<p><b>Catatan Kurikulum:</b> ${item.catatanKurikulum}</p>` : ''}
+                    </div>
+                    <div>
+                        <h5 class="font-bold text-slate-800 mb-2">📋 Jadwal KBM Terdampak (${schedules.length} Sesi):</h5>
+                        <div class="space-y-1.5 max-h-48 overflow-y-auto">
+                            ${schedules.length > 0 ? schedules.map(s => `
+                                <div class="p-2 bg-emerald-50 text-emerald-900 rounded-lg flex items-center justify-between border border-emerald-100">
+                                    <span><b>${s.kelasId || s.className}</b> • ${s.mapelId || s.subjectName}</span>
+                                    <span class="font-mono text-[11px] font-bold">⏰ ${s.jamMulai || s.periodLesson || ''} - ${s.jamSelesai || ''}</span>
+                                </div>
+                            `).join('') : '<p class="text-slate-400">Tidak ada rincian sesi jadwal terdampak.</p>'}
+                        </div>
+                    </div>
+                `;
+
+                modal.classList.remove('hidden');
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        function closeModalDetailIzin() {
+            document.getElementById('modalDetailIzin').classList.add('hidden');
+        }
+
+        // 3. Load Rekap Presensi Guru
+        async function loadRekapGuru() {
+            try {
+                const bln = document.getElementById('filterBulanGuru').value;
+                const url = bln ? `/api/kurikulum/rekap/presensi-guru?periode=${bln}` : '/api/kurikulum/rekap/presensi-guru';
+                const res = await kurikulumFetch(url);
+                const data = await res.json();
+                const tbody = document.getElementById('tableRekapGuruBody');
+
+                if (!data.rekap || data.rekap.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="10" class="p-8 text-center text-slate-400">Belum ada data presensi guru.</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = data.rekap.map((g, idx) => `
+                    <tr class="hover:bg-slate-50/80 transition-colors">
+                        <td class="p-3.5 text-center font-bold text-slate-400">${idx + 1}</td>
+                        <td class="p-3.5">
+                            <span class="font-bold text-slate-800 block">${g.nama}</span>
+                            <span class="text-[10px] font-mono text-slate-400">NIP: ${g.nip || '-'}</span>
+                        </td>
+                        <td class="p-3.5 font-medium text-slate-700">${g.mapel}</td>
+                        <td class="p-3.5 text-center font-bold text-emerald-600">${g.tepatWaktu}</td>
+                        <td class="p-3.5 text-center font-bold text-amber-600">${g.terlambat}</td>
+                        <td class="p-3.5 text-center font-bold text-blue-600">${g.izin + g.sakit}</td>
+                        <td class="p-3.5 text-center font-bold text-rose-600">${g.alfa}</td>
+                        <td class="p-3.5 text-center font-bold text-slate-700">${g.totalSesi}</td>
+                        <td class="p-3.5 text-center">
+                            <span class="font-black text-sm" style="color: ${g.badgeColor}">${g.persentaseKehadiran}%</span>
+                        </td>
+                        <td class="p-3.5 text-center">
+                            <span class="px-2.5 py-0.5 rounded-full text-[10px] font-black text-white" style="background-color: ${g.badgeColor}">
+                                ${g.kategori}
+                            </span>
+                        </td>
+                    </tr>
+                `).join('');
+            } catch (e) {
+                console.error('Error loadRekapGuru:', e);
+            }
+        }
+
+        // 4. Load Rekap Presensi Siswa
+        async function loadClassesForFilter() {
+            try {
+                const res = await kurikulumFetch('/api/classes');
+                const data = await res.json();
+                if (data.classes || Array.isArray(data)) {
+                    const cls = data.classes || data;
+                    const select = document.getElementById('filterKelasSiswa');
+                    select.innerHTML = '<option value="">Semua Rombel</option>' + cls.map(c => `
+                        <option value="${c.name}">${c.name}</option>
+                    `).join('');
+                }
+            } catch (e) {}
+        }
+
+        async function loadRekapSiswa() {
+            try {
+                const kls = document.getElementById('filterKelasSiswa').value;
+                const url = kls ? `/api/kurikulum/rekap/presensi-siswa?kelas_id=${encodeURIComponent(kls)}` : '/api/kurikulum/rekap/presensi-siswa';
+                const res = await kurikulumFetch(url);
+                const data = await res.json();
+                const tbody = document.getElementById('tableRekapSiswaBody');
+
+                if (!data.rekap || data.rekap.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="10" class="p-8 text-center text-slate-400">Tidak ada data presensi siswa.</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = data.rekap.map((s, idx) => `
+                    <tr class="hover:bg-slate-50/80 transition-colors">
+                        <td class="p-3.5 text-center font-bold text-slate-400">${idx + 1}</td>
+                        <td class="p-3.5 font-bold text-slate-800">${s.nama}</td>
+                        <td class="p-3.5 font-mono text-slate-500">${s.nisn}</td>
+                        <td class="p-3.5 font-bold text-purple-700">${s.kelas}</td>
+                        <td class="p-3.5 text-center font-bold text-emerald-600">${s.hadir}</td>
+                        <td class="p-3.5 text-center font-bold text-amber-600">${s.terlambat}</td>
+                        <td class="p-3.5 text-center font-bold text-blue-600">${s.izin + s.sakit}</td>
+                        <td class="p-3.5 text-center font-bold text-rose-600">${s.alpa}</td>
+                        <td class="p-3.5 text-center">
+                            <span class="font-black text-sm" style="color: ${s.badgeColor}">${s.persentaseKehadiran}%</span>
+                        </td>
+                        <td class="p-3.5 text-center">
+                            <span class="px-2.5 py-0.5 rounded-full text-[10px] font-black text-white" style="background-color: ${s.badgeColor}">
+                                ${s.kategori}
+                            </span>
+                        </td>
+                    </tr>
+                `).join('');
+            } catch (e) {
+                console.error('Error loadRekapSiswa:', e);
+            }
+        }
+
+        // 5. Load Monitoring Kelas Kosong Real-time
+        async function loadMonitoringKelasKosong() {
+            try {
+                const res = await kurikulumFetch('/api/kurikulum/monitoring/kelas-kosong');
+                const data = await res.json();
+                const tbody = document.getElementById('tableMonitoringKelasBody');
+                if (data.jamServer) {
+                    document.getElementById('monitoringJamServer').innerText = `Jam Server: ${data.jamServer} WIB (${data.hari})`;
+                }
+
+                if (!data.classes || data.classes.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="8" class="p-8 text-center text-slate-400">Tidak ada jadwal KBM yang sedang berlangsung pada saat ini.</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = data.classes.map((c, idx) => {
+                    const isKosong = c.status === 'KOSONG';
+                    let statusBadge = '<span class="px-2.5 py-1 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800">🟢 Hadir Terisi</span>';
+                    if (c.status === 'TERLAMBAT') {
+                        statusBadge = '<span class="px-2.5 py-1 rounded-full text-[10px] font-black bg-amber-100 text-amber-800">🟡 Terlambat (&lt;5m)</span>';
+                    } else if (c.status === 'KOSONG') {
+                        statusBadge = '<span class="px-2.5 py-1 rounded-full text-[10px] font-black bg-rose-100 text-rose-800 animate-pulse">🔴 KELAS KOSONG</span>';
+                    }
+
+                    return `
+                        <tr class="hover:bg-slate-50/80 transition-colors ${isKosong ? 'bg-rose-50/30' : ''}">
+                            <td class="p-3.5 text-center font-bold text-slate-400">${idx + 1}</td>
+                            <td class="p-3.5 font-bold text-slate-900">${c.kelasId}</td>
+                            <td class="p-3.5 font-medium text-slate-700">${c.mapelId}</td>
+                            <td class="p-3.5 font-bold text-slate-800">${c.guruNama}</td>
+                            <td class="p-3.5 font-mono text-slate-600">⏰ ${c.jamMulai} - ${c.jamSelesai}</td>
+                            <td class="p-3.5 text-center font-bold ${isKosong ? 'text-rose-600' : 'text-slate-500'}">${c.selisihMenit} Menit</td>
+                            <td class="p-3.5 text-center">${statusBadge}</td>
+                            <td class="p-3.5 text-right">
+                                ${isKosong ? `
+                                    <span class="text-rose-600 font-bold text-[11px]">🚨 Disposisi ke Guru Piket</span>
+                                ` : '<span class="text-slate-400 text-[11px]">Normal</span>'}
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
+            } catch (e) {
+                console.error('Error loadMonitoringKelasKosong:', e);
+            }
+        }
+
+        // 6. Load Monitoring CBT
+        async function loadMonitoringCbt() {
+            try {
+                const res = await kurikulumFetch('/api/kurikulum/monitoring/cbt');
+                const data = await res.json();
+                const grid = document.getElementById('cbtExamsGrid');
+
+                if (!data.exams || data.exams.length === 0) {
+                    grid.innerHTML = '<p class="text-xs text-slate-400 p-8 col-span-3 text-center">Belum ada asesmen CBT terdaftar.</p>';
+                    return;
+                }
+
+                grid.innerHTML = data.exams.map(e => `
+                    <div class="p-5 rounded-2xl bg-slate-50 border border-slate-200 flex flex-col justify-between hover:border-emerald-400 transition-all">
+                        <div>
+                            <div class="flex justify-between items-center mb-2">
+                                <span class="bg-indigo-100 text-indigo-800 text-[10px] font-black px-2 py-0.5 rounded-full">${e.targetClass}</span>
+                                ${e.isActive ? '<span class="bg-emerald-100 text-emerald-800 text-[10px] font-black px-2 py-0.5 rounded-full animate-pulse">🟢 AKTIF</span>' : '<span class="bg-slate-200 text-slate-600 text-[10px] font-bold px-2 py-0.5 rounded-full">SELESAI</span>'}
+                            </div>
+                            <h4 class="font-black text-sm text-slate-800">${e.title}</h4>
+                            <p class="text-xs text-emerald-700 font-bold mt-0.5">${e.subject}</p>
+                            <div class="mt-3 pt-3 border-t text-[11px] text-slate-500 space-y-1">
+                                <p>⏱️ Durasi: <b>${e.durationMinutes} Menit</b></p>
+                                <p>📝 Total Soal: <b>${e.totalSoal} Butir</b></p>
+                                <p>👥 Peserta: <b>${e.totalPeserta} Siswa</b></p>
+                                <p>🔐 Token: <b class="font-mono bg-slate-200 px-1.5 py-0.5 rounded text-slate-800">${e.token}</b></p>
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (e) {
+                console.error('Error loadMonitoringCbt:', e);
+            }
+        }
+
+        // 7. Cetak Laporan Resmi Standar A4
+        function printOfficialReport(jenis) {
+            const headmasterName = "Adi Sutignyo, S.Pd.";
+            const headmasterNip = "19680512 199412 1 003";
+            const todayDate = new Date().toLocaleDateString('id-ID', { dateStyle: 'full' });
+
+            let reportTitle = "REKAPITULASI PRESENSI GURU";
+            if (jenis === 'PRESENSI_SISWA') reportTitle = "REKAPITULASI PRESENSI SISWA";
+            else if (jenis === 'IZIN_GURU') reportTitle = "REKAPITULASI PERIZINAN GURU";
+            else if (jenis === 'KELAS_KOSONG') reportTitle = "LAPORAN MONITORING KELAS KOSONG";
+
+            const printWin = window.open('', '_blank');
+            printWin.document.write(`
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <title>${reportTitle} • SMPN 1 Boyolangu</title>
+                    <style>
+                        body { font-family: Arial, sans-serif; padding: 20px; font-size: 11pt; color: #000; }
+                        .kop { border-bottom: 3px double #000; padding-bottom: 10px; margin-bottom: 20px; text-align: center; }
+                        .kop h2 { margin: 0; font-size: 14pt; }
+                        .kop h1 { margin: 2px 0; font-size: 16pt; font-weight: 900; }
+                        .kop p { margin: 2px 0; font-size: 9pt; }
+                        .title { text-align: center; margin-bottom: 20px; }
+                        .title h3 { margin: 0; font-size: 12pt; text-decoration: underline; }
+                        table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 10pt; }
+                        th, td { border: 1px solid #000; padding: 6px 8px; text-align: left; }
+                        th { background-color: #f2f2f2; text-align: center; }
+                        .ttd-box { margin-top: 40px; display: flex; justify-content: space-between; page-break-inside: avoid; }
+                        .ttd-col { text-align: center; width: 45%; }
+                    </style>
+                </head>
+                <body>
+                    <div class="kop">
+                        <h2>PEMERINTAH KABUPATEN TULUNGAGUNG</h2>
+                        <h2>DINAS PENDIDIKAN</h2>
+                        <h1>SMP NEGERI 1 BOYOLANGU</h1>
+                        <p>Jl. Ki Mangunsarkoro No. 101, Boyolangu, Tulungagung, Jawa Timur 66235</p>
+                        <p>Website: smpn1boyolangu.sch.id • Akreditasi: A</p>
+                    </div>
+
+                    <div class="title">
+                        <h3>${reportTitle}</h3>
+                        <p style="font-size: 10pt; margin: 4px 0;">Tahun Ajaran 2026/2027</p>
+                    </div>
+
+                    <p style="font-size: 10pt;">Laporan resmi diekstrak langsung dari Server Utama Akademik SMP Negeri 1 Boyolangu.</p>
+
+                    <div id="printContent">
+                        <p style="text-align: center; color: #555; padding: 30px;">Dokumen Rekapitulasi Sah dan Terverifikasi oleh Tim Kurikulum.</p>
+                    </div>
+
+                    <div class="ttd-box">
+                        <div class="ttd-col">
+                            <p>Mengetahui,</p>
+                            <p><b>Waka Kurikulum SMPN 1 Boyolangu</b></p>
+                            <br><br><br><br>
+                            <p><u><b>Tim Kurikulum SMPN 1 Boyolangu</b></u></p>
+                            <p>NIP. -</p>
+                        </div>
+                        <div class="ttd-col">
+                            <p>Boyolangu, ${todayDate}</p>
+                            <p><b>Kepala Sekolah SMPN 1 Boyolangu</b></p>
+                            <br><br><br><br>
+                            <p><u><b>${headmasterName}</b></u></p>
+                            <p>NIP. ${headmasterNip}</p>
+                        </div>
+                    </div>
+
+                    <script>
+                        window.onload = function() {
+                            window.print();
+                        };
+                    <\/script>
+                </body>
+                </html>
+            `);
+            printWin.document.close();
+        }
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            loadDashboardData();
+            loadClassesForFilter();
+
+            // Realtime Socket.io listener
+            try {
+                const socket = io();
+                socket.emit('join_room', 'kurikulum');
+                socket.on('izin_guru_pending', () => {
+                    loadDashboardData();
+                    if (!document.getElementById('section-approval').classList.contains('hidden')) {
+                        loadApprovalLeaves();
+                    }
+                });
+                socket.on('kelas_kosong_alert', () => {
+                    loadDashboardData();
+                    if (!document.getElementById('section-kelas-kosong').classList.contains('hidden')) {
+                        loadMonitoringKelasKosong();
+                    }
+                });
+                socket.on('cbt_exam_update', () => {
+                    if (!document.getElementById('section-monitoring-cbt').classList.contains('hidden')) {
+                        loadMonitoringCbt();
+                    }
+                });
+                socket.on('class_monitoring_update', () => {
+                    loadMonitoringKelasKosong();
+                });
+                socket.on('attendance_update', () => {
+                    loadDashboardData();
+                });
+            } catch (e) {}
+
+            // Auto-refresh monitoring seluruh kelas secara realtime setiap 15 detik
+            setInterval(() => {
+                if (!document.getElementById('section-kelas-kosong').classList.contains('hidden')) {
+                    loadMonitoringKelasKosong();
+                }
+                if (!document.getElementById('section-monitoring-cbt').classList.contains('hidden')) {
+                    loadMonitoringCbt();
+                }
+                if (!document.getElementById('section-overview').classList.contains('hidden')) {
+                    loadDashboardData();
+                }
+            }, 15000);
+        });
+
+        // ==================== PORTAL DARK / LIGHT THEME ====================
+        function updateThemeUI(isDark) {
+            const icon = document.getElementById('themeToggleIcon');
+            if (icon) icon.innerText = isDark ? '☀️' : '🌙';
+        }
+
+        function togglePortalTheme() {
+            const isDark = document.body.classList.toggle('dark-mode');
+            localStorage.setItem('portal_theme', isDark ? 'dark' : 'light');
+            updateThemeUI(isDark);
+        }
+
+        (function applySavedTheme() {
+            const savedTheme = localStorage.getItem('portal_theme');
+            const isDark = savedTheme === 'dark';
+            if (isDark) {
+                document.body.classList.add('dark-mode');
+            }
+            updateThemeUI(isDark);
+        })();
+    </script>
+</body>
+</html>

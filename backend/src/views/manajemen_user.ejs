@@ -18,8 +18,8 @@
     <link rel="stylesheet" href="/css/portal-theme.css">
 </head>
 <body class="bg-[#f8fafc] text-slate-800 flex">
-    <!-- Sidebar Terstruktur & Terkategori -->
-    <%- include('partials/sidebar_admin') %>
+    <!-- Sidebar Terstruktur & Terkategori (Admin & Operator) -->
+    <%- (typeof isOperator !== 'undefined' && isOperator) ? include('partials/sidebar_operator') : include('partials/sidebar_admin') %>
 
     <!-- Main Content -->
     <main class="flex-1 p-6 md:p-8 ml-64 overflow-y-auto h-screen bg-slate-50/60 transition-all duration-300 ease-in-out">
@@ -46,10 +46,12 @@
         <div class="bg-white rounded-2xl shadow-sm border mb-6 px-4 pt-3 flex space-x-6 overflow-x-auto text-sm">
             <button onclick="switchRoleFilter('ALL')" class="tab-btn active pb-3 px-2 text-gray-500" id="tab-ALL">Semua Staf (<span id="count-ALL">0</span>)</button>
             <button onclick="switchRoleFilter('TEACHER')" class="tab-btn pb-3 px-2 text-gray-500" id="tab-TEACHER">Guru & Pengajar (<span id="count-TEACHER">0</span>)</button>
+            <button onclick="switchRoleFilter('KURIKULUM')" class="tab-btn pb-3 px-2 text-gray-500" id="tab-KURIKULUM">🏛️ Tim Kurikulum (<span id="count-KURIKULUM">0</span>)</button>
             <button onclick="switchRoleFilter('WALI_KELAS')" class="tab-btn pb-3 px-2 text-gray-500" id="tab-WALI_KELAS">Wali Kelas (<span id="count-WALI_KELAS">0</span>)</button>
             <button onclick="switchRoleFilter('OPERATOR')" class="tab-btn pb-3 px-2 text-gray-500" id="tab-OPERATOR">Operator CBT / Proktor (<span id="count-OPERATOR">0</span>)</button>
             <button onclick="switchRoleFilter('ADMIN')" class="tab-btn pb-3 px-2 text-gray-500" id="tab-ADMIN">Administrator (<span id="count-ADMIN">0</span>)</button>
             <button onclick="switchRoleFilter('COUNSELOR')" class="tab-btn pb-3 px-2 text-gray-500" id="tab-COUNSELOR">BK / Konselor (<span id="count-COUNSELOR">0</span>)</button>
+            <button onclick="switchRoleFilter('SECURITY')" class="tab-btn pb-3 px-2 text-gray-500" id="tab-SECURITY">🛡️ Satpam / Keamanan (<span id="count-SECURITY">0</span>)</button>
         </div>
 
         <!-- Search Bar & Bulk Actions -->
@@ -127,9 +129,11 @@
                     <label class="block font-bold text-gray-700 mb-1">Role Utama</label>
                     <select id="userRole" class="w-full border rounded-xl p-2.5 font-bold bg-white text-gray-800">
                         <option value="TEACHER">👨‍🏫 Guru / Tenaga Pendidik</option>
+                        <option value="KURIKULUM">🏛️ Tim Kurikulum</option>
                         <option value="OPERATOR">💻 Operator CBT / Proktor</option>
                         <option value="ADMIN">🛡️ Administrator Sistem</option>
                         <option value="COUNSELOR">🕊️ Guru BK / Konselor</option>
+                        <option value="SECURITY">🛡️ Petugas Keamanan / Satpam Pos Gerbang</option>
                         <option value="MEDICAL">🏥 Petugas Medis UKS</option>
                         <option value="LIBRARIAN">📚 Pengelola Perpustakaan</option>
                     </select>
@@ -139,6 +143,12 @@
                 <div class="p-4 bg-blue-50/70 border border-blue-200 rounded-2xl space-y-3">
                     <label class="block font-bold text-blue-950 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
                         <span>⭐</span> Tugas Tambahan Guru (Multi-Role):
+                    </label>
+
+                    <!-- Checkbox 0: Tim Kurikulum -->
+                    <label class="flex items-center gap-2 cursor-pointer font-bold text-gray-800">
+                        <input type="checkbox" id="chkIsKurikulum" class="w-4 h-4 rounded text-amber-600">
+                        <span>🏛️ Tim Kurikulum (Approval Izin Guru, Modul Kurikulum & Akademik)</span>
                     </label>
                     
                     <!-- Checkbox 1: Wali Kelas -->
@@ -164,6 +174,12 @@
                     <label class="flex items-center gap-2 cursor-pointer font-bold text-gray-800">
                         <input type="checkbox" id="chkIsCounselor" class="w-4 h-4 rounded text-blue-600">
                         <span>Staff Pendamping BK / Konselor Siswa</span>
+                    </label>
+
+                    <!-- Checkbox 4: Petugas Keamanan / Satpam -->
+                    <label class="flex items-center gap-2 cursor-pointer font-bold text-gray-800">
+                        <input type="checkbox" id="chkIsSecurity" class="w-4 h-4 rounded text-emerald-600">
+                        <span>🛡️ Petugas Keamanan / Satpam Pos Gerbang (Scanner Gatepass)</span>
                     </label>
                 </div>
 
@@ -260,7 +276,9 @@
                     headers: { 'Authorization': 'Bearer ' + token }
                 });
                 if (res.ok) {
-                    allUsers = await res.json();
+                    const rawUsers = await res.json();
+                    // Sembunyikan akun Super Admin Utama dari list agar tidak terlihat atau diubah orang lain
+                    allUsers = Array.isArray(rawUsers) ? rawUsers.filter(u => u.username !== 'admin' && u.username !== 'superadmin' && u.role !== 'SUPERADMIN') : [];
                     updateRoleCounts();
                     filterLocal();
                 }
@@ -272,10 +290,15 @@
         function updateRoleCounts() {
             document.getElementById('count-ALL').innerText = allUsers.length;
             document.getElementById('count-TEACHER').innerText = allUsers.filter(u => u.role === 'TEACHER').length;
+            const kurikulumUsers = allUsers.filter(u => u.role === 'KURIKULUM' || (u.tugasTambahan && u.tugasTambahan.toUpperCase().includes('KURIKULUM')) || (u.rolesTambahan && u.rolesTambahan.includes('kurikulum')));
+            const elK = document.getElementById('count-KURIKULUM');
+            if (elK) elK.innerText = kurikulumUsers.length;
             document.getElementById('count-WALI_KELAS').innerText = allUsers.filter(u => u.className && u.className.startsWith('Wali') || u.className).length;
             document.getElementById('count-OPERATOR').innerText = allUsers.filter(u => u.role === 'OPERATOR').length;
             document.getElementById('count-ADMIN').innerText = allUsers.filter(u => u.role === 'ADMIN').length;
-            document.getElementById('count-COUNSELOR').innerText = allUsers.filter(u => u.role === 'COUNSELOR').length;
+            document.getElementById('count-COUNSELOR').innerText = allUsers.filter(u => u.role === 'COUNSELOR' || u.isBk).length;
+            const secEl = document.getElementById('count-SECURITY');
+            if (secEl) secEl.innerText = allUsers.filter(u => u.role === 'SECURITY' || u.role === 'SATPAM' || u.isSecurity).length;
         }
 
         function switchRoleFilter(role) {
@@ -290,8 +313,14 @@
             const q = document.getElementById('searchInput').value.toLowerCase();
             filteredUsers = allUsers.filter(u => {
                 let matchRole = true;
-                if (currentRoleFilter === 'WALI_KELAS') {
+                if (currentRoleFilter === 'KURIKULUM') {
+                    matchRole = u.role === 'KURIKULUM' || (u.tugasTambahan && u.tugasTambahan.toUpperCase().includes('KURIKULUM')) || (u.rolesTambahan && u.rolesTambahan.includes('kurikulum'));
+                } else if (currentRoleFilter === 'WALI_KELAS') {
                     matchRole = u.className && u.className.length > 0;
+                } else if (currentRoleFilter === 'SECURITY') {
+                    matchRole = u.role === 'SECURITY' || u.role === 'SATPAM' || Boolean(u.isSecurity);
+                } else if (currentRoleFilter === 'COUNSELOR') {
+                    matchRole = u.role === 'COUNSELOR' || Boolean(u.isBk);
                 } else if (currentRoleFilter !== 'ALL') {
                     matchRole = u.role === currentRoleFilter;
                 }
@@ -360,16 +389,29 @@
 
             tbody.innerHTML = pageUsers.map(u => {
                 let roleBadge = '<span class="bg-blue-100 text-blue-800 px-2.5 py-1 rounded-full font-bold">👨‍🏫 GURU</span>';
+                if (u.role === 'KURIKULUM') roleBadge = '<span class="bg-amber-100 text-amber-800 px-2.5 py-1 rounded-full font-bold">🏛️ KURIKULUM</span>';
                 if (u.role === 'OPERATOR') roleBadge = '<span class="bg-amber-100 text-amber-800 px-2.5 py-1 rounded-full font-bold">💻 OPERATOR</span>';
                 if (u.role === 'ADMIN') roleBadge = '<span class="bg-purple-100 text-purple-800 px-2.5 py-1 rounded-full font-bold">🛡️ ADMIN</span>';
                 if (u.role === 'COUNSELOR') roleBadge = '<span class="bg-teal-100 text-teal-800 px-2.5 py-1 rounded-full font-bold">🕊️ BK</span>';
+                if (u.role === 'SECURITY' || u.role === 'SATPAM') roleBadge = '<span class="bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-full font-bold">🛡️ SATPAM</span>';
+                if (u.role === 'MEDICAL' || u.role === 'UKS') roleBadge = '<span class="bg-rose-100 text-rose-800 px-2.5 py-1 rounded-full font-bold">🏥 UKS</span>';
+                if (u.role === 'LIBRARIAN' || u.role === 'PERPUSTAKAAN') roleBadge = '<span class="bg-indigo-100 text-indigo-800 px-2.5 py-1 rounded-full font-bold">📚 PERPUS</span>';
 
                 let dutyBadges = '';
+                if (u.role !== 'KURIKULUM' && ((u.tugasTambahan && u.tugasTambahan.toUpperCase().includes('KURIKULUM')) || (u.rolesTambahan && u.rolesTambahan.includes('kurikulum')))) {
+                    dutyBadges += `<span class="bg-amber-100 text-amber-800 px-2 py-0.5 rounded-md font-bold mr-1">🏛️ Kurikulum</span>`;
+                }
                 if (u.className) {
                     dutyBadges += `<span class="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-md font-bold mr-1">🏫 Wali ${u.className}</span>`;
                 }
                 if (u.role === 'TEACHER' && u.teachingClasses?.includes('OPERATOR')) {
                     dutyBadges += `<span class="bg-amber-100 text-amber-800 px-2 py-0.5 rounded-md font-bold mr-1">💻 Operator CBT</span>`;
+                }
+                if (u.isBk && u.role !== 'COUNSELOR') {
+                    dutyBadges += `<span class="bg-teal-100 text-teal-800 px-2 py-0.5 rounded-md font-bold mr-1">🕊️ Guru BK</span>`;
+                }
+                if (u.isSecurity && u.role !== 'SECURITY' && u.role !== 'SATPAM') {
+                    dutyBadges += `<span class="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-md font-bold mr-1">🛡️ Pos Satpam</span>`;
                 }
                 if (!dutyBadges) dutyBadges = '<span class="text-gray-400">-</span>';
 
@@ -423,7 +465,7 @@
             document.getElementById('userName').value = '';
             document.getElementById('userUsername').value = '';
             document.getElementById('userPasswordLabel').innerText = 'Password Awal';
-            document.getElementById('userPassword').placeholder = 'Default: password123';
+            document.getElementById('userPassword').placeholder = 'Default: password123 (atau satpam123 untuk Satpam)';
             document.getElementById('userPassword').value = 'password123';
             document.getElementById('passwordFieldContainer').classList.remove('hidden');
             document.getElementById('userRole').value = 'TEACHER';
@@ -431,6 +473,8 @@
             document.getElementById('userWaliKelas').value = '';
             document.getElementById('chkIsOperatorCbt').checked = false;
             document.getElementById('chkIsCounselor').checked = false;
+            const chkSec = document.getElementById('chkIsSecurity');
+            if (chkSec) chkSec.checked = false;
             document.getElementById('waliKelasDropdownContainer').classList.add('hidden');
             document.getElementById('userModal').classList.remove('hidden');
         }
@@ -447,14 +491,18 @@
             document.getElementById('userPassword').placeholder = 'Kosongkan jika tidak diubah';
             document.getElementById('userPassword').value = '';
             document.getElementById('passwordFieldContainer').classList.remove('hidden');
-            document.getElementById('userRole').value = u.role;
+            document.getElementById('userRole').value = (u.role === 'SATPAM') ? 'SECURITY' : u.role;
             
             const isWali = Boolean(u.className);
             document.getElementById('chkIsWaliKelas').checked = isWali;
             document.getElementById('userWaliKelas').value = u.className || '';
             document.getElementById('waliKelasDropdownContainer').classList.toggle('hidden', !isWali);
+            const isKurikulum = Boolean(u.role === 'KURIKULUM' || u.tugasTambahan?.includes('KURIKULUM') || u.rolesTambahan?.includes('kurikulum'));
+            document.getElementById('chkIsKurikulum').checked = isKurikulum;
             document.getElementById('chkIsOperatorCbt').checked = Boolean(u.teachingClasses?.includes('OPERATOR'));
-            document.getElementById('chkIsCounselor').checked = Boolean(u.role === 'COUNSELOR');
+            document.getElementById('chkIsCounselor').checked = Boolean(u.role === 'COUNSELOR' || u.isBk);
+            const chkSec = document.getElementById('chkIsSecurity');
+            if (chkSec) chkSec.checked = Boolean(u.role === 'SECURITY' || u.role === 'SATPAM' || u.isSecurity);
 
             document.getElementById('userModal').classList.remove('hidden');
         }
@@ -470,19 +518,33 @@
             const name = document.getElementById('userName').value;
             const username = document.getElementById('userUsername').value;
             const role = document.getElementById('userRole').value;
+            const isKurikulum = document.getElementById('chkIsKurikulum').checked || role === 'KURIKULUM';
             const isWali = document.getElementById('chkIsWaliKelas').checked;
             const waliClass = isWali ? document.getElementById('userWaliKelas').value : null;
             const isOperatorCbt = document.getElementById('chkIsOperatorCbt').checked;
             const isCounselor = document.getElementById('chkIsCounselor').checked;
+            const chkSec = document.getElementById('chkIsSecurity');
+            const isSecurity = chkSec ? chkSec.checked : false;
             const pwdVal = document.getElementById('userPassword').value.trim();
 
             const finalRole = (isCounselor && role === 'TEACHER') ? 'COUNSELOR' : role;
+
+            const tugasArr = [];
+            if (isKurikulum) tugasArr.push('KURIKULUM');
+            if (isWali) tugasArr.push('WALI_KELAS');
+            if (isOperatorCbt) tugasArr.push('OPERATOR');
+            if (isCounselor || finalRole === 'COUNSELOR') tugasArr.push('BK');
+            if (isSecurity || finalRole === 'SECURITY') tugasArr.push('SATPAM');
 
             const payload = {
                 name,
                 username,
                 role: finalRole,
-                className: waliClass
+                className: waliClass,
+                isBk: Boolean(isCounselor || finalRole === 'COUNSELOR'),
+                isSecurity: Boolean(isSecurity || finalRole === 'SECURITY'),
+                isKurikulum: Boolean(isKurikulum),
+                tugasTambahan: tugasArr.length > 0 ? tugasArr.join(',') : null
             };
 
             if (isOperatorCbt) {

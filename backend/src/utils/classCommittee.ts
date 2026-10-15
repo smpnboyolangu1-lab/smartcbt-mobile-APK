@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import { normalizeClassVariations } from './classHelper';
 
 const prisma = new PrismaClient();
 
@@ -51,11 +52,12 @@ export async function getClassCommittee(className: string): Promise<ClassCommitt
 
   try {
     // 1. Cari data kelas beserta plotting JSON officers
+    const variations = normalizeClassVariations(normClass);
     const cls = await prisma.class.findFirst({
       where: {
         OR: [
-          { name: normClass },
-          { id: normClass }
+          { name: { in: variations } },
+          { id: { in: variations } }
         ]
       }
     });
@@ -128,7 +130,7 @@ export async function getClassCommittee(className: string): Promise<ClassCommitt
     if (leaderName === '-' || viceLeaderName === '-' || secretaryName === '-' || treasurerName === '-') {
       const studentsWithRole = await prisma.user.findMany({
         where: {
-          className: cls ? cls.name : normClass,
+          className: { in: variations },
           role: 'STUDENT',
           isActive: true,
           classRole: { not: null }

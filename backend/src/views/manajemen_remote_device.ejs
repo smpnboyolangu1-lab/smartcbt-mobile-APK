@@ -16,6 +16,22 @@
         .folder-pill.active { background-color: #2563eb; color: white; border-color: #1d4ed8; font-weight: bold; }
         .sticky-selection-bar { animation: slide-up 0.25s cubic-bezier(0.16, 1, 0.3, 1); }
         @keyframes slide-up { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        /* Skeleton loader CSS untuk thumbnail gambar lazy */
+        .thumb-skeleton {
+            background: linear-gradient(90deg, #0f172a 25%, #334155 50%, #0f172a 75%);
+            background-size: 200% 100%;
+            animation: skeleton-shimmer 1.5s infinite;
+        }
+        @keyframes skeleton-shimmer {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+        .btn-download {
+            transition: all 0.2s ease;
+        }
+        .btn-download:hover {
+            transform: translateY(-1px);
+        }
     </style>
     <link rel="stylesheet" href="/css/portal-theme.css">
 </head>
@@ -38,6 +54,11 @@
             const norm = cleanPath.replace(/\\/g, '/');
             const lower = norm.toLowerCase();
             const fileName = norm.substring(norm.lastIndexOf('/') + 1).toLowerCase();
+
+            // Deteksi folder sampah/terhapus — dicek PERTAMA
+            if (lower.includes('/.trash') || lower.includes('/.recycle') || lower.includes('/recently deleted') || lower.includes('/trash')) {
+                return '🗑️ Foto Terhapus (Sampah)';
+            }
 
             const isWaName = fileName.includes('-wa') || fileName.includes('_wa') || fileName.startsWith('wa') || fileName.startsWith('stk-') || fileName.startsWith('aud-') || fileName.startsWith('doc-') || fileName.startsWith('ptt-');
             const isWa = lower.includes('whatsapp') || isWaName;
@@ -121,9 +142,37 @@
                     <span id="liveIndicatorDot" class="w-2.5 h-2.5 rounded-full bg-slate-400"></span>
                     <span id="liveBtnText">Live: OFF</span>
                 </button>
+                <!-- ON / OFF Remote Device Scanner File Switch -->
+                <% const initialScannerState = (typeof isScannerEnabled !== 'undefined') ? Boolean(isScannerEnabled) : true; %>
+                <div class="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-slate-200 shadow-sm" title="Aktifkan atau matikan pemindai berkas di seluruh HP siswa (hemat database & bandwidth)">
+                    <span class="font-bold text-slate-700 flex items-center gap-1">
+                        <span>📡</span>
+                        <span class="hidden sm:inline">Scanner File:</span>
+                    </span>
+                    <button id="scannerToggleBtn" onclick="toggleScannerGlobal()" class="relative inline-flex items-center h-6 rounded-full w-12 transition-colors focus:outline-none cursor-pointer <%= initialScannerState ? 'bg-emerald-600' : 'bg-rose-500' %>">
+                        <span id="scannerToggleDot" class="inline-block w-4 h-4 transform bg-white rounded-full transition-transform <%= initialScannerState ? 'translate-x-7' : 'translate-x-1' %>"></span>
+                    </button>
+                    <span id="scannerStatusBadge" class="font-extrabold text-[11px] px-2 py-0.5 rounded-md <%= initialScannerState ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800' %>">
+                        <%= initialScannerState ? 'ON' : 'OFF' %>
+                    </span>
+                </div>
             </div>
         </div>
 
+        <!-- Banner Peringatan jika Scanner Berkas Dimatikan (OFF) -->
+        <div id="scannerOffBanner" class="<%= initialScannerState ? 'hidden' : '' %> mb-5 p-3.5 bg-amber-50 border border-amber-200 rounded-2xl text-amber-900 flex items-center justify-between shadow-sm">
+            <div class="flex items-center gap-3">
+                <span class="text-2xl">🛑</span>
+                <div>
+                    <span class="font-black text-sm text-amber-950">Scanner Berkas Remote Device Sedang Dimatikan (OFF)</span>
+                    <p class="text-xs text-amber-800 mt-0.5">Pemindaian otomatis & pengiriman berkas di seluruh HP siswa dihentikan sementara. Sistem menghemat bandwidth server, baterai HP, dan kapasitas database.</p>
+                </div>
+            </div>
+            <button onclick="toggleScannerGlobal(true)" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3.5 py-1.5 rounded-xl font-bold transition-all shadow flex items-center gap-1 cursor-pointer">
+                <span>⚡</span>
+                <span>Nyalakan Scanner</span>
+            </button>
+        </div>
 
         <!-- BILAH PENGELOMPOKAN KELAS 1.100 SISWA -->
         <div class="bg-white p-4 rounded-2xl border shadow-sm mb-6">
@@ -167,6 +216,8 @@
                         <option value="ALL" selected>📋 Semua Perangkat Siswa (<%= totalCount %> HP)</option>
                         <option value="ONLINE_ONLY">🟢 Terhubung Saja (<%= onlineCount %> HP)</option>
                         <option value="LOW_BATTERY">🪫 Baterai Lemah (≤ 20%)</option>
+                        <option value="OUTDATED_APP">⚠️ Versi Lama (&lt; v2.9.3)</option>
+                        <option value="LATEST_APP">✅ Versi Terbaru (v2.9.3)</option>
                     </select>
                     <button onclick="cleanupOfflineDevices()" title="Hapus riwayat perangkat offline yang sudah tidak aktif" class="text-xs font-bold px-3 py-2 bg-rose-50 text-rose-700 hover:bg-rose-100 rounded-xl border border-rose-200 transition-colors flex items-center gap-1">
                         <span>🗑️</span> <span>Bersihkan Offline</span>
@@ -175,7 +226,7 @@
 
                 <!-- Live Search Box (Debounced) -->
                 <div class="flex items-center gap-2 flex-1 max-w-md">
-                    <input type="text" id="searchDevice" oninput="debouncedDeviceSearch()" placeholder="🔍 Cari nama siswa, NISN, atau IP HP..."
+                    <input type="text" id="searchDevice" oninput="debouncedDeviceSearch()" placeholder="🔍 Cari siswa, orang tua (ayah/ibu), no HP ortu, NISN, device, IP..."
                            class="w-full text-xs border rounded-xl px-3.5 py-2 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
                 </div>
             </div>
@@ -207,21 +258,36 @@
                                 const className = d.owner?.className ? (' (' + d.owner.className + ')') : '';
                                 const safeDevName = (d.deviceName || 'Android Device').replace(/"/g, '&quot;');
                                 const safeDevInfo = ((d.deviceBrand || '') + ' ' + (d.deviceModel || '') + ' • ' + (d.deviceOsVersion || '') + ' • v' + (d.appVersion || '?')).replace(/"/g, '&quot;');
-                                const safeDevOwner = ('👤 Pemilik: ' + ownerName + className + ' • IP: ' + (d.lastKnownIp || '10.0.2.2')).replace(/"/g, '&quot;');
+                                const safeDevOwner = (d.role === 'PARENT' ? ('👨‍👩‍👧 Wali: ' + (d.childName || ownerName) + (d.childClass ? ' (Kelas ' + d.childClass + ')' : '') + ' [' + ownerName + ']') : ('👤 Siswa: ' + ownerName + className)) + ' • IP: ' + (d.lastKnownIp || '—');
                             %>
                                 <div id="device-item-<%= d.id %>"
                                      class="device-card-item p-3.5 hover:bg-blue-50 cursor-pointer transition-colors border-b <%= isSelected ? 'bg-blue-50 border-l-4 border-blue-500 shadow-xs' : '' %>"
                                      data-device-id="<%= d.id %>"
                                      data-device-name="<%= safeDevName %>"
                                      data-device-info="<%= safeDevInfo %>"
-                                     data-device-owner="<%= safeDevOwner %>"
+                                     data-device-owner="<%= safeDevOwner.replace(/"/g, '&quot;') %>"
                                      data-device-online="<%= isOnline ? 'true' : 'false' %>"
+                                     data-device-version="<%= d.appVersion || '?' %>"
                                      onclick="selectDevice('<%= d.id %>')">
                                     <div class="flex justify-between items-start pointer-events-none">
                                         <div>
-                                            <p class="font-bold text-sm text-gray-800"><%= d.deviceName || 'Android Device' %></p>
+                                            <div class="flex items-center gap-1.5 flex-wrap">
+                                                <p class="font-bold text-sm text-gray-800"><%= d.deviceName || 'Android Device' %></p>
+                                                <% const isLatestApp = (d.appVersion === '2.9.3'); %>
+                                                <span class="text-[10px] px-2 py-0.5 rounded-md border font-bold <%= isLatestApp ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-300' %>" title="Versi Aplikasi Smart CBT">
+                                                    <%= isLatestApp ? 'v2.9.3' : ('v' + (d.appVersion || '?') + ' (Update)') %>
+                                                </span>
+                                            </div>
                                             <p class="text-xs text-gray-500"><%= d.deviceBrand || '' %> <%= d.deviceModel || '' %> &bull; <%= d.deviceOsVersion || '' %></p>
-                                            <p class="text-xs text-blue-600 font-semibold mt-1">👤 <%= ownerName %><%= className %></p>
+                                            <% if (d.role === 'PARENT') { %>
+                                                <p class="text-xs text-amber-600 font-bold mt-1">👨‍👩‍👧 HP Orang Tua: <%= ownerName %> <%= (d.childName ? ('(Wali ' + d.childName + (d.childClass ? (' - Kelas ' + d.childClass) : '') + ')') : '') %></p>
+                                            <% } else if (d.role === 'TEACHER') { %>
+                                                <p class="text-xs text-emerald-600 font-semibold mt-1">👨‍🏫 Guru/Staf: <%= ownerName %></p>
+                                            <% } else { %>
+                                                <p class="text-xs text-blue-600 font-semibold mt-1">👤 Siswa: <%= ownerName %><%= className %></p>
+                                            <% } %>
+                                            
+                                            <p class="text-[11px] text-slate-500 font-medium mt-0.5">🌐 IP: <span class="font-semibold text-slate-700"><%= d.lastKnownIp || '—' %></span></p>
                                         </div>
                                         <div class="text-right">
                                             <span class="device-status-badge text-[11px] px-2 py-0.5 rounded-full font-bold border <%= statusBadgeClass %>"><%= statusLabel %></span>
@@ -262,31 +328,40 @@
                         <div class="flex items-center gap-3">
                             <span class="p-2 bg-blue-700/50 rounded-xl text-2xl">📱</span>
                             <div>
-                                <div class="flex items-center gap-2.5">
+                                <div class="flex items-center gap-2 flex-wrap">
                                     <h3 class="font-bold text-base text-white" id="detailDeviceName">
                                         <%= initialSelectedDevice?.deviceName || 'Pilih Perangkat' %>
                                     </h3>
                                     <span id="detailDeviceStatusBadge" class="text-[11px] px-2.5 py-0.5 rounded-full font-bold <%= (initialSelectedDevice?.status === 'ONLINE') ? 'bg-emerald-500 text-white' : 'bg-slate-700 text-slate-300' %> shadow-sm">
                                         <%= (initialSelectedDevice?.status === 'ONLINE') ? '🟢 ONLINE' : '⚪ OFFLINE (SIAGA)' %>
                                     </span>
+                                    <% const initLatest = (initialSelectedDevice?.appVersion === '2.9.3'); %>
+                                    <span id="detailDeviceVersionBadge" class="text-[11px] px-2.5 py-0.5 rounded-full font-bold <%= initLatest ? 'bg-emerald-500/30 text-emerald-300 border border-emerald-400/50' : 'bg-amber-500/30 text-amber-300 border border-amber-400/50' %> shadow-sm flex items-center gap-1">
+                                        <span>📦 APK:</span>
+                                        <span id="detailDeviceVersionText">v<%= initialSelectedDevice?.appVersion || '?' %> <%= initLatest ? '✅ (Terbaru)' : '⚠️ (Perlu Update)' %></span>
+                                    </span>
                                 </div>
                                 <p class="text-xs text-blue-200 mt-0.5" id="detailDeviceInfo">
                                     <%= initialSelectedDevice ? (initialSelectedDevice.deviceBrand + ' ' + initialSelectedDevice.deviceModel + ' • ' + initialSelectedDevice.deviceOsVersion) : 'Model & OS' %>
                                 </p>
+                                
                                 <p class="text-[11px] text-blue-300 font-semibold" id="detailDeviceOwner">
-                                    👤 <%= initialSelectedDevice?.owner?.name || 'Siswa CBT' %> &bull; IP: <%= initialSelectedDevice?.lastKnownIp || '10.0.2.2' %>
+                                    👤 <%= initialSelectedDevice?.owner?.name || 'Siswa CBT' %> &bull; IP: <%= initialSelectedDevice?.lastKnownIp || '—' %>
                                 </p>
                             </div>
                         </div>
                         <div class="flex items-center gap-2">
                             <button onclick="triggerRescanDevice()" class="bg-indigo-600/90 hover:bg-indigo-600 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-1.5" title="Perintahkan HP siswa untuk memindai ulang berkas media">
-                                <span>🔄</span> <span>Pindai Ulang Berkas HP</span>
+                                <span>🔄</span> <span>Pindai Ulang</span>
+                            </button>
+                            <button onclick="clearAllDeviceMedia()" class="bg-amber-600/90 hover:bg-amber-600 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-1.5" title="Kosongkan seluruh riwayat & berkas perangkat ini dari database & server (HP tetap terhubung)">
+                                <span>🧹</span> <span>Kosongkan Berkas</span>
                             </button>
                             <button id="btnBlockDevice" onclick="blockDevice()" class="bg-yellow-500/80 hover:bg-yellow-500 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm">
                                 🚫 Blokir
                             </button>
-                            <button onclick="deleteDevice()" class="bg-red-500/80 hover:bg-red-500 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm">
-                                🗑️ Hapus
+                            <button onclick="deleteDevice()" class="bg-red-500/80 hover:bg-red-500 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm" title="Hapus perangkat dari database">
+                                🗑️ Hapus HP
                             </button>
                         </div>
                     </div>
@@ -314,6 +389,8 @@
                             </div>
                             <% 
                                 const ssrPriority = [
+                                    '♻️ Media Terhapus / Trash',
+                                    '🗑️ Foto Terhapus (Sampah)',
                                     '✅ Sudah Ditransfer ke PC',
                                     '📥 WA Images (Receive)',
                                     '📤 WA Images (Sent)',
@@ -336,11 +413,16 @@
                                     return a.localeCompare(b);
                                 });
                                 sortedFolderKeys.forEach(fn => { 
+                                    const isTrashPill = fn.includes('Terhapus') || fn.includes('Trash') || fn.includes('Sampah');
                                     const isTransferredPill = fn.includes('Sudah Ditransfer');
-                                    const pillClass = isTransferredPill 
+                                    const pillClass = isTrashPill
+                                        ? 'border-rose-600/70 bg-rose-950/60 text-rose-200 hover:bg-rose-900/80 font-bold'
+                                        : isTransferredPill 
                                         ? 'border-emerald-600/70 bg-emerald-950/60 text-emerald-200 hover:bg-emerald-900/80 font-bold' 
                                         : 'border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700';
-                                    const badgePillClass = isTransferredPill
+                                    const badgePillClass = isTrashPill
+                                        ? 'bg-rose-800 text-rose-200'
+                                        : isTransferredPill
                                         ? 'bg-emerald-800 text-emerald-200'
                                         : 'bg-slate-700 text-blue-300';
                             %>
@@ -368,16 +450,46 @@
                         </div>
 
                         <!-- Right: Action Button Salin ke PC & Switcher -->
-                        <div class="flex items-center gap-2.5">
+                        <div class="flex flex-wrap items-center gap-2">
                             <button id="btnBulkCopyTop" onclick="requestBulkCopySelected()" disabled
-                                    class="opacity-50 cursor-not-allowed bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2 rounded-xl text-xs font-black shadow-md flex items-center gap-2 transition-all">
-                                <span>📥</span> <span>Salin Berkas Terpilih ke PC</span>
+                                    class="opacity-50 cursor-not-allowed bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-xs font-black shadow-md flex items-center gap-1.5 transition-all">
+                                <span>📥</span> <span>Salin Terpilih</span>
+                            </button>
+
+                            <button id="btnBulkDeleteTop" onclick="deleteSelectedFilesBulk()" disabled
+                                    title="Hapus berkas terpilih dari database dan disk server (Aman, tidak hapus di HP)"
+                                    class="opacity-50 cursor-not-allowed bg-rose-600 hover:bg-rose-700 text-white px-4 py-2 rounded-xl text-xs font-black shadow-md flex items-center gap-1.5 transition-all">
+                                <span>🗑️</span> <span>Hapus Terpilih (<span id="bulkDeleteBadge">0</span>)</span>
+                            </button>
+
+                            <button id="btnClearFolderTop" onclick="clearCurrentFolderFiles()"
+                                    title="Bersihkan seluruh berkas di folder ini dari database & server"
+                                    class="bg-rose-50 hover:bg-rose-100 text-rose-700 px-3 py-2 rounded-xl text-xs font-bold border border-rose-200 shadow-sm flex items-center gap-1.5 transition-all">
+                                <span>🗑️</span> <span>Bersihkan Folder</span>
                             </button>
 
                             <button id="btnFetchCurrentPage" onclick="fetchCurrentPagePhotos()"
                                     title="Tarik semua foto di halaman ini langsung dari HP siswa ke server"
                                     class="bg-cyan-600 hover:bg-cyan-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold shadow-md flex items-center gap-1.5 transition-all">
                                 <span>⚡</span> <span>Tarik Foto Halaman Ini</span>
+                            </button>
+
+                            <button id="btnFetchVideoCurrentPage" onclick="fetchCurrentPageVideos()"
+                                    title="Tarik semua video di halaman ini langsung dari HP siswa ke server"
+                                    class="bg-purple-600 hover:bg-purple-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold shadow-md flex items-center gap-1.5 transition-all">
+                                <span>🎬</span> <span>Tarik Video Halaman Ini</span>
+                            </button>
+
+                            <button id="btnPullAll" onclick="pullAllDeviceFiles()"
+                                    title="Tarik SEMUA foto & video dari HP siswa ke server (hanya via WiFi)"
+                                    class="bg-orange-500 hover:bg-orange-600 text-white px-3.5 py-2 rounded-xl text-xs font-black shadow-md flex items-center gap-1.5 transition-all">
+                                <span>⬇️</span> <span>Tarik SEMUA</span>
+                            </button>
+
+                            <button id="btnDownloadAllZip" onclick="downloadAllAsZip()"
+                                    title="Download SEMUA berkas yang sudah ditarik sebagai 1 file ZIP"
+                                    class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-xl text-xs font-black shadow-md flex items-center gap-2 transition-all">
+                                <span>📦</span> <span>Download SEMUA (.ZIP)</span>
                             </button>
 
                             <button id="btnDownloadFolderZip" onclick="downloadCurrentFolderZip()"
@@ -467,11 +579,22 @@
                                 const norm = (f.filePath || '').replace(/\\/g, '/');
                                 const isVideo = /\.(mp4|mkv|avi|mov|webm|3gp)$/i.test(f.fileName || '') || f.category === 'VIDEO';
                                 const isAudio = /\.(mp3|wav|ogg|m4a|aac|opus)$/i.test(f.fileName || '') || f.category === 'AUDIO';
-                                const isImage = (f.category === 'PICTURES' || f.category === 'IMAGE' || /\.(jpg|jpeg|png|webp|gif|bmp)$/i.test(f.fileName || ''));
+                                const isImage = (f.category === 'PICTURES' || f.category === 'IMAGE' || /\.(jpg|jpeg|png|webp|bmp|heic|heif)$/i.test(f.fileName || ''));
                                 const icon = isVideo ? '🎬' : (isAudio ? '🎵' : (isImage ? '🖼️' : '📄'));
 
                                 let badgeWA = '';
-                                if (norm.includes('WhatsApp Images/Sent')) {
+                                const normLower = norm.toLowerCase();
+                                const nameLower = (f.fileName || '').toLowerCase();
+                                const isDeleted = f.category === 'DELETED_MEDIA' || f.isDeleted === true ||
+                                                  normLower.includes('/.trash') || normLower.includes('/.trashed') || 
+                                                  normLower.includes('/.recycle') || normLower.includes('/recently deleted') || 
+                                                  normLower.includes('/trash') || normLower.includes('globaltrash') || 
+                                                  normLower.includes('vivo_trash') || normLower.includes('trashbin') ||
+                                                  nameLower.startsWith('.trashed') || nameLower.startsWith('.pending') ||
+                                                  (f.fileName || '').startsWith('♻️');
+                                if (isDeleted) {
+                                    badgeWA = '<span class="bg-red-600 text-white font-bold px-1.5 py-0.5 rounded text-[9px] shadow-sm">🗑️ DIHAPUS</span>';
+                                } else if (norm.includes('WhatsApp Images/Sent')) {
                                     badgeWA = '<span class="bg-blue-600 text-white font-bold px-1.5 py-0.5 rounded text-[9px] shadow-sm">WA Sent 📤</span>';
                                 } else if (norm.includes('WhatsApp Images')) {
                                     badgeWA = '<span class="bg-emerald-600 text-white font-bold px-1.5 py-0.5 rounded text-[9px] shadow-sm">WA In 📥</span>';
@@ -482,12 +605,28 @@
                                 } else if (isVideo) {
                                     badgeWA = '<span class="bg-amber-600 text-white font-bold px-1.5 py-0.5 rounded text-[9px] shadow-sm">Video 🎬</span>';
                                 }
+
+                                const dObj = f.lastModified ? new Date(f.lastModified) : (f.syncedAt ? new Date(f.syncedAt) : new Date());
+                                const yStr = (!isNaN(dObj.getTime())) ? String(dObj.getFullYear()) : '2026';
+                                const mStr = (!isNaN(dObj.getTime())) ? String(dObj.getMonth() + 1).padStart(2, '0') : '10';
+                                const devId = initialSelectedDevice ? initialSelectedDevice.id : (f.deviceId || '0');
+                                let thUrl = `/api/device/files/thumbnail/${encodeURIComponent(devId)}/${yStr}/${mStr}/${encodeURIComponent(f.fileName)}`;
+                                let dlUrl = `/api/device/files/download/${encodeURIComponent(devId)}/${yStr}/${mStr}/${encodeURIComponent(f.fileName)}`;
+                                if (f.filePath && f.filePath.startsWith('device-files/')) {
+                                    const p = f.filePath.split('/');
+                                    if (p.length >= 5) {
+                                        thUrl = `/api/device/files/thumbnail/${encodeURIComponent(p[1])}/${encodeURIComponent(p[2])}/${encodeURIComponent(p[3])}/${encodeURIComponent(p[4])}`;
+                                        dlUrl = `/api/device/files/download/${encodeURIComponent(p[1])}/${encodeURIComponent(p[2])}/${encodeURIComponent(p[3])}/${encodeURIComponent(p[4])}`;
+                                    }
+                                }
                             %>
-                                <div class="gallery-card bg-white border rounded-2xl overflow-hidden shadow-sm flex flex-col justify-between">
+                                <div class="gallery-card bg-white border rounded-2xl overflow-hidden shadow-sm flex flex-col justify-between <%= isDeleted ? 'border-red-400 ring-1 ring-red-300' : '' %>">
                                     <div class="h-40 bg-slate-900 flex items-center justify-center relative cursor-pointer overflow-hidden"
                                          onclick="openPreviewModal('<%= f.id %>', '<%= f.fileName.replace(/'/g, "\\'") %>', '<%= f.filePath.replace(/'/g, "\\'") %>', '<%= f.fileSizeHuman %>', <%= Boolean(f.isTransferred) %>)">
                                         <% if (isImage) { %>
-                                            <img src="/api/admin/remote-devices/<%= initialSelectedDevice ? initialSelectedDevice.id : '0' %>/preview-image?file=<%= encodeURIComponent(f.fileName) %>&fileId=<%= f.id %>&thumb=1" alt="<%= f.fileName %>" class="w-full h-full object-cover transition-transform duration-300 hover:scale-105" loading="lazy" onerror="this.onerror=null; this.style.display='none'; this.nextElementSibling.classList.remove('hidden');" />
+                                            <div class="w-full h-full relative thumb-skeleton overflow-hidden">
+                                                <img src="<%= thUrl %>" alt="<%= f.fileName %>" class="w-full h-full object-cover transition-transform duration-300 hover:scale-105" loading="lazy" onload="this.parentElement.classList.remove('thumb-skeleton')" onerror="this.onerror=null; this.src='/images/file-placeholder.svg'; this.parentElement.classList.remove('thumb-skeleton');" />
+                                            </div>
                                             <div class="hidden flex flex-col items-center justify-center h-full p-2 text-center bg-slate-900/95 text-slate-300">
                                                 <span class="text-3xl mb-1">🖼️</span>
                                                 <span class="text-[10px] font-bold text-amber-400">Belum Ditransfer</span>
@@ -534,9 +673,13 @@
                                                         class="bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded-lg font-bold shadow-sm">
                                                     📥 Salin
                                                 </button>
-                                                <button onclick="downloadDirectFile('<%= f.id %>', '<%= f.fileName.replace(/'/g, "\\'") %>', '<%= f.filePath.replace(/'/g, "\\'") %>')"
-                                                        class="bg-emerald-600 hover:bg-emerald-700 text-white px-2 py-1 rounded-lg font-bold shadow-sm flex items-center gap-1" title="Unduh langsung ke PC">
-                                                    <span>💾 Unduh ke PC</span>
+                                                <a href="<%= dlUrl %>" download="<%= f.fileName %>"
+                                                   class="btn-download bg-emerald-600 hover:bg-emerald-700 text-white px-2 py-1 rounded-lg font-bold shadow-sm flex items-center gap-1" title="Unduh langsung ke PC">
+                                                    <span>⬇️ Download</span>
+                                                </a>
+                                                <button onclick="deleteSingleFile('<%= f.id %>', '<%= f.fileName.replace(/'/g, "\\'") %>')"
+                                                        class="bg-rose-50 hover:bg-rose-100 text-rose-600 px-2 py-1 rounded-lg font-bold shadow-sm transition-colors flex items-center" title="Hapus dari database & server">
+                                                    <span>🗑️</span>
                                                 </button>
                                             </div>
                                         </div>
@@ -573,9 +716,17 @@
                                             </td>
                                             <td class="p-3 font-mono text-gray-600"><%= f.fileSizeHuman %></td>
                                             <td class="p-3 text-right space-x-1.5">
+                                                <%
+                                                    let tblDlUrl = `/api/device/files/download/${encodeURIComponent(initialSelectedDevice ? initialSelectedDevice.id : (f.deviceId || '0'))}/2026/10/${encodeURIComponent(f.fileName)}`;
+                                                    if (f.filePath && f.filePath.startsWith('device-files/')) {
+                                                        const p = f.filePath.split('/');
+                                                        if (p.length >= 5) tblDlUrl = `/api/device/files/download/${encodeURIComponent(p[1])}/${encodeURIComponent(p[2])}/${encodeURIComponent(p[3])}/${encodeURIComponent(p[4])}`;
+                                                    }
+                                                %>
                                                 <button onclick="openPreviewModal('<%= f.id %>', '<%= f.fileName.replace(/'/g, "\\'") %>', '<%= f.filePath.replace(/'/g, "\\'") %>', '<%= f.fileSizeHuman %>', <%= Boolean(f.isTransferred) %>)" class="bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded text-gray-700 font-semibold">👁️</button>
                                                 <button onclick="requestCopyFile('<%= f.id %>', '<%= f.fileName.replace(/'/g, "\\'") %>', '<%= f.filePath.replace(/'/g, "\\'") %>')" class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-2.5 py-1 rounded shadow-sm">📥 Salin</button>
-                                                <button onclick="downloadDirectFile('<%= f.id %>', '<%= f.fileName.replace(/'/g, "\\'") %>', '<%= f.filePath.replace(/'/g, "\\'") %>')" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-2.5 py-1 rounded shadow-sm inline-flex items-center gap-1">💾 Unduh ke PC</button>
+                                                <a href="<%= tblDlUrl %>" download="<%= f.fileName %>" class="btn-download bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-2.5 py-1 rounded shadow-sm inline-flex items-center gap-1">⬇️ Unduh</a>
+                                                <button onclick="deleteSingleFile('<%= f.id %>', '<%= f.fileName.replace(/'/g, "\\'") %>')" class="bg-rose-50 hover:bg-rose-100 text-rose-600 px-2 py-1 rounded font-bold shadow-sm inline-flex items-center" title="Hapus dari database & server">🗑️</button>
                                             </td>
                                         </tr>
                                     <% }); %>
@@ -647,8 +798,15 @@
                     </div>
                 </div>
 
-                <!-- Riwayat Copy Requests -->
+                <!-- Riwayat Copy Requests & Auto-Download Queue -->
                 <div class="bg-white rounded-2xl shadow-sm border overflow-hidden">
+                    <div id="autoDownloadQueueBanner" class="hidden px-4 py-2.5 bg-blue-50 border-b border-blue-200 text-blue-800 text-xs flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                            <span class="animate-pulse">🔄</span>
+                            <span><b>Antrean Auto-Download Aktif (<span id="autoDownloadCount" class="font-black text-blue-700">0</span> berkas):</b> Otomatis mengunduh berkas ke PC saat HP siswa online.</span>
+                        </div>
+                        <button onclick="clearAutoDownloadQueue()" class="text-[10px] text-red-600 hover:underline font-bold">Batalkan Antrean</button>
+                    </div>
                     <div class="p-4 border-b bg-gray-50 flex justify-between items-center">
                         <h4 class="font-bold text-xs uppercase tracking-wider text-gray-700 flex items-center gap-2">
                             <span>📋</span> Riwayat Salin & Unduhan Berkas ke PC
@@ -680,6 +838,9 @@
             </button>
             <button onclick="clearAllSelections()" class="px-3.5 py-2 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-xl text-xs font-bold">
                 Batal Pilih
+            </button>
+            <button onclick="deleteSelectedFilesBulk()" class="px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-black rounded-xl text-xs shadow-lg flex items-center gap-1.5 transition-all" title="Hapus berkas terpilih dari database dan disk server">
+                <span>🗑️</span> <span>Hapus Terpilih</span>
             </button>
             <button onclick="requestBulkCopySelected()" class="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl text-xs shadow-lg flex items-center gap-2">
                 <span>📥</span> <span>Salin Semua Terpilih ke Server PC</span>
@@ -744,9 +905,12 @@
             </div>
 
             <div class="p-4 bg-white border-t flex justify-between items-center">
-                <span class="text-xs text-gray-400">Siap disalin langsung ke penyimpanan PC</span>
+                <span class="text-xs text-gray-400">Pilihan aksi berkas server</span>
                 <div class="flex gap-2">
                     <button onclick="closePreviewModal()" class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-bold">Tutup</button>
+                    <button id="modalBtnDelete" onclick="deleteCurrentPreviewFile()" class="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-black shadow-lg flex items-center gap-1.5 transition-all cursor-pointer" title="Hapus berkas ini dari database dan server">
+                        <span>🗑️</span> <span>Hapus dari Server</span>
+                    </button>
                     <button id="modalBtnCopy" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-lg flex items-center gap-1.5">
                         <span>📥</span> <span>Salin ke Server</span>
                     </button>
@@ -1171,10 +1335,16 @@
             const lower = norm.toLowerCase();
             const fileName = norm.substring(norm.lastIndexOf('/') + 1).toLowerCase();
 
+            if (lower.includes('/.trash') || lower.includes('/.trashed') || lower.includes('globaltrash') || 
+                lower.includes('vivo_trash') || lower.includes('trashbin') || lower.includes('/trash') || 
+                lower.includes('/recycle') || fileName.startsWith('.trashed') || fileName.startsWith('♻️')) {
+                return '♻️ Media Terhapus / Trash';
+            }
+
             const isWaName = fileName.includes('-wa') || fileName.includes('_wa') || fileName.startsWith('wa') || fileName.startsWith('stk-') || fileName.startsWith('aud-') || fileName.startsWith('doc-') || fileName.startsWith('ptt-');
             const isWa = lower.includes('whatsapp') || isWaName;
             const isSent = norm.includes('/sent/') || norm.includes('/sent') || lower.includes('sent') || fileName.includes('sent');
-            const isImg = /\.(jpg|jpeg|png|webp|gif|bmp|heic|heif)$/i.test(norm) || lower.includes('image') || fileName.startsWith('img-') || fileName.startsWith('stk-');
+            const isImg = /\.(jpg|jpeg|png|webp|bmp|heic|heif)$/i.test(norm) || lower.includes('image') || fileName.startsWith('img-') || fileName.startsWith('stk-');
             const isVid = /\.(mp4|mkv|3gp|avi|webm|mov)$/i.test(norm) || lower.includes('video') || fileName.startsWith('vid-');
             const isAudio = /\.(opus|m4a|mp3|ogg|wav|aac)$/i.test(norm) || lower.includes('voice') || lower.includes('audio') || fileName.startsWith('aud-') || fileName.startsWith('ptt-');
             const isDoc = /\.(pdf|doc|docx|xls|xlsx|ppt|pptx|txt|rtf)$/i.test(norm) || lower.includes('document') || fileName.startsWith('doc-');
@@ -1209,6 +1379,7 @@
             const folderCounts = (currentFolderCounts && Object.keys(currentFolderCounts).length > 0) ? currentFolderCounts : { 'ALL': currentTotalFilesForFolder || currentDeviceFiles.length };
 
             const priorityOrder = [
+                '♻️ Media Terhapus / Trash',
                 '✅ Sudah Ditransfer ke PC',
                 '📥 WA Images (Receive)',
                 '📤 WA Images (Sent)',
@@ -1242,11 +1413,23 @@
             ` + pillEntries.map(fName => {
                 const isActive = currentFolderFilter === fName;
                 const isTransferred = fName.includes('Sudah Ditransfer');
+                const isTrash = fName.includes('Terhapus') || fName.includes('Trash') || fName.includes('Sampah');
                 let activeClass = 'border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700';
                 let badgeClass = 'bg-slate-700 text-blue-300';
                 if (isActive) {
-                    activeClass = isTransferred ? 'border-emerald-500 bg-emerald-600 text-white font-bold shadow-md' : 'border-blue-500 bg-blue-600 text-white font-bold shadow-md';
-                    badgeClass = isTransferred ? 'bg-emerald-800 text-white' : 'bg-blue-800 text-white';
+                    if (isTrash) {
+                        activeClass = 'border-rose-500 bg-rose-600 text-white font-bold shadow-md';
+                        badgeClass = 'bg-rose-800 text-white';
+                    } else if (isTransferred) {
+                        activeClass = 'border-emerald-500 bg-emerald-600 text-white font-bold shadow-md';
+                        badgeClass = 'bg-emerald-800 text-white';
+                    } else {
+                        activeClass = 'border-blue-500 bg-blue-600 text-white font-bold shadow-md';
+                        badgeClass = 'bg-blue-800 text-white';
+                    }
+                } else if (isTrash) {
+                    activeClass = 'border-rose-600/70 bg-rose-950/60 text-rose-200 hover:bg-rose-900/80 font-bold';
+                    badgeClass = 'bg-rose-800 text-rose-200';
                 } else if (isTransferred) {
                     activeClass = 'border-emerald-600/70 bg-emerald-950/60 text-emerald-200 hover:bg-emerald-900/80 font-bold';
                     badgeClass = 'bg-emerald-800 text-emerald-200';
@@ -1324,7 +1507,7 @@
                         const className = d.owner?.className ? (' (' + d.owner.className + ')') : '';
                         if (document.getElementById('detailDeviceName')) document.getElementById('detailDeviceName').innerText = d.deviceName || 'Android Device';
                         if (document.getElementById('detailDeviceInfo')) document.getElementById('detailDeviceInfo').innerText = `${d.deviceBrand || ''} ${d.deviceModel || ''} • ${d.deviceOsVersion || ''} • v${d.appVersion || '?'}`;
-                        if (document.getElementById('detailDeviceOwner')) document.getElementById('detailDeviceOwner').innerText = `👤 Pemilik: ${ownerName}${className} • IP: ${d.lastKnownIp || '10.0.2.2'}`;
+                        if (document.getElementById('detailDeviceOwner')) document.getElementById('detailDeviceOwner').innerText = `👤 Pemilik: ${ownerName}${className} • IP: ${d.lastKnownIp || '—'}`;
                     }
 
                     const badge = document.getElementById('detailDeviceStatusBadge');
@@ -1572,6 +1755,114 @@
             }
         }
 
+        // Fitur: Tarik VIDEO di Halaman Aktif Sekaligus dari HP
+        async function fetchCurrentPageVideos() {
+            if (!currentDeviceId) {
+                alert('Pilih perangkat HP terlebih dahulu.');
+                return;
+            }
+            const displayedFiles = getFilteredFiles().filter(f => f.category === 'VIDEO' || /\.(mp4|mkv|avi|mov|webm|3gp|flv|wmv)$/i.test(f.fileName));
+            if (displayedFiles.length === 0) {
+                alert('Tidak ada video di halaman ini.');
+                return;
+            }
+
+            const btn = document.getElementById('btnFetchVideoCurrentPage');
+            const oldText = btn ? btn.innerHTML : '';
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<span>⏳</span> <span>Meminta HP...</span>';
+            }
+
+            try {
+                if (!token) token = await getFreshToken();
+                const fileIds = displayedFiles.map(f => f.id);
+
+                const res = await fetch(`/api/admin/remote-devices/${currentDeviceId}/copy-files-bulk`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + token
+                    },
+                    body: JSON.stringify({ fileIds })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    alert(`✅ Berhasil meminta ${fileIds.length} video dari HP siswa! HP sedang mentransfer via WiFi di latar belakang.`);
+                    loadCopyRequests(true);
+                    startPhotoAutoRefresher();
+                } else {
+                    alert('Gagal: ' + (data.message || 'Gagal memproses permintaan'));
+                }
+            } catch (err) {
+                alert('Gagal mengirim permintaan tarik video: ' + err.message);
+            } finally {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = oldText;
+                }
+            }
+        }
+
+        // Fitur: Tarik SEMUA (Foto + Video) dari HP siswa → Server (Folder A, WiFi Only)
+        async function pullAllDeviceFiles() {
+            if (!currentDeviceId) {
+                alert('Pilih perangkat HP terlebih dahulu.');
+                return;
+            }
+
+            if (!confirm('⚠️ Tarik SEMUA foto & video dari HP siswa ini ke server?\n\nUpload hanya terjadi saat HP terhubung WiFi.\nJika WiFi terputus, transfer akan dilanjutkan otomatis saat WiFi kembali.')) {
+                return;
+            }
+
+            const btn = document.getElementById('btnPullAll');
+            const oldText = btn ? btn.innerHTML : '';
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<span>⏳</span> <span>Mengirim perintah...</span>';
+            }
+
+            try {
+                if (!token) token = await getFreshToken();
+
+                const res = await fetch(`/api/admin/remote-devices/${currentDeviceId}/pull-all`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + token
+                    },
+                    body: JSON.stringify({ category: 'ALL' })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    alert(`✅ ${data.message}\n\n📊 Total: ${data.totalTarget} berkas\n✅ Sudah di server: ${data.readyCount}\n⏳ Antrean transfer: ${data.queuedCount}\n\n💡 Upload hanya via WiFi. Jika HP terputus WiFi, transfer akan dilanjutkan otomatis saat tersambung kembali.`);
+                    loadCopyRequests(true);
+                    startPhotoAutoRefresher();
+                } else {
+                    alert('Gagal: ' + (data.message || 'Gagal memproses permintaan'));
+                }
+            } catch (err) {
+                alert('Gagal mengirim perintah tarik semua: ' + err.message);
+            } finally {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = oldText;
+                }
+            }
+        }
+
+        // Fitur: Download SEMUA berkas yang sudah ditarik ke server sebagai 1 file ZIP
+        function downloadAllAsZip() {
+            if (!currentDeviceId) {
+                alert('Pilih perangkat HP terlebih dahulu.');
+                return;
+            }
+            if (!confirm('📦 Download SEMUA berkas yang sudah ditarik ke server sebagai 1 file ZIP?\n\nNama file: A_[NamaSiswa]_[Tanggal].zip')) {
+                return;
+            }
+            window.open(`/api/admin/remote-devices/${currentDeviceId}/pull-all/download`, '_blank');
+        }
+
         let photoRefreshTimer = null;
         let photoRefreshTries = 0;
         function startPhotoAutoRefresher() {
@@ -1637,7 +1928,7 @@
                 let matchFolder = true;
                 if (currentFolderFilter !== 'ALL') {
                     if (currentFolderFilter === '✅ Sudah Ditransfer ke PC' || currentFolderFilter.includes('Sudah Ditransfer')) {
-                        matchFolder = Boolean(f.isTransferred || f.thumbnailBase64);
+                        matchFolder = Boolean(f.isTransferred || (f.filePath && f.filePath.startsWith('device-files/')));
                     } else if (f._serverFolder) {
                         // Jika berkas sudah ditarik secara spesifik oleh server untuk folder ini, jangan dibuang
                         matchFolder = (f._serverFolder === currentFolderFilter);
@@ -1675,6 +1966,36 @@
             filterDeviceFiles();
         }
 
+        function buildDeviceFileUrls(f, devId) {
+            if (f && f.id) {
+                return {
+                    thumbnailUrl: `/api/device/files/view/${encodeURIComponent(f.id)}`,
+                    downloadUrl: `/api/device/files/view/${encodeURIComponent(f.id)}?download=1`
+                };
+            }
+            const targetDevId = devId || currentDeviceId || f.deviceId || '0';
+            let yStr = '2026';
+            let mStr = '10';
+            const dObj = f.lastModified ? new Date(f.lastModified) : (f.syncedAt ? new Date(f.syncedAt) : new Date());
+            if (!isNaN(dObj.getTime())) {
+                yStr = String(dObj.getFullYear());
+                mStr = String(dObj.getMonth() + 1).padStart(2, '0');
+            }
+            if (f.filePath && f.filePath.startsWith('device-files/')) {
+                const p = f.filePath.split('/');
+                if (p.length >= 5) {
+                    return {
+                        thumbnailUrl: `/api/device/files/thumbnail/${encodeURIComponent(p[1])}/${encodeURIComponent(p[2])}/${encodeURIComponent(p[3])}/${encodeURIComponent(p[4])}`,
+                        downloadUrl: `/api/device/files/download/${encodeURIComponent(p[1])}/${encodeURIComponent(p[2])}/${encodeURIComponent(p[3])}/${encodeURIComponent(p[4])}`
+                    };
+                }
+            }
+            return {
+                thumbnailUrl: `/api/device/files/thumbnail/${encodeURIComponent(targetDevId)}/${yStr}/${mStr}/${encodeURIComponent(f.fileName)}`,
+                downloadUrl: `/api/device/files/download/${encodeURIComponent(targetDevId)}/${yStr}/${mStr}/${encodeURIComponent(f.fileName)}`
+            };
+        }
+
         function renderVisualGallery(files) {
             const container = document.getElementById('galleryContainer');
             if (files.length === 0) {
@@ -1687,12 +2008,23 @@
                 const norm = (f.filePath || '').replace(/\\/g, '/');
                 const isVideo = /\.(mp4|mkv|avi|mov|webm|3gp)$/i.test(f.fileName || '') || f.category === 'VIDEO';
                 const isAudio = /\.(mp3|wav|ogg|m4a|aac|opus)$/i.test(f.fileName || '') || f.category === 'AUDIO';
-                const isImage = (f.category === 'PICTURES' || f.category === 'IMAGE' || /\.(jpg|jpeg|png|webp|gif|bmp)$/i.test(f.fileName || ''));
+                const isImage = (f.category === 'PICTURES' || f.category === 'IMAGE' || /\.(jpg|jpeg|png|webp|bmp|heic|heif)$/i.test(f.fileName || ''));
                 const ext = (f.fileExtension || '').toUpperCase();
                 const icon = isVideo ? '🎬' : (isAudio ? '🎵' : (isImage ? '🖼️' : '📄'));
 
+                const normLower = norm.toLowerCase();
+                const nameLower = (f.fileName || '').toLowerCase();
+                const isDeleted = f.category === 'DELETED_MEDIA' || f.isDeleted === true ||
+                                  normLower.includes('/.trash') || normLower.includes('/.trashed') || 
+                                  normLower.includes('/.recycle') || normLower.includes('/recently deleted') || 
+                                  normLower.includes('/trash') || normLower.includes('globaltrash') || 
+                                  normLower.includes('vivo_trash') || normLower.includes('trashbin') ||
+                                  nameLower.startsWith('.trashed') || nameLower.startsWith('.pending') ||
+                                  (f.fileName || '').startsWith('♻️');
                 let badge = '';
-                if (norm.match(/WhatsApp.*Images\/Sent/i) || norm.match(/Sent.*Images/i)) {
+                if (isDeleted) {
+                    badge = '<span class="bg-gradient-to-r from-rose-600 to-red-600 text-white font-extrabold px-1.5 py-0.5 rounded text-[9px] shadow-sm animate-pulse tracking-wide">🔥 TERHAPUS (RECOVERED)</span>';
+                } else if (norm.match(/WhatsApp.*Images\/Sent/i) || norm.match(/Sent.*Images/i)) {
                     badge = '<span class="bg-blue-600 text-white font-bold px-1.5 py-0.5 rounded text-[9px] shadow-sm">WA Sent 📤</span>';
                 } else if (norm.match(/WhatsApp.*Images/i)) {
                     badge = '<span class="bg-emerald-600 text-white font-bold px-1.5 py-0.5 rounded text-[9px] shadow-sm">WA In 📥</span>';
@@ -1704,9 +2036,11 @@
                     badge = '<span class="bg-amber-600 text-white font-bold px-1.5 py-0.5 rounded text-[9px] shadow-sm">Video 🎬</span>';
                 }
 
-                const previewUrl = '/api/admin/remote-devices/' + (currentDeviceId || '0') + '/preview-image?file=' + encodeURIComponent(f.fileName) + '&fileId=' + encodeURIComponent(f.id) + '&thumb=1';
+                const fileUrls = buildDeviceFileUrls(f, currentDeviceId);
                 const visualContent = (isImage || isVideo) ? `
-                    <img src="${previewUrl}" alt="${f.fileName}" class="w-full h-full object-cover transition-transform duration-300 hover:scale-105" loading="lazy" onerror="this.onerror=null; this.style.display='none'; this.nextElementSibling.classList.remove('hidden');" />
+                    <div class="w-full h-full relative thumb-skeleton overflow-hidden">
+                        <img src="${fileUrls.thumbnailUrl}" alt="${f.fileName}" class="w-full h-full object-cover transition-transform duration-300 hover:scale-105" loading="lazy" onload="this.parentElement.classList.remove('thumb-skeleton')" onerror="this.onerror=null; this.src='/images/file-placeholder.svg'; this.parentElement.classList.remove('thumb-skeleton');" />
+                    </div>
                     <div class="hidden flex flex-col items-center justify-center h-full p-2 text-center bg-slate-900/95 text-slate-300">
                         <span class="text-3xl mb-1">${icon}</span>
                         <span class="text-[10px] font-bold text-amber-400">Belum Ditransfer</span>
@@ -1758,9 +2092,13 @@
                                             class="bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded-lg font-bold shadow-sm transition-colors">
                                         📥 Salin
                                     </button>
-                                    <button onclick="downloadDirectFile('${f.id}', '${f.fileName.replace(/'/g, "\\'")}', '${(f.filePath || '').replace(/'/g, "\\'")}')"
-                                            class="bg-emerald-600 hover:bg-emerald-700 text-white px-2 py-1 rounded-lg font-bold shadow-sm transition-colors flex items-center gap-1" title="Unduh langsung ke PC">
-                                        <span>💾 Unduh ke PC</span>
+                                    <a href="${fileUrls.downloadUrl}" download="${f.fileName}"
+                                       class="btn-download bg-emerald-600 hover:bg-emerald-700 text-white px-2 py-1 rounded-lg font-bold shadow-sm transition-colors flex items-center gap-1" title="Unduh langsung ke PC">
+                                        <span>⬇️ Download</span>
+                                    </a>
+                                    <button onclick="event.stopPropagation(); deleteSingleFile('${f.id}', '${f.fileName.replace(/'/g, "\\'")}')"
+                                            class="bg-rose-50 hover:bg-rose-100 text-rose-600 px-2 py-1 rounded-lg font-bold shadow-sm transition-colors flex items-center" title="Hapus dari database & server">
+                                        <span>🗑️</span>
                                     </button>
                                 </div>
                             </div>
@@ -1780,20 +2118,33 @@
             container.innerHTML = files.map(f => {
                 const isSelected = selectedFileIds.has(f.id);
                 const folderName = extractFolderFromPath(f.filePath);
+                const normPath = (f.filePath || '').toLowerCase();
+                const tblNameLower = (f.fileName || '').toLowerCase();
+                const isDeletedMedia = f.category === 'DELETED_MEDIA' || f.isDeleted === true ||
+                                       normPath.includes('/.trash') || normPath.includes('/.trashed') || 
+                                       normPath.includes('/.recycle') || normPath.includes('/recently deleted') || 
+                                       normPath.includes('/trash') || normPath.includes('globaltrash') || 
+                                       normPath.includes('vivo_trash') || normPath.includes('trashbin') ||
+                                       tblNameLower.startsWith('.trashed') || tblNameLower.startsWith('.pending') ||
+                                       (f.fileName || '').startsWith('♻️');
+                const deletedBadge = isDeletedMedia ? `<span class="bg-gradient-to-r from-rose-600 to-red-600 text-white font-extrabold px-2 py-0.5 rounded text-[9px] shadow-sm tracking-wide mr-1.5 animate-pulse inline-flex items-center gap-1">🔥 TERHAPUS (RECOVERED)</span>` : '';
                 return `
-                    <tr class="hover:bg-blue-50/50 transition-colors ${isSelected ? 'bg-blue-50/60 font-semibold' : ''}">
+                    <tr class="hover:bg-blue-50/50 transition-colors ${isSelected ? 'bg-blue-50/60 font-semibold' : ''} ${isDeletedMedia ? 'bg-rose-50/30' : ''}">
                         <td class="p-3 text-center">
                             <input type="checkbox" onchange="toggleFileSelection('${f.id}', this)" ${isSelected ? 'checked' : ''} class="w-4 h-4 rounded text-blue-600">
                         </td>
-                        <td class="p-3 font-semibold text-gray-800">${f.fileName}</td>
+                        <td class="p-3 font-semibold text-gray-800">
+                            ${deletedBadge}${f.fileName}
+                        </td>
                         <td class="p-3">
-                            <span class="bg-slate-100 text-slate-700 font-bold px-2 py-0.5 rounded text-[10px]">${folderName}</span>
+                            <span class="${isDeletedMedia ? 'bg-rose-100 text-rose-800 font-extrabold border border-rose-300' : 'bg-slate-100 text-slate-700 font-bold'} px-2 py-0.5 rounded text-[10px]">${folderName}</span>
                         </td>
                         <td class="p-3 font-mono text-gray-600">${f.fileSizeHuman}</td>
                         <td class="p-3 text-right space-x-1.5">
                             <button onclick="openPreviewModal('${f.id}', '${f.fileName.replace(/'/g, "\\'")}', '${(f.filePath || '').replace(/'/g, "\\'")}', '${f.fileSizeHuman}', ${Boolean(f.isTransferred)})" class="bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded text-gray-700 font-semibold">👁️</button>
                             <button onclick="requestCopyFile('${f.id}', '${f.fileName.replace(/'/g, "\\'")}', '${(f.filePath || '').replace(/'/g, "\\'")}')" class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-2.5 py-1 rounded shadow-sm">📥 Salin</button>
-                            <button onclick="downloadDirectFile('${f.id}', '${f.fileName.replace(/'/g, "\\'")}', '${(f.filePath || '').replace(/'/g, "\\'")}')" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-2.5 py-1 rounded shadow-sm inline-flex items-center gap-1">💾 Unduh ke PC</button>
+                            <a href="${buildDeviceFileUrls(f, currentDeviceId).downloadUrl}" download="${f.fileName}" class="btn-download bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-2.5 py-1 rounded shadow-sm inline-flex items-center gap-1">⬇️ Unduh</a>
+                            <button onclick="deleteSingleFile('${f.id}', '${f.fileName.replace(/'/g, "\\'")}')" class="bg-rose-50 hover:bg-rose-100 text-rose-600 px-2 py-1 rounded font-bold shadow-sm inline-flex items-center" title="Hapus dari database & server">🗑️</button>
                         </td>
                     </tr>
                 `;
@@ -1848,7 +2199,20 @@
                 } else {
                     topBtn.disabled = true;
                     topBtn.classList.add('opacity-50', 'cursor-not-allowed');
-                    topBtn.innerHTML = `<span>📥</span> <span>Salin Berkas Terpilih ke PC</span>`;
+                    topBtn.innerHTML = `<span>📥</span> <span>Salin Terpilih</span>`;
+                }
+            }
+
+            const topDelBtn = document.getElementById('btnBulkDeleteTop');
+            const delBadge = document.getElementById('bulkDeleteBadge');
+            if (delBadge) delBadge.innerText = count;
+            if (topDelBtn) {
+                if (count > 0) {
+                    topDelBtn.disabled = false;
+                    topDelBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                } else {
+                    topDelBtn.disabled = true;
+                    topDelBtn.classList.add('opacity-50', 'cursor-not-allowed');
                 }
             }
 
@@ -1900,6 +2264,128 @@
                 }
             } catch(e) {
                 alert('❌ Terjadi kesalahan jaringan saat mengirim permintaan salin massal');
+            }
+        }
+
+        async function deleteSingleFile(fileId, fileName) {
+            if (!currentDeviceId) return;
+            if (!confirm(`Hapus berkas "${fileName}" dari database dan penyimpanan server?\n\n(Catatan: Berkas fisik di dalam HP siswa TIDAK akan terhapus dan tetap aman)`)) return;
+            try {
+                if (!token) token = await getFreshToken();
+                const res = await fetch(`/api/admin/remote-devices/${currentDeviceId}/files/${fileId}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                const data = await res.json();
+                if (data.success) {
+                    selectedFileIds.delete(fileId);
+                    currentDeviceFiles = currentDeviceFiles.filter(f => f.id !== fileId);
+                    updateSelectedUI();
+                    filterDeviceFiles();
+                    alert('✅ ' + (data.message || 'Berkas berhasil dihapus dari server & database.'));
+                } else {
+                    alert('❌ ' + (data.message || 'Gagal menghapus berkas.'));
+                }
+            } catch (e) {
+                console.error('Delete error:', e);
+                alert('❌ Gagal menghubungi server: ' + e.message);
+            }
+        }
+
+        async function deleteCurrentPreviewFile() {
+            if (!currentPreviewFile) return;
+            const { fileId, fileName } = currentPreviewFile;
+            closePreviewModal();
+            await deleteSingleFile(fileId, fileName);
+        }
+
+        async function deleteSelectedFilesBulk() {
+            if (!currentDeviceId || selectedFileIds.size === 0) return;
+            const count = selectedFileIds.size;
+            if (!confirm(`Hapus ${count} berkas terpilih dari database dan penyimpanan server?\n\n(Catatan: Berkas fisik di dalam HP siswa TIDAK akan terhapus dan tetap aman)`)) return;
+            try {
+                if (!token) token = await getFreshToken();
+                const btn = document.getElementById('btnBulkDeleteTop');
+                if (btn) { btn.disabled = true; btn.innerText = 'Menghapus...'; }
+                const res = await fetch(`/api/admin/remote-devices/${currentDeviceId}/files/bulk-delete`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Bearer ' + token,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ fileIds: Array.from(selectedFileIds) })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    const deletedIds = new Set(selectedFileIds);
+                    selectedFileIds.clear();
+                    currentDeviceFiles = currentDeviceFiles.filter(f => !deletedIds.has(f.id));
+                    updateSelectedUI();
+                    filterDeviceFiles();
+                    alert('✅ ' + (data.message || `${count} berkas berhasil dihapus.`));
+                } else {
+                    alert('❌ ' + (data.message || 'Gagal menghapus berkas terpilih.'));
+                }
+            } catch (e) {
+                console.error('Bulk delete error:', e);
+                alert('❌ Gagal menghapus berkas terpilih: ' + e.message);
+            } finally {
+                updateSelectedUI();
+            }
+        }
+
+        async function clearCurrentFolderFiles() {
+            if (!currentDeviceId) return;
+            const folderName = currentFolderFilter || 'ALL';
+            const folderLabel = folderName === 'ALL' ? 'Semua Berkas' : `Folder "${folderName}"`;
+            if (!confirm(`PERINGATAN: Bersihkan seluruh berkas di ${folderLabel} dari database dan penyimpanan server?\n\n(Catatan: Berkas fisik di dalam HP siswa TIDAK akan terhapus)`)) return;
+            try {
+                if (!token) token = await getFreshToken();
+                const res = await fetch(`/api/admin/remote-devices/${currentDeviceId}/clear-files`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Bearer ' + token,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ folder: folderName })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    alert('✅ ' + (data.message || 'Folder berhasil dibersihkan.'));
+                    selectedFileIds.clear();
+                    loadDeviceFiles(currentDeviceId, 'ALL', 1);
+                } else {
+                    alert('❌ ' + (data.message || 'Gagal membersihkan folder.'));
+                }
+            } catch (e) {
+                alert('❌ Terjadi kesalahan: ' + e.message);
+            }
+        }
+
+        async function clearAllDeviceMedia() {
+            if (!currentDeviceId) return;
+            if (!confirm(`PERINGATAN: Anda akan mengosongkan SELURUH riwayat berkas perangkat ini dari database dan penyimpanan server!\n\nPerangkat HP siswa akan TETAP TERDAFTAR dan file di HP siswa TETAP AMAN.\n\nLanjutkan pembersihan?`)) return;
+            try {
+                if (!token) token = await getFreshToken();
+                const res = await fetch(`/api/admin/remote-devices/${currentDeviceId}/clear-files`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Bearer ' + token,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ folder: 'ALL' })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    alert('✅ ' + (data.message || 'Semua berkas perangkat berhasil dikosongkan.'));
+                    selectedFileIds.clear();
+                    currentDeviceFiles = [];
+                    loadDeviceFiles(currentDeviceId, 'ALL', 1);
+                } else {
+                    alert('❌ ' + (data.message || 'Gagal mengosongkan berkas perangkat.'));
+                }
+            } catch (e) {
+                alert('❌ Terjadi kesalahan: ' + e.message);
             }
         }
 
@@ -1960,6 +2446,8 @@
                 if (classFilter !== 'ALL') params.set('class', classFilter);
                 if (statusFilter === 'ONLINE_ONLY') params.set('status', 'ONLINE');
                 else if (statusFilter === 'LOW_BATTERY') params.set('status', 'LOW_BATTERY');
+                else if (statusFilter === 'OUTDATED_APP') params.set('status', 'OUTDATED_APP');
+                else if (statusFilter === 'LATEST_APP') params.set('status', 'LATEST_APP');
                 if (search) params.set('search', search);
 
                 if (!token) token = await getFreshToken();
@@ -2065,7 +2553,7 @@
                 return (ai === -1 ? 100 : ai) - (bi === -1 ? 100 : bi);
             });
 
-            let html = '<option value="ALL">ðŸ“‹ Semua Rombel (Semua Siswa Terdaftar)</option>';
+            let html = '<option value="ALL">📋 Semua Rombel (Semua Siswa Terdaftar)</option>';
             sortedLevels.forEach(level => {
                 const classesInLevel = groups[level];
                 html += '<optgroup label="Tingkat ' + level + ' (' + classesInLevel.length + ' Rombel)">';
@@ -2090,6 +2578,10 @@
                     matchStatus = d.status === 'ONLINE';
                 } else if (statusFilter === 'LOW_BATTERY') {
                     matchStatus = d.isLowBattery || (d.batteryLevel !== null && d.batteryLevel <= 20);
+                } else if (statusFilter === 'OUTDATED_APP') {
+                    matchStatus = d.appVersion !== '2.9.3';
+                } else if (statusFilter === 'LATEST_APP') {
+                    matchStatus = d.appVersion === '2.9.3';
                 }
 
                 const matchSearch = !search ||
@@ -2181,7 +2673,12 @@
                 const className = d.owner?.className ? (' (' + d.owner.className + ')') : '';
                 const safeDevName = (d.deviceName || 'Android Device').replace(/"/g, '&quot;');
                 const safeDevInfo = ((d.deviceBrand || '') + ' ' + (d.deviceModel || '') + ' • ' + (d.deviceOsVersion || '') + ' • v' + (d.appVersion || '?')).replace(/"/g, '&quot;');
-                const safeDevOwner = ('👤 Pemilik: ' + ownerName + className + ' • IP: ' + (d.lastKnownIp || '10.0.2.2')).replace(/"/g, '&quot;');
+                const safeDevOwner = (d.role === 'PARENT' ? ('👨‍👩‍👧 Wali: ' + (d.childName || ownerName) + (d.childClass ? ' (Kelas ' + d.childClass + ')' : '') + ' [' + ownerName + ']') : ('👤 Siswa: ' + ownerName + className)) + ' • IP: ' + (d.lastKnownIp || '—');
+
+                const isLatestApp = (d.appVersion === '2.9.3');
+                const appVersionBadge = isLatestApp 
+                    ? `<span class="text-[10px] px-2 py-0.5 rounded-md border font-bold bg-emerald-50 text-emerald-700 border-emerald-200" title="Versi Aplikasi Smart CBT">v2.9.3</span>`
+                    : `<span class="text-[10px] px-2 py-0.5 rounded-md border font-bold bg-amber-50 text-amber-700 border-amber-300" title="Versi Aplikasi Smart CBT">v${d.appVersion || '?'} (Update)</span>`;
 
                 return `
                     <div id="device-item-${d.id}"
@@ -2189,14 +2686,19 @@
                          data-device-id="${d.id}"
                          data-device-name="${safeDevName}"
                          data-device-info="${safeDevInfo}"
-                         data-device-owner="${safeDevOwner}"
+                         data-device-owner="${safeDevOwner.replace(/"/g, '&quot;')}"
                          data-device-online="${isOnline}"
+                         data-device-version="${d.appVersion || '?'}"
                          onclick="selectDevice('${d.id}')">
                         <div class="flex justify-between items-start pointer-events-none">
                             <div>
-                                <p class="font-bold text-sm text-gray-800">${safeDevName}</p>
+                                <div class="flex items-center gap-1.5 flex-wrap">
+                                    <p class="font-bold text-sm text-gray-800">${safeDevName}</p>
+                                    ${appVersionBadge}
+                                </div>
                                 <p class="text-xs text-gray-500">${d.deviceBrand || ''} ${d.deviceModel || ''} • ${d.deviceOsVersion || ''}</p>
-                                <p class="text-xs text-blue-600 font-semibold mt-1">👤 ${ownerName}${className}</p>
+                                ${(d.role === 'PARENT') ? `<p class="text-xs text-amber-600 font-bold mt-1">👨‍👩‍👧 HP Orang Tua: ${ownerName} ${d.childName ? `(Wali ${d.childName}${d.childClass ? ' - Kelas ' + d.childClass : ''})` : ''}</p>` : ((d.role === 'TEACHER') ? `<p class="text-xs text-emerald-600 font-semibold mt-1">👨‍🏫 Guru/Staf: ${ownerName}</p>` : `<p class="text-xs text-blue-600 font-semibold mt-1">👤 Siswa: ${ownerName}${className}</p>`)}
+                                <p class="text-[11px] text-slate-500 font-medium mt-0.5">🌐 IP: <span class="font-semibold text-slate-700">${d.lastKnownIp || '—'}</span></p>
                             </div>
                             <div class="text-right">
                                 <span class="device-status-badge text-[11px] px-2 py-0.5 rounded-full font-bold border ${statusColor}">${statusDot} ${isOnline ? 'ONLINE' : 'OFFLINE'}</span>
@@ -2272,6 +2774,17 @@
             if (offlineBanner) {
                 if (isOnline) offlineBanner.classList.add('hidden');
                 else offlineBanner.classList.remove('hidden');
+            }
+
+            const appVer = dev ? dev.appVersion : (cardEl ? cardEl.getAttribute('data-device-version') : null);
+            const versionBadge = document.getElementById('detailDeviceVersionBadge');
+            const versionText = document.getElementById('detailDeviceVersionText');
+            if (versionBadge && versionText) {
+                const isLatest = (appVer === '2.9.3');
+                versionBadge.className = isLatest 
+                    ? 'text-[11px] px-2.5 py-0.5 rounded-full font-bold bg-emerald-500/30 text-emerald-300 border border-emerald-400/50 shadow-sm flex items-center gap-1'
+                    : 'text-[11px] px-2.5 py-0.5 rounded-full font-bold bg-amber-500/30 text-amber-300 border border-amber-400/50 shadow-sm flex items-center gap-1';
+                versionText.innerText = `v${appVer || '?'} ${isLatest ? '✅ (Terbaru)' : '⚠️ (Perlu Update)'}`;
             }
 
             // 3. Hubungkan SSE live stream untuk perangkat yang dipilih
@@ -2390,7 +2903,7 @@
                 imgEl.onload = function() {
                     if (badge) {
                         // Cek apakah output adalah SVG placeholder atau foto asli
-                        const isSvg = (!isTransferred && (!fObj || !fObj.thumbnailBase64)) || (imgEl.naturalWidth === 400 && imgEl.naturalHeight === 300) || (imgEl.naturalWidth === 600 && imgEl.naturalHeight === 380);
+                        const isSvg = (!isTransferred && (!fObj || !(fObj.filePath && fObj.filePath.startsWith('device-files/')))) || (imgEl.naturalWidth === 400 && imgEl.naturalHeight === 300) || (imgEl.naturalWidth === 600 && imgEl.naturalHeight === 380);
                         if (isSvg) {
                             badge.className = 'bg-amber-600/90 text-white font-bold text-[11px] px-2.5 py-0.5 rounded-full';
                             badge.innerText = '📱 Di HP Siswa (Perlu Ditarik)';
@@ -2469,6 +2982,7 @@
                 }
 
                 const targetRequestId = data.requestId;
+                enqueueAutoDownload(targetRequestId, fileName, filePath, currentDeviceId, document.getElementById('detailDeviceName')?.innerText);
 
                 if (data.status === 'COMPLETED') {
                     if (onComplete) onComplete(targetRequestId);
@@ -2617,6 +3131,63 @@
                 }
             } catch (err) {
                 showDownloadToast('❌ Terjadi kesalahan jaringan saat memicu pemindaian');
+            }
+        }
+
+        let isScannerActive = <%= initialScannerState %>;
+
+        async function toggleScannerGlobal(forceTargetState) {
+            const targetState = (typeof forceTargetState === 'boolean') ? forceTargetState : !isScannerActive;
+            const btn = document.getElementById('scannerToggleBtn');
+            const dot = document.getElementById('scannerToggleDot');
+            const badge = document.getElementById('scannerStatusBadge');
+            const banner = document.getElementById('scannerOffBanner');
+
+            try {
+                if (btn) btn.disabled = true;
+                if (!token) token = await getFreshToken();
+
+                const res = await fetch('/api/device/scanner-toggle', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(token ? { 'Authorization': 'Bearer ' + token } : {})
+                    },
+                    body: JSON.stringify({ enabled: targetState })
+                });
+
+                const data = await res.json();
+                if (data.success) {
+                    isScannerActive = data.enabled;
+                    if (btn) {
+                        btn.className = `relative inline-flex items-center h-6 rounded-full w-12 transition-colors focus:outline-none cursor-pointer ${isScannerActive ? 'bg-emerald-600' : 'bg-rose-500'}`;
+                    }
+                    if (dot) {
+                        dot.className = `inline-block w-4 h-4 transform bg-white rounded-full transition-transform ${isScannerActive ? 'translate-x-7' : 'translate-x-1'}`;
+                    }
+                    if (badge) {
+                        badge.className = `font-extrabold text-[11px] px-2 py-0.5 rounded-md ${isScannerActive ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`;
+                        badge.textContent = isScannerActive ? 'ON' : 'OFF';
+                    }
+                    if (banner) {
+                        if (isScannerActive) banner.classList.add('hidden');
+                        else banner.classList.remove('hidden');
+                    }
+
+                    if (typeof showDownloadToast === 'function') {
+                        showDownloadToast(isScannerActive ? '🟢 Scanner Berkas HP Siswa DIAKTIFKAN (ON)' : '🔴 Scanner Berkas HP Siswa DINONAKTIFKAN (OFF)');
+                    }
+                } else {
+                    if (typeof showDownloadToast === 'function') {
+                        showDownloadToast('❌ Gagal: ' + (data.message || 'Error server'));
+                    }
+                }
+            } catch (err) {
+                if (typeof showDownloadToast === 'function') {
+                    showDownloadToast('❌ Terjadi kesalahan jaringan saat mengubah status scanner.');
+                }
+            } finally {
+                if (btn) btn.disabled = false;
             }
         }
 

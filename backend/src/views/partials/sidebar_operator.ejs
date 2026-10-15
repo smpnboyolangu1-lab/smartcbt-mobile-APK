@@ -1,12 +1,20 @@
 <!-- UNIFIED OPERATOR MODERN FRESH SLATE & SKY BLUE SIDEBAR -->
-<!-- Floating Expand Button (Visible when Sidebar is Collapsed) -->
-<button type="button" onclick="togglePortalSidebar()" id="sidebarExpandBtn" title="Tampilkan Sidebar (Shortcut: Ctrl+B)" class="fixed top-3 left-4 z-50 bg-slate-900/95 hover:bg-sky-600 text-white px-3.5 py-2 rounded-xl shadow-2xl border border-slate-700/80 backdrop-blur-md transition-all duration-300 hidden flex items-center gap-2.5 text-xs font-bold hover:scale-105 group cursor-pointer">
-    <svg class="w-5 h-5 text-sky-400 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 6h16M4 12h16M4 18h16"></path>
-    </svg>
-    <span class="font-extrabold tracking-wide">Menu Operator</span>
-    <span class="text-[10px] bg-white/15 px-1.5 py-0.5 rounded text-slate-300">Ctrl+B</span>
-</button>
+<!-- Mobile Backdrop Overlay to prevent screen blocking -->
+<div id="portalSidebarBackdrop" onclick="togglePortalSidebar()" class="fixed inset-0 bg-black/60 z-30 hidden backdrop-blur-xs transition-opacity" title="Klik untuk menutup sidebar"></div>
+
+<!-- Floating Expand & Theme Button (Visible when Sidebar is Collapsed or on Mobile) -->
+<div class="fixed top-3 left-4 z-50 flex items-center gap-2">
+    <button type="button" onclick="togglePortalSidebar()" id="sidebarExpandBtn" title="Tampilkan Sidebar (Shortcut: Ctrl+B)" class="bg-slate-900/95 hover:bg-sky-600 text-white px-3.5 py-2 rounded-xl shadow-2xl border border-slate-700/80 backdrop-blur-md transition-all duration-300 hidden flex items-center gap-2.5 text-xs font-bold hover:scale-105 group cursor-pointer">
+        <svg class="w-5 h-5 text-sky-400 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 6h16M4 12h16M4 18h16"></path>
+        </svg>
+        <span class="font-extrabold tracking-wide">Menu Operator</span>
+        <span class="text-[10px] bg-white/15 px-1.5 py-0.5 rounded text-slate-300">Ctrl+B</span>
+    </button>
+    <button type="button" onclick="togglePortalTheme()" id="floatingThemeToggleBtn" title="Ganti Mode Terang / Gelap" class="bg-slate-900/95 hover:bg-slate-800 text-white p-2 rounded-xl shadow-2xl border border-slate-700/80 backdrop-blur-md transition-all duration-300 hidden flex items-center justify-center cursor-pointer">
+        <span id="floatingThemeIcon" class="text-sm">🌙</span>
+    </button>
+</div>
 
 <aside id="portalSidebar" class="w-64 bg-slate-900 h-screen text-white flex flex-col fixed left-0 top-0 shadow-2xl z-40 select-none border-r border-slate-800 transition-all duration-300 ease-in-out">
     <!-- Brand Header -->
@@ -21,12 +29,19 @@
             </div>
         </div>
 
-        <!-- Toggle Button to Hide / Collapse Sidebar -->
-        <button type="button" onclick="togglePortalSidebar()" id="sidebarCollapseBtn" title="Sembunyikan Sidebar (Ctrl+B)" class="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-all flex items-center justify-center group flex-shrink-0 cursor-pointer" aria-label="Sembunyikan Sidebar">
-            <svg class="w-5 h-5 transition-transform group-hover:-translate-x-0.5 text-slate-400 group-hover:text-sky-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M11 19l-7-7 7-7m8 14l-7-7 7-7"></path>
-            </svg>
-        </button>
+        <div class="flex items-center gap-1">
+            <!-- Dark / Light Mode Toggle Button -->
+            <button type="button" onclick="togglePortalTheme()" id="themeToggleBtn" title="Ganti Mode Terang / Gelap" class="p-2 rounded-xl text-slate-300 hover:text-amber-400 hover:bg-slate-800 transition-all flex items-center justify-center flex-shrink-0 cursor-pointer" aria-label="Ganti Tema">
+                <span id="themeToggleIcon" class="text-base">🌙</span>
+            </button>
+
+            <!-- Toggle Button to Hide / Collapse Sidebar -->
+            <button type="button" onclick="togglePortalSidebar()" id="sidebarCollapseBtn" title="Sembunyikan Sidebar (Ctrl+B)" class="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-all flex items-center justify-center group flex-shrink-0 cursor-pointer" aria-label="Sembunyikan Sidebar">
+                <svg class="w-5 h-5 transition-transform group-hover:-translate-x-0.5 text-slate-400 group-hover:text-sky-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M11 19l-7-7 7-7m8 14l-7-7 7-7"></path>
+                </svg>
+            </button>
+        </div>
     </div>
 
     <!-- Operator Profile Info -->
@@ -45,8 +60,51 @@
 
     <!-- Navigation Links (Enlarged, Clear & Modern Typography) -->
     <nav class="flex-1 p-3 space-y-1.5 overflow-y-auto text-sm font-semibold">
-        <!-- CBT & ASESMEN -->
+        <!-- 1. DASHBOARD & GATEWAY -->
         <div class="pt-1 pb-1">
+            <p class="px-3 text-xs font-extrabold text-sky-400/90 uppercase tracking-wider">Dashboard &amp; Gateway</p>
+        </div>
+        <a href="/operator" id="opnav-dash" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-sky-600/20 text-[13.5px] transition-all">
+            <span class="text-lg text-sky-400">📊</span> <span>Dashboard Operator</span>
+        </a>
+        <a href="/admin/portal" id="opnav-portal" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sky-300 hover:text-white hover:bg-sky-600/20 text-[13.5px] transition-all">
+            <span class="text-lg text-sky-400">🌐</span> <span>Manajemen Portal Gateway</span>
+        </a>
+        <a href="/admin/evoting" id="opnav-evoting" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-purple-300 hover:text-white hover:bg-purple-600/20 text-[13.5px] transition-all">
+            <span class="text-lg text-purple-400">🗳️</span> <span>e-Voting OSIS</span>
+        </a>
+
+        <!-- 2. MANAJEMEN PRESENSI LENGKAP -->
+        <div class="pt-3 pb-1 border-t border-slate-800/80">
+            <p class="px-3 text-xs font-extrabold text-emerald-400/90 uppercase tracking-wider">📋 Presensi &amp; Kehadiran</p>
+        </div>
+        <a href="/operator/absensi" id="opnav-absensi" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-emerald-300 hover:text-white hover:bg-emerald-600/20 text-[13.5px] transition-all">
+            <span class="text-lg text-emerald-400">📋</span> <span>Rekap Presensi Siswa</span>
+        </a>
+        <a href="/operator/geofence-attendance" id="opnav-geofence" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-emerald-300 hover:text-white hover:bg-emerald-600/20 text-[13.5px] transition-all">
+            <span class="text-lg text-emerald-400">📍</span> <span>Presensi Geofence (Anti-Cheat)</span>
+        </a>
+        <a href="/bk?tab=sholat" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-purple-300 hover:text-white hover:bg-purple-600/20 text-[13.5px] transition-all">
+            <span class="text-lg text-purple-400">🕌</span> <span>Presensi Sholat (PAI/BK)</span>
+        </a>
+        <a href="/bk?tab=izin" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-teal-300 hover:text-white hover:bg-teal-600/20 text-[13.5px] transition-all">
+            <span class="text-lg text-teal-400">📩</span> <span>Verifikasi Izin &amp; Sakit</span>
+        </a>
+        <a href="/satpam/gatepass" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-emerald-400 hover:text-white hover:bg-emerald-600/20 text-[13.5px] transition-all">
+            <span class="text-lg text-emerald-400">🛡️</span> <span>Pos Satpam &amp; Gatepass QR</span>
+        </a>
+        <a href="/absensi/tap-kartu" target="_blank" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-amber-300 hover:bg-amber-950/40 text-[13.5px] transition-all">
+            <span class="text-lg">💳</span> <span>Kiosk Tap RFID ↗</span>
+        </a>
+        <a href="/operator/kelas/print-barcodes" target="_blank" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sky-300 hover:bg-sky-950/40 text-[13.5px] transition-all">
+            <span class="text-lg">🖨️</span> <span>Barcode Kelas, BK &amp; Mushola ↗</span>
+        </a>
+        <a href="/operator/siswa/print-cards" target="_blank" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-indigo-300 hover:bg-indigo-950/40 text-[13.5px] transition-all">
+            <span class="text-lg">🪪</span> <span>Cetak &amp; Unduh QR Siswa ↗</span>
+        </a>
+
+        <!-- 3. CBT, UJIAN & AKADEMIK -->
+        <div class="pt-3 pb-1 border-t border-slate-800/80">
             <p class="px-3 text-xs font-extrabold text-sky-400/90 uppercase tracking-wider">CBT &amp; Ujian Proktor</p>
         </div>
         <a href="/operator/cbt" id="opnav-cbt" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-sky-600/20 text-[13.5px] transition-all">
@@ -58,30 +116,14 @@
         <a href="/operator" id="opnav-token" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-sky-600/20 text-[13.5px] transition-all">
             <span class="text-lg text-amber-400">⏰</span> <span>Manajemen Token CBT</span>
         </a>
-
         <a href="/operator/cbt/capacity" id="opnav-capacity" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-sky-600/20 text-[13.5px] transition-all">
             <span class="text-lg text-amber-400">⚡</span> <span>Diagnostik Kapasitas CBT</span>
         </a>
-
-        <a href="/operator/feature-panel" id="opnav-feature-panel" class="flex items-center justify-between px-3.5 py-2.5 rounded-xl text-amber-300 hover:text-white hover:bg-amber-600/25 font-bold text-[13.5px] transition-all border border-amber-500/30 bg-amber-950/30 shadow-sm">
-            <div class="flex items-center gap-3">
-                <span class="text-lg text-amber-400">🎛️</span> <span>Panel Kontrol Fitur &amp; GPS</span>
-            </div>
-            <span class="text-[10px] bg-amber-400/20 text-amber-300 px-2 py-0.5 rounded-full font-black border border-amber-400/40 uppercase tracking-wider">39 Fitur</span>
+        <a href="/operator/cbt?tab=hasil" id="opnav-grades" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-emerald-300 hover:text-white hover:bg-emerald-600/20 text-[13.5px] transition-all">
+            <span class="text-lg text-emerald-400">📊</span> <span>Rekap Nilai Siswa</span>
         </a>
-
-        <!-- AKADEMIK & KURIKULUM -->
-        <div class="pt-3 pb-1 border-t border-slate-800/80">
-            <p class="px-3 text-xs font-extrabold text-emerald-400/90 uppercase tracking-wider">Akademik &amp; Piket</p>
-        </div>
-        <a href="/operator/geofence-attendance" id="opnav-geofence" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-emerald-300 hover:text-white hover:bg-emerald-600/20 text-[13.5px] transition-all">
-            <span class="text-lg text-emerald-400">📍</span> <span>Presensi &amp; Geofence</span>
-        </a>
-        <a href="/operator/absensi" id="opnav-absensi" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-emerald-300 hover:text-white hover:bg-emerald-600/20 text-[13.5px] transition-all">
-            <span class="text-lg text-emerald-400">📋</span> <span>Rekap Presensi Siswa</span>
-        </a>
-        <a href="/operator/pengumuman" id="opnav-pengumuman" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-amber-300 hover:text-white hover:bg-amber-600/20 text-[13.5px] transition-all">
-            <span class="text-lg text-amber-400">📢</span> <span>Siaran Pengumuman</span>
+        <a href="/operator/cbt?tab=analisis" id="opnav-analisis" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-indigo-300 hover:text-white hover:bg-indigo-600/20 text-[13.5px] transition-all">
+            <span class="text-lg text-indigo-400">📈</span> <span>Analisis Butir &amp; Psikometrik</span>
         </a>
         <a href="/operator/jam-pelajaran" id="opnav-jp" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-emerald-600/20 text-[13.5px] transition-all">
             <span class="text-lg text-emerald-400">📅</span> <span>Jadwal &amp; Jam Pelajaran (JP)</span>
@@ -89,48 +131,78 @@
         <a href="/operator/piket" id="opnav-piket" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-emerald-600/20 text-[13.5px] transition-all">
             <span class="text-lg text-teal-400">📋</span> <span>Guru Piket &amp; Kelas Kosong</span>
         </a>
-        <a href="/operator/tugas" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-emerald-600/20 text-[13.5px] transition-all">
-            <span class="text-lg text-emerald-400">📝</span> <span>Bank Tugas Siswa</span>
+        <a href="/display/kelas-kosong" target="_blank" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-amber-300 hover:bg-amber-950/40 text-[13.5px] transition-all">
+            <span class="text-lg">📺</span> <span>Layar Display Piket ↗</span>
+        </a>
+
+        <!-- 4. MANAJEMEN SEKOLAH & DATA -->
+        <div class="pt-3 pb-1 border-t border-slate-800/80">
+            <p class="px-3 text-xs font-extrabold text-indigo-400/90 uppercase tracking-wider">Sekolah &amp; Kesiswaan</p>
+        </div>
+        <a href="/admin/guru" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-indigo-600/20 text-[13.5px] transition-all">
+            <span class="text-lg text-indigo-400">👨‍🏫</span> <span>Guru &amp; Wali Kelas</span>
+        </a>
+        <a href="/admin/siswa" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-indigo-600/20 text-[13.5px] transition-all">
+            <span class="text-lg text-indigo-400">👨‍🎓</span> <span>Data Siswa</span>
+        </a>
+        <a href="/operator/biodata" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-teal-300 hover:text-white hover:bg-teal-600/20 text-[13.5px] transition-all">
+            <span class="text-lg text-teal-400">📑</span> <span>Verifikasi Biodata (TU)</span>
+        </a>
+        <a href="/operator/dapodik" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-emerald-300 hover:text-white hover:bg-emerald-600/20 text-[13.5px] transition-all">
+            <span class="text-lg text-emerald-400">📊</span> <span>Buku Induk &amp; Dapodik (Excel)</span>
+        </a>
+        <a href="/admin/kelas" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-indigo-600/20 text-[13.5px] transition-all">
+            <span class="text-lg text-indigo-400">🏢</span> <span>Manajemen Kelas</span>
+        </a>
+        <a href="/operator/pengumuman" id="opnav-pengumuman" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-amber-300 hover:text-white hover:bg-amber-600/20 text-[13.5px] transition-all">
+            <span class="text-lg text-amber-400">📢</span> <span>Siaran Pengumuman</span>
         </a>
         <a href="/operator/surat" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-emerald-600/20 text-[13.5px] transition-all">
             <span class="text-lg text-amber-400">📜</span> <span>Surat Edaran</span>
         </a>
-
-        <!-- LAYANAN KESISWAAN -->
-        <div class="pt-3 pb-1 border-t border-slate-800/80">
-            <p class="px-3 text-xs font-extrabold text-cyan-400/90 uppercase tracking-wider">Layanan Siswa</p>
-        </div>
+        <a href="/operator/tugas" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-emerald-600/20 text-[13.5px] transition-all">
+            <span class="text-lg text-emerald-400">📝</span> <span>Bank Tugas Siswa</span>
+        </a>
+        <a href="/operator/perpus" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-amber-300 hover:text-white hover:bg-amber-600/20 text-[13.5px] transition-all">
+            <span class="text-lg text-amber-400">📚</span> <span>Perpustakaan Digital</span>
+        </a>
         <a href="/bk" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-cyan-300 hover:text-white hover:bg-cyan-600/20 text-[13.5px] transition-all">
             <span class="text-lg text-cyan-400">🕊️</span> <span>Layanan BK &amp; Konseling</span>
         </a>
         <a href="/uks" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-rose-300 hover:text-white hover:bg-rose-600/20 text-[13.5px] transition-all">
             <span class="text-lg text-rose-400">🏥</span> <span>Layanan UKS Terpadu</span>
         </a>
-        <a href="/operator/perpus" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-amber-300 hover:text-white hover:bg-amber-600/20 text-[13.5px] transition-all">
-            <span class="text-lg text-amber-400">📚</span> <span>Perpustakaan Digital</span>
+        <a href="/operator/ekstrakurikuler" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-indigo-300 hover:text-white hover:bg-indigo-600/20 text-[13.5px] transition-all">
+            <span class="text-lg text-indigo-400">🏆</span> <span>Ekstrakurikuler Spenboy</span>
         </a>
 
+        <!-- 5. PENGATURAN SISTEM & SERVER -->
         <div class="pt-3 pb-1 border-t border-slate-800/80">
-            <p class="px-3 text-xs font-extrabold text-slate-400 uppercase tracking-wider">Akses Terkait</p>
+            <p class="px-3 text-xs font-extrabold text-amber-400/90 uppercase tracking-wider">Pengaturan &amp; Server</p>
         </div>
-
-        <a href="/display/kelas-kosong" target="_blank" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-amber-300 hover:bg-amber-950/40 text-[13.5px] transition-all">
-            <span class="text-lg">📺</span> <span>Layar Display Piket ↗</span>
+        <a href="/admin/users" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-sky-600/20 text-[13.5px] transition-all">
+            <span class="text-lg text-sky-400">👥</span> <span>Manajemen User (Admin &amp; Op)</span>
         </a>
-        <a href="/absensi/tap-kartu" target="_blank" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-violet-300 hover:bg-violet-950/40 text-[13.5px] transition-all">
-            <span class="text-lg">💳</span> <span>Kiosk Tap RFID ↗</span>
+        <a href="/operator/feature-panel" id="opnav-feature-panel" class="flex items-center justify-between px-3.5 py-2.5 rounded-xl text-amber-300 hover:text-white hover:bg-amber-600/25 font-bold text-[13.5px] transition-all border border-amber-500/30 bg-amber-950/30 shadow-sm">
+            <div class="flex items-center gap-3">
+                <span class="text-lg text-amber-400">🎛️</span> <span>Panel Kontrol Fitur &amp; GPS</span>
+            </div>
+            <span class="text-[10px] bg-amber-400/20 text-amber-300 px-2 py-0.5 rounded-full font-black border border-amber-400/40 uppercase tracking-wider">39 Fitur</span>
         </a>
-        <a href="/operator/kelas/print-barcodes" target="_blank" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sky-300 hover:bg-sky-950/40 text-[13.5px] transition-all">
-            <span class="text-lg">🖨️</span> <span>Barcode Kelas &amp; Siswa ↗</span>
+        <a href="/admin/pengaturan" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-slate-800 text-[13.5px] transition-all">
+            <span class="text-lg text-emerald-400">✨</span> <span>Identitas Sekolah &amp; AI</span>
         </a>
-        <a href="/operator/feature-panel" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-amber-300 hover:text-white hover:bg-amber-600/20 text-[13.5px] transition-all">
-            <span class="text-lg text-amber-400">🎛️</span> <span>Panel Kontrol Fitur &amp; GPS</span>
+        <a href="/admin/server-monitoring" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-emerald-300 hover:text-white hover:bg-emerald-600/20 text-[13.5px] transition-all">
+            <span class="text-lg text-emerald-400">🖥️</span> <span>Server Monitoring Live</span>
         </a>
-        <a href="/operator/client-logs" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-rose-300 hover:text-white hover:bg-rose-950/40 text-[13.5px] transition-all">
-            <span class="text-lg">🚨</span> <span>Log Error APK</span>
+        <a href="/admin/wifi-management" id="opnav-wifi" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sky-300 hover:text-white hover:bg-sky-600/20 text-[13.5px] transition-all font-bold">
+            <span class="text-lg text-sky-400">📶</span> <span>Wi-Fi Siswa &amp; MikroTik</span>
         </a>
-        <a href="/admin" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-slate-300 hover:bg-slate-800 text-[13.5px] transition-all">
-            <span class="text-lg">🏛️</span> <span>Portal Admin Utama</span>
+        <a href="/operator/activity-logs" id="opnav-activity-logs" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-rose-300 hover:text-white hover:bg-rose-600/20 text-[13.5px] transition-all font-bold">
+            <span class="text-lg text-rose-400">🛡️</span> <span>Log Aktivitas &amp; Anomali</span>
+        </a>
+        <a href="/operator/app-releases" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sky-300 hover:text-white hover:bg-sky-600/20 text-[13.5px] transition-all">
+            <span class="text-lg text-sky-400">🚀</span> <span>Rilis Update APK</span>
         </a>
     </nav>
 
@@ -143,31 +215,48 @@
 </aside>
 
 <script>
+    // ==================== THEME TOGGLE (DARK / LIGHT MODE) ====================
+    function updateThemeUI(isDark) {
+        const icon1 = document.getElementById('themeToggleIcon');
+        const icon2 = document.getElementById('floatingThemeIcon');
+        if (icon1) icon1.innerText = isDark ? '☀️' : '🌙';
+        if (icon2) icon2.innerText = isDark ? '☀️' : '🌙';
+    }
+
+    function togglePortalTheme() {
+        const isDark = document.body.classList.toggle('dark-mode');
+        localStorage.setItem('portal_theme', isDark ? 'dark' : 'light');
+        updateThemeUI(isDark);
+    }
+
+    // Auto-apply saved theme on page load
+    (function applySavedTheme() {
+        const savedTheme = localStorage.getItem('portal_theme');
+        const isDark = savedTheme === 'dark';
+        if (isDark) {
+            document.body.classList.add('dark-mode');
+        }
+        updateThemeUI(isDark);
+    })();
+
     // ==================== OPERATOR SIDEBAR TOGGLE & PERSISTENCE ====================
     function togglePortalSidebar() {
-        const sidebar = document.getElementById('portalSidebar');
+        const isMobile = window.innerWidth < 768;
         const expandBtn = document.getElementById('sidebarExpandBtn');
-        const mainEls = document.querySelectorAll('main, .main-content-portal');
-        if (!sidebar) return;
+        const floatingTheme = document.getElementById('floatingThemeToggleBtn');
+        const backdrop = document.getElementById('portalSidebarBackdrop');
+        const sidebar = document.getElementById('portalSidebar');
 
-        const isCurrentlyHidden = sidebar.classList.contains('-translate-x-full');
-
-        if (isCurrentlyHidden) {
-            sidebar.classList.remove('-translate-x-full');
-            if (expandBtn) expandBtn.classList.add('hidden');
-            mainEls.forEach(m => {
-                m.classList.add('ml-64');
-                m.classList.remove('ml-0');
-            });
-            localStorage.setItem('portal_sidebar_collapsed', 'false');
+        if (isMobile) {
+            const isOpen = document.body.classList.toggle('sidebar-mobile-open');
+            if (backdrop) backdrop.classList.toggle('hidden', !isOpen);
+            if (expandBtn) expandBtn.classList.toggle('hidden', isOpen);
+            if (floatingTheme) floatingTheme.classList.toggle('hidden', isOpen);
         } else {
-            sidebar.classList.add('-translate-x-full');
-            if (expandBtn) expandBtn.classList.remove('hidden');
-            mainEls.forEach(m => {
-                m.classList.remove('ml-64');
-                m.classList.add('ml-0');
-            });
-            localStorage.setItem('portal_sidebar_collapsed', 'true');
+            const isCollapsed = document.body.classList.toggle('sidebar-collapsed');
+            if (expandBtn) expandBtn.classList.toggle('hidden', !isCollapsed);
+            if (floatingTheme) floatingTheme.classList.toggle('hidden', !isCollapsed);
+            localStorage.setItem('portal_sidebar_collapsed', isCollapsed ? 'true' : 'false');
         }
     }
 
@@ -181,18 +270,27 @@
 
     // Apply saved state
     (function applySavedSidebarState() {
-        const isCollapsed = localStorage.getItem('portal_sidebar_collapsed') === 'true';
-        const sidebar = document.getElementById('portalSidebar');
+        const isMobile = window.innerWidth < 768;
         const expandBtn = document.getElementById('sidebarExpandBtn');
-        const mainEls = document.querySelectorAll('main, .main-content-portal');
-        
-        if (isCollapsed && sidebar) {
-            sidebar.classList.add('-translate-x-full');
+        const floatingTheme = document.getElementById('floatingThemeToggleBtn');
+        const backdrop = document.getElementById('portalSidebarBackdrop');
+
+        if (isMobile) {
+            document.body.classList.remove('sidebar-mobile-open');
+            if (backdrop) backdrop.classList.add('hidden');
             if (expandBtn) expandBtn.classList.remove('hidden');
-            mainEls.forEach(m => {
-                m.classList.remove('ml-64');
-                m.classList.add('ml-0');
-            });
+            if (floatingTheme) floatingTheme.classList.remove('hidden');
+        } else {
+            const savedCollapsed = localStorage.getItem('portal_sidebar_collapsed');
+            if (savedCollapsed === 'true') {
+                document.body.classList.add('sidebar-collapsed');
+                if (expandBtn) expandBtn.classList.remove('hidden');
+                if (floatingTheme) floatingTheme.classList.remove('hidden');
+            } else {
+                document.body.classList.remove('sidebar-collapsed');
+                if (expandBtn) expandBtn.classList.add('hidden');
+                if (floatingTheme) floatingTheme.classList.add('hidden');
+            }
         }
     })();
 

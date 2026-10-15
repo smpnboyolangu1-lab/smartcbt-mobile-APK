@@ -1,0 +1,811 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Portal Kesiswaan & Staf TU — SMPN 1 Boyolangu</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="bg-slate-50 text-slate-800">
+  <!-- Top Navigation -->
+  <header class="bg-emerald-800 text-white shadow-md sticky top-0 z-30">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center h-16">
+      <div class="flex items-center space-x-3">
+        <div class="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center font-bold text-lg">🏫</div>
+        <div>
+          <h1 class="font-bold text-base leading-tight">SIBOY FRESH — Portal Kesiswaan & Tata Usaha</h1>
+          <p class="text-xs text-emerald-200">Verifikasi Biodata, Arsip Tahun Ajaran, Generate NIS & Pengumuman</p>
+        </div>
+      </div>
+      <div class="flex items-center space-x-3 text-sm">
+        <span class="bg-emerald-700 px-3 py-1 rounded-full text-xs font-semibold">Staf TU Kesiswaan</span>
+        <a href="/admin/dashboard" class="text-emerald-100 hover:text-white"><i class="fa fa-arrow-left mr-1"></i> Beranda Utama</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <!-- KPI Header Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">
+      <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+        <div class="text-xs font-semibold text-slate-500 uppercase">Total Siswa</div>
+        <div class="text-2xl font-bold text-slate-800 mt-1" id="kpiTotalSiswa">-</div>
+        <div class="text-xs text-slate-400 mt-1">Siswa Terdaftar</div>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm border border-amber-200 p-4 bg-amber-50/30">
+        <div class="text-xs font-semibold text-amber-600 uppercase">Pending Verifikasi</div>
+        <div class="text-2xl font-bold text-amber-600 mt-1" id="kpiPending">-</div>
+        <div class="text-xs text-amber-500 mt-1">Perlu Diperiksa TU</div>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm border border-emerald-200 p-4 bg-emerald-50/30">
+        <div class="text-xs font-semibold text-emerald-600 uppercase">Biodata Disetujui</div>
+        <div class="text-2xl font-bold text-emerald-600 mt-1" id="kpiApproved">-</div>
+        <div class="text-xs text-emerald-500 mt-1">Verified & Sah</div>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm border border-rose-200 p-4 bg-rose-50/30">
+        <div class="text-xs font-semibold text-rose-600 uppercase">Perlu Revisi</div>
+        <div class="text-2xl font-bold text-rose-600 mt-1" id="kpiRevisi">-</div>
+        <div class="text-xs text-rose-500 mt-1">Dikembalikan ke Ortu</div>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm border border-blue-200 p-4 bg-blue-50/30">
+        <div class="text-xs font-semibold text-blue-600 uppercase">NIS Diterbitkan</div>
+        <div class="text-2xl font-bold text-blue-600 mt-1" id="kpiNis">-</div>
+        <div class="text-xs text-blue-500 mt-1">Format 20267xxxx</div>
+      </div>
+    </div>
+
+    <!-- Navigation Tabs -->
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mb-6">
+      <div class="border-b border-slate-200 flex flex-wrap">
+        <button onclick="switchTab('verifikasi')" id="tab-verifikasi" class="tab-btn px-5 py-3.5 text-sm font-bold border-b-2 border-emerald-600 text-emerald-700 bg-emerald-50/50 flex items-center gap-2">
+          <i class="fa fa-user-check"></i> Verifikasi Biodata
+        </button>
+        <button onclick="switchTab('arsip')" id="tab-arsip" class="tab-btn px-5 py-3.5 text-sm font-semibold text-slate-600 hover:text-slate-800 flex items-center gap-2">
+          <i class="fa fa-archive text-amber-600"></i> 📦 Arsip Lokal
+        </button>
+        <button onclick="switchTab('gdrive')" id="tab-gdrive" class="tab-btn px-5 py-3.5 text-sm font-semibold text-slate-600 hover:text-slate-800 flex items-center gap-2">
+          <i class="fa fa-cloud-arrow-up text-indigo-600"></i> 🔒 Arsip Drive Terbatas
+        </button>
+        <button onclick="switchTab('generateNis')" id="tab-generateNis" class="tab-btn px-5 py-3.5 text-sm font-semibold text-slate-600 hover:text-slate-800 flex items-center gap-2">
+          <i class="fa fa-id-card"></i> Auto-Generate NIS
+        </button>
+        <button onclick="switchTab('kenaikan')" id="tab-kenaikan" class="tab-btn px-5 py-3.5 text-sm font-semibold text-slate-600 hover:text-slate-800 flex items-center gap-2">
+          <i class="fa fa-graduation-cap text-teal-600"></i> Kenaikan & Tinggal Kelas
+        </button>
+        <button onclick="switchTab('mutasi')" id="tab-mutasi" class="tab-btn px-5 py-3.5 text-sm font-semibold text-slate-600 hover:text-slate-800 flex items-center gap-2">
+          <i class="fa fa-exchange-alt text-blue-600"></i> Mutasi Siswa
+        </button>
+        <button onclick="switchTab('dapodik')" id="tab-dapodik" class="tab-btn px-5 py-3.5 text-sm font-semibold text-slate-600 hover:text-slate-800 flex items-center gap-2">
+          <i class="fa fa-file-excel text-emerald-600"></i> Export Dapodik
+        </button>
+        <button onclick="switchTab('audit')" id="tab-audit" class="tab-btn px-5 py-3.5 text-sm font-semibold text-slate-600 hover:text-slate-800 flex items-center gap-2">
+          <i class="fa fa-shield-halved text-rose-600"></i> Audit Akses Dokumen
+        </button>
+      </div>
+
+      <!-- Tab 1: Verifikasi Biodata -->
+      <div id="content-verifikasi" class="p-6">
+        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
+          <div class="flex items-center space-x-3">
+            <select id="filterStatus" onchange="loadVerifikasiList()" class="border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white">
+              <option value="">Semua Status</option>
+              <option value="PENDING" selected>Menunggu Verifikasi (Pending)</option>
+              <option value="REVISI">Perlu Revisi</option>
+              <option value="APPROVED">Disetujui (Approved)</option>
+            </select>
+            <button onclick="loadVerifikasiList()" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm font-semibold">
+              <i class="fa fa-sync-alt mr-1"></i> Segarkan
+            </button>
+          </div>
+          <div class="flex items-center gap-2">
+            <button onclick="kirimPengumumanMassal()" class="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-bold shadow-sm flex items-center gap-1.5">
+              <i class="fa fa-bullhorn"></i> 📢 Pengumuman Massal (Siswa Belum Lengkap)
+            </button>
+          </div>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-sm text-slate-600">
+            <thead class="bg-slate-100 text-slate-700 text-xs uppercase font-semibold">
+              <tr>
+                <th class="p-3">Nama Siswa</th>
+                <th class="p-3">NISN / NIS</th>
+                <th class="p-3">Kelas</th>
+                <th class="p-3">Kelengkapan & Catatan Field</th>
+                <th class="p-3">Status</th>
+                <th class="p-3 text-right">Aksi Verifikasi & Notifikasi</th>
+              </tr>
+            </thead>
+            <tbody id="tableVerifikasiBody" class="divide-y divide-slate-100">
+              <tr><td colspan="6" class="p-4 text-center text-slate-400">Memuat antrean verifikasi...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Tab 2: Pengarsipan per Tahun Ajaran -->
+      <div id="content-arsip" class="p-6 hidden">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+          <div class="bg-amber-50/50 border border-amber-200 rounded-xl p-6 lg:col-span-1">
+            <h3 class="font-bold text-amber-900 mb-2 flex items-center gap-2">
+              <i class="fa fa-folder-open text-amber-600"></i> Pengarsipan Akhir Tahun Ajaran
+            </h3>
+            <p class="text-xs text-amber-800 mb-4 leading-relaxed">
+              Ketika tahun ajaran berakhir, sistem akan mengelompokkan dan menyimpan seluruh data biodata siswa ke dalam folder map rapi per kelas:
+              <br><code class="text-xs font-mono bg-white/70 px-1 py-0.5 rounded text-amber-900">storage/archives/{Tahun}/{Kelas}/{NISN_Nama}/</code>
+              lengkap dengan PDF Formulir F4, file JSON snapshot, dan dokumen berkas.
+            </p>
+
+            <div class="space-y-3">
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Pilih / Masukkan Tahun Ajaran</label>
+                <input type="text" id="arsipTahunAjaran" value="2025/2026" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-semibold" placeholder="Contoh: 2025/2026">
+              </div>
+              <button onclick="submitProsesArsip()" id="btnProsesArsip" class="w-full px-4 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-sm font-bold shadow flex items-center justify-center gap-2">
+                <i class="fa fa-box-archive"></i> 📦 Proses & Kunci Arsip Tahun Ajaran
+              </button>
+            </div>
+          </div>
+
+          <div class="bg-white border border-slate-200 rounded-xl p-6 lg:col-span-2">
+            <h3 class="font-bold text-slate-800 mb-2 flex items-center gap-2">
+              <i class="fa fa-database text-emerald-600"></i> Daftar Arsip Tahun Ajaran Tersimpan
+            </h3>
+            <p class="text-xs text-slate-500 mb-4">Staf TU & Kesiswaan dapat mengunduh berkas bundle ZIP atau membuka arsip siswa kapan saja di masa depan.</p>
+
+            <div id="arsipListContainer" class="space-y-3">
+              <div class="text-xs text-slate-400 p-4 border border-dashed rounded-lg text-center">Memuat riwayat arsip...</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 3: Generate NIS -->
+      <div id="content-generateNis" class="p-6 hidden">
+        <div class="max-w-xl bg-slate-50 border border-slate-200 rounded-xl p-6 mb-6">
+          <h3 class="font-bold text-slate-800 mb-2">⚡ Generator Nomor Induk Siswa (NIS) Resmi</h3>
+          <p class="text-xs text-slate-500 mb-4">Format Resmi SIBOY: <code class="bg-blue-100 text-blue-800 px-1 py-0.5 rounded font-mono">[Tahun][Tingkat][Urut4Digit]</code> (Contoh: <strong>202670001</strong>). NIS hanya akan digenerate untuk siswa yang biodatanya telah disetujui TU.</p>
+          <div class="flex gap-3 mb-4">
+            <input type="text" id="nisTahun" value="2026" class="border border-slate-300 rounded-lg px-3 py-2 text-sm w-32" placeholder="Tahun Masuk">
+            <input type="text" id="nisTingkat" value="7" class="border border-slate-300 rounded-lg px-3 py-2 text-sm w-28" placeholder="Tingkat (7/8/9)">
+            <button onclick="previewNis()" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold">
+              Pratinjau NIS
+            </button>
+          </div>
+          <div id="nisPreviewResult" class="hidden">
+            <div class="text-xs font-semibold text-slate-600 mb-2">Pratinjau Hasil Urutan NIS:</div>
+            <div id="nisPreviewList" class="max-h-48 overflow-y-auto text-xs bg-white border border-slate-200 p-3 rounded-lg font-mono mb-4"></div>
+            <button onclick="submitGenerateNis()" class="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-bold shadow-sm">
+              <i class="fa fa-check-circle mr-1"></i> Terapkan NIS & Regenerate PDF
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 4: Export Dapodik -->
+      <div id="content-dapodik" class="p-6 hidden">
+        <div class="max-w-lg bg-emerald-50 border border-emerald-200 rounded-xl p-6">
+          <h3 class="font-bold text-emerald-900 mb-2"><i class="fa fa-file-excel mr-1 text-emerald-600"></i> Export Data Dapodik Kemendikbud</h3>
+          <p class="text-xs text-emerald-700 mb-4">Unduh rekap data seluruh peserta didik baru yang telah berstatus <strong>VERIFIED</strong> dalam format Excel (.xlsx) dengan kolom yang disesuaikan dengan Aplikasi Dapodikdasmen.</p>
+          <a href="/api/kesiswaan/export/dapodik" target="_blank" class="inline-flex items-center px-5 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-sm font-bold shadow-sm">
+            <i class="fa fa-download mr-2"></i> Unduh File Dapodik (.xlsx)
+          </a>
+        </div>
+      </div>
+
+      <!-- Tab 5: Mutasi Siswa -->
+      <div id="content-mutasi" class="p-6 hidden">
+        <div class="max-w-xl bg-slate-50 border border-slate-200 rounded-xl p-6">
+          <h3 class="font-bold text-slate-800 mb-2">📋 Pencatatan Mutasi Siswa</h3>
+          <p class="text-xs text-slate-500 mb-4">Kelola mutasi siswa pindahan masuk, pindah keluar sekolah, atau kelulusan alumni.</p>
+          <div class="space-y-3">
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1">ID Siswa / NISN</label>
+              <input type="text" id="mutasiStudentId" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" placeholder="ID Siswa">
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1">Jenis Mutasi</label>
+              <select id="mutasiJenis" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
+                <option value="KELUAR">Pindah Keluar Sekolah</option>
+                <option value="MASUK">Pindahan Masuk</option>
+                <option value="LULUS">Kelulusan Alumni</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1">Sekolah Tujuan (Jika Pindah Keluar)</label>
+              <input type="text" id="mutasiSekolah" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" placeholder="Contoh: SMPN 2 Tulungagung">
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1">Nomor Surat Keterangan Pindah</label>
+              <input type="text" id="mutasiNomorSurat" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" placeholder="Contoh: 421.3/123/101.6.21/2026">
+            </div>
+            <button onclick="submitMutasi()" class="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold">
+              Simpan Pencatatan Mutasi
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 6: Arsip Google Drive Terbatas (AES-256) -->
+      <div id="content-gdrive" class="p-6 hidden">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+          <div class="bg-indigo-50/60 border border-indigo-200 rounded-xl p-6 lg:col-span-1">
+            <h3 class="font-bold text-indigo-900 mb-2 flex items-center gap-2">
+              <i class="fa fa-cloud-arrow-up text-indigo-600"></i> Sinkronisasi Drive Terbatas
+            </h3>
+            <div class="bg-white/80 border border-indigo-100 rounded-lg p-3 text-xs text-indigo-950 mb-4 space-y-1.5 leading-relaxed">
+              <div class="font-bold text-indigo-800 flex items-center gap-1.5">
+                <i class="fa fa-shield-halved text-emerald-600"></i> Ketentuan Privasi & Keamanan:
+              </div>
+              <div>• <strong>Hanya 3 Jenis Berkas:</strong> Kartu Keluarga, Akta Kelahiran, dan Dokumen Afirmasi (jika ada).</div>
+              <div>• <strong>Dokumen Terlindungi:</strong> Pas foto, rapor, dan ijazah SD <em>tidak ikut diunggah</em> (tetap di server lokal sekolah).</div>
+              <div>• <strong>Anonimitas Folder:</strong> Menggunakan ID internal <code class="bg-indigo-100 px-1 rounded">&lt;kode-siswa&gt;</code>, bukan nama siswa.</div>
+              <div>• <strong>Penamaan Netral:</strong> Dokumen afirmasi dinamai <code class="bg-indigo-100 px-1 rounded">dok-3.pdf</code> (tanpa kata 'miskin').</div>
+              <div>• <strong>Enkripsi Kuat:</strong> Paket di-ZIP bersama manifest SHA-256 lalu dienkripsi <span class="text-emerald-700 font-bold">AES-256-CBC (.zip.enc)</span>.</div>
+            </div>
+
+            <div class="space-y-3">
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Tahun Ajaran</label>
+                <input type="text" id="gdriveTahun" value="2026/2027" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-semibold" placeholder="Contoh: 2026/2027">
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Tingkat / Angkatan</label>
+                <select id="gdriveAngkatan" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-semibold">
+                  <option value="VII" selected>Angkatan VII (Kelas 7)</option>
+                  <option value="VIII">Angkatan VIII (Kelas 8)</option>
+                  <option value="IX">Angkatan IX (Kelas 9)</option>
+                </select>
+              </div>
+              <button onclick="submitProsesGdrive()" id="btnProsesGdrive" class="w-full px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold shadow flex items-center justify-center gap-2">
+                <i class="fa fa-lock"></i> 🔒 Buat & Enkripsi Paket Drive (.zip.enc)
+              </button>
+            </div>
+          </div>
+
+          <div class="bg-white border border-slate-200 rounded-xl p-6 lg:col-span-2">
+            <h3 class="font-bold text-slate-800 mb-2 flex items-center justify-between">
+              <span class="flex items-center gap-2">
+                <i class="fa fa-list-check text-indigo-600"></i> Riwayat Paket Drive Terenkripsi
+              </span>
+              <button onclick="loadGdriveLogs()" class="text-xs px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded font-semibold">
+                <i class="fa fa-sync-alt mr-1"></i> Segarkan
+              </button>
+            </h3>
+            <p class="text-xs text-slate-500 mb-4">Daftar paket arsip yang telah di-generate, dienkripsi AES-256, dan diverifikasi hash SHA-256 sebelum diunggah ke Google Drive lembaga.</p>
+
+            <div class="overflow-x-auto">
+              <table class="w-full text-left text-xs text-slate-600">
+                <thead class="bg-slate-100 text-slate-700 uppercase font-semibold">
+                  <tr>
+                    <th class="p-2.5">Nama Paket (.zip.enc)</th>
+                    <th class="p-2.5">Angkatan</th>
+                    <th class="p-2.5">Siswa / Berkas</th>
+                    <th class="p-2.5">Ukuran</th>
+                    <th class="p-2.5">Hash SHA-256</th>
+                    <th class="p-2.5">Status</th>
+                    <th class="p-2.5 text-right">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody id="tableGdriveLogsBody" class="divide-y divide-slate-100 font-mono">
+                  <tr><td colspan="7" class="p-4 text-center text-slate-400 font-sans">Memuat riwayat paket...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 7: Kenaikan & Tinggal Kelas -->
+      <div id="content-kenaikan" class="p-6 hidden">
+        <div class="max-w-2xl bg-teal-50/40 border border-teal-200 rounded-xl p-6">
+          <h3 class="font-bold text-teal-900 mb-2 flex items-center gap-2">
+            <i class="fa fa-graduation-cap text-teal-600"></i> Promosi Kenaikan & Kelulusan Siswa
+          </h3>
+          <p class="text-xs text-teal-800 mb-4 leading-relaxed">
+            Menaikkan kelas siswa pada pergantian tahun ajaran secara otomatis dan tersinkronisasi ke akun Orang Tua serta aplikasi Android.
+            Siswa yang dinyatakan <strong>Tinggal Kelas</strong> akan tetap dipertahankan pada tingkat semula.
+          </p>
+
+          <div class="space-y-4">
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Tingkat Asal</label>
+                <select id="kenaikanSourceLevel" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-semibold">
+                  <option value="VII" selected>Tingkat VII (Kelas 7)</option>
+                  <option value="VIII">Tingkat VIII (Kelas 8)</option>
+                  <option value="IX">Tingkat IX (Kelas 9 / Kelulusan)</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Tingkat Tujuan</label>
+                <select id="kenaikanTargetLevel" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-semibold">
+                  <option value="VIII" selected>Tingkat VIII (Naik Kelas)</option>
+                  <option value="IX">Tingkat IX (Naik Kelas)</option>
+                  <option value="ALUMNI">Alumni / Lulus (Kelulusan)</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">
+                Daftar ID / NISN Siswa Tinggal Kelas (Opsional, pisahkan dengan koma)
+              </label>
+              <textarea id="kenaikanRetainedIds" rows="2" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono" placeholder="Kosongkan jika seluruh siswa naik kelas. Contoh ID: st_123, st_456"></textarea>
+              <p class="text-[11px] text-slate-500 mt-1">Siswa yang dimasukkan ke daftar ini TIDAK akan dinaikkan kelasnya dan tetap tinggal di tingkat asal.</p>
+            </div>
+
+            <button onclick="submitKenaikanKelas()" id="btnKenaikanKelas" class="px-5 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-bold shadow flex items-center gap-2">
+              <i class="fa fa-arrow-up-right-dots"></i> Proses Kenaikan Kelas Tahun Ajaran Baru
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 8: Audit Akses Dokumen -->
+      <div id="content-audit" class="p-6 hidden">
+        <div class="bg-white border border-slate-200 rounded-xl p-6">
+          <div class="flex justify-between items-center mb-4">
+            <div>
+              <h3 class="font-bold text-slate-800 flex items-center gap-2">
+                <i class="fa fa-shield-halved text-rose-600"></i> Audit Trail Akses Dokumen Siswa
+              </h3>
+              <p class="text-xs text-slate-500">Mencatat seluruh aktivitas pemeriksaan berkas (KK, Akta, dan Afirmasi) oleh Staf TU dan Pengguna berwenang.</p>
+            </div>
+            <button onclick="loadAuditLogs()" class="text-xs px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold">
+              <i class="fa fa-sync-alt mr-1"></i> Segarkan Log
+            </button>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs text-slate-600">
+              <thead class="bg-slate-100 text-slate-700 uppercase font-semibold">
+                <tr>
+                  <th class="p-2.5">Waktu Akses</th>
+                  <th class="p-2.5">Pengguna / Petugas</th>
+                  <th class="p-2.5">Role</th>
+                  <th class="p-2.5">Siswa</th>
+                  <th class="p-2.5">Jenis Berkas</th>
+                  <th class="p-2.5">Aksi</th>
+                  <th class="p-2.5">IP Address</th>
+                </tr>
+              </thead>
+              <tbody id="tableAuditLogsBody" class="divide-y divide-slate-100">
+                <tr><td colspan="7" class="p-4 text-center text-slate-400">Memuat log audit...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.remove('border-b-2', 'border-emerald-600', 'text-emerald-700', 'bg-emerald-50/50', 'font-bold');
+        btn.classList.add('text-slate-600', 'font-semibold');
+      });
+      document.getElementById('tab-' + tabId).classList.add('border-b-2', 'border-emerald-600', 'text-emerald-700', 'bg-emerald-50/50', 'font-bold');
+      document.getElementById('tab-' + tabId).classList.remove('text-slate-600');
+
+      ['verifikasi', 'arsip', 'gdrive', 'generateNis', 'kenaikan', 'mutasi', 'dapodik', 'audit'].forEach(id => {
+        const el = document.getElementById('content-' + id);
+        if (el) el.classList.add('hidden');
+      });
+      const activeEl = document.getElementById('content-' + tabId);
+      if (activeEl) activeEl.classList.remove('hidden');
+
+      if (tabId === 'arsip') {
+        loadArsipList();
+      } else if (tabId === 'gdrive') {
+        loadGdriveLogs();
+      } else if (tabId === 'audit') {
+        loadAuditLogs();
+      }
+    }
+
+    async function loadDashboardKpi() {
+      try {
+        const res = await fetch('/api/kesiswaan/dashboard');
+        const json = await res.json();
+        if (json.success) {
+          document.getElementById('kpiTotalSiswa').innerText = json.data.totalSiswa;
+          document.getElementById('kpiPending').innerText = json.data.totalPending;
+          document.getElementById('kpiApproved').innerText = json.data.totalApproved;
+          document.getElementById('kpiRevisi').innerText = json.data.totalRevisi;
+          document.getElementById('kpiNis').innerText = json.data.totalNisGenerated;
+        }
+      } catch (e) {}
+    }
+
+    async function loadVerifikasiList() {
+      const status = document.getElementById('filterStatus').value;
+      const tbody = document.getElementById('tableVerifikasiBody');
+      tbody.innerHTML = '<tr><td colspan="6" class="p-4 text-center text-slate-400">Memuat data...</td></tr>';
+
+      try {
+        const res = await fetch('/api/kesiswaan/verifikasi/biodata?status=' + encodeURIComponent(status));
+        const json = await res.json();
+        if (json.success && json.data.length > 0) {
+          tbody.innerHTML = json.data.map(b => {
+            const statusBadge = b.status === 'APPROVED' ? '<span class="bg-emerald-100 text-emerald-800 text-xs px-2 py-0.5 rounded font-bold">VERIFIED</span>' :
+              (b.status === 'REVISI' ? '<span class="bg-rose-100 text-rose-800 text-xs px-2 py-0.5 rounded font-bold">REVISI</span>' :
+              '<span class="bg-amber-100 text-amber-800 text-xs px-2 py-0.5 rounded font-bold">PENDING</span>');
+
+            const pct = b.kelengkapanPersen || 0;
+            const progressColor = pct >= 90 ? 'bg-emerald-500' : (pct >= 60 ? 'bg-amber-500' : 'bg-rose-500');
+
+            const missingList = b.missingFields || [];
+            let missingHtml = '';
+            if (missingList.length === 0) {
+              missingHtml = '<span class="text-xs text-emerald-600 font-semibold"><i class="fa fa-check-circle mr-1"></i> Data Lengkap</span>';
+            } else {
+              missingHtml = `
+                <div class="mt-1 flex flex-wrap gap-1">
+                  ${missingList.slice(0, 3).map(m => `<span class="bg-rose-50 text-rose-700 border border-rose-200 text-[10px] px-1.5 py-0.5 rounded">${m}</span>`).join('')}
+                  ${missingList.length > 3 ? `<span class="bg-slate-100 text-slate-600 text-[10px] px-1.5 py-0.5 rounded">+${missingList.length - 3} lainnya</span>` : ''}
+                </div>
+              `;
+            }
+
+            return `
+              <tr class="hover:bg-slate-50">
+                <td class="p-3 font-semibold text-slate-800">${b.studentName}</td>
+                <td class="p-3">${b.nisn} / <strong class="text-blue-700">${b.nis || '-'}</strong></td>
+                <td class="p-3">${b.className}</td>
+                <td class="p-3">
+                  <div class="flex items-center gap-2">
+                    <div class="w-16 bg-slate-200 rounded-full h-2">
+                      <div class="${progressColor} h-2 rounded-full" style="width: ${pct}%"></div>
+                    </div>
+                    <span class="text-xs font-bold text-slate-700">${pct}%</span>
+                  </div>
+                  ${missingHtml}
+                </td>
+                <td class="p-3">${statusBadge}</td>
+                <td class="p-3 text-right space-x-1.5 whitespace-nowrap">
+                  <button onclick="approveStudent('${b.studentId}')" title="Setujui" class="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-bold">
+                    <i class="fa fa-check mr-1"></i> Approve
+                  </button>
+                  <button onclick="kirimNotifOrtu('${b.studentId}', '${b.studentName}')" title="Kirim Pengumuman ke Ortu" class="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded text-xs font-bold">
+                    <i class="fa fa-bullhorn mr-1"></i> Notif Ortu
+                  </button>
+                  <button onclick="revisiStudent('${b.studentId}')" title="Minta Revisi" class="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded text-xs font-bold">
+                    <i class="fa fa-undo mr-1"></i> Revisi
+                  </button>
+                  ${b.pdfUrl ? `<a href="${b.pdfUrl}" target="_blank" class="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-bold inline-block"><i class="fa fa-file-pdf mr-1"></i> PDF</a>` : ''}
+                </td>
+              </tr>
+            `;
+          }).join('');
+        } else {
+          tbody.innerHTML = '<tr><td colspan="6" class="p-4 text-center text-slate-400">Tidak ada pengajuan biodata pada filter ini.</td></tr>';
+        }
+      } catch (e) {
+        tbody.innerHTML = '<tr><td colspan="6" class="p-4 text-center text-rose-500">Gagal memuat data verifikasi.</td></tr>';
+      }
+    }
+
+    async function kirimNotifOrtu(studentId, studentName) {
+      if (!confirm(`Kirimkan pengumuman / notifikasi kelengkapan biodata ke halaman orang tua ${studentName}?`)) return;
+      try {
+        const res = await fetch(`/api/kesiswaan/verifikasi/${studentId}/kirim-pengumuman`, { method: 'POST' });
+        const json = await res.json();
+        alert(json.message || 'Pengumuman berhasil dikirimkan!');
+      } catch (e) {
+        alert('Gagal mengirimkan pengumuman ke orang tua.');
+      }
+    }
+
+    async function kirimPengumumanMassal() {
+      if (!confirm('Kirim pengumuman penting kepada SELURUH orang tua siswa yang biodatanya belum lengkap (foto, KK, GPS rumah, dll)?')) return;
+      try {
+        const res = await fetch('/api/kesiswaan/verifikasi/kirim-pengumuman-massal', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({})
+        });
+        const json = await res.json();
+        alert(json.message || 'Pengumuman massal berhasil disiarkan ke halaman orang tua!');
+      } catch (e) {
+        alert('Gagal menyiarkan pengumuman massal.');
+      }
+    }
+
+    async function loadArsipList() {
+      const container = document.getElementById('arsipListContainer');
+      container.innerHTML = '<div class="text-xs text-slate-400 p-4 border border-dashed rounded-lg text-center">Memuat daftar arsip...</div>';
+
+      try {
+        const res = await fetch('/api/kesiswaan/arsip/list');
+        const json = await res.json();
+        if (json.success && json.data.length > 0) {
+          container.innerHTML = json.data.map(item => `
+            <div class="flex items-center justify-between p-4 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100/70 transition">
+              <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center font-bold text-base">
+                  📁
+                </div>
+                <div>
+                  <h4 class="font-bold text-slate-800 text-sm">Tahun Ajaran ${item.tahunAjaran}</h4>
+                  <p class="text-xs text-slate-500">Total Siswa Terarsip: <strong>${item.totalSiswa} siswa</strong> • Ukuran ZIP: <strong>${item.zipSize}</strong></p>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                ${item.downloadUrl ? `
+                  <a href="${item.downloadUrl}" target="_blank" class="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 shadow-sm">
+                    <i class="fa fa-download"></i> Unduh Bundle ZIP
+                  </a>
+                ` : '<span class="text-xs text-slate-400">File ZIP sedang disiapkan</span>'}
+              </div>
+            </div>
+          `).join('');
+        } else {
+          container.innerHTML = `
+            <div class="text-xs text-slate-500 p-6 border border-dashed border-slate-300 rounded-lg text-center">
+              <p class="font-semibold text-slate-700 mb-1">Belum Ada Arsip Tahun Ajaran yang Dikunci</p>
+              <p>Gunakan panel di sebelah kiri untuk memproses pengarsipan tahun ajaran berjalan.</p>
+            </div>
+          `;
+        }
+      } catch (e) {
+        container.innerHTML = '<div class="text-xs text-rose-500 p-4 text-center">Gagal memuat arsip.</div>';
+      }
+    }
+
+    async function submitProsesArsip() {
+      const tahunAjaran = document.getElementById('arsipTahunAjaran').value.trim();
+      if (!tahunAjaran) {
+        alert('Masukkan tahun ajaran terlebih dahulu (misal: 2025/2026)!');
+        return;
+      }
+
+      if (!confirm(`Apakah Anda yakin ingin memproses dan mengunci seluruh biodata & berkas siswa untuk Tahun Ajaran ${tahunAjaran}?\n\nSistem akan membuat folder map per kelas dan membundle dokumen ke ZIP.`)) return;
+
+      const btn = document.getElementById('btnProsesArsip');
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fa fa-spinner fa-spin mr-1"></i> Sedang Memproses Folder & Bundle...';
+
+      try {
+        const res = await fetch('/api/kesiswaan/arsip/proses', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tahunAjaran })
+        });
+        const json = await res.json();
+        alert(json.message || 'Pengarsipan selesai!');
+        loadArsipList();
+      } catch (e) {
+        alert('Gagal memproses pengarsipan.');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa fa-box-archive mr-1"></i> 📦 Proses & Kunci Arsip Tahun Ajaran';
+      }
+    }
+
+    async function approveStudent(studentId) {
+      if (!confirm('Setujui berkas biodata siswa ini dan generate dokumen PDF 3 Halaman resmi?')) return;
+      try {
+        const res = await fetch('/api/kesiswaan/verifikasi/' + studentId + '/approve', { method: 'POST' });
+        const json = await res.json();
+        alert(json.message || 'Biodata disetujui!');
+        loadDashboardKpi();
+        loadVerifikasiList();
+      } catch (e) {
+        alert('Gagal menyetujui biodata.');
+      }
+    }
+
+    async function revisiStudent(studentId) {
+      const reason = prompt('Masukkan catatan revisi berkas yang perlu diperbaiki oleh orang tua:');
+      if (!reason) return;
+      try {
+        const res = await fetch('/api/kesiswaan/verifikasi/' + studentId + '/revisi', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ catatanRevisi: { umum: reason } })
+        });
+        const json = await res.json();
+        alert(json.message || 'Catatan revisi dikirim!');
+        loadDashboardKpi();
+        loadVerifikasiList();
+      } catch (e) {
+        alert('Gagal mengirim catatan revisi.');
+      }
+    }
+
+    async function previewNis() {
+      const tahun = document.getElementById('nisTahun').value;
+      const tingkat = document.getElementById('nisTingkat').value;
+      try {
+        const res = await fetch('/api/kesiswaan/generate-nis/preview?tahun=' + tahun + '&tingkat=' + tingkat);
+        const json = await res.json();
+        if (json.success) {
+          document.getElementById('nisPreviewResult').classList.remove('hidden');
+          document.getElementById('nisPreviewList').innerHTML = json.data.map(item => `
+            <div>• ${item.name} (${item.nisn}) ➔ <strong>${item.suggestedNis}</strong></div>
+          `).join('');
+        }
+      } catch (e) {}
+    }
+
+    async function submitGenerateNis() {
+      if (!confirm('Generate NIS resmi untuk seluruh siswa terdaftar dan perbarui dokumen PDF?')) return;
+      const tahun = document.getElementById('nisTahun').value;
+      const tingkat = document.getElementById('nisTingkat').value;
+      try {
+        const res = await fetch('/api/kesiswaan/generate-nis', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tahun, tingkat })
+        });
+        const json = await res.json();
+        alert(json.message || 'NIS berhasil diterbitkan!');
+        loadDashboardKpi();
+        loadVerifikasiList();
+      } catch (e) {
+        alert('Gagal generate NIS.');
+      }
+    }
+
+    async function submitMutasi() {
+      const studentId = document.getElementById('mutasiStudentId').value;
+      const jenis = document.getElementById('mutasiJenis').value;
+      const sekolahTujuan = document.getElementById('mutasiSekolah').value;
+      const nomorSurat = document.getElementById('mutasiNomorSurat').value;
+
+      if (!studentId) {
+        alert('ID Siswa wajib diisi!');
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/kesiswaan/mutasi', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ studentId, jenis, sekolahTujuan, nomorSurat })
+        });
+        const json = await res.json();
+        alert(json.message || 'Mutasi berhasil dicatat!');
+      } catch (e) {
+        alert('Gagal mencatat mutasi.');
+      }
+    }
+
+    // --- GOOGLE DRIVE TERBATAS (AES-256) ---
+    async function loadGdriveLogs() {
+      const tbody = document.getElementById('tableGdriveLogsBody');
+      tbody.innerHTML = '<tr><td colspan="7" class="p-4 text-center text-slate-400 font-sans">Memuat riwayat paket Drive...</td></tr>';
+      try {
+        const res = await fetch('/api/kesiswaan/arsip/drive-logs');
+        const json = await res.json();
+        if (json.success && json.data.length > 0) {
+          tbody.innerHTML = json.data.map(item => `
+            <tr class="hover:bg-slate-50">
+              <td class="p-2.5 font-bold text-indigo-700">${item.namaBerkas}</td>
+              <td class="p-2.5"><span class="bg-indigo-100 text-indigo-800 px-1.5 py-0.5 rounded text-[11px] font-sans font-semibold">${item.angkatan} (${item.tahunAjaran})</span></td>
+              <td class="p-2.5 font-sans">${item.jumlahSiswa} siswa (${item.jumlahBerkas} berkas)</td>
+              <td class="p-2.5">${item.ukuranMb}</td>
+              <td class="p-2.5 text-[10px] text-slate-500" title="${item.sha256}">${item.sha256.substring(0, 16)}...</td>
+              <td class="p-2.5">
+                <span class="bg-emerald-100 text-emerald-800 text-[10px] px-2 py-0.5 rounded font-sans font-bold">TERENKRIPSI</span>
+              </td>
+              <td class="p-2.5 text-right font-sans">
+                <a href="${item.downloadUrl}" class="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-xs font-semibold inline-flex items-center gap-1">
+                  <i class="fa fa-download text-[10px]"></i> Unduh .enc
+                </a>
+              </td>
+            </tr>
+          `).join('');
+        } else {
+          tbody.innerHTML = '<tr><td colspan="7" class="p-4 text-center text-slate-400 font-sans">Belum ada paket arsip Drive terenkripsi yang dibuat.</td></tr>';
+        }
+      } catch (e) {
+        tbody.innerHTML = '<tr><td colspan="7" class="p-4 text-center text-rose-500 font-sans">Gagal memuat log arsip Drive.</td></tr>';
+      }
+    }
+
+    async function submitProsesGdrive() {
+      const tahunAjaran = document.getElementById('gdriveTahun').value;
+      const angkatan = document.getElementById('gdriveAngkatan').value;
+      const btn = document.getElementById('btnProsesGdrive');
+
+      if (!confirm(`Generate paket arsip Google Drive terbatas untuk Angkatan ${angkatan} (${tahunAjaran})?\n\nPaket HANYA berisi KK, Akta, dan dok-3 netral dalam format terenkripsi AES-256.`)) return;
+
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Mengenkripsi Paket AES-256...';
+
+      try {
+        const res = await fetch('/api/kesiswaan/arsip/google-drive-terbatas', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tahunAjaran, angkatan })
+        });
+        const json = await res.json();
+        alert(json.message || 'Paket arsip Google Drive berhasil dibuat.');
+        loadGdriveLogs();
+      } catch (e) {
+        alert('Gagal memproses arsip Google Drive.');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa fa-lock"></i> 🔒 Buat & Enkripsi Paket Drive (.zip.enc)';
+      }
+    }
+
+    // --- KENAIKAN & KELULUSAN KELAS ---
+    async function submitKenaikanKelas() {
+      const sourceLevel = document.getElementById('kenaikanSourceLevel').value;
+      const targetLevel = document.getElementById('kenaikanTargetLevel').value;
+      const rawRetained = document.getElementById('kenaikanRetainedIds').value;
+      const retainedStudentIds = rawRetained ? rawRetained.split(',').map(s => s.trim()).filter(Boolean) : [];
+
+      const msg = targetLevel === 'ALUMNI'
+        ? `Konfirmasi Kelulusan: Seluruh siswa Tingkat ${sourceLevel} (kecuali ${retainedStudentIds.length} siswa tinggal kelas) akan diubah statusnya menjadi LULUS/ALUMNI dan dinonaktifkan dari kelas aktif?`
+        : `Konfirmasi Kenaikan Kelas: Naikkan seluruh siswa dari Tingkat ${sourceLevel} ke Tingkat ${targetLevel} (dengan ${retainedStudentIds.length} siswa tinggal kelas)?`;
+
+      if (!confirm(msg)) return;
+
+      const btn = document.getElementById('btnKenaikanKelas');
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Memproses Kenaikan Kelas...';
+
+      try {
+        const res = await fetch('/api/kesiswaan/kenaikan-kelas', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sourceLevel, targetLevel, retainedStudentIds })
+        });
+        const json = await res.json();
+        alert(json.message || 'Proses kenaikan kelas selesai.');
+        loadDashboardKpi();
+      } catch (e) {
+        alert('Gagal memproses kenaikan kelas.');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa fa-arrow-up-right-dots"></i> Proses Kenaikan Kelas Tahun Ajaran Baru';
+      }
+    }
+
+    // --- AUDIT AKSES DOKUMEN ---
+    async function loadAuditLogs() {
+      const tbody = document.getElementById('tableAuditLogsBody');
+      tbody.innerHTML = '<tr><td colspan="7" class="p-4 text-center text-slate-400">Memuat log audit...</td></tr>';
+      try {
+        const res = await fetch('/api/kesiswaan/audit-dokumen');
+        const json = await res.json();
+        if (json.success && json.data.length > 0) {
+          tbody.innerHTML = json.data.map(l => {
+            const dateStr = new Date(l.createdAt).toLocaleString('id-ID');
+            const docBadge = l.dokumenJenis === 'KK' ? '<span class="bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded font-bold">KK</span>' :
+              (l.dokumenJenis === 'AKTA' ? '<span class="bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded font-bold">AKTA</span>' :
+              '<span class="bg-purple-100 text-purple-800 px-1.5 py-0.5 rounded font-bold">AFIRMASI</span>');
+
+            return `
+              <tr class="hover:bg-slate-50">
+                <td class="p-2.5 font-mono text-[11px]">${dateStr}</td>
+                <td class="p-2.5 font-semibold text-slate-800">${l.userName}</td>
+                <td class="p-2.5"><span class="bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded text-[10px] font-bold">${l.userRole}</span></td>
+                <td class="p-2.5">${l.studentName || l.studentId}</td>
+                <td class="p-2.5">${docBadge}</td>
+                <td class="p-2.5"><span class="text-xs font-semibold ${l.aksi === 'DOWNLOAD' ? 'text-indigo-600' : 'text-slate-600'}">${l.aksi}</span></td>
+                <td class="p-2.5 font-mono text-[11px] text-slate-500">${l.ipAddress || '-'}</td>
+              </tr>
+            `;
+          }).join('');
+        } else {
+          tbody.innerHTML = '<tr><td colspan="7" class="p-4 text-center text-slate-400">Belum ada riwayat akses dokumen yang tercatat.</td></tr>';
+        }
+      } catch (e) {
+        tbody.innerHTML = '<tr><td colspan="7" class="p-4 text-center text-rose-500">Gagal memuat log audit.</td></tr>';
+      }
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      loadDashboardKpi();
+      loadVerifikasiList();
+    });
+  </script>
+</body>
+</html>

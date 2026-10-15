@@ -59,6 +59,9 @@ export async function getMobileModules(req: Request, res: Response) {
             biodataConfig = await getBiodataToggleConfig();
         } catch (e) {}
 
+        const ekantinSetting = await prisma.systemSetting.findUnique({ where: { key: 'feature.ekantin.enabled' } });
+        const isEkantinActive = ekantinSetting ? (ekantinSetting.value === 'true' || ekantinSetting.value === '1') : false;
+
         return res.json({
             success: true,
             data: {
@@ -79,6 +82,7 @@ export async function getMobileModules(req: Request, res: Response) {
                         is_open_now: biodataConfig.isOpenNow,
                         message: biodataConfig.isOpenNow ? 'Periode pengisian dibuka' : 'Periode pengisian biodata sedang ditutup oleh pihak sekolah.'
                     },
+                    ekantin: { name: 'E-Kantin Sekolah', is_active: isEkantinActive },
                     academic: { name: 'Akademik & Rapor', is_active: true },
                     cbt_exam: { name: 'Ujian CBT Online', is_active: true },
                     library: { name: 'Perpustakaan Digital', is_active: true },
@@ -139,10 +143,14 @@ export async function getCandidates(req: Request, res: Response) {
  */
 export async function getStudentVoteStatus(req: Request, res: Response) {
     try {
-        const studentId = (req as any).user?.id;
-        if (!studentId) {
+        const currentUser = (req as any).user;
+        if (!currentUser || !currentUser.id) {
             return res.status(401).json({ success: false, message: 'Unauthorized session' });
         }
+        if (currentUser.role !== 'STUDENT') {
+            return res.status(403).json({ success: false, message: 'Hanya akun Siswa yang memiliki status hak suara e-Voting OSIS' });
+        }
+        const studentId = currentUser.id;
 
         const attendance = await (prisma as any).electionAttendance.findUnique({
             where: { studentId }
@@ -169,10 +177,14 @@ export async function getStudentVoteStatus(req: Request, res: Response) {
  */
 export async function castVote(req: Request, res: Response) {
     try {
-        const studentId = (req as any).user?.id;
-        if (!studentId) {
+        const currentUser = (req as any).user;
+        if (!currentUser || !currentUser.id) {
             return res.status(401).json({ success: false, message: 'Otentikasi siswa tidak sah.' });
         }
+        if (currentUser.role !== 'STUDENT') {
+            return res.status(403).json({ success: false, message: 'Hak suara e-Voting OSIS hanya diperuntukkan bagi akun Siswa aktif.' });
+        }
+        const studentId = currentUser.id;
 
         // 1. Verifikasi Status Master Switch & Window Waktu
         const config = await getEvotingSettings();

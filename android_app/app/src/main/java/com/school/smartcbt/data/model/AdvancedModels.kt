@@ -80,6 +80,7 @@ data class AttendanceHistoryDto(
     val gateLocation: String? = null,
     val isLate: Boolean = false,
     val isSunday: Boolean = false,
+    val isMissingGateOut: Boolean = false,
     val note: String? = null
 )
 
@@ -118,7 +119,23 @@ data class EFileDto(
 
 data class ActiveExamsResponse(
     val success: Boolean,
-    val exams: List<ExamItemDto>
+    val todayDate: String? = null,
+    val exams: List<ExamItemDto> = emptyList(),
+    val schedules: List<CbtScheduleAgendaDto>? = null
+)
+
+data class CbtScheduleAgendaDto(
+    val id: String,
+    val title: String,
+    val subject: String,
+    val executionDate: String?,
+    val startTimeStr: String?,
+    val endTimeStr: String?,
+    val durationMinutes: Int = 60,
+    val sessionName: String? = null,
+    val assignedClasses: String? = null,
+    val isToday: Boolean = false,
+    val isCompleted: Boolean = false
 )
 
 data class ExamItemDto(
@@ -133,7 +150,9 @@ data class ExamItemDto(
     val executionDate: String?,
     val startTimeStr: String?,
     val endTimeStr: String?,
-    val status: String
+    val status: String,
+    val score: Double? = null,
+    val submittedAt: String? = null
 )
 
 data class StudentHealthResponse(
@@ -340,6 +359,86 @@ data class CommonResponse(
     val message: String
 )
 
+// --- CCTV & KBM Monitoring Models ---
+data class ClassMonitoringStatusResponse(
+    val success: Boolean,
+    val currentTime: String? = null,
+    val currentDay: String? = null,
+    val totalClasses: Int? = null,
+    val classes: List<ClassMonitoringItemDto>? = null
+)
+
+data class ClassMonitoringItemDto(
+    val className: String,
+    val cam: String? = null,
+    val status: String? = null, // GREEN, RED, AMBER, BLUE, IDLE
+    val badge: String? = null,
+    val isAlarm: Boolean? = false,
+    val teacherName: String? = null,
+    val subjectName: String? = null,
+    val timeRange: String? = null,
+    val checkInTime: String? = null,
+    val inTimeStr: String? = null,
+    val inTime: String? = null,
+    val elapsedMinutes: Int? = null,
+    val details: String? = null,
+    val reportedBy: String? = null,
+    val hasAssignment: Boolean? = false,
+    val assignmentDetails: String? = null
+)
+
+// --- Kurikulum Rekap Guru Mode Lengkap ---
+data class KurikulumTeacherRecapResponse(
+    val success: Boolean,
+    val mode: String? = "LENGKAP",
+    val periode: String? = null,
+    val count: Int? = 0,
+    val totalSesiKbm: Int? = 0,
+    val rekap: List<KurikulumTeacherSummaryDto>? = null,
+    val detailedLogs: List<KurikulumTeacherDetailLogDto>? = null
+)
+
+data class KurikulumTeacherSummaryDto(
+    val guruId: String,
+    val nama: String,
+    val nip: String? = null,
+    val mapel: String? = null,
+    val rombel: String? = null,
+    val tepatWaktu: Int = 0,
+    val terlambat: Int = 0,
+    val terlambatMenitTotal: Int = 0,
+    val tidakMasukCount: Int = 0,
+    val izin: Int = 0,
+    val sakit: Int = 0,
+    val alfa: Int = 0,
+    val hadirTotal: Int = 0,
+    val totalSesi: Int = 0,
+    val persentaseKehadiran: Int = 100,
+    val kategori: String = "BAIK",
+    val badgeColor: String = "#10B981"
+)
+
+data class KurikulumTeacherDetailLogDto(
+    val id: String,
+    val guruId: String,
+    val namaGuru: String,
+    val nip: String? = null,
+    val tanggal: String? = null,
+    val tanggalDisplay: String? = null,
+    val rombel: String? = null,
+    val mapel: String? = null,
+    val ruangan: String? = null,
+    val jamDatang: String? = null,
+    val jamSelesai: String? = null,
+    val durasiMenit: Int = 0,
+    val status: String? = null,
+    val statusBadge: String? = null,
+    val metode: String? = null,
+    val siswaHadir: Int = 0,
+    val totalSiswa: Int = 0,
+    val keteranganJurnal: String? = null
+)
+
 // --- Announcement Models ---
 data class AnnouncementItemDto(
     val id: String,
@@ -466,25 +565,65 @@ data class HomeroomSummaryResponse(
     val homeroomClass: String?,
     val totalStudents: Int?,
     val pendingLeavesCount: Int?,
-    val pendingLeaves: List<HomeroomPendingLeaveDto>?
+    val approvedLeavesCount: Int? = 0,
+    val pendingLeaves: List<HomeroomPendingLeaveDto>?,
+    val approvedLeaves: List<HomeroomPendingLeaveDto>? = null
 )
 
 data class HomeroomPendingLeaveDto(
     val id: String,
     val studentName: String?,
     val parentName: String?,
+    val category: String? = null,
     val reason: String?,
     val durationDays: Int?,
+    val approvedDays: Int? = null,
+    val isDoctorNote: Boolean? = false,
+    val documentLabel: String? = null,
     val startDate: String?,
-    val status: String?
+    val endDate: String? = null,
+    val status: String?,
+    val verifiedBy: String? = null
 )
 
 data class PiketSummaryResponse(
     val success: Boolean,
     val isPiketToday: Boolean,
-    val piketDetails: Any?,
-    val openEmptyClassesCount: Int?,
-    val openEmptyClasses: List<PiketEmptyClassDto>?
+    val dayName: String? = null,
+    val dayOfWeek: Int? = null,
+    val piketDetails: Any? = null,
+    val openEmptyClassesCount: Int? = null,
+    val openEmptyClasses: List<PiketEmptyClassDto>? = null,
+    val todayPiketTeam: List<PiketTeamMemberDto>? = null,
+    val todayTeacherLeaves: List<PiketTeacherLeaveDto>? = null,
+    val weeklyScheduleSummary: List<PiketWeeklyScheduleDto>? = null
+)
+
+data class PiketTeamMemberDto(
+    val id: String? = null,
+    val teacherId: String? = null,
+    val teacherName: String? = null,
+    val phone: String? = null,
+    val subject: String? = null,
+    val notes: String? = null
+)
+
+data class PiketTeacherLeaveDto(
+    val id: String? = null,
+    val teacherName: String? = null,
+    val subject: String? = null,
+    val leaveType: String? = null,
+    val reason: String? = null,
+    val status: String? = null,
+    val hasAssignment: Boolean = false,
+    val assignmentDetails: String? = null
+)
+
+data class PiketWeeklyScheduleDto(
+    val id: String? = null,
+    val dayOfWeek: Int? = null,
+    val dayName: String? = null,
+    val teacherName: String? = null
 )
 
 data class PiketEmptyClassDto(
@@ -548,7 +687,26 @@ data class EmptyClassStatusResponse(
     val success: Boolean = true,
     val className: String? = null,
     val isReported: Boolean = false,
-    val message: String? = null
+    val isTeacherInClass: Boolean = false,
+    val teacherStatusLabel: String? = null,
+    val teacherName: String? = null,
+    val subjectName: String? = null,
+    val periodLesson: String? = null,
+    val message: String? = null,
+    val recentReports: List<EmptyClassRecentReportDto>? = null
+)
+
+data class EmptyClassRecentReportDto(
+    val id: String? = null,
+    val periodLesson: String? = null,
+    val subjectName: String? = null,
+    val scheduledTeacher: String? = null,
+    val status: String? = null,
+    val reporterName: String? = null,
+    val substituteTeacher: String? = null,
+    val assignmentDetails: String? = null,
+    val handledBy: String? = null,
+    val createdAt: String? = null
 )
 
 data class ClassSessionActiveResponse(
@@ -602,6 +760,29 @@ data class StudentOutSessionRequest(
     val deviceId: String? = null
 )
 
+data class ClassSessionStudentsStatusResponse(
+    val success: Boolean = true,
+    val className: String? = null,
+    val sessionId: String? = null,
+    val totalStudents: Int = 0,
+    val presentCount: Int = 0,
+    val absentCount: Int = 0,
+    val students: List<ClassStudentAttendanceDto>? = null,
+    val message: String? = null
+)
+
+data class ClassStudentAttendanceDto(
+    val studentId: String,
+    val name: String,
+    val nisn: String? = null,
+    val className: String? = null,
+    val isPresentInClass: Boolean = false,
+    val isLocked: Boolean = false,
+    val lockReason: String? = null,
+    val gateStatus: String? = null,
+    var status: String = "HADIR"
+)
+
 // ==================== MODUL IZIN GURU & PIKET ====================
 data class TeacherLeaveDto(
     val id: String,
@@ -641,7 +822,8 @@ data class PiketTodayFeedResponse(
     val leavesCount: Int = 0,
     val leaves: List<TeacherLeaveDto>? = null,
     val emptyClassesCount: Int = 0,
-    val emptyClasses: List<EmptyClassReportDto>? = null
+    val emptyClasses: List<EmptyClassReportDto>? = null,
+    val lateStudents: List<Any>? = null
 )
 
 data class PiketTeacherDto(
@@ -658,6 +840,8 @@ data class EmptyClassReportDto(
     val periodLesson: String? = null,
     val subjectName: String? = null,
     val scheduledTeacher: String? = null,
+    val subject: String? = null,
+    val teacherName: String? = null,
     val teacherStatus: String? = null,
     val hasAssignment: Boolean = false,
     val assignmentDetails: String? = null,
@@ -687,6 +871,12 @@ data class PrayerClassScheduleDto(
     val wudhuTime: String? = "11:45",
     val scanStartTime: String? = "12:00",
     val scanEndTime: String? = "12:30"
+)
+
+data class AllPrayerSchedulesResponse(
+    val success: Boolean,
+    val schedules: List<PrayerClassScheduleDto>? = null,
+    val message: String? = null
 )
 
 data class PrayerMonitoringResponse(
@@ -789,7 +979,12 @@ data class StudentLeaveRequestDto(
     val verifiedBy: String? = null,
     val verifiedAt: String? = null,
     val rejectionNote: String? = null,
-    val createdAt: String? = null
+    val createdAt: String? = null,
+    val durationDays: Int? = null,
+    val approvedDays: Int? = null,
+    val isDoctorNote: Boolean? = false,
+    val isExtension: Boolean? = false,
+    val documentLabel: String? = null
 )
 
 // ==================== MODUL OPERATOR BROADCAST ====================
@@ -824,4 +1019,463 @@ data class TeacherTodayAttendanceResponse(
     val message: String? = null
 )
 
+// ==================== MODUL DEEP ATTENDANCE ANALYTICS & MULTI-PERIOD TRENDS ====================
+data class StudentAttendanceAnalyticsResponse(
+    val student: AnalyticsStudentInfoDto? = null,
+    val period: AnalyticsPeriodDto? = null,
+    val summary: AnalyticsSummaryDto? = null,
+    val punctuality: AnalyticsPunctualityDto? = null,
+    val streak: AnalyticsStreakDto? = null,
+    val dimensions: AnalyticsDimensionsDto? = null,
+    val trends: AnalyticsTrendsDto? = null,
+    val insights: List<AnalyticsInsightDto>? = emptyList()
+)
 
+data class AnalyticsStudentInfoDto(
+    val id: String,
+    val name: String,
+    val nisn: String? = null,
+    val className: String? = null,
+    val points: Int = 0,
+    val spStatus: String = "AMAN"
+)
+
+data class AnalyticsPeriodDto(
+    val month: Int = 1,
+    val year: Int = 2026,
+    val monthName: String = "",
+    val effectiveSchoolDays: Int = 0
+)
+
+data class AnalyticsSummaryDto(
+    val hadir: Int = 0,
+    val terlambat: Int = 0,
+    val izin: Int = 0,
+    val sakit: Int = 0,
+    val alpa: Int = 0,
+    val attendanceRate: Int = 100,
+    val punctualityRate: Int = 100,
+    val disciplineScore: Int = 100,
+    val classAvgRate: Int = 100,
+    val diffFromClassAvg: Int = 0
+)
+
+data class AnalyticsPunctualityBucketDto(
+    val label: String = "",
+    val count: Int = 0
+)
+
+data class AnalyticsPunctualityDto(
+    val gateDeadline: String = "07:00",
+    val avgCheckInTime: String = "-",
+    val earliestCheckInTime: String = "-",
+    val latestCheckInTime: String = "-",
+    val onTimeCount: Int = 0,
+    val lateCount: Int = 0,
+    val totalLateMinutes: Int = 0,
+    val onTimeRate: Int = 100,
+    val distribution: List<AnalyticsPunctualityBucketDto>? = emptyList()
+)
+
+data class AnalyticsStreakDto(
+    val currentStreak: Int = 0,
+    val bestStreak: Int = 0,
+    val nextMilestone: Int = 7,
+    val progressToMilestone: Int = 0,
+    val badges: List<String>? = emptyList()
+)
+
+data class AnalyticsDimensionItemDto(
+    val label: String = "",
+    val hadir: Int = 0,
+    val total: Int = 0,
+    val rate: Int = 100,
+    val totalThisMonth: Int = 0
+)
+
+data class AnalyticsDimensionsDto(
+    val gate: AnalyticsDimensionItemDto? = null,
+    val subject: AnalyticsDimensionItemDto? = null,
+    val prayer: AnalyticsDimensionItemDto? = null,
+    val gatepass: AnalyticsDimensionItemDto? = null
+)
+
+data class AnalyticsDailyPointDto(
+    val date: String = "",
+    val label: String = "",
+    val dayName: String = "",
+    val status: String = "HADIR",
+    val score: Int = 100,
+    val checkIn: String = "-",
+    val checkOut: String = "-",
+    val lateMinutes: Int = 0
+)
+
+data class AnalyticsWeeklyPointDto(
+    val weekNumber: Int = 1,
+    val label: String = "",
+    val dateRange: String = "",
+    val hadir: Int = 0,
+    val terlambat: Int = 0,
+    val izinSakit: Int = 0,
+    val alpa: Int = 0,
+    val totalDays: Int = 0,
+    val attendanceRate: Int = 0,
+    val punctualityRate: Int = 100,
+    val score: Int = 0
+)
+
+data class AnalyticsMonthlyPointDto(
+    val month: Int = 1,
+    val year: Int = 2026,
+    val label: String = "",
+    val hadir: Int = 0,
+    val terlambat: Int = 0,
+    val izinSakit: Int = 0,
+    val alpa: Int = 0,
+    val attendanceRate: Int = 0,
+    val classAvgRate: Int = 0
+)
+
+data class AnalyticsDayOfWeekDto(
+    val dayIndex: Int = 1,
+    val dayName: String = "",
+    val totalRecords: Int = 0,
+    val hadirCount: Int = 0,
+    val lateCount: Int = 0,
+    val attendanceRate: Int = 100
+)
+
+data class AnalyticsTrendsDto(
+    val daily14: List<AnalyticsDailyPointDto>? = emptyList(),
+    val weekly4: List<AnalyticsWeeklyPointDto>? = emptyList(),
+    val monthly6: List<AnalyticsMonthlyPointDto>? = emptyList(),
+    val dayOfWeekStats: List<AnalyticsDayOfWeekDto>? = emptyList()
+)
+
+data class AnalyticsInsightDto(
+    val type: String = "INFO",
+    val title: String = "",
+    val message: String = ""
+)
+
+// ==========================================
+// MODUL WALI KELAS DTO
+// ==========================================
+
+data class WaliKelasDashboardResponse(
+    val success: Boolean = false,
+    val isHomeroom: Boolean = false,
+    val homeroomClass: String? = null,
+    val teacherName: String? = null,
+    val teacherNip: String? = null,
+    val counselorName: String? = null,
+    val counselorNip: String? = null,
+    val todayStats: WaliKelasTodayStatsDto? = null,
+    val pendingLeavesCount: Int = 0,
+    val officers: WaliKelasOfficersDto? = null,
+    val message: String? = null
+)
+
+data class WaliKelasTodayStatsDto(
+    val total: Int = 0,
+    val present: Int = 0,
+    val unconfirmedOut: Int = 0,
+    val late: Int = 0,
+    val sick: Int = 0,
+    val permission: Int = 0,
+    val absent: Int = 0,
+    val notYet: Int = 0,
+    val attendanceRate: Double = 0.0
+)
+
+data class WaliKelasStudentsResponse(
+    val success: Boolean = false,
+    val homeroomClass: String? = null,
+    val totalStudents: Int = 0,
+    val countL: Int = 0,
+    val countP: Int = 0,
+    val students: List<WaliKelasStudentItemDto> = emptyList(),
+    val message: String? = null
+)
+
+data class WaliKelasStudentItemDto(
+    val id: String,
+    val name: String,
+    val username: String? = null,
+    val nisn: String? = null,
+    val nis: String? = null,
+    val nik: String? = null,
+    val gender: String? = null,
+    val className: String? = null,
+    val points: Int? = 0,
+    val parentPhone: String? = null,
+    val fatherName: String? = null,
+    val motherName: String? = null,
+    val address: String? = null,
+    val pob: String? = null,
+    val dob: String? = null,
+    val religion: String? = null,
+    val bloodType: String? = null,
+    val profilePicUrl: String? = null,
+    val kkFileUrl: String? = null,
+    val aktaFileUrl: String? = null,
+    val isNoSmartphone: Boolean? = false,
+    val classRole: String? = null,
+    val classRoleDisplay: String? = null,
+    val todayAttendance: WaliKelasStudentAttendanceDto? = null
+)
+
+data class WaliKelasStudentAttendanceDto(
+    val status: String? = "NOT_YET",
+    val statusCode: String? = "BELUM",
+    val statusText: String? = "Belum Presensi",
+    val gateInTime: String? = "-",
+    val gateOutTime: String? = "-",
+    val note: String? = null
+)
+
+data class WaliKelasOfficersResponse(
+    val success: Boolean = false,
+    val homeroomClass: String? = null,
+    val officers: WaliKelasOfficersDto? = null,
+    val candidates: List<WaliKelasOfficerCandidateDto> = emptyList(),
+    val message: String? = null
+)
+
+data class WaliKelasOfficersDto(
+    val ketua: OfficerPersonDto? = null,
+    val wakil: OfficerPersonDto? = null,
+    val sekretaris: OfficerPersonDto? = null,
+    val bendahara: OfficerPersonDto? = null
+)
+
+data class OfficerPersonDto(
+    val id: String? = null,
+    val name: String? = null,
+    val nisn: String? = null
+)
+
+data class WaliKelasOfficerCandidateDto(
+    val id: String,
+    val name: String,
+    val nisn: String? = null,
+    val nis: String? = null,
+    val classRole: String? = null
+)
+
+data class UpdateWaliKelasOfficersRequest(
+    val className: String? = null,
+    val ketuaId: String? = null,
+    val wakilId: String? = null,
+    val sekretarisId: String? = null,
+    val bendaharaId: String? = null
+)
+
+data class ManualAttendanceRequest(
+    val studentId: String,
+    val status: String = "PRESENT",
+    val note: String? = null,
+    val targetDate: String? = null,
+    val type: String? = "GATE_IN"
+)
+
+data class SimpleActionResponse(
+    val success: Boolean = false,
+    val message: String? = null
+)
+
+data class WaliKelasRekapResponse(
+    val success: Boolean = false,
+    val homeroomClass: String? = null,
+    val mode: String = "MONTHLY",
+    val month: Int = 1,
+    val year: Int = 2026,
+    val date: String? = null,
+    val totalStudents: Int = 0,
+    val records: List<WaliKelasRekapItemDto> = emptyList(),
+    val message: String? = null
+)
+
+data class WaliKelasRekapItemDto(
+    val no: Int = 0,
+    val studentId: String,
+    val name: String,
+    val nisn: String? = null,
+    val nis: String? = null,
+    val gender: String? = null,
+    val H: Int = 0,
+    val T: Int = 0,
+    val questionMark: Int = 0,
+    val S: Int = 0,
+    val I: Int = 0,
+    val A: Int = 0,
+    val totalRecordedDays: Int = 0,
+    val attendancePercentage: Double = 100.0
+)
+
+data class StudentDetailRekapResponse(
+    val success: Boolean = false,
+    val student: StudentUserDto? = null,
+    val month: Int = 1,
+    val year: Int = 2026,
+    val summary: StudentDetailSummaryDto? = null,
+    val history: List<StudentDetailHistoryItemDto> = emptyList(),
+    val message: String? = null
+)
+
+data class StudentDetailSummaryDto(
+    val totalHadir: Int = 0,
+    val totalTerlambat: Int = 0,
+    val totalTdkScanPulang: Int = 0,
+    val totalSakit: Int = 0,
+    val totalIzin: Int = 0,
+    val totalAlfa: Int = 0,
+    val effectiveDays: Int = 0,
+    val attendancePercentage: Double = 100.0
+)
+
+data class StudentDetailHistoryItemDto(
+    val day: Int = 1,
+    val date: String = "",
+    val dayName: String = "",
+    val status: String = "",
+    val statusCode: String = "",
+    val statusText: String = "",
+    val gateInTime: String? = "-",
+    val gateOutTime: String? = "-",
+    val note: String? = null
+)
+
+data class KurikulumPendingLeavesResponse(
+    val success: Boolean = false,
+    val count: Int = 0,
+    val leaves: List<KurikulumLeaveItemDto> = emptyList(),
+    val message: String? = null
+)
+
+data class KurikulumLeaveItemDto(
+    val id: String = "",
+    val teacherId: String = "",
+    val teacherName: String = "",
+    val category: String = "",
+    val type: String = "IZIN",
+    val reason: String = "",
+    val startDate: String = "",
+    val endDate: String = "",
+    val totalDays: Int = 1,
+    val assignmentDetails: String? = null,
+    val taskDescription: String? = null,
+    val status: String = "PENDING",
+    val schedulesList: List<KurikulumAffectedScheduleDto> = emptyList()
+)
+
+data class KurikulumAffectedScheduleDto(
+    val periodLesson: String? = "-",
+    val timeRange: String? = "-",
+    val className: String? = "-",
+    val subjectName: String? = "-"
+)
+
+data class KurikulumMonthlyReportsResponse(
+    val success: Boolean = false,
+    val reports: List<KurikulumMonthlyReportItemDto> = emptyList(),
+    val message: String? = null
+)
+
+data class KurikulumMonthlyReportItemDto(
+    val id: String = "",
+    val title: String = "",
+    val message: String = "",
+    val className: String? = null,
+    val createdAt: String? = null
+)
+
+data class PengurusKelasConfigResponse(
+    val success: Boolean = true,
+    val isEnabled: Boolean = true
+)
+
+data class ClassmateItemDto(
+    val id: String,
+    val name: String,
+    val nisn: String? = null,
+    val profilePicUrl: String? = null,
+    val classRole: String? = null,
+    val status: String = "BELUM_HADIR",
+    val statusLabel: String? = null,
+    val timeStr: String = "-",
+    val gateInTime: String? = null,
+    val gateOutTime: String? = null,
+    val isGateIn: Boolean = false,
+    val isGateOut: Boolean = false,
+    val isAssisted: Boolean = false,
+    val isNoSmartphone: Boolean = false,
+    val gender: String? = null
+)
+
+data class ClassmatesRealtimeResponse(
+    val success: Boolean = true,
+    val className: String? = null,
+    val officerRole: String? = null,
+    val totalStudents: Int = 0,
+    val presentCount: Int = 0,
+    val absentCount: Int = 0,
+    val lateCount: Int = 0,
+    val pulangCount: Int = 0,
+    val sickCount: Int = 0,
+    val permitCount: Int = 0,
+    val sickPermitCount: Int = 0,
+    val countL: Int = 0,
+    val countP: Int = 0,
+    val students: List<ClassmateItemDto> = emptyList(),
+    val isFeatureDisabled: Boolean = false,
+    val message: String? = null
+)
+
+data class AssistedScanRequest(
+    val barcodeValue: String,
+    val lat: Double?,
+    val lng: Double?,
+    val accuracy: Float?,
+    val scanType: String = "GATE_IN"
+)
+
+data class AssistedScanStudentDto(
+    val id: String,
+    val name: String,
+    val nisn: String? = null,
+    val className: String? = null,
+    val profilePicUrl: String? = null,
+    val status: String? = null,
+    val timeStr: String? = null,
+    val isLate: Boolean = false,
+    val isFlaggedFrequent: Boolean = false,
+    val isNoSmartphone: Boolean = false
+)
+
+data class AssistedScanResponse(
+    val success: Boolean = false,
+    val message: String = "",
+    val student: AssistedScanStudentDto? = null,
+    val isGpsError: Boolean = false,
+    val isClassMismatch: Boolean = false,
+    val isAlreadyScanned: Boolean = false,
+    val isNoSmartphone: Boolean = false
+)
+
+data class BkDashboardOverviewResponse(
+    val success: Boolean = false,
+    val summary: BkCounselorSummaryDto? = null,
+    val message: String? = null
+)
+
+data class BkCounselorSummaryDto(
+    val newCasesCount: Int = 0,
+    val todaySchedulesCount: Int = 0,
+    val unreadParentChatsCount: Int = 0,
+    val atRiskCount: Int = 0,
+    val supervisedClasses: List<String> = emptyList(),
+    val totalClasses: Int = 0,
+    val totalStudents: Int = 0
+)

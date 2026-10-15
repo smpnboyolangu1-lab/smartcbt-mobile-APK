@@ -14,7 +14,7 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="@color/teal_bk"
+            android:background="@drawable/bg_gradient_parent"
             android:orientation="vertical"
             android:padding="20dp">
 
@@ -53,7 +53,7 @@
                     style="@style/Widget.MaterialComponents.Button.TextButton"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="⟳ Refresh"
+                    android:text="🔄 Refresh"
                     android:textColor="@color/white"
                     android:textSize="12sp" />
 
@@ -80,8 +80,8 @@
             <androidx.cardview.widget.CardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                app:cardCornerRadius="14dp"
-                app:cardElevation="3dp">
+                app:cardCornerRadius="20dp"
+                app:cardElevation="4dp">
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -155,7 +155,7 @@
                             android:backgroundTint="#E0F2FE"
                             android:paddingHorizontal="10dp"
                             android:paddingVertical="4dp"
-                            android:text="🎖️ 100 Poin (Disiplin Baik)"
+                            android:text="✨"
                             android:textColor="#0369A1"
                             android:textSize="11sp"
                             android:textStyle="bold" />
@@ -170,8 +170,8 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
-                app:cardCornerRadius="14dp"
-                app:cardElevation="3dp"
+                app:cardCornerRadius="20dp"
+                app:cardElevation="4dp"
                 app:cardBackgroundColor="#FFFFFF">
 
                 <LinearLayout
@@ -266,7 +266,7 @@
                             <TextView
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:text="🏠 JAM KEPULANGAN (OUT)"
+                                android:text="✨"
                                 android:textColor="#1E40AF"
                                 android:textSize="9sp"
                                 android:textStyle="bold" />
@@ -312,7 +312,7 @@
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="⚠️ Evaluasi Keterlambatan: 0x Terlambat (Aman)"
+                            android:text="âš ï¸ Evaluasi Keterlambatan: 0x Terlambat (Aman)"
                             android:textColor="#B91C1C"
                             android:textSize="11sp"
                             android:textStyle="bold" />
@@ -328,15 +328,29 @@
                 </LinearLayout>
             </androidx.cardview.widget.CardView>
 
-            <!-- 🔔 BANNER NOTIFIKASI TERBARU DARI SEKOLAH KE ORANG TUA -->
+            <!-- Compatibility hidden container for cardParentLeaveAction -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:visibility="gone">
+                <androidx.cardview.widget.CardView
+                    android:id="@+id/cardParentLeaveAction"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content">
+                    <Button android:id="@+id/btnQuickParentLeave" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+                    <TextView android:id="@+id/tvParentLeaveStatusSummary" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+                </androidx.cardview.widget.CardView>
+            </LinearLayout>
+
+            <!-- ================= WIDGET KONTROL E-KANTIN & UANG SAKU ANAK ================= -->
             <androidx.cardview.widget.CardView
-                android:id="@+id/cardParentNotificationAlert"
+                android:id="@+id/cardParentCanteenOverview"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                app:cardCornerRadius="14dp"
-                app:cardElevation="2dp"
-                app:cardBackgroundColor="#FEF3C7">
+                android:layout_marginTop="14dp"
+                app:cardBackgroundColor="#FFFFFF"
+                app:cardCornerRadius="18dp"
+                app:cardElevation="3dp">
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -351,56 +365,103 @@
                         android:orientation="horizontal">
 
                         <TextView
+                            android:layout_width="44dp"
+                            android:layout_height="44dp"
+                            android:background="@drawable/bg_icon_amber"
+                            android:gravity="center"
+                            android:text="✨"
+                            android:textSize="22sp" />
+
+                        <LinearLayout
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
+                            android:layout_marginStart="12dp"
                             android:layout_weight="1"
-                            android:text="🔔 NOTIFIKASI OTOMATIS KE ORANG TUA"
-                            android:textColor="#92400E"
-                            android:textSize="11sp"
-                            android:textStyle="bold" />
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Kontrol E-Kantin &amp; Uang Saku Anak"
+                                android:textColor="#0F172A"
+                                android:textSize="13.5sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:id="@+id/tvParentCanteenDailyLimit"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="2dp"
+                                android:text="Batas Belanja: Rp 20.000 / Hari"
+                                android:textColor="#64748B"
+                                android:textSize="11sp" />
+                        </LinearLayout>
 
                         <TextView
-                            android:id="@+id/tvParentNotifTime"
+                            android:id="@+id/tvParentCanteenBalance"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Hari Ini"
+                            android:background="#FEF3C7"
+                            android:paddingHorizontal="8dp"
+                            android:paddingVertical="3dp"
+                            android:text="Rp 25.000"
                             android:textColor="#B45309"
-                            android:textSize="10sp" />
-
-                        <ImageView
-                            android:id="@+id/btnCloseParentNotif"
-                            android:layout_width="24dp"
-                            android:layout_height="24dp"
-                            android:layout_marginStart="8dp"
-                            android:background="?selectableItemBackgroundBorderless"
-                            android:contentDescription="Tutup Notifikasi"
-                            android:padding="3dp"
-                            android:src="@android:drawable/ic_menu_close_clear_cancel"
-                            app:tint="#92400E" />
+                            android:textSize="12sp"
+                            android:textStyle="bold" />
                     </LinearLayout>
 
-                    <TextView
-                        android:id="@+id/tvParentNotifTitle"
-                        android:layout_width="wrap_content"
+                    <!-- Tombol Aksi Cepat E-Kantin -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="4dp"
-                        android:text="✅ Presensi: Siswa Tiba di Sekolah"
-                        android:textColor="#78350F"
-                        android:textSize="12sp"
-                        android:textStyle="bold" />
+                        android:layout_marginTop="12dp"
+                        android:orientation="horizontal"
+                        android:weightSum="3">
 
-                    <TextView
-                        android:id="@+id/tvParentNotifMessage"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="2dp"
-                        android:text="Ananda telah melakukan scan barcode di ruang kelas tepat waktu pada pukul 06:45 WIB."
-                        android:textColor="#92400E"
-                        android:textSize="11sp" />
+                        <Button
+                            android:id="@+id/btnParentSetLimit"
+                            android:layout_width="0dp"
+                            android:layout_height="38dp"
+                            android:layout_weight="1"
+                            android:layout_marginEnd="3dp"
+                            android:backgroundTint="#F1F5F9"
+                            android:text="âš™ï¸ Batas Jajan"
+                            android:textColor="#334155"
+                            android:textSize="10sp"
+                            android:textStyle="bold"
+                            android:padding="0dp" />
+
+                        <Button
+                            android:id="@+id/btnParentTopUp"
+                            android:layout_width="0dp"
+                            android:layout_height="38dp"
+                            android:layout_weight="1"
+                            android:layout_marginHorizontal="3dp"
+                            android:backgroundTint="#059669"
+                            android:text="➕ Top Up Saldo"
+                            android:textColor="#FFFFFF"
+                            android:textSize="10sp"
+                            android:textStyle="bold"
+                            android:padding="0dp" />
+
+                        <Button
+                            android:id="@+id/btnParentCanteenAnalytics"
+                            android:layout_width="0dp"
+                            android:layout_height="38dp"
+                            android:layout_weight="1"
+                            android:layout_marginStart="3dp"
+                            android:backgroundTint="#0284C7"
+                            android:text="📊 Grafik 6 Hari"
+                            android:textColor="#FFFFFF"
+                            android:textSize="10sp"
+                            android:textStyle="bold"
+                            android:padding="0dp" />
+                    </LinearLayout>
                 </LinearLayout>
             </androidx.cardview.widget.CardView>
 
             <!-- ================= MODERN ICON GRID MENU ORANG TUA (SERUPA SISWA) ================= -->
+                        <!-- ================= MODERN ICON GRID MENU ORANG TUA (4 KOLOM PENUH) ================= -->
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -410,13 +471,13 @@
                 android:textSize="14sp"
                 android:textStyle="bold" />
 
-            <!-- Row 1: Tugas PR, Riwayat CBT, Rekap Absen -->
+            <!-- Row 1: Tugas PR, Riwayat CBT, Rekap Absen, Surat Resmi (4 Kolom Penuh 100%) -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="10dp"
                 android:orientation="horizontal"
-                android:weightSum="3">
+                android:weightSum="4">
 
                 <!-- Menu 1: Tugas & PR Anak -->
                 <LinearLayout
@@ -428,7 +489,7 @@
                     android:focusable="true"
                     android:gravity="center"
                     android:orientation="vertical"
-                    android:padding="6dp">
+                    android:padding="4dp">
 
                     <LinearLayout
                         android:layout_width="52dp"
@@ -446,7 +507,8 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="6dp"
-                        android:text="Tugas &amp; PR"
+                        android:gravity="center"
+                        android:text="Tugas &amp; Ujian"
                         android:textColor="#1E293B"
                         android:textSize="11sp"
                         android:textStyle="bold" />
@@ -462,7 +524,7 @@
                     android:focusable="true"
                     android:gravity="center"
                     android:orientation="vertical"
-                    android:padding="6dp">
+                    android:padding="4dp">
 
                     <LinearLayout
                         android:layout_width="52dp"
@@ -480,6 +542,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="6dp"
+                        android:gravity="center"
                         android:text="Ujian &amp; CBT"
                         android:textColor="#1E293B"
                         android:textSize="11sp"
@@ -496,7 +559,7 @@
                     android:focusable="true"
                     android:gravity="center"
                     android:orientation="vertical"
-                    android:padding="6dp">
+                    android:padding="4dp">
 
                     <LinearLayout
                         android:layout_width="52dp"
@@ -514,20 +577,12 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="6dp"
-                        android:text="Kalender Absensi"
+                        android:gravity="center"
+                        android:text="Absensi"
                         android:textColor="#1E293B"
                         android:textSize="11sp"
                         android:textStyle="bold" />
                 </LinearLayout>
-            </LinearLayout>
-
-            <!-- Row 2: Surat Resmi, Izin Sakit, Klinik UKS -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:orientation="horizontal"
-                android:weightSum="3">
 
                 <!-- Menu 4: Surat Resmi Sekolah -->
                 <LinearLayout
@@ -539,7 +594,7 @@
                     android:focusable="true"
                     android:gravity="center"
                     android:orientation="vertical"
-                    android:padding="6dp">
+                    android:padding="4dp">
 
                     <LinearLayout
                         android:layout_width="52dp"
@@ -557,11 +612,21 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="6dp"
+                        android:gravity="center"
                         android:text="Surat Resmi"
                         android:textColor="#1E293B"
                         android:textSize="11sp"
                         android:textStyle="bold" />
                 </LinearLayout>
+            </LinearLayout>
+
+            <!-- Row 2: Ajukan Izin, Klinik UKS, Konsultasi BK, Biodata Siswa (4 Kolom Penuh 100%) -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:orientation="horizontal"
+                android:weightSum="4">
 
                 <!-- Menu 5: Ajukan Izin / Sakit -->
                 <LinearLayout
@@ -573,7 +638,7 @@
                     android:focusable="true"
                     android:gravity="center"
                     android:orientation="vertical"
-                    android:padding="6dp">
+                    android:padding="4dp">
 
                     <LinearLayout
                         android:layout_width="52dp"
@@ -591,6 +656,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="6dp"
+                        android:gravity="center"
                         android:text="Ajukan Izin"
                         android:textColor="#1E293B"
                         android:textSize="11sp"
@@ -607,7 +673,7 @@
                     android:focusable="true"
                     android:gravity="center"
                     android:orientation="vertical"
-                    android:padding="6dp">
+                    android:padding="4dp">
 
                     <LinearLayout
                         android:layout_width="52dp"
@@ -625,20 +691,12 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="6dp"
+                        android:gravity="center"
                         android:text="Klinik UKS"
                         android:textColor="#1E293B"
                         android:textSize="11sp"
                         android:textStyle="bold" />
                 </LinearLayout>
-            </LinearLayout>
-
-            <!-- Row 3: Karakter BK, Update Aplikasi, Pesan Admin -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:orientation="horizontal"
-                android:weightSum="3">
 
                 <!-- Menu 7: Karakter & Guru BK -->
                 <LinearLayout
@@ -650,7 +708,7 @@
                     android:focusable="true"
                     android:gravity="center"
                     android:orientation="vertical"
-                    android:padding="6dp">
+                    android:padding="4dp">
 
                     <LinearLayout
                         android:layout_width="52dp"
@@ -668,13 +726,94 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="6dp"
-                        android:text="Konsultasi Wali Murid"
+                        android:gravity="center"
+                        android:text="Ruang BK"
                         android:textColor="#1E293B"
-                        android:textSize="10.5sp"
+                        android:textSize="11sp"
                         android:textStyle="bold" />
                 </LinearLayout>
 
-                <!-- Menu 8: Update Aplikasi OTA -->
+                <!-- Menu 8: Biodata Siswa Terpadu -->
+                <LinearLayout
+                    android:id="@+id/gridParentBiodata"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:padding="4dp">
+
+                    <LinearLayout
+                        android:layout_width="52dp"
+                        android:layout_height="52dp"
+                        android:background="@drawable/bg_icon_blue"
+                        android:gravity="center">
+                        <ImageView
+                            android:layout_width="26dp"
+                            android:layout_height="26dp"
+                            android:src="@drawable/ic_nav_profile"
+                            app:tint="#FFFFFF" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:gravity="center"
+                        android:text="Biodata Siswa"
+                        android:textColor="#1E293B"
+                        android:textSize="11sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- Row 3: Panduan Aplikasi & Update APK (2 Menu di Sebelah Kiri, Grid 4 Kolom Konsisten) -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:orientation="horizontal"
+                android:gravity="start|center_vertical"
+                android:weightSum="4">
+
+                <!-- Menu 9: Panduan Aplikasi (Kolom 1 - Kiri) -->
+                <LinearLayout
+                    android:id="@+id/gridParentPanduan"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:padding="4dp">
+
+                    <LinearLayout
+                        android:layout_width="52dp"
+                        android:layout_height="52dp"
+                        android:background="@drawable/bg_icon_blue"
+                        android:gravity="center">
+                        <ImageView
+                            android:layout_width="26dp"
+                            android:layout_height="26dp"
+                            android:src="@drawable/ic_menu_panduan"
+                            app:tint="#FFFFFF" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:gravity="center"
+                        android:text="Panduan"
+                        android:textColor="#0284C7"
+                        android:textSize="11sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <!-- Menu 10: Update APK (Kolom 2 - Kiri) -->
                 <LinearLayout
                     android:id="@+id/gridParentUpdate"
                     android:layout_width="0dp"
@@ -684,7 +823,7 @@
                     android:focusable="true"
                     android:gravity="center"
                     android:orientation="vertical"
-                    android:padding="6dp">
+                    android:padding="4dp">
 
                     <LinearLayout
                         android:layout_width="52dp"
@@ -702,89 +841,14 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="6dp"
+                        android:gravity="center"
                         android:text="Update APK"
                         android:textColor="#1E293B"
                         android:textSize="11sp"
                         android:textStyle="bold" />
                 </LinearLayout>
 
-                <!-- Menu 9: Pesan Admin / Bantuan Kendala -->
-                <LinearLayout
-                    android:id="@+id/gridParentHelpdesk"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:gravity="center"
-                    android:orientation="vertical"
-                    android:padding="6dp">
-
-                    <LinearLayout
-                        android:layout_width="52dp"
-                        android:layout_height="52dp"
-                        android:background="@drawable/bg_icon_indigo"
-                        android:gravity="center">
-                        <ImageView
-                            android:layout_width="26dp"
-                            android:layout_height="26dp"
-                            android:src="@drawable/ic_helpdesk_admin"
-                            app:tint="#FFFFFF" />
-                    </LinearLayout>
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="6dp"
-                        android:text="Pesan Admin"
-                        android:textColor="#1E293B"
-                        android:textSize="11sp"
-                        android:textStyle="bold" />
-                </LinearLayout>
-            </LinearLayout>
-
-            <!-- Row 4: Formulir & Biodata Siswa Terpadu + PPDB Online -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:orientation="horizontal"
-                android:weightSum="3">
-
-                <!-- Menu 10: Formulir Biodata Siswa Terpadu -->
-                <LinearLayout
-                    android:id="@+id/gridParentBiodata"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:gravity="center"
-                    android:orientation="vertical"
-                    android:padding="6dp">
-
-                    <LinearLayout
-                        android:layout_width="52dp"
-                        android:layout_height="52dp"
-                        android:background="@drawable/bg_icon_indigo"
-                        android:gravity="center">
-                        <ImageView
-                            android:layout_width="26dp"
-                            android:layout_height="26dp"
-                            android:src="@drawable/ic_efile_folder"
-                            app:tint="#FFFFFF" />
-                    </LinearLayout>
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="6dp"
-                        android:text="Biodata Siswa"
-                        android:textColor="#1E293B"
-                        android:textSize="10.5sp"
-                        android:textStyle="bold" />
-                </LinearLayout>
-
+                <!-- Spacer Kolom 3 & 4 agar kedua menu tetap presisi di sebelah kiri -->
                 <View
                     android:layout_width="0dp"
                     android:layout_height="0dp"
@@ -795,51 +859,34 @@
                     android:layout_height="0dp"
                     android:layout_weight="1" />
 
-                <!-- Menu 11: Formulir Siswa Baru (Disatukan ke Biodata Siswa) -->
+                <!-- Hidden components for backward compatibility -->
                 <LinearLayout
                     android:id="@+id/gridParentPpdb"
                     android:layout_width="0dp"
                     android:layout_height="0dp"
                     android:visibility="gone" />
+
+                <LinearLayout
+                    android:id="@+id/gridParentHelpdesk"
+                    android:layout_width="0dp"
+                    android:layout_height="0dp"
+                    android:visibility="gone" />
             </LinearLayout>
 
-
-            <androidx.cardview.widget.CardView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:layout_marginBottom="20dp"
-                app:cardCornerRadius="14dp">
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:padding="14dp">
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="🚪 Presensi Terakhir Hari Ini:"
-                        android:textColor="@color/text_dark"
-                        android:textSize="12sp"
-                        android:textStyle="bold" />
-                    <TextView
-                        android:id="@+id/tvLatestAttendance"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="3dp"
-                        android:text="Status: HADIR • Pintu Kelas VII-A"
-                        android:textColor="#059669"
-                        android:textSize="12sp"
-                        android:textStyle="bold" />
-                    <TextView
-                        android:id="@+id/tvLatestAttendanceTime"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Pukul 06:45:12 WIB (Tepat Waktu)"
-                        android:textColor="@color/text_muted"
-                        android:textSize="11sp" />
-                </LinearLayout>
-            </androidx.cardview.widget.CardView>
+            <!-- Presensi Terakhir Hari Ini di paling bawah telah dihapus sesuai instruksi user -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:visibility="gone">
+                <TextView
+                    android:id="@+id/tvLatestAttendance"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" />
+                <TextView
+                    android:id="@+id/tvLatestAttendanceTime"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" />
+            </LinearLayout>
 
             <!-- Hidden components for compatibility -->
             <LinearLayout
@@ -853,6 +900,11 @@
                 <Button android:id="@+id/btnSubmitLeaveRequest" android:layout_width="wrap_content" android:layout_height="wrap_content" />
                 <Button android:id="@+id/btnViewChildHealth" android:layout_width="wrap_content" android:layout_height="wrap_content" />
                 <Button android:id="@+id/btnViewBehaviorLog" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+                <View android:id="@+id/cardParentNotificationAlert" android:layout_width="0dp" android:layout_height="0dp" />
+                <ImageView android:id="@+id/btnCloseParentNotif" android:layout_width="0dp" android:layout_height="0dp" />
+                <TextView android:id="@+id/tvParentNotifTitle" android:layout_width="0dp" android:layout_height="0dp" />
+                <TextView android:id="@+id/tvParentNotifMessage" android:layout_width="0dp" android:layout_height="0dp" />
+                <TextView android:id="@+id/tvParentNotifTime" android:layout_width="0dp" android:layout_height="0dp" />
                 <LinearLayout android:id="@+id/btnParentAppUpdate" android:layout_width="wrap_content" android:layout_height="wrap_content">
                     <TextView android:id="@+id/tvParentAppVersionStatus" android:layout_width="wrap_content" android:layout_height="wrap_content" />
                 </LinearLayout>
@@ -865,5 +917,17 @@
             </LinearLayout>
 
         </LinearLayout>
-    </LinearLayout>
+    
+        <!-- Footer Konsisten Sistem -->
+        <TextView
+            android:id="@+id/tvFooter"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="24dp"
+            android:gravity="center"
+            android:text="Smart CBT v2.8.137 • SMP Negeri 1 Boyolangu"
+            android:textColor="#94A3B8"
+            android:textSize="11sp" />
+</LinearLayout>
 </ScrollView>

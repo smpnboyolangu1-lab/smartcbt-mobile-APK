@@ -1,0 +1,867 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#F8FAFC"
+    android:orientation="vertical">
+
+    <!-- Top Toolbar Header -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@drawable/bg_biodata_header_gradient"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingHorizontal="16dp"
+        android:paddingTop="18dp"
+        android:paddingBottom="16dp"
+        android:elevation="4dp">
+
+        <ImageButton
+            android:id="@+id/btnBack"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@android:drawable/ic_menu_revert"
+            app:tint="#FFFFFF"
+            android:contentDescription="Kembali" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="📜 Biodata Raport &amp; Dapodik"
+                android:textColor="#FFFFFF"
+                android:textSize="17sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Buku Induk Siswa Kemendikbudristek • Read Only"
+                android:textColor="#BAE6FD"
+                android:textSize="11.5sp" />
+        </LinearLayout>
+
+        <ImageButton
+            android:id="@+id/btnRefresh"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@android:drawable/ic_popup_sync"
+            app:tint="#FFFFFF"
+            android:contentDescription="Segarkan" />
+    </LinearLayout>
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <ProgressBar
+            android:id="@+id/progressBar"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:visibility="gone" />
+
+        <ScrollView
+            android:id="@+id/scrollContent"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:fillViewport="true">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <!-- Main Official Document Card -->
+                <androidx.cardview.widget.CardView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    app:cardCornerRadius="16dp"
+                    app:cardElevation="3dp"
+                    app:cardBackgroundColor="#FFFFFF">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:padding="18dp">
+
+                        <!-- Document Header Style -->
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:gravity="center"
+                            android:orientation="vertical"
+                            android:paddingBottom="14dp">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:gravity="center"
+                                android:text="KETERANGAN TENTANG DIRI PESERTA DIDIK"
+                                android:textColor="#0F172A"
+                                android:textSize="15sp"
+                                android:textStyle="bold"
+                                android:letterSpacing="0.04" />
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="3dp"
+                                android:gravity="center"
+                                android:text="Buku Induk Siswa &amp; Dapodik Sekolah Menengah Pertama"
+                                android:textColor="#64748B"
+                                android:textSize="11.5sp" />
+
+                            <View
+                                android:layout_width="match_parent"
+                                android:layout_height="1dp"
+                                android:layout_marginTop="12dp"
+                                android:background="#E2E8F0" />
+                        </LinearLayout>
+
+                        <!-- 17 Items Form Layout -->
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="14dp"
+                            android:orientation="vertical">
+
+                            <!-- Item 1: Nama Peserta Didik (Lengkap) -->
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginBottom="12dp"
+                                android:orientation="horizontal">
+                                <TextView
+                                    android:layout_width="145dp"
+                                    android:layout_height="wrap_content"
+                                    android:text="1. Nama Peserta Didik\n    (Lengkap)"
+                                    android:textColor="#334155"
+                                    android:textSize="12.5sp"
+                                    android:textStyle="bold" />
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text=" : "
+                                    android:textColor="#334155"
+                                    android:textSize="12.5sp"
+                                    android:textStyle="bold" />
+                                <TextView
+                                    android:id="@+id/tvRaportNama"
+                                    android:layout_width="0dp"
+                                    android:layout_height="wrap_content"
+                                    android:layout_weight="1"
+                                    android:text="-"
+                                    android:textColor="#0F172A"
+                                    android:textSize="13sp"
+                                    android:textStyle="bold" />
+                            </LinearLayout>
+
+                            <!-- Item 2: NISN & NIS -->
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginBottom="12dp"
+                                android:orientation="horizontal">
+                                <TextView
+                                    android:layout_width="145dp"
+                                    android:layout_height="wrap_content"
+                                    android:text="2. Nomor Induk Siswa\n    Nasional (NISN)"
+                                    android:textColor="#334155"
+                                    android:textSize="12.5sp" />
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text=" : "
+                                    android:textColor="#334155"
+                                    android:textSize="12.5sp" />
+                                <TextView
+                                    android:id="@+id/tvRaportNisn"
+                                    android:layout_width="0dp"
+                                    android:layout_height="wrap_content"
+                                    android:layout_weight="1"
+                                    android:text="-"
+                                    android:textColor="#0F172A"
+                                    android:textSize="12.5sp"
+                                    android:textStyle="bold" />
+                            </LinearLayout>
+
+                            <!-- Item 3: Tempat Tanggal Lahir -->
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginBottom="12dp"
+                                android:orientation="horizontal">
+                                <TextView
+                                    android:layout_width="145dp"
+                                    android:layout_height="wrap_content"
+                                    android:text="3. Tempat Tanggal lahir"
+                                    android:textColor="#334155"
+                                    android:textSize="12.5sp" />
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text=" : "
+                                    android:textColor="#334155"
+                                    android:textSize="12.5sp" />
+                                <TextView
+                                    android:id="@+id/tvRaportTtl"
+                                    android:layout_width="0dp"
+                                    android:layout_height="wrap_content"
+                                    android:layout_weight="1"
+                                    android:text="-"
+                                    android:textColor="#0F172A"
+                                    android:textSize="12.5sp" />
+                            </LinearLayout>
+
+                            <!-- Item 4: Jenis Kelamin -->
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginBottom="12dp"
+                                android:orientation="horizontal">
+                                <TextView
+                                    android:layout_width="145dp"
+                                    android:layout_height="wrap_content"
+                                    android:text="4. Jenis Kelamin"
+                                    android:textColor="#334155"
+                                    android:textSize="12.5sp" />
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text=" : "
+                                    android:textColor="#334155"
+                                    android:textSize="12.5sp" />
+                                <TextView
+                                    android:id="@+id/tvRaportJk"
+                                    android:layout_width="0dp"
+                                    android:layout_height="wrap_content"
+                                    android:layout_weight="1"
+                                    android:text="-"
+                                    android:textColor="#0F172A"
+                                    android:textSize="12.5sp" />
+                            </LinearLayout>
+
+                            <!-- Item 5: Agama -->
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginBottom="12dp"
+                                android:orientation="horizontal">
+                                <TextView
+                                    android:layout_width="145dp"
+                                    android:layout_height="wrap_content"
+                                    android:text="5. Agama"
+                                    android:textColor="#334155"
+                                    android:textSize="12.5sp" />
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text=" : "
+                                    android:textColor="#334155"
+                                    android:textSize="12.5sp" />
+                                <TextView
+                                    android:id="@+id/tvRaportAgama"
+                                    android:layout_width="0dp"
+                                    android:layout_height="wrap_content"
+                                    android:layout_weight="1"
+                                    android:text="-"
+                                    android:textColor="#0F172A"
+                                    android:textSize="12.5sp" />
+                            </LinearLayout>
+
+                            <!-- Item 6: Status dalam keluarga -->
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginBottom="12dp"
+                                android:orientation="horizontal">
+                                <TextView
+                                    android:layout_width="145dp"
+                                    android:layout_height="wrap_content"
+                                    android:text="6. Status dalam keluarga"
+                                    android:textColor="#334155"
+                                    android:textSize="12.5sp" />
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text=" : "
+                                    android:textColor="#334155"
+                                    android:textSize="12.5sp" />
+                                <TextView
+                                    android:id="@+id/tvRaportStatusKeluarga"
+                                    android:layout_width="0dp"
+                                    android:layout_height="wrap_content"
+                                    android:layout_weight="1"
+                                    android:text="-"
+                                    android:textColor="#0F172A"
+                                    android:textSize="12.5sp" />
+                            </LinearLayout>
+
+                            <!-- Item 7: Anak ke -->
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginBottom="12dp"
+                                android:orientation="horizontal">
+                                <TextView
+                                    android:layout_width="145dp"
+                                    android:layout_height="wrap_content"
+                                    android:text="7. Anak ke"
+                                    android:textColor="#334155"
+                                    android:textSize="12.5sp" />
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text=" : "
+                                    android:textColor="#334155"
+                                    android:textSize="12.5sp" />
+                                <TextView
+                                    android:id="@+id/tvRaportAnakKe"
+                                    android:layout_width="0dp"
+                                    android:layout_height="wrap_content"
+                                    android:layout_weight="1"
+                                    android:text="-"
+                                    android:textColor="#0F172A"
+                                    android:textSize="12.5sp" />
+                            </LinearLayout>
+
+                            <!-- Item 8: Alamat Peserta Didik -->
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginBottom="12dp"
+                                android:orientation="horizontal">
+                                <TextView
+                                    android:layout_width="145dp"
+                                    android:layout_height="wrap_content"
+                                    android:text="8. Alamat Peserta Didik"
+                                    android:textColor="#334155"
+                                    android:textSize="12.5sp" />
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text=" : "
+                                    android:textColor="#334155"
+                                    android:textSize="12.5sp" />
+                                <TextView
+                                    android:id="@+id/tvRaportAlamat"
+                                    android:layout_width="0dp"
+                                    android:layout_height="wrap_content"
+                                    android:layout_weight="1"
+                                    android:text="-"
+                                    android:textColor="#0F172A"
+                                    android:textSize="12.5sp" />
+                            </LinearLayout>
+
+                            <!-- Item 9: Nomor Telepon Rumah -->
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginBottom="12dp"
+                                android:orientation="horizontal">
+                                <TextView
+                                    android:layout_width="145dp"
+                                    android:layout_height="wrap_content"
+                                    android:text="9. Nomor Telepon Rumah"
+                                    android:textColor="#334155"
+                                    android:textSize="12.5sp" />
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text=" : "
+                                    android:textColor="#334155"
+                                    android:textSize="12.5sp" />
+                                <TextView
+                                    android:id="@+id/tvRaportTeleponRumah"
+                                    android:layout_width="0dp"
+                                    android:layout_height="wrap_content"
+                                    android:layout_weight="1"
+                                    android:text="-"
+                                    android:textColor="#0F172A"
+                                    android:textSize="12.5sp" />
+                            </LinearLayout>
+
+                            <!-- Item 10: Sekolah Asal -->
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginBottom="12dp"
+                                android:orientation="horizontal">
+                                <TextView
+                                    android:layout_width="145dp"
+                                    android:layout_height="wrap_content"
+                                    android:text="10. Sekolah Asal"
+                                    android:textColor="#334155"
+                                    android:textSize="12.5sp" />
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text=" : "
+                                    android:textColor="#334155"
+                                    android:textSize="12.5sp" />
+                                <TextView
+                                    android:id="@+id/tvRaportSekolahAsal"
+                                    android:layout_width="0dp"
+                                    android:layout_height="wrap_content"
+                                    android:layout_weight="1"
+                                    android:text="-"
+                                    android:textColor="#0F172A"
+                                    android:textSize="12.5sp" />
+                            </LinearLayout>
+
+                            <!-- Item 11: Diterima di sekolah ini -->
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginBottom="12dp"
+                                android:orientation="vertical">
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="11. Diterima di sekolah ini"
+                                    android:textColor="#334155"
+                                    android:textSize="12.5sp" />
+
+                                <LinearLayout
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginStart="24dp"
+                                    android:layout_marginTop="4dp"
+                                    android:orientation="horizontal">
+                                    <TextView
+                                        android:layout_width="121dp"
+                                        android:layout_height="wrap_content"
+                                        android:text="Di kelas"
+                                        android:textColor="#475569"
+                                        android:textSize="12sp" />
+                                    <TextView
+                                        android:layout_width="wrap_content"
+                                        android:layout_height="wrap_content"
+                                        android:text=" : "
+                                        android:textColor="#475569"
+                                        android:textSize="12sp" />
+                                    <TextView
+                                        android:id="@+id/tvRaportDiterimaKelas"
+                                        android:layout_width="0dp"
+                                        android:layout_height="wrap_content"
+                                        android:layout_weight="1"
+                                        android:text="-"
+                                        android:textColor="#0F172A"
+                                        android:textSize="12.5sp"
+                                        android:textStyle="bold" />
+                                </LinearLayout>
+
+                                <LinearLayout
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginStart="24dp"
+                                    android:layout_marginTop="4dp"
+                                    android:orientation="horizontal">
+                                    <TextView
+                                        android:layout_width="121dp"
+                                        android:layout_height="wrap_content"
+                                        android:text="Pada tanggal"
+                                        android:textColor="#475569"
+                                        android:textSize="12sp" />
+                                    <TextView
+                                        android:layout_width="wrap_content"
+                                        android:layout_height="wrap_content"
+                                        android:text=" : "
+                                        android:textColor="#475569"
+                                        android:textSize="12sp" />
+                                    <TextView
+                                        android:id="@+id/tvRaportDiterimaTanggal"
+                                        android:layout_width="0dp"
+                                        android:layout_height="wrap_content"
+                                        android:layout_weight="1"
+                                        android:text="-"
+                                        android:textColor="#0F172A"
+                                        android:textSize="12.5sp" />
+                                </LinearLayout>
+                            </LinearLayout>
+
+                            <!-- Item 12: Nama Orang Tua -->
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginBottom="12dp"
+                                android:orientation="vertical">
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="12. Nama Orang Tua"
+                                    android:textColor="#334155"
+                                    android:textSize="12.5sp" />
+
+                                <LinearLayout
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginStart="24dp"
+                                    android:layout_marginTop="4dp"
+                                    android:orientation="horizontal">
+                                    <TextView
+                                        android:layout_width="121dp"
+                                        android:layout_height="wrap_content"
+                                        android:text="a. Ayah"
+                                        android:textColor="#475569"
+                                        android:textSize="12sp" />
+                                    <TextView
+                                        android:layout_width="wrap_content"
+                                        android:layout_height="wrap_content"
+                                        android:text=" : "
+                                        android:textColor="#475569"
+                                        android:textSize="12sp" />
+                                    <TextView
+                                        android:id="@+id/tvRaportNamaAyah"
+                                        android:layout_width="0dp"
+                                        android:layout_height="wrap_content"
+                                        android:layout_weight="1"
+                                        android:text="-"
+                                        android:textColor="#0F172A"
+                                        android:textSize="12.5sp"
+                                        android:textStyle="bold" />
+                                </LinearLayout>
+
+                                <LinearLayout
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginStart="24dp"
+                                    android:layout_marginTop="4dp"
+                                    android:orientation="horizontal">
+                                    <TextView
+                                        android:layout_width="121dp"
+                                        android:layout_height="wrap_content"
+                                        android:text="b. Ibu"
+                                        android:textColor="#475569"
+                                        android:textSize="12sp" />
+                                    <TextView
+                                        android:layout_width="wrap_content"
+                                        android:layout_height="wrap_content"
+                                        android:text=" : "
+                                        android:textColor="#475569"
+                                        android:textSize="12sp" />
+                                    <TextView
+                                        android:id="@+id/tvRaportNamaIbu"
+                                        android:layout_width="0dp"
+                                        android:layout_height="wrap_content"
+                                        android:layout_weight="1"
+                                        android:text="-"
+                                        android:textColor="#0F172A"
+                                        android:textSize="12.5sp"
+                                        android:textStyle="bold" />
+                                </LinearLayout>
+                            </LinearLayout>
+
+                            <!-- Item 13: Alamat Orang Tua -->
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginBottom="12dp"
+                                android:orientation="horizontal">
+                                <TextView
+                                    android:layout_width="145dp"
+                                    android:layout_height="wrap_content"
+                                    android:text="13. Alamat Orang Tua"
+                                    android:textColor="#334155"
+                                    android:textSize="12.5sp" />
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text=" : "
+                                    android:textColor="#334155"
+                                    android:textSize="12.5sp" />
+                                <TextView
+                                    android:id="@+id/tvRaportAlamatOrtu"
+                                    android:layout_width="0dp"
+                                    android:layout_height="wrap_content"
+                                    android:layout_weight="1"
+                                    android:text="-"
+                                    android:textColor="#0F172A"
+                                    android:textSize="12.5sp" />
+                            </LinearLayout>
+
+                            <!-- Item 14: Nomor Telepon Rumah Orang Tua -->
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginBottom="12dp"
+                                android:orientation="horizontal">
+                                <TextView
+                                    android:layout_width="145dp"
+                                    android:layout_height="wrap_content"
+                                    android:text="14. Nomor Telepon Rumah"
+                                    android:textColor="#334155"
+                                    android:textSize="12.5sp" />
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text=" : "
+                                    android:textColor="#334155"
+                                    android:textSize="12.5sp" />
+                                <TextView
+                                    android:id="@+id/tvRaportTeleponOrtu"
+                                    android:layout_width="0dp"
+                                    android:layout_height="wrap_content"
+                                    android:layout_weight="1"
+                                    android:text="-"
+                                    android:textColor="#0F172A"
+                                    android:textSize="12.5sp" />
+                            </LinearLayout>
+
+                            <!-- Item 15: Pekerjaan Orang Tua -->
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginBottom="12dp"
+                                android:orientation="vertical">
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="15. Pekerjaan Orang Tua"
+                                    android:textColor="#334155"
+                                    android:textSize="12.5sp" />
+
+                                <LinearLayout
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginStart="24dp"
+                                    android:layout_marginTop="4dp"
+                                    android:orientation="horizontal">
+                                    <TextView
+                                        android:layout_width="121dp"
+                                        android:layout_height="wrap_content"
+                                        android:text="A. Ayah"
+                                        android:textColor="#475569"
+                                        android:textSize="12sp" />
+                                    <TextView
+                                        android:layout_width="wrap_content"
+                                        android:layout_height="wrap_content"
+                                        android:text=" : "
+                                        android:textColor="#475569"
+                                        android:textSize="12sp" />
+                                    <TextView
+                                        android:id="@+id/tvRaportPekerjaanAyah"
+                                        android:layout_width="0dp"
+                                        android:layout_height="wrap_content"
+                                        android:layout_weight="1"
+                                        android:text="-"
+                                        android:textColor="#0F172A"
+                                        android:textSize="12.5sp" />
+                                </LinearLayout>
+
+                                <LinearLayout
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginStart="24dp"
+                                    android:layout_marginTop="4dp"
+                                    android:orientation="horizontal">
+                                    <TextView
+                                        android:layout_width="121dp"
+                                        android:layout_height="wrap_content"
+                                        android:text="B. Ibu"
+                                        android:textColor="#475569"
+                                        android:textSize="12sp" />
+                                    <TextView
+                                        android:layout_width="wrap_content"
+                                        android:layout_height="wrap_content"
+                                        android:text=" : "
+                                        android:textColor="#475569"
+                                        android:textSize="12sp" />
+                                    <TextView
+                                        android:id="@+id/tvRaportPekerjaanIbu"
+                                        android:layout_width="0dp"
+                                        android:layout_height="wrap_content"
+                                        android:layout_weight="1"
+                                        android:text="-"
+                                        android:textColor="#0F172A"
+                                        android:textSize="12.5sp" />
+                                </LinearLayout>
+                            </LinearLayout>
+
+                            <!-- Item 16: Nama Wali Peserta Didik -->
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginBottom="12dp"
+                                android:orientation="vertical">
+                                <LinearLayout
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:orientation="horizontal">
+                                    <TextView
+                                        android:layout_width="145dp"
+                                        android:layout_height="wrap_content"
+                                        android:text="16. Nama Wali Peserta Didik"
+                                        android:textColor="#334155"
+                                        android:textSize="12.5sp" />
+                                    <TextView
+                                        android:layout_width="wrap_content"
+                                        android:layout_height="wrap_content"
+                                        android:text=" : "
+                                        android:textColor="#334155"
+                                        android:textSize="12.5sp" />
+                                    <TextView
+                                        android:id="@+id/tvRaportNamaWali"
+                                        android:layout_width="0dp"
+                                        android:layout_height="wrap_content"
+                                        android:layout_weight="1"
+                                        android:text="-"
+                                        android:textColor="#0F172A"
+                                        android:textSize="12.5sp" />
+                                </LinearLayout>
+
+                                <LinearLayout
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginStart="24dp"
+                                    android:layout_marginTop="4dp"
+                                    android:orientation="horizontal">
+                                    <TextView
+                                        android:layout_width="121dp"
+                                        android:layout_height="wrap_content"
+                                        android:text="Alamat Wali Peserta Didik"
+                                        android:textColor="#475569"
+                                        android:textSize="12sp" />
+                                    <TextView
+                                        android:layout_width="wrap_content"
+                                        android:layout_height="wrap_content"
+                                        android:text=" : "
+                                        android:textColor="#475569"
+                                        android:textSize="12sp" />
+                                    <TextView
+                                        android:id="@+id/tvRaportAlamatWali"
+                                        android:layout_width="0dp"
+                                        android:layout_height="wrap_content"
+                                        android:layout_weight="1"
+                                        android:text="-"
+                                        android:textColor="#0F172A"
+                                        android:textSize="12sp" />
+                                </LinearLayout>
+
+                                <LinearLayout
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginStart="24dp"
+                                    android:layout_marginTop="4dp"
+                                    android:orientation="horizontal">
+                                    <TextView
+                                        android:layout_width="121dp"
+                                        android:layout_height="wrap_content"
+                                        android:text="Nomor Telepon Rumah"
+                                        android:textColor="#475569"
+                                        android:textSize="12sp" />
+                                    <TextView
+                                        android:layout_width="wrap_content"
+                                        android:layout_height="wrap_content"
+                                        android:text=" : "
+                                        android:textColor="#475569"
+                                        android:textSize="12sp" />
+                                    <TextView
+                                        android:id="@+id/tvRaportTeleponWali"
+                                        android:layout_width="0dp"
+                                        android:layout_height="wrap_content"
+                                        android:layout_weight="1"
+                                        android:text="-"
+                                        android:textColor="#0F172A"
+                                        android:textSize="12sp" />
+                                </LinearLayout>
+                            </LinearLayout>
+
+                            <!-- Item 17: Pekerjaan Wali Peserta Didik -->
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginBottom="8dp"
+                                android:orientation="horizontal">
+                                <TextView
+                                    android:layout_width="145dp"
+                                    android:layout_height="wrap_content"
+                                    android:text="17. Pekerjaan Wali\n      Peserta Didik"
+                                    android:textColor="#334155"
+                                    android:textSize="12.5sp" />
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text=" : "
+                                    android:textColor="#334155"
+                                    android:textSize="12.5sp" />
+                                <TextView
+                                    android:id="@+id/tvRaportPekerjaanWali"
+                                    android:layout_width="0dp"
+                                    android:layout_height="wrap_content"
+                                    android:layout_weight="1"
+                                    android:text="-"
+                                    android:textColor="#0F172A"
+                                    android:textSize="12.5sp" />
+                            </LinearLayout>
+                        </LinearLayout>
+                    </LinearLayout>
+                </androidx.cardview.widget.CardView>
+
+                <!-- Prominent Dapodik Operator Warning Card (Bottom) -->
+                <androidx.cardview.widget.CardView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:layout_marginBottom="24dp"
+                    app:cardCornerRadius="16dp"
+                    app:cardElevation="2dp"
+                    app:cardBackgroundColor="#FEF3C7">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:padding="16dp">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="⚠️"
+                                android:textSize="20sp" />
+
+                            <TextView
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_marginStart="8dp"
+                                android:layout_weight="1"
+                                android:text="PEMBERITAHUAN OPERATOR DAPODIK"
+                                android:textColor="#92400E"
+                                android:textSize="13sp"
+                                android:textStyle="bold" />
+                        </LinearLayout>
+
+                        <TextView
+                            android:id="@+id/tvNoticeDapodik"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:lineSpacingExtra="3dp"
+                            android:text="Data di atas adalah data resmi yang tercatat di Buku Induk Siswa &amp; Dapodik Kemendikbud. Data pada aplikasi ini berstatus TETAP (READ-ONLY) dan tidak dapat diubah langsung oleh siswa atau orang tua/wali murid.\n\nJika terdapat kesalahan penulisan nama, tanggal lahir, nama orang tua, atau data lainnya, silakan hubungi Operator Dapodik Sekolah.\n\nSemua pembetulan data WAJIB sesuai dengan dokumen resmi Kartu Keluarga (KK) dan Akta Kelahiran yang sah."
+                            android:textColor="#78350F"
+                            android:textSize="11.5sp" />
+                    </LinearLayout>
+                </androidx.cardview.widget.CardView>
+            </LinearLayout>
+        </ScrollView>
+    </FrameLayout>
+</LinearLayout>

@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🍱 E-Kantin Sehat - Portal Kasir & Pengelola Stand - Smart School</title>
+    <script src="/js/tailwind.js"></script>
+    <link rel="stylesheet" href="/css/portal-theme.css">
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+</head>
+<body class="bg-slate-100 min-h-screen text-slate-800">
+    <!-- Header Navbar -->
+    <header class="bg-gradient-to-r from-amber-600 via-amber-500 to-orange-500 text-white shadow-md">
+        <div class="max-w-7xl mx-auto px-4 py-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+            <div class="flex items-center gap-3">
+                <span class="p-2.5 bg-white/20 rounded-2xl text-2xl backdrop-blur-sm">🍱</span>
+                <div>
+                    <h1 class="text-xl font-black tracking-tight flex items-center gap-2">
+                        <span>E-KANTIN SEHAT DIGITAL</span>
+                        <span class="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-amber-800/40 text-amber-100 border border-amber-300/30">Kasir &amp; Stand POS</span>
+                    </h1>
+                    <p class="text-amber-100 text-xs">Sistem Transaksi Non-Tunai, Pembatasan Jajan Siswa, &amp; Menu Higienis SMPN 1 Boyolangu</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-3">
+                <span class="text-xs bg-black/20 px-3 py-1.5 rounded-xl border border-white/20 flex items-center gap-1.5">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    <span>POS Terminal Aktif</span>
+                </span>
+                <a href="/admin" class="text-xs bg-white text-amber-700 hover:bg-amber-50 px-3 py-1.5 rounded-xl font-bold shadow-sm transition">
+                    &larr; Panel Admin
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto p-4 sm:p-6 space-y-6">
+        <!-- Banner Info Tahap Pengembangan -->
+        <div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm">
+            <div class="flex items-center gap-3">
+                <span class="text-2xl">⚙️</span>
+                <div>
+                    <h2 class="text-sm font-bold text-amber-900">Status Modul E-Kantin: Mode Pengembangan &amp; Feature Toggle</h2>
+                    <p class="text-xs text-amber-700">Modul ini dapat diaktifkan atau dinonaktifkan secara penuh melalui <a href="/admin/feature-panel" class="underline font-bold hover:text-amber-900">Panel Kontrol Fitur</a>. Saat ini berada pada konfigurasi aman nonaktif di APK hingga siap rilis publik.</p>
+                </div>
+            </div>
+            <a href="/admin/feature-panel" class="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold shadow-sm whitespace-nowrap">
+                Buka Feature Toggle &rarr;
+            </a>
+        </div>
+
+        <!-- Tab Navigasi Modul E-Kantin -->
+        <div class="flex border-b border-slate-200 gap-2">
+            <button id="btnTabPos" onclick="switchMainTab('pos')" class="px-5 py-2.5 font-bold text-sm border-b-2 border-amber-500 text-amber-600 transition flex items-center gap-2">
+                <span>🏪</span>
+                <span>Kasir &amp; POS Kantin</span>
+            </button>
+            <button id="btnTabTopup" onclick="switchMainTab('topup')" class="px-5 py-2.5 font-bold text-sm border-b-2 border-transparent text-slate-500 hover:text-slate-800 transition flex items-center gap-2">
+                <span>💳</span>
+                <span>Monitoring Top-Up Online (Midtrans)</span>
+                <span id="badgeTopupPending" class="hidden text-[10px] bg-amber-500 text-white px-2 py-0.5 rounded-full font-bold">0</span>
+            </button>
+        </div>
+
+        <!-- ================= VIEW 1: KASIR POS ================= -->
+        <div id="viewPos" class="space-y-6">
+            <!-- Metric Stat Cards -->
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div class="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm flex items-center justify-between">
+                    <div>
+                        <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">Omzet Hari Ini</p>
+                        <p id="tvTotalRevenue" class="text-2xl font-black text-slate-800 mt-1">Rp 0</p>
+                        <p class="text-[11px] text-emerald-600 font-semibold mt-1">Pendapatan Stand Kantin</p>
+                    </div>
+                    <div class="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center text-xl">
+                        💰
+                    </div>
+                </div>
+                <div class="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm flex items-center justify-between">
+                    <div>
+                        <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">Jumlah Transaksi</p>
+                        <p id="tvTotalTxns" class="text-2xl font-black text-slate-800 mt-1">0 Transaksi</p>
+                        <p class="text-[11px] text-slate-500 mt-1">Siswa Berbelanja Hari Ini</p>
+                    </div>
+                    <div class="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center text-xl">
+                        🧾
+                    </div>
+                </div>
+                <div class="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm flex items-center justify-between">
+                    <div>
+                        <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">Stand Kantin Aktif</p>
+                        <p class="text-2xl font-black text-slate-800 mt-1">5 Stand</p>
+                        <p class="text-[11px] text-amber-600 font-semibold mt-1">Kantin Sehat Sekolah</p>
+                    </div>
+                    <div class="w-12 h-12 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center text-xl">
+                        🏪
+                    </div>
+                </div>
+            </div>
+
+            <!-- Main Layout: Kasir POS & Menu / Riwayat -->
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                <!-- Left: Terminal Kasir POS (7 Cols) -->
+                <div class="lg:col-span-7 space-y-6">
+                    <div class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-5">
+                        <div class="flex items-center justify-between border-b pb-4">
+                            <div class="flex items-center gap-2">
+                                <span class="text-xl">💳</span>
+                                <h2 class="text-base font-bold text-slate-800">Terminal Kasir POS (Scan QR Siswa)</h2>
+                            </div>
+                            <span class="text-[11px] bg-slate-100 text-slate-600 px-3 py-1 rounded-full font-semibold">
+                                Stand: Kantin Sehat Utama
+                            </span>
+                        </div>
+
+                        <!-- Input Barcode / QR Siswa -->
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 mb-1.5">Barcode / QR Siswa (CANTIN-PAY / NISN / Username)</label>
+                            <div class="flex gap-2">
+                                <input type="text" id="inputQrCode" placeholder="Arahkan scanner atau masukkan misal: CANTIN-PAY:0098231234:..." class="flex-1 border rounded-2xl p-3 text-xs font-mono font-bold bg-slate-50 focus:bg-white focus:ring-2 focus:ring-amber-500 outline-none">
+                                <button onclick="startCameraScanner()" class="px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-2xl text-xs font-bold shadow-sm flex items-center gap-1.5">
+                                    <span>📷</span>
+                                    <span>Kamera</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Reader Scanner View (Hidden by default) -->
+                        <div id="readerContainer" class="hidden rounded-2xl overflow-hidden border border-slate-200 bg-black">
+                            <div id="reader" style="width: 100%;"></div>
+                            <button onclick="stopCameraScanner()" class="w-full py-2 bg-red-600 text-white text-xs font-bold text-center">Tutup Kamera</button>
+                        </div>
+
+                        <!-- Nominal Belanja -->
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 mb-1.5">Total Nominal Belanja (Rp)</label>
+                            <input type="number" id="inputAmount" placeholder="Contoh: 12000" class="w-full border rounded-2xl p-3 text-lg font-bold text-slate-800 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-amber-500 outline-none">
+                        </div>
+
+                        <!-- Quick Preset Buttons -->
+                        <div>
+                            <p class="text-[11px] font-bold text-slate-500 mb-2">Preset Cepat Nominal:</p>
+                            <div class="grid grid-cols-4 gap-2 text-xs">
+                                <button onclick="setAmount(3000)" class="py-2 bg-slate-100 hover:bg-amber-100 text-slate-700 hover:text-amber-800 font-bold rounded-xl border transition">Rp 3.000</button>
+                                <button onclick="setAmount(5000)" class="py-2 bg-slate-100 hover:bg-amber-100 text-slate-700 hover:text-amber-800 font-bold rounded-xl border transition">Rp 5.000</button>
+                                <button onclick="setAmount(8000)" class="py-2 bg-slate-100 hover:bg-amber-100 text-slate-700 hover:text-amber-800 font-bold rounded-xl border transition">Rp 8.000</button>
+                                <button onclick="setAmount(10000)" class="py-2 bg-slate-100 hover:bg-amber-100 text-slate-700 hover:text-amber-800 font-bold rounded-xl border transition">Rp 10.000</button>
+                            </div>
+                        </div>
+
+                        <!-- Catatan Makanan / Minuman -->
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 mb-1.5">Catatan Item Makanan / Minuman</label>
+                            <input type="text" id="inputItemsNote" placeholder="Contoh: Nasi Soto + Air Mineral" class="w-full border rounded-2xl p-3 text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-amber-500 outline-none">
+                        </div>
+
+                        <!-- Tombol Proses Pembayaran -->
+                        <button onclick="processCanteenPayment()" id="btnProcessPayment" class="w-full py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold rounded-2xl text-sm shadow-md transition flex items-center justify-center gap-2">
+                            <span>✅</span>
+                            <span>Proses Pemotongan Saldo Siswa</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Right: Riwayat Transaksi Kasir Hari Ini (5 Cols) -->
+                <div class="lg:col-span-5 space-y-6">
+                    <div class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+                        <div class="flex items-center justify-between border-b pb-3">
+                            <h2 class="text-sm font-bold text-slate-800 flex items-center gap-2">
+                                <span>🧾</span>
+                                <span>Riwayat Transaksi Kasir Hari Ini</span>
+                            </h2>
+                            <button onclick="loadDashboardData()" class="text-xs text-amber-600 hover:underline font-bold">Refresh</button>
+                        </div>
+
+                        <div id="ordersList" class="space-y-3 max-h-[500px] overflow-y-auto pr-1">
+                            <p class="text-xs text-slate-400 text-center py-6">Memuat riwayat transaksi...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ================= VIEW 2: MONITORING TOP-UP ONLINE (MIDTRANS) ================= -->
+        <div id="viewTopup" class="hidden space-y-6">
+            <!-- Metric Stat Cards Top-Up -->
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div class="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm flex items-center justify-between">
+                    <div>
+                        <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">Top-Up Berhasil Hari Ini</p>
+                        <p id="tvTopupAmountToday" class="text-2xl font-black text-emerald-600 mt-1">Rp 0</p>
+                        <p id="tvTopupCountToday" class="text-[11px] text-slate-500 font-semibold mt-1">0 Transaksi Sukses</p>
+                    </div>
+                    <div class="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center text-xl">
+                        💳
+                    </div>
+                </div>
+                <div class="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm flex items-center justify-between">
+                    <div>
+                        <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">Menunggu Pembayaran</p>
+                        <p id="tvTopupPendingToday" class="text-2xl font-black text-amber-600 mt-1">0 Transaksi</p>
+                        <p class="text-[11px] text-slate-500 font-semibold mt-1">Status PENDING di Midtrans</p>
+                    </div>
+                    <div class="w-12 h-12 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center text-xl">
+                        ⏳
+                    </div>
+                </div>
+                <div class="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm flex items-center justify-between">
+                    <div>
+                        <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Masuk Bulan Ini</p>
+                        <p id="tvTopupAmountMonth" class="text-2xl font-black text-blue-600 mt-1">Rp 0</p>
+                        <p id="tvTopupCountMonth" class="text-[11px] text-slate-500 font-semibold mt-1">0 Transaksi Terverifikasi</p>
+                    </div>
+                    <div class="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center text-xl">
+                        📈
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tabel Transaksi Top-Up Online -->
+            <div class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+                <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b pb-4">
+                    <div>
+                        <h2 class="text-base font-bold text-slate-800 flex items-center gap-2">
+                            <span>📜</span>
+                            <span>Riwayat Transaksi Top-Up Siswa via Midtrans</span>
+                        </h2>
+                        <p class="text-xs text-slate-500 mt-0.5">Pantau status transaksi QRIS, E-Wallet, dan VA dari orang tua secara real-time</p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <select id="selectTopupStatus" onchange="loadTopupHistory()" class="border text-xs rounded-xl px-3 py-2 bg-slate-50 font-bold outline-none">
+                            <option value="">Semua Status</option>
+                            <option value="SUCCESS">✅ Berhasil (SUCCESS)</option>
+                            <option value="PENDING">⏳ Menunggu (PENDING)</option>
+                            <option value="EXPIRED">⌛ Kadaluarsa (EXPIRED)</option>
+                            <option value="FAILED">❌ Gagal (FAILED)</option>
+                        </select>
+                        <button onclick="loadTopupData()" class="px-3.5 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold shadow-sm flex items-center gap-1.5 transition">
+                            <span>🔄</span>
+                            <span>Refresh</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Tabel Data -->
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-xs">
+                        <thead>
+                            <tr class="bg-slate-50 text-slate-500 uppercase tracking-wider text-[11px] border-b">
+                                <th class="p-3 font-bold">No</th>
+                                <th class="p-3 font-bold">Order ID</th>
+                                <th class="p-3 font-bold">Waktu</th>
+                                <th class="p-3 font-bold">Nama Siswa (Kelas)</th>
+                                <th class="p-3 font-bold">Orang Tua</th>
+                                <th class="p-3 font-bold">Nominal</th>
+                                <th class="p-3 font-bold">Metode</th>
+                                <th class="p-3 font-bold">Status</th>
+                                <th class="p-3 font-bold text-center">Aksi</th>
+                            </tr>
+                        </thead>
+                        <tbody id="topupTableBody" class="divide-y divide-slate-100">
+                            <tr>
+                                <td colspan="9" class="p-6 text-center text-slate-400">Memuat data top-up online...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        let html5QrcodeScanner = null;
+
+        function switchMainTab(tab) {
+            const btnPos = document.getElementById('btnTabPos');
+            const btnTopup = document.getElementById('btnTabTopup');
+            const viewPos = document.getElementById('viewPos');
+            const viewTopup = document.getElementById('viewTopup');
+
+            if (tab === 'pos') {
+                btnPos.className = 'px-5 py-2.5 font-bold text-sm border-b-2 border-amber-500 text-amber-600 transition flex items-center gap-2';
+                btnTopup.className = 'px-5 py-2.5 font-bold text-sm border-b-2 border-transparent text-slate-500 hover:text-slate-800 transition flex items-center gap-2';
+                viewPos.classList.remove('hidden');
+                viewTopup.classList.add('hidden');
+            } else {
+                btnTopup.className = 'px-5 py-2.5 font-bold text-sm border-b-2 border-amber-500 text-amber-600 transition flex items-center gap-2';
+                btnPos.className = 'px-5 py-2.5 font-bold text-sm border-b-2 border-transparent text-slate-500 hover:text-slate-800 transition flex items-center gap-2';
+                viewPos.classList.add('hidden');
+                viewTopup.classList.remove('hidden');
+                loadTopupData();
+            }
+        }
+
+        async function loadTopupData() {
+            await Promise.all([loadTopupSummary(), loadTopupHistory()]);
+        }
+
+        async function loadTopupSummary() {
+            try {
+                const res = await fetch('/api/ekantin/topup/portal-summary', {
+                    headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('token') || '') }
+                });
+                const data = await res.json();
+                if (data.success && data.summary) {
+                    const s = data.summary;
+                    document.getElementById('tvTopupAmountToday').innerText = 'Rp ' + (s.amountSuccessToday || 0).toLocaleString('id-ID');
+                    document.getElementById('tvTopupCountToday').innerText = (s.totalSuccessToday || 0) + ' Transaksi Sukses';
+                    document.getElementById('tvTopupPendingToday').innerText = (s.totalPendingToday || 0) + ' Transaksi';
+                    document.getElementById('tvTopupAmountMonth').innerText = 'Rp ' + (s.amountSuccessMonth || 0).toLocaleString('id-ID');
+                    document.getElementById('tvTopupCountMonth').innerText = (s.totalSuccessMonth || 0) + ' Transaksi Terverifikasi';
+
+                    const badge = document.getElementById('badgeTopupPending');
+                    if (s.totalPendingToday > 0) {
+                        badge.innerText = s.totalPendingToday;
+                        badge.classList.remove('hidden');
+                    } else {
+                        badge.classList.add('hidden');
+                    }
+                }
+            } catch (e) {
+                console.error('Error loading topup summary:', e);
+            }
+        }
+
+        async function loadTopupHistory() {
+            const tbody = document.getElementById('topupTableBody');
+            tbody.innerHTML = '<tr><td colspan="9" class="p-6 text-center text-slate-400">Memuat riwayat transaksi...</td></tr>';
+
+            const status = document.getElementById('selectTopupStatus').value;
+            try {
+                const url = '/api/ekantin/topup/history' + (status ? `?status=${status}` : '');
+                const res = await fetch(url, {
+                    headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('token') || '') }
+                });
+                const data = await res.json();
+                if (data.success) {
+                    const items = data.data || [];
+                    if (items.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="9" class="p-6 text-center text-slate-400">Belum ada transaksi top-up yang sesuai filter.</td></tr>';
+                        return;
+                    }
+                    tbody.innerHTML = items.map((it, idx) => {
+                        let badgeHtml = '';
+                        if (it.midtransStatus === 'SUCCESS') {
+                            badgeHtml = '<span class="px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg font-bold text-[10px]">✅ SUCCESS</span>';
+                        } else if (it.midtransStatus === 'PENDING') {
+                            badgeHtml = '<span class="px-2.5 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded-lg font-bold text-[10px]">⏳ PENDING</span>';
+                        } else if (it.midtransStatus === 'EXPIRED') {
+                            badgeHtml = '<span class="px-2.5 py-1 bg-slate-100 text-slate-600 border border-slate-200 rounded-lg font-bold text-[10px]">⌛ EXPIRED</span>';
+                        } else {
+                            badgeHtml = `<span class="px-2.5 py-1 bg-rose-50 text-rose-700 border border-rose-200 rounded-lg font-bold text-[10px]">❌ ${it.midtransStatus}</span>`;
+                        }
+
+                        const dateStr = it.paidAt || it.createdAt || '-';
+                        return `
+                            <tr class="hover:bg-slate-50 transition">
+                                <td class="p-3 text-slate-400">${idx + 1}</td>
+                                <td class="p-3 font-mono font-bold text-slate-800">${it.orderId}</td>
+                                <td class="p-3 text-slate-500 whitespace-nowrap">${dateStr}</td>
+                                <td class="p-3 font-bold text-slate-800">${it.studentName || '-'} <span class="text-slate-400 font-normal">(${it.className || '-'})</span></td>
+                                <td class="p-3 text-slate-600">${it.parentName || '-'}</td>
+                                <td class="p-3 font-bold text-slate-800 whitespace-nowrap">Rp ${(it.amount || 0).toLocaleString('id-ID')}</td>
+                                <td class="p-3 text-slate-600 uppercase font-semibold text-[10px]">${it.paymentMethod || 'Midtrans'}</td>
+                                <td class="p-3 whitespace-nowrap">${badgeHtml}</td>
+                                <td class="p-3 text-center whitespace-nowrap">
+                                    <button onclick="checkItemStatus('${it.orderId}')" class="px-2.5 py-1 bg-slate-100 hover:bg-amber-100 text-slate-700 hover:text-amber-800 font-bold text-[10px] rounded-lg border transition">
+                                        🔍 Cek Status
+                                    </button>
+                                </td>
+                            </tr>
+                        `;
+                    }).join('');
+                } else {
+                    tbody.innerHTML = `<tr><td colspan="9" class="p-6 text-center text-rose-500">${data.message || 'Gagal memuat data'}</td></tr>`;
+                }
+            } catch (err) {
+                tbody.innerHTML = `<tr><td colspan="9" class="p-6 text-center text-rose-500">Kesalahan jaringan: ${err.message}</td></tr>`;
+            }
+        }
+
+        async function checkItemStatus(orderId) {
+            try {
+                const res = await fetch(`/api/ekantin/topup/status/${orderId}`, {
+                    headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('token') || '') }
+                });
+                const data = await res.json();
+                if (data.success && data.data) {
+                    alert(`Status Order ${orderId}:\nStatus: ${data.data.status}\nNominal: Rp ${data.data.amount.toLocaleString('id-ID')}\nMetode: ${data.data.paymentMethod || '-'}\nTerakhir dicek ke Midtrans API.`);
+                    loadTopupData();
+                } else {
+                    alert('Gagal mengecek status: ' + (data.message || 'Tidak ada respons'));
+                }
+            } catch (e) {
+                alert('Kesalahan jaringan: ' + e.message);
+            }
+        }
+
+        function setAmount(val) {
+            document.getElementById('inputAmount').value = val;
+        }
+
+        function playBeep() {
+            try {
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(880, ctx.currentTime);
+                gain.gain.setValueAtTime(0.3, ctx.currentTime);
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.start();
+                osc.stop(ctx.currentTime + 0.15);
+            } catch (e) {}
+        }
+
+        async function loadDashboardData() {
+            try {
+                const res = await fetch('/api/ekantin/pos/dashboard', {
+                    headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('token') || '') }
+                });
+                const data = await res.json();
+                if (data.success) {
+                    document.getElementById('tvTotalRevenue').innerText = 'Rp ' + (data.totalRevenueToday || 0).toLocaleString('id-ID');
+                    document.getElementById('tvTotalTxns').innerText = (data.totalTransactionsToday || 0) + ' Transaksi';
+                    
+                    const container = document.getElementById('ordersList');
+                    container.innerHTML = '';
+                    if (!data.recentOrders || data.recentOrders.length === 0) {
+                        container.innerHTML = '<p class="text-xs text-slate-400 text-center py-6">Belum ada transaksi hari ini.</p>';
+                        return;
+                    }
+                    data.recentOrders.forEach(o => {
+                        const item = document.createElement('div');
+                        item.className = 'p-3 bg-slate-50 border rounded-2xl flex items-center justify-between text-xs';
+                        item.innerHTML = `
+                            <div>
+                                <p class="font-bold text-slate-800">${o.studentName} <span class="text-[10px] text-slate-400">(${o.className})</span></p>
+                                <p class="text-[11px] text-slate-500">${o.notes || 'Pembelian Kantin'}</p>
+                                <p class="text-[10px] text-slate-400">${o.time} WIB • ${o.standName}</p>
+                            </div>
+                            <span class="font-black text-emerald-600 text-sm whitespace-nowrap">Rp ${o.amount.toLocaleString('id-ID')}</span>
+                        `;
+                        container.appendChild(item);
+                    });
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        async function processCanteenPayment() {
+            const qrCode = document.getElementById('inputQrCode').value.trim();
+            const amount = parseInt(document.getElementById('inputAmount').value, 10);
+            const itemsNote = document.getElementById('inputItemsNote').value.trim();
+
+            if (!qrCode) {
+                alert('Silakan scan atau masukkan Barcode / QR siswa terlebih dahulu!');
+                return;
+            }
+            if (isNaN(amount) || amount <= 0) {
+                alert('Nominal belanja tidak valid!');
+                return;
+            }
+
+            const btn = document.getElementById('btnProcessPayment');
+            btn.disabled = true;
+            btn.innerHTML = 'Memproses Pembayaran...';
+
+            try {
+                const res = await fetch('/api/ekantin/pos/pay', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + (localStorage.getItem('token') || '')
+                    },
+                    body: JSON.stringify({
+                        qrCode,
+                        amount,
+                        itemsNote,
+                        merchantName: 'Stand Kantin Sehat Utama'
+                    })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    playBeep();
+                    alert(`✅ PEMBAYARAN BERHASIL!\n\nNama Siswa: ${data.student.name} (${data.student.className})\nTotal Belanja: Rp ${amount.toLocaleString('id-ID')}\nSisa Saldo Anak: Rp ${data.remainingBalance.toLocaleString('id-ID')}\nSisa Limit Hari Ini: Rp ${data.remainingDailyLimit.toLocaleString('id-ID')}`);
+                    document.getElementById('inputQrCode').value = '';
+                    document.getElementById('inputAmount').value = '';
+                    document.getElementById('inputItemsNote').value = '';
+                    loadDashboardData();
+                } else {
+                    alert('❌ GAGAL: ' + (data.message || 'Transaksi ditolak'));
+                }
+            } catch (err) {
+                alert('Terjadi kesalahan jaringan: ' + err.message);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<span>✅</span><span>Proses Pemotongan Saldo Siswa</span>';
+            }
+        }
+
+        function startCameraScanner() {
+            const container = document.getElementById('readerContainer');
+            container.classList.remove('hidden');
+            html5QrcodeScanner = new Html5Qrcode("reader");
+            html5QrcodeScanner.start(
+                { facingMode: "environment" },
+                { fps: 10, qrbox: { width: 250, height: 250 } },
+                (decodedText) => {
+                    document.getElementById('inputQrCode').value = decodedText;
+                    stopCameraScanner();
+                    playBeep();
+                },
+                (errorMessage) => {}
+            );
+        }
+
+        function stopCameraScanner() {
+            if (html5QrcodeScanner) {
+                html5QrcodeScanner.stop().then(() => {
+                    document.getElementById('readerContainer').classList.add('hidden');
+                }).catch(() => {
+                    document.getElementById('readerContainer').classList.add('hidden');
+                });
+            } else {
+                document.getElementById('readerContainer').classList.add('hidden');
+            }
+        }
+
+        window.onload = () => {
+            loadDashboardData();
+            loadTopupSummary();
+        };
+    </script>
+</body>
+</html>

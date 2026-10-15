@@ -75,6 +75,11 @@
                 <p class="text-[10px] text-emerald-700 font-black uppercase">[H] Hadir</p>
                 <p class="text-xl font-black text-emerald-700" id="statH">0</p>
             </div>
+            <!-- ? : Hadir Tidak Scan Pulang (#0284C7) -->
+            <div class="bg-sky-50 p-3 rounded-xl shadow-sm border border-sky-200 text-center">
+                <p class="text-[10px] text-sky-700 font-black uppercase">[?] Tdk Scan</p>
+                <p class="text-xl font-black text-sky-700" id="statUnconfirmedOut">0</p>
+            </div>
             <!-- T: Terlambat (#F59E0B) -->
             <div class="bg-amber-50 p-3 rounded-xl shadow-sm border border-amber-200 text-center">
                 <p class="text-[10px] text-amber-700 font-black uppercase">[T] Terlambat</p>
@@ -249,12 +254,19 @@
                     </div>
                 </div>
 
+                <!-- Direct Class Selector (Selalu Muncul) -->
                 <div>
-                    <label class="block text-xs font-bold text-gray-600 mb-1">🎯 Lingkup Rekapitulasi</label>
-                    <select id="filterScope" class="border p-2 rounded-xl text-xs font-bold bg-indigo-50 text-indigo-900" onchange="onScopeChange()">
-                        <option value="ALL" selected>Semua Kelas (Seluruh Siswa)</option>
-                        <option value="GRADE">Per Tingkat / Jenjang</option>
-                        <option value="CLASS">Per Kelas</option>
+                    <label class="block text-xs font-bold text-gray-700 mb-1">🏫 Pilih Kelas / Rombel</label>
+                    <select id="filterClass" class="border border-indigo-300 p-2 rounded-xl text-xs font-bold bg-white text-indigo-900 shadow-sm" onchange="onClassFilterChange()">
+                        <option value="ALL">🌐 Semua Kelas (Seluruh Siswa)</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-gray-600 mb-1">🎯 Jenjang / Tingkat</label>
+                    <select id="filterScope" class="border p-2 rounded-xl text-xs font-bold bg-slate-50 text-slate-800" onchange="onScopeChange()">
+                        <option value="ALL" selected>Semua Jenjang</option>
+                        <option value="GRADE">Pilih Per Jenjang</option>
                     </select>
                 </div>
                 <div id="containerGradeSelect" class="hidden">
@@ -265,15 +277,9 @@
                         <option value="IX">Tingkat IX (Kelas 9)</option>
                     </select>
                 </div>
-                <div id="containerClassSelect" class="hidden">
-                    <label class="block text-xs font-bold text-gray-600 mb-1">Pilih Kelas</label>
-                    <select id="filterClass" class="border p-2 rounded-xl text-xs font-semibold" onchange="loadRekap()">
-                        <option value="ALL">Semua Kelas</option>
-                    </select>
-                </div>
                 <div>
-                    <label class="block text-xs font-bold text-gray-600 mb-1">🔍 Cari Nama / NISN</label>
-                    <input type="text" id="searchInput" placeholder="Ketik nama atau NISN..." class="border p-2 rounded-xl text-xs" oninput="filterLocal()">
+                    <label class="block text-xs font-bold text-gray-600 mb-1">🔍 Cari Nama / NISN / Kelas</label>
+                    <input type="text" id="searchInput" placeholder="Nama, NISN, atau kelas (mis: VII B)..." class="border p-2 rounded-xl text-xs w-56 font-medium" oninput="filterLocal()">
                 </div>
             </div>
 
@@ -293,6 +299,24 @@
                 </button>
                 <button onclick="loadRekap()" class="bg-indigo-50 text-indigo-700 hover:bg-indigo-100 px-3.5 py-2 rounded-xl text-xs font-bold border border-indigo-200 cursor-pointer">
                     ⟳ Refresh
+                </button>
+            </div>
+        </div>
+
+        <!-- Quick Class Selection Pills (Interactive Chips) -->
+        <div class="bg-indigo-50/70 border border-indigo-200/80 rounded-2xl p-3 mb-6 flex flex-col gap-2 shadow-xs">
+            <div class="flex items-center justify-between flex-wrap gap-2">
+                <div class="flex items-center gap-2">
+                    <span class="text-xs font-black text-indigo-950 uppercase tracking-wider flex items-center gap-1.5">
+                        <span>🏷️</span> Filter Cepat Kelas:
+                    </span>
+                    <span class="bg-indigo-600 text-white text-[11px] font-bold px-2.5 py-0.5 rounded-full shadow-xs" id="activeClassLabelBadge">Semua Kelas</span>
+                </div>
+                <span class="text-[11px] text-slate-500 font-medium">Klik tombol kelas di bawah untuk memfilter rekapitulasi kelas tertentu secara instan</span>
+            </div>
+            <div class="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs" id="quickClassPills">
+                <button type="button" onclick="selectClass('ALL')" class="pill-class-btn px-3 py-1.5 rounded-xl font-bold bg-indigo-600 text-white shadow-xs transition cursor-pointer" data-class="ALL">
+                    🌐 Semua Kelas
                 </button>
             </div>
         </div>
@@ -556,6 +580,44 @@
         let currentRekapMode = 'DAILY'; // 'DAILY' | 'WEEKLY' | 'MONTHLY'
         let currentPeriodeData = null;
 
+        // Helper Standar Pengurutan Jenjang & Rombel Kelas (VII -> VIII -> IX)
+        function getClassRank(className) {
+            const raw = (className || '').trim();
+            if (!raw) return { grade: 999, suffix: '' };
+            const upper = raw.toUpperCase();
+            if (upper.startsWith('VIII') || upper.startsWith('8') || /\bVIII\b/.test(upper)) {
+                return { grade: 8, suffix: upper.replace(/^.*?VIII[-_ ]?/, '').replace(/^.*?8[-_ ]?/, '').trim() };
+            }
+            if (upper.startsWith('VII') || upper.startsWith('7') || /\bVII\b/.test(upper)) {
+                return { grade: 7, suffix: upper.replace(/^.*?VII[-_ ]?/, '').replace(/^.*?7[-_ ]?/, '').trim() };
+            }
+            if (upper.startsWith('IX') || upper.startsWith('9') || /\bIX\b/.test(upper)) {
+                return { grade: 9, suffix: upper.replace(/^.*?IX[-_ ]?/, '').replace(/^.*?9[-_ ]?/, '').trim() };
+            }
+            if (upper.startsWith('X') || upper.startsWith('10') || /\bX\b/.test(upper)) {
+                return { grade: 10, suffix: upper.replace(/^.*?X[-_ ]?/, '').replace(/^.*?10[-_ ]?/, '').trim() };
+            }
+            if (upper.startsWith('XI') || upper.startsWith('11') || /\bXI\b/.test(upper)) {
+                return { grade: 11, suffix: upper.replace(/^.*?XI[-_ ]?/, '').replace(/^.*?11[-_ ]?/, '').trim() };
+            }
+            if (upper.startsWith('XII') || upper.startsWith('12') || /\bXII\b/.test(upper)) {
+                return { grade: 12, suffix: upper.replace(/^.*?XII[-_ ]?/, '').replace(/^.*?12[-_ ]?/, '').trim() };
+            }
+            return { grade: 99, suffix: upper };
+        }
+
+        function compareClassNames(classA, classB) {
+            const a = (classA || '').trim();
+            const b = (classB || '').trim();
+            if (!a && !b) return 0;
+            if (!a) return 1;
+            if (!b) return -1;
+            const rankA = getClassRank(a);
+            const rankB = getClassRank(b);
+            if (rankA.grade !== rankB.grade) return rankA.grade - rankB.grade;
+            return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+        }
+
         // Set default date & month
         const todayDateObj = new Date();
         document.getElementById('filterDate').value = todayDateObj.toISOString().split('T')[0];
@@ -603,46 +665,95 @@
         function onScopeChange() {
             const scope = document.getElementById('filterScope').value;
             const containerGrade = document.getElementById('containerGradeSelect');
-            const containerClass = document.getElementById('containerClassSelect');
 
-            if (scope === 'ALL') {
-                containerGrade.classList.add('hidden');
-                containerClass.classList.add('hidden');
-            } else if (scope === 'GRADE') {
+            if (scope === 'GRADE') {
                 containerGrade.classList.remove('hidden');
-                containerClass.classList.add('hidden');
+                document.getElementById('filterClass').value = 'ALL';
+                updatePillsActive('ALL');
             } else {
                 containerGrade.classList.add('hidden');
-                containerClass.classList.remove('hidden');
             }
             loadRekap();
         }
 
+        function selectClass(className) {
+            const sel = document.getElementById('filterClass');
+            if (sel) sel.value = className;
+
+            const badge = document.getElementById('activeClassLabelBadge');
+            if (badge) {
+                badge.innerText = className === 'ALL' ? 'Semua Kelas' : 'Kelas ' + className;
+            }
+
+            if (className !== 'ALL') {
+                const scopeEl = document.getElementById('filterScope');
+                if (scopeEl) scopeEl.value = 'ALL';
+                document.getElementById('containerGradeSelect')?.classList.add('hidden');
+            }
+
+            updatePillsActive(className);
+            loadRekap();
+        }
+
+        function onClassFilterChange() {
+            const val = document.getElementById('filterClass').value;
+            selectClass(val);
+        }
+
+        function updatePillsActive(selectedClass) {
+            const pills = document.querySelectorAll('.pill-class-btn');
+            pills.forEach(p => {
+                const c = p.getAttribute('data-class');
+                if (c === selectedClass) {
+                    p.className = 'pill-class-btn px-3 py-1.5 rounded-xl font-bold bg-indigo-600 text-white shadow-xs transition cursor-pointer';
+                } else {
+                    p.className = 'pill-class-btn px-3 py-1.5 rounded-xl font-bold bg-white text-slate-700 hover:bg-indigo-100 hover:text-indigo-800 border border-slate-200 transition cursor-pointer whitespace-nowrap';
+                }
+            });
+        }
+
+        let globalClassList = [];
         async function loadClasses() {
             try {
                 const res = await fetch('/api/kelas', { headers: { 'Authorization': 'Bearer ' + token } });
                 const data = await res.json();
                 if(Array.isArray(data)) {
+                    globalClassList = data;
                     const sel = document.getElementById('filterClass');
-                    sel.innerHTML = '<option value="ALL">Semua Kelas</option>';
-                    data.forEach(k => {
-                        sel.innerHTML += '<option value="' + k.nama + '">Kelas ' + k.nama + '</option>';
-                    });
-                    // Set default to VII-A
-                    const viia = data.find(k => k.nama === 'VII-A' || k.nama === 'VII A' || k.nama.replace(/\s+/g, '').toUpperCase() === 'VIIA');
-                    if (viia) {
-                        sel.value = viia.nama;
-                    } else {
-                        const anyVII = data.find(k => k.nama.startsWith('VII'));
-                        if (anyVII) sel.value = anyVII.nama;
+                    sel.innerHTML = '<option value="ALL">🌐 Semua Kelas (Seluruh Siswa)</option>';
+
+                    const pillsContainer = document.getElementById('quickClassPills');
+                    if (pillsContainer) {
+                        pillsContainer.innerHTML = `
+                            <button type="button" onclick="selectClass('ALL')" class="pill-class-btn px-3 py-1.5 rounded-xl font-bold bg-indigo-600 text-white shadow-xs transition cursor-pointer" data-class="ALL">
+                                🌐 Semua Kelas
+                            </button>
+                        `;
                     }
+
+                    // Selalu urutkan kelas diawali dari jenjang VII, VIII, lalu IX
+                    const sorted = [...data].sort((a, b) => compareClassNames(a.nama || a.name, b.nama || b.name));
+
+                    sorted.forEach(k => {
+                        const cName = k.nama || k.name;
+                        sel.innerHTML += '<option value="' + cName + '">Kelas ' + cName + '</option>';
+                        if (pillsContainer) {
+                            pillsContainer.innerHTML += `
+                                <button type="button" onclick="selectClass('${cName}')" class="pill-class-btn px-3 py-1.5 rounded-xl font-bold bg-white text-slate-700 hover:bg-indigo-100 hover:text-indigo-800 border border-slate-200 transition cursor-pointer whitespace-nowrap" data-class="${cName}">
+                                    ${cName}
+                                </button>
+                            `;
+                        }
+                    });
+
+                    sel.value = 'ALL';
                 }
             } catch(e) {}
         }
 
         async function loadRekap() {
-            const scope = document.getElementById('filterScope').value;
-            let className = '';
+            const selectedClass = document.getElementById('filterClass')?.value || 'ALL';
+            const scope = document.getElementById('filterScope')?.value || 'ALL';
             let grade = '';
 
             let queryUrl = '';
@@ -667,16 +778,15 @@
                 queryParams.push('year=' + encodeURIComponent(y));
             }
 
-            if (scope === 'ALL') {
-                queryParams.push('scope=ALL');
+            if (selectedClass !== 'ALL') {
+                queryParams.push('scope=CLASS');
+                queryParams.push('className=' + encodeURIComponent(selectedClass));
             } else if (scope === 'GRADE') {
                 grade = document.getElementById('filterGrade').value;
                 queryParams.push('scope=GRADE');
                 queryParams.push('grade=' + encodeURIComponent(grade));
             } else {
-                className = document.getElementById('filterClass').value;
-                queryParams.push('scope=CLASS');
-                queryParams.push('className=' + encodeURIComponent(className));
+                queryParams.push('scope=ALL');
             }
 
             const finalUrl = queryUrl + '?' + queryParams.join('&');
@@ -688,7 +798,7 @@
                 const data = await res.json();
 
                 if(data && (data.records || Array.isArray(data))) {
-                    rekapRecords = data.records || [];
+                    rekapRecords = (data.records || []).sort((a, b) => compareClassNames(a.className, b.className) || (a.name || '').localeCompare(b.name || ''));
                     filteredRecords = [...rekapRecords];
                     currentPeriodeData = data;
 
@@ -740,6 +850,7 @@
                     const c = data.counts || {};
                     if(document.getElementById('statTotal')) document.getElementById('statTotal').innerText = c.totalStudents || c.total || 0;
                     if(document.getElementById('statH')) document.getElementById('statH').innerText = c.H ?? (c.present || 0);
+                    if(document.getElementById('statUnconfirmedOut')) document.getElementById('statUnconfirmedOut').innerText = c.unconfirmedOut ?? c.NO_OUT ?? 0;
                     if(document.getElementById('statT')) document.getElementById('statT').innerText = c.T ?? (c.late || 0);
                     if(document.getElementById('statS')) document.getElementById('statS').innerText = c.S ?? (c.sick || 0);
                     if(document.getElementById('statI')) document.getElementById('statI').innerText = c.I ?? (c.permission || 0);
@@ -763,14 +874,18 @@
 
                     if(classSelect && classSelect.children.length <= 1) {
                         classSelect.innerHTML = '<option value="ALL">Semua Kelas</option>';
-                        Array.from(classSet).sort().forEach(c => {
+                        Array.from(classSet).sort(compareClassNames).forEach(c => {
                             classSelect.innerHTML += '<option value="' + c + '">Kelas ' + c + '</option>';
                         });
                     }
 
                     filterManualRekapUsers();
                     currentPage = 1;
-                    renderTable();
+                    if (document.getElementById('searchInput')?.value.trim()) {
+                        filterLocal();
+                    } else {
+                        renderTable();
+                    }
                 }
             } catch(e) {
                 console.error(e);
@@ -935,13 +1050,33 @@
             }
         }
 
+        function normalizeKey(str) {
+            return (str || '').toString().toLowerCase().replace(/kelas/g, '').replace(/tingkat/g, '').replace(/[\s\-_]/g, '');
+        }
+
         function filterLocal() {
-            const q = (document.getElementById('searchInput').value || '').toLowerCase();
-            filteredRecords = rekapRecords.filter(r => 
-                (r.name && r.name.toLowerCase().includes(q)) || 
-                (r.nisn && r.nisn.toLowerCase().includes(q)) ||
-                (r.className && r.className.toLowerCase().includes(q))
-            );
+            const rawQ = (document.getElementById('searchInput').value || '').trim();
+            if (!rawQ) {
+                filteredRecords = [...rekapRecords];
+                currentPage = 1;
+                renderTable();
+                return;
+            }
+
+            const qLower = rawQ.toLowerCase();
+            const qNorm = normalizeKey(rawQ);
+
+            filteredRecords = rekapRecords.filter(r => {
+                const nameLower = (r.name || '').toLowerCase();
+                const nisnLower = (r.nisn || '').toLowerCase();
+                const classLower = (r.className || '').toLowerCase();
+                const classNorm = normalizeKey(r.className);
+
+                return nameLower.includes(qLower) || 
+                       nisnLower.includes(qLower) || 
+                       classLower.includes(qLower) || 
+                       (qNorm && classNorm.includes(qNorm));
+            });
             currentPage = 1;
             renderTable();
         }
@@ -1054,11 +1189,27 @@
                         badge = '<span class="bg-yellow-100 text-yellow-900 border border-yellow-300 px-2.5 py-1 rounded-full text-xs font-bold">[L] Tugas Luar</span>';
                     } else if(code === 'B' || r.status === 'TRUANT') {
                         badge = '<span class="bg-rose-200 text-rose-950 border border-rose-400 px-2.5 py-1 rounded-full text-xs font-bold">[B] Bolos</span>';
+                    } else if(code === '?' || r.status === 'UNCONFIRMED_OUT') {
+                        badge = '<span class="bg-sky-100 text-sky-800 border border-sky-300 px-2.5 py-1 rounded-full text-xs font-bold">[?] Tdk Scan Pulang</span>';
                     } else if(code === 'LBR' || r.status === 'HOLIDAY') {
                         badge = '<span class="bg-teal-100 text-teal-900 border border-teal-400 px-2.5 py-1 rounded-full text-xs font-bold">🌴 [LBR] Libur</span>';
                     }
 
-                    const scanTimeFormatted = r.gateInTime || (r.scanTime ? new Date(r.scanTime).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ' WIB' : '-');
+                    const formatScanTimeWib = (st, fb) => {
+                        if (fb && typeof fb === 'string' && fb.includes('WIB')) return fb;
+                        if (!st) return '-';
+                        try {
+                            const d = new Date(st);
+                            if (isNaN(d.getTime())) return String(st);
+                            const hh = String(d.getUTCHours()).padStart(2, '0');
+                            const mm = String(d.getUTCMinutes()).padStart(2, '0');
+                            const ss = String(d.getUTCSeconds()).padStart(2, '0');
+                            return `${hh}:${mm}:${ss} WIB`;
+                        } catch (e) {
+                            return '-';
+                        }
+                    };
+                    const scanTimeFormatted = formatScanTimeWib(r.scanTime, r.gateInTime);
                     const gateOutFormatted = r.gateOutTime || '-';
 
                     let geoCell = '<span class="text-gray-400 text-xs">-</span>';
@@ -1153,6 +1304,7 @@
                         else if (row.statusCode === 'S') stBadge = '<span class="bg-purple-100 text-purple-800 px-2 py-0.5 rounded text-[10px] font-bold border border-purple-300">[S] Sakit</span>';
                         else if (row.statusCode === 'I') stBadge = '<span class="bg-blue-100 text-blue-800 px-2 py-0.5 rounded text-[10px] font-bold border border-blue-300">[I] Izin</span>';
                         else if (row.statusCode === 'A') stBadge = '<span class="bg-red-100 text-red-800 px-2 py-0.5 rounded text-[10px] font-bold border border-red-300">[A] Alfa</span>';
+                        else if (row.statusCode === '?' || row.statusCode === 'UNCONFIRMED_OUT') stBadge = '<span class="bg-sky-100 text-sky-800 px-2 py-0.5 rounded text-[10px] font-bold border border-sky-300">[?] Tdk Scan</span>';
                         else if (row.statusCode === 'LBR') stBadge = '<span class="bg-teal-100 text-teal-800 px-2 py-0.5 rounded text-[10px] font-bold border border-teal-300">🌴 Libur</span>';
 
                         const [yy, mm, dd] = row.date.split('-');
@@ -1319,15 +1471,18 @@
 
         function getExportParams() {
             const date = document.getElementById('filterDate').value;
-            const scope = document.getElementById('filterScope').value;
-            let query = 'date=' + encodeURIComponent(date) + '&scope=' + encodeURIComponent(scope) + '&token=' + encodeURIComponent(token);
+            const selectedClass = document.getElementById('filterClass')?.value || 'ALL';
+            let query = 'date=' + encodeURIComponent(date) + '&token=' + encodeURIComponent(token);
 
-            if (scope === 'GRADE') {
-                const grade = document.getElementById('filterGrade').value;
-                query += '&grade=' + encodeURIComponent(grade);
-            } else if (scope === 'CLASS') {
-                const className = document.getElementById('filterClass').value;
-                query += '&className=' + encodeURIComponent(className);
+            if (selectedClass && selectedClass !== 'ALL') {
+                query += '&scope=CLASS&className=' + encodeURIComponent(selectedClass);
+            } else {
+                const scope = document.getElementById('filterScope') ? document.getElementById('filterScope').value : 'ALL';
+                query += '&scope=' + encodeURIComponent(scope);
+                if (scope === 'GRADE') {
+                    const grade = document.getElementById('filterGrade').value;
+                    query += '&grade=' + encodeURIComponent(grade);
+                }
             }
             return query;
         }

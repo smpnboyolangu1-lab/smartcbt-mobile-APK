@@ -5,19 +5,43 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Manajemen Tugas & PR Siswa - Smart School</title>
     <script src="/js/tailwind.js"></script>
+    <script src="/js/chart.js"></script>
     <style>
         .bg-unbk-navy { background-color: #0c234a; }
         .bg-unbk-blue { background-color: #1d4ed8; }
+        .tab-btn-hw.active {
+            border-bottom: 2px solid #1d4ed8;
+            color: #1d4ed8;
+            font-weight: bold;
+        }
+        @media print {
+            body * { visibility: hidden !important; }
+            #printAreaAnalisisTugas, #printAreaAnalisisTugas * { visibility: visible !important; }
+            #printAreaAnalisisTugas {
+                position: absolute !important;
+                left: 0 !important;
+                top: 0 !important;
+                width: 100% !important;
+                background: white !important;
+                color: black !important;
+                padding: 16px !important;
+            }
+            .no-print { display: none !important; }
+        }
     </style>
     <link rel="stylesheet" href="/css/portal-theme.css">
 </head>
 <body class="bg-[#f8fafc] text-slate-800 flex">
     <!-- Sidebar -->
-    <%- include('partials/sidebar_admin') %>
+    <% if (typeof isOperator !== 'undefined' && isOperator) { %>
+        <%- include('partials/sidebar_operator') %>
+    <% } else { %>
+        <%- include('partials/sidebar_admin') %>
+    <% } %>
 
     <!-- Main Content -->
     <main class="flex-1 p-6 md:p-8 ml-64 overflow-y-auto h-screen bg-slate-50/60 transition-all duration-300 ease-in-out">
-        <div class="flex justify-between items-center mb-6">
+        <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
             <div class="flex items-center gap-3">
                 <button onclick="togglePortalSidebar()" class="p-2 rounded-xl border border-slate-200/80 bg-white hover:bg-slate-100 text-slate-700 transition-colors shadow-sm cursor-pointer" title="Toggle Sidebar (Ctrl+B)">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
@@ -34,53 +58,190 @@
             </button>
         </div>
 
-        <!-- Summary Stats -->
-        <div class="grid grid-cols-3 gap-5 mb-6">
-            <div class="bg-white p-5 rounded-2xl shadow-sm border border-blue-100 flex items-center justify-between">
-                <div>
-                    <p class="text-xs text-gray-500 font-semibold uppercase">Total Tugas Aktif</p>
-                    <p class="text-2xl font-extrabold text-blue-900" id="statTotalHw">0</p>
+        <!-- Navigation Tabs -->
+        <div class="bg-white rounded-2xl shadow-sm border mb-6 px-4 pt-3 flex space-x-6 text-sm">
+            <button onclick="switchHwTab('list')" class="tab-btn-hw active pb-3 px-2 text-blue-700 flex items-center gap-2 font-bold" id="btnTabHwList">
+                <span>📚</span> Daftar Tugas &amp; Pengumpulan (<span id="countHwBadge">0</span>)
+            </button>
+            <button onclick="switchHwTab('analisis')" class="tab-btn-hw pb-3 px-2 text-slate-500 hover:text-slate-800 flex items-center gap-2 font-bold" id="btnTabHwAnalisis">
+                <span>📊</span> Analisis Ketuntasan PR &amp; Tugas
+            </button>
+        </div>
+
+        <!-- SECTION 1: DAFTAR TUGAS -->
+        <div id="section-hw-list" class="space-y-6">
+            <!-- Summary Stats -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
+                <div class="bg-white p-5 rounded-2xl shadow-sm border border-blue-100 flex items-center justify-between">
+                    <div>
+                        <p class="text-xs text-gray-500 font-semibold uppercase">Total Tugas Aktif</p>
+                        <p class="text-2xl font-extrabold text-blue-900" id="statTotalHw">0</p>
+                    </div>
+                    <span class="text-3xl">📑</span>
                 </div>
-                <span class="text-3xl">📑</span>
+                <div class="bg-white p-5 rounded-2xl shadow-sm border border-green-100 flex items-center justify-between">
+                    <div>
+                        <p class="text-xs text-green-700 font-semibold uppercase">Tugas Terkumpul</p>
+                        <p class="text-2xl font-extrabold text-green-700" id="statTotalSubmissions">0</p>
+                    </div>
+                    <span class="text-3xl">📥</span>
+                </div>
+                <div class="bg-white p-5 rounded-2xl shadow-sm border border-amber-100 flex items-center justify-between">
+                    <div>
+                        <p class="text-xs text-amber-700 font-semibold uppercase">Terkunci / Lewat Deadline</p>
+                        <p class="text-2xl font-extrabold text-amber-700" id="statClosedHw">0</p>
+                    </div>
+                    <span class="text-3xl">⏰</span>
+                </div>
             </div>
-            <div class="bg-white p-5 rounded-2xl shadow-sm border border-green-100 flex items-center justify-between">
-                <div>
-                    <p class="text-xs text-green-700 font-semibold uppercase">Tugas Terkumpul</p>
-                    <p class="text-2xl font-extrabold text-green-700" id="statTotalSubmissions">0</p>
+
+            <!-- Table Container -->
+            <div class="bg-white rounded-2xl shadow-sm border overflow-hidden">
+                <div class="p-4 border-b bg-gray-50 flex justify-between items-center">
+                    <h3 class="font-bold text-gray-800 text-sm">Daftar Penugasan &amp; Status Pengumpulan Siswa</h3>
+                    <span class="text-xs text-gray-500">Klik <b>📥 Periksa Submisi &amp; Nilai</b> atau <b>📊 Analisis</b> untuk melihat analisis komprehensif</span>
                 </div>
-                <span class="text-3xl">📥</span>
-            </div>
-            <div class="bg-white p-5 rounded-2xl shadow-sm border border-amber-100 flex items-center justify-between">
-                <div>
-                    <p class="text-xs text-amber-700 font-semibold uppercase">Terkunci / Lewat Deadline</p>
-                    <p class="text-2xl font-extrabold text-amber-700" id="statClosedHw">0</p>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse whitespace-nowrap text-xs">
+                        <thead>
+                            <tr class="bg-gray-100 text-gray-700 uppercase tracking-wider border-b">
+                                <th class="p-4">Judul Tugas</th>
+                                <th class="p-4">Mata Pelajaran</th>
+                                <th class="p-4">Kelas</th>
+                                <th class="p-4">Batas Deadline</th>
+                                <th class="p-4">Status Pengumpulan</th>
+                                <th class="p-4">Aksi</th>
+                            </tr>
+                        </thead>
+                        <tbody id="homeworkTableBody">
+                            <tr><td colspan="6" class="p-4 text-center text-gray-500">Memuat daftar tugas...</td></tr>
+                        </tbody>
+                    </table>
                 </div>
-                <span class="text-3xl">⏰</span>
             </div>
         </div>
 
-        <!-- Table Container -->
-        <div class="bg-white rounded-2xl shadow-sm border overflow-hidden">
-            <div class="p-4 border-b bg-gray-50 flex justify-between items-center">
-                <h3 class="font-bold text-gray-800 text-sm">Daftar Penugasan & Status Pengumpulan Siswa</h3>
-                <span class="text-xs text-gray-500">Klik <b>📥 Periksa Submisi & Nilai</b> untuk melihat berkas siswa dan memberi nilai</span>
+        <!-- SECTION 2: ANALISIS KETUNTASAN PR & TUGAS (SETARA ANALISIS CBT) -->
+        <div id="section-hw-analisis" class="hidden space-y-6">
+            <!-- Filter Bar -->
+            <div class="bg-white rounded-2xl shadow-sm p-4 border flex flex-wrap justify-between items-center gap-4">
+                <div class="flex flex-wrap items-center gap-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-500 mb-1">Pilih Tugas / PR untuk Dianalisis</label>
+                        <select id="selectAnalisisHw" class="border p-2 rounded-xl text-xs font-bold w-64 md:w-80" onchange="loadSelectedHomeworkAnalytics()">
+                            <option value="">-- Pilih Tugas / PR --</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                    <button onclick="exportHomeworkAnalyticsCsv()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow transition-all">
+                        <span>📥</span> Unduh Excel / CSV
+                    </button>
+                    <button onclick="printHomeworkAnalytics()" class="bg-slate-800 hover:bg-black text-white px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow">
+                        <span>🖨️</span> Cetak Rekap Analisis
+                    </button>
+                </div>
             </div>
-            <div class="overflow-x-auto">
-                <table class="w-full text-left border-collapse whitespace-nowrap text-xs">
-                    <thead>
-                        <tr class="bg-gray-100 text-gray-700 uppercase tracking-wider border-b">
-                            <th class="p-4">Judul Tugas</th>
-                            <th class="p-4">Mata Pelajaran</th>
-                            <th class="p-4">Kelas</th>
-                            <th class="p-4">Batas Deadline</th>
-                            <th class="p-4">Status Pengumpulan</th>
-                            <th class="p-4">Aksi</th>
-                        </tr>
-                    </thead>
-                    <tbody id="homeworkTableBody">
-                        <tr><td colspan="6" class="p-4 text-center text-gray-500">Memuat daftar tugas...</td></tr>
-                    </tbody>
-                </table>
+
+            <!-- Header Info Tugas Terpilih -->
+            <div id="analisisHwHeaderCard" class="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white p-6 rounded-3xl shadow-lg border border-indigo-500/30">
+                <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                    <div>
+                        <span class="bg-indigo-500/30 text-indigo-300 text-[11px] uppercase tracking-wider px-3 py-1 rounded-full font-extrabold border border-indigo-400/30">
+                            📊 ANALISIS TUGAS &amp; PR SISWA
+                        </span>
+                        <h2 class="text-xl md:text-2xl font-black mt-2 text-white" id="analisisHwTitle">Pilih tugas pada filter di atas</h2>
+                        <p class="text-xs text-indigo-200 mt-1" id="analisisHwSub">Mapel: - • Kelas: - • Batas Deadline: - • KKM: 75</p>
+                    </div>
+                    <div class="bg-slate-800/80 px-4 py-2.5 rounded-2xl border border-slate-700 text-center">
+                        <p class="text-[10px] text-slate-400 font-bold uppercase">Persentase Pengumpulan</p>
+                        <p class="text-2xl font-black text-emerald-400 mt-0.5" id="analisisHwSubmissionRate">0%</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 4 Kartu KPI Metrik Analisis -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                    <p class="text-[11px] font-bold text-slate-500 uppercase">👥 Total Siswa Kelas</p>
+                    <p class="text-2xl font-black text-slate-800 mt-1" id="kpiTotalStudents">0</p>
+                    <p class="text-[10px] text-slate-400 mt-1">Terdaftar resmi di kelas</p>
+                </div>
+                <div class="bg-white p-4 rounded-2xl border border-emerald-100 bg-emerald-50/20 shadow-sm">
+                    <p class="text-[11px] font-bold text-emerald-700 uppercase">📥 Sudah Mengumpulkan</p>
+                    <div class="flex items-baseline gap-1.5 mt-1">
+                        <p class="text-2xl font-black text-emerald-700" id="kpiSubmittedCount">0</p>
+                        <span class="text-xs font-bold text-emerald-600" id="kpiOnTimeVsLate">(0 Tepat / 0 Telat)</span>
+                    </div>
+                    <p class="text-[10px] text-rose-600 font-bold mt-1" id="kpiUnsubmittedCount">0 Belum Mengumpulkan</p>
+                </div>
+                <div class="bg-white p-4 rounded-2xl border border-blue-100 bg-blue-50/20 shadow-sm">
+                    <p class="text-[11px] font-bold text-blue-700 uppercase">📊 Rata-Rata Nilai</p>
+                    <div class="flex items-baseline gap-1.5 mt-1">
+                        <p class="text-2xl font-black text-blue-700" id="kpiMeanScore">0.0</p>
+                        <span class="text-xs font-semibold text-slate-500" id="kpiMinMax">Min: 0 | Max: 0</span>
+                    </div>
+                    <p class="text-[10px] text-slate-500 mt-1" id="kpiStdDev">Standar Deviasi: 0.0</p>
+                </div>
+                <div class="bg-white p-4 rounded-2xl border border-teal-100 bg-teal-50/20 shadow-sm">
+                    <p class="text-[11px] font-bold text-teal-700 uppercase">🎯 Ketuntasan KKM (&ge;75)</p>
+                    <div class="flex items-baseline gap-1.5 mt-1">
+                        <p class="text-2xl font-black text-teal-700" id="kpiPassRate">0%</p>
+                        <span class="text-xs font-bold text-teal-600" id="kpiPassCount">(0 Siswa Tuntas)</span>
+                    </div>
+                    <p class="text-[10px] text-rose-600 font-bold mt-1" id="kpiRemedialCount">0 Perlu Remedial</p>
+                </div>
+            </div>
+
+            <!-- 2 Grafik Visual Analisis -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <div class="bg-white p-5 rounded-2xl border shadow-sm">
+                    <h3 class="font-bold text-sm text-slate-800 mb-3 flex items-center gap-2">
+                        <span>🍩</span> Proporsi Pengumpulan Tugas
+                    </h3>
+                    <div class="h-56 relative flex justify-center items-center">
+                        <canvas id="chartHwSubmissions"></canvas>
+                    </div>
+                </div>
+                <div class="bg-white p-5 rounded-2xl border shadow-sm">
+                    <h3 class="font-bold text-sm text-slate-800 mb-3 flex items-center gap-2">
+                        <span>📊</span> Distribusi Perolehan Nilai Siswa
+                    </h3>
+                    <div class="h-56 relative flex justify-center items-center">
+                        <canvas id="chartHwScores"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tabel Detail Analisis per Siswa -->
+            <div class="bg-white rounded-2xl shadow-sm border overflow-hidden" id="printAreaAnalisisTugas">
+                <div class="p-4 border-b bg-gray-50 flex justify-between items-center">
+                    <div>
+                        <h3 class="font-bold text-gray-800 text-sm">Rekapitulasi Ketuntasan &amp; Status Pengerjaan Seluruh Siswa</h3>
+                        <p class="text-[11px] text-gray-500">Mencakup rekapitulasi keterlambatan, nilai angka, dan tindak lanjut remedial</p>
+                    </div>
+                    <span class="text-xs bg-indigo-100 text-indigo-800 font-bold px-3 py-1 rounded-full" id="badgeTotalStudentAnalisis">0 Siswa</span>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse whitespace-nowrap text-xs">
+                        <thead>
+                            <tr class="bg-gray-100 text-gray-700 uppercase tracking-wider border-b">
+                                <th class="p-3.5">No</th>
+                                <th class="p-3.5">NISN</th>
+                                <th class="p-3.5">Nama Siswa</th>
+                                <th class="p-3.5">Kelas</th>
+                                <th class="p-3.5">Waktu Submit</th>
+                                <th class="p-3.5">Status Pengumpulan</th>
+                                <th class="p-3.5">Nilai (0-100)</th>
+                                <th class="p-3.5">Ketuntasan</th>
+                                <th class="p-3.5">Catatan Evaluasi Guru</th>
+                            </tr>
+                        </thead>
+                        <tbody id="analisisStudentsTableBody">
+                            <tr><td colspan="9" class="p-4 text-center text-gray-500">Pilih tugas untuk memuat rekap analisis siswa</td></tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </main>
@@ -675,6 +836,21 @@
 
                 if(Array.isArray(allHomeworks) && allHomeworks.length > 0) {
                     document.getElementById('statTotalHw').innerText = allHomeworks.length;
+                    const badgeCount = document.getElementById('countHwBadge');
+                    if (badgeCount) badgeCount.innerText = allHomeworks.length;
+
+                    // Populate selectAnalisisHw options
+                    const selAnalisis = document.getElementById('selectAnalisisHw');
+                    if (selAnalisis) {
+                        const curVal = selAnalisis.value;
+                        selAnalisis.innerHTML = '<option value="">-- Pilih Tugas / PR --</option>';
+                        allHomeworks.forEach(hw => {
+                            const clsName = hw.class ? hw.class.name : '-';
+                            const subName = hw.subject ? hw.subject.name : '-';
+                            selAnalisis.innerHTML += `<option value="${hw.id}">[${clsName}] ${hw.title} (${subName})</option>`;
+                        });
+                        if (curVal) selAnalisis.value = curVal;
+                    }
 
                     allHomeworks.forEach(hw => {
                         const d = new Date(hw.deadline);
@@ -705,6 +881,7 @@
                                 </td>
                                 <td class="p-4 space-x-1.5 whitespace-nowrap">
                                     <button onclick="viewSubmissions('${hw.id}', '${hw.title}', '${hw.class ? hw.class.name : ''}')" class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-3 py-1.5 rounded-lg text-xs shadow">📥 Periksa Submisi & Nilai</button>
+                                    <button onclick="openHomeworkAnalytics('${hw.id}')" class="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold px-3 py-1.5 rounded-lg text-xs border border-indigo-200">📊 Analisis PR</button>
                                     <button onclick="deleteHomework('${hw.id}')" class="bg-red-50 hover:bg-red-100 text-red-600 font-bold px-2.5 py-1.5 rounded-lg text-xs border border-red-200">Hapus</button>
                                 </td>
                             </tr>
@@ -719,6 +896,251 @@
             } catch(e) {
                 console.error(e);
             }
+        }
+
+        // ==========================================
+        // ANALISIS PR & TUGAS LOGIC (SETARA CBT)
+        // ==========================================
+        let currentAnalisisData = null;
+        let chartSubmissionsInstance = null;
+        let chartScoresInstance = null;
+
+        function switchHwTab(tab) {
+            const secList = document.getElementById('section-hw-list');
+            const secAnalisis = document.getElementById('section-hw-analisis');
+            const btnList = document.getElementById('btnTabHwList');
+            const btnAnalisis = document.getElementById('btnTabHwAnalisis');
+
+            if (tab === 'list') {
+                secList.classList.remove('hidden');
+                secAnalisis.classList.add('hidden');
+                btnList.classList.add('active', 'text-blue-700');
+                btnList.classList.remove('text-slate-500');
+                btnAnalisis.classList.remove('active', 'text-blue-700');
+                btnAnalisis.classList.add('text-slate-500');
+            } else {
+                secList.classList.add('hidden');
+                secAnalisis.classList.remove('hidden');
+                btnAnalisis.classList.add('active', 'text-blue-700');
+                btnAnalisis.classList.remove('text-slate-500');
+                btnList.classList.remove('active', 'text-blue-700');
+                btnList.classList.add('text-slate-500');
+
+                // Jika belum ada tugas terpilih tapi ada daftar tugas, pilih otomatis tugas pertama
+                const sel = document.getElementById('selectAnalisisHw');
+                if (sel && (!sel.value || sel.value === '') && allHomeworks.length > 0) {
+                    sel.value = allHomeworks[0].id;
+                    loadSelectedHomeworkAnalytics();
+                }
+            }
+        }
+
+        function openHomeworkAnalytics(hwId) {
+            switchHwTab('analisis');
+            const sel = document.getElementById('selectAnalisisHw');
+            if (sel) {
+                sel.value = hwId;
+                loadSelectedHomeworkAnalytics();
+            }
+        }
+
+        async function loadSelectedHomeworkAnalytics() {
+            const sel = document.getElementById('selectAnalisisHw');
+            const hwId = sel ? sel.value : null;
+            if (!hwId) return;
+
+            const tbody = document.getElementById('analisisStudentsTableBody');
+            tbody.innerHTML = '<tr><td colspan="9" class="p-4 text-center text-gray-500">Memproses analisis ketuntasan tugas & nilai siswa...</td></tr>';
+
+            try {
+                const res = await fetch(`/api/homeworks/${hwId}/analytics`, {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                const data = await res.json();
+                if (!data.success) {
+                    alert(data.message || 'Gagal memuat analisis tugas');
+                    return;
+                }
+
+                currentAnalisisData = data;
+                renderHomeworkAnalyticsUI(data);
+            } catch (err) {
+                console.error(err);
+                tbody.innerHTML = `<tr><td colspan="9" class="p-4 text-center text-rose-500">Gagal memuat analisis: ${err.message}</td></tr>`;
+            }
+        }
+
+        function renderHomeworkAnalyticsUI(data) {
+            const hw = data.homework;
+            const sum = data.summary;
+            const stat = data.statistics;
+            const dist = data.distribution;
+            const students = data.students || [];
+
+            // Header info
+            document.getElementById('analisisHwTitle').innerText = hw.title;
+            const d = new Date(hw.deadline);
+            const dStr = d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) + ' WIB';
+            document.getElementById('analisisHwSub').innerText = `Mapel: ${hw.subject} • Kelas: ${hw.className} • Batas: ${dStr} • KKM: ${hw.passingGrade}`;
+            document.getElementById('analisisHwSubmissionRate').innerText = `${sum.submissionRate}%`;
+
+            // KPI Cards
+            document.getElementById('kpiTotalStudents').innerText = sum.totalStudents;
+            document.getElementById('kpiSubmittedCount').innerText = sum.submittedCount;
+            document.getElementById('kpiOnTimeVsLate').innerText = `(${sum.onTimeCount} Tepat / ${sum.lateCount} Telat)`;
+            document.getElementById('kpiUnsubmittedCount').innerText = `${sum.unsubmittedCount} Belum Mengumpulkan`;
+
+            document.getElementById('kpiMeanScore').innerText = stat.mean.toFixed(1);
+            document.getElementById('kpiMinMax').innerText = `Min: ${stat.lowestScore} | Max: ${stat.highestScore}`;
+            document.getElementById('kpiStdDev').innerText = `Standar Deviasi: ${stat.stdDev}`;
+
+            document.getElementById('kpiPassRate').innerText = `${sum.passRate}%`;
+            document.getElementById('kpiPassCount').innerText = `(${stat.passCount} Siswa Tuntas)`;
+            document.getElementById('kpiRemedialCount').innerText = `${stat.remedialCount} Perlu Remedial`;
+
+            document.getElementById('badgeTotalStudentAnalisis').innerText = `${students.length} Siswa`;
+
+            // Render Table
+            const tbody = document.getElementById('analisisStudentsTableBody');
+            tbody.innerHTML = '';
+
+            students.forEach((s, idx) => {
+                const subDateStr = s.submittedAt ? new Date(s.submittedAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) + ' WIB' : '-';
+                
+                let statusBadge = '';
+                if (s.status === 'TEPAT_WAKTU') {
+                    statusBadge = '<span class="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded font-bold text-[10.5px]">🟢 Tepat Waktu</span>';
+                } else if (s.status === 'TERLAMBAT') {
+                    statusBadge = '<span class="bg-amber-100 text-amber-800 px-2 py-0.5 rounded font-bold text-[10.5px]">⏰ Terlambat</span>';
+                } else {
+                    statusBadge = '<span class="bg-rose-100 text-rose-800 px-2 py-0.5 rounded font-bold text-[10.5px]">❌ Belum Kumpul</span>';
+                }
+
+                const scoreText = s.score !== null ? `<span class="font-mono font-bold text-sm ${s.isPassed ? 'text-emerald-700' : 'text-rose-700'}">${s.score}</span>` : '<span class="text-slate-400 font-mono">-</span>';
+                
+                const ketuntasanBadge = s.isPassed === true
+                    ? '<span class="bg-teal-100 text-teal-800 px-2 py-0.5 rounded font-bold text-[10.5px]">✅ TUNTAS</span>'
+                    : '<span class="bg-rose-100 text-rose-800 px-2 py-0.5 rounded font-bold text-[10.5px]">⚠️ REMEDIAL</span>';
+
+                tbody.innerHTML += `
+                    <tr class="hover:bg-slate-50 border-b">
+                        <td class="p-3.5 font-mono text-slate-500">${idx + 1}</td>
+                        <td class="p-3.5 font-mono text-slate-600">${s.nisn}</td>
+                        <td class="p-3.5 font-bold text-slate-900">${s.name}</td>
+                        <td class="p-3.5"><span class="bg-purple-50 text-purple-800 px-2 py-0.5 rounded font-bold text-[10.5px]">${s.className || hw.className}</span></td>
+                        <td class="p-3.5 font-mono text-slate-600 text-[11px]">${subDateStr}</td>
+                        <td class="p-3.5">${statusBadge}</td>
+                        <td class="p-3.5">${scoreText}</td>
+                        <td class="p-3.5">${ketuntasanBadge}</td>
+                        <td class="p-3.5 text-slate-600 text-[11px]">${s.teacherNote || '-'}</td>
+                    </tr>
+                `;
+            });
+
+            // Render Chart 1: Submissions Doughnut
+            renderChartSubmissions(sum.onTimeCount, sum.lateCount, sum.unsubmittedCount);
+
+            // Render Chart 2: Score Distribution Bar
+            renderChartScores(dist);
+        }
+
+        function renderChartSubmissions(onTime, late, unsubmitted) {
+            const ctx = document.getElementById('chartHwSubmissions');
+            if (!ctx) return;
+            if (chartSubmissionsInstance) chartSubmissionsInstance.destroy();
+
+            chartSubmissionsInstance = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Tepat Waktu', 'Terlambat', 'Belum Mengumpulkan'],
+                    datasets: [{
+                        data: [onTime, late, unsubmitted],
+                        backgroundColor: ['#10B981', '#F59E0B', '#EF4444'],
+                        borderWidth: 2,
+                        borderColor: '#FFFFFF'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'bottom', labels: { font: { size: 11, weight: 'bold' } } }
+                    }
+                }
+            });
+        }
+
+        function renderChartScores(dist) {
+            const ctx = document.getElementById('chartHwScores');
+            if (!ctx) return;
+            if (chartScoresInstance) chartScoresInstance.destroy();
+
+            chartScoresInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: ['90-100 (A)', '80-89 (B)', '70-79 (C)', '60-69 (D)', '<60 (E)'],
+                    datasets: [{
+                        label: 'Jumlah Siswa',
+                        data: [dist.sangatBaik, dist.baik, dist.cukup, dist.kurang, dist.perluBimbingan],
+                        backgroundColor: ['#059669', '#10B981', '#3B82F6', '#F59E0B', '#EF4444'],
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: { beginAtZero: true, ticks: { precision: 0, font: { size: 10 } } },
+                        x: { ticks: { font: { size: 10, weight: 'bold' } } }
+                    }
+                }
+            });
+        }
+
+        function exportHomeworkAnalyticsCsv() {
+            if (!currentAnalisisData || !currentAnalisisData.students) {
+                alert('Pilih tugas terlebih dahulu untuk mengunduh rekap analisis.');
+                return;
+            }
+            const hw = currentAnalisisData.homework;
+            const students = currentAnalisisData.students;
+
+            const rows = [
+                ['No', 'NISN', 'Nama Siswa', 'Kelas', 'Waktu Pengumpulan', 'Status Pengumpulan', 'Nilai', 'Ketuntasan', 'Catatan Guru']
+            ];
+
+            students.forEach((s, idx) => {
+                rows.push([
+                    idx + 1,
+                    s.nisn,
+                    `"${s.name.replace(/"/g, '""')}"`,
+                    s.className || hw.className,
+                    s.submittedAt || '-',
+                    s.statusLabel,
+                    s.score !== null ? s.score : '-',
+                    s.isPassed ? 'TUNTAS' : 'REMEDIAL',
+                    `"${(s.teacherNote || '').replace(/"/g, '""')}"`
+                ]);
+            });
+
+            const csvContent = '\uFEFF' + rows.map(r => r.join(',')).join('\r\n');
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const cleanTitle = (hw.title || 'tugas').replace(/[^a-zA-Z0-9]/g, '_');
+            link.href = URL.createObjectURL(blob);
+            link.download = `analisis_tugas_${cleanTitle}_${new Date().toISOString().split('T')[0]}.csv`;
+            link.click();
+        }
+
+        function printHomeworkAnalytics() {
+            if (!currentAnalisisData) {
+                alert('Pilih tugas terlebih dahulu untuk mencetak rekap analisis.');
+                return;
+            }
+            window.print();
         }
 
         async function viewSubmissions(hwId, title, className) {

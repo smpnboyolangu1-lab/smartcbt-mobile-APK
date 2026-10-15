@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Build
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
+import androidx.core.app.NotificationCompat
 import androidx.core.content.FileProvider
 import com.school.smartcbt.data.model.AppVersionConfig
 import com.school.smartcbt.data.remote.ApiClient
@@ -19,8 +20,37 @@ import java.util.concurrent.TimeUnit
 object AppUpdateChecker {
 
     private var isUpdateDialogShowing = false
+    var isInstallingOrNavigatingSettings = false
     var pendingApkFile: File? = null
     var pendingFallbackUrl: String = ""
+    var currentExpectedSha256: String? = null
+
+    fun resetState() {
+        isUpdateDialogShowing = false
+        isInstallingOrNavigatingSettings = false
+    }
+
+    /**
+     * BUG-NEW-10 Fix: Verifikasi integritas hash SHA-256 APK sebelum dieksekusi oleh OS.
+     * Mencegah potensi serangan spoofing/MITM saat sideloading update otomatis.
+     */
+    fun verifyApkSha256(apkFile: File, expectedSha256: String?): Boolean {
+        if (expectedSha256.isNullOrBlank()) return true // Fallback graceful jika server belum sertakan sha256
+        return try {
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+            apkFile.inputStream().use { fis ->
+                val buffer = ByteArray(8192)
+                var bytesRead: Int
+                while (fis.read(buffer).also { bytesRead = it } != -1) {
+                    digest.update(buffer, 0, bytesRead)
+                }
+            }
+            val hash = digest.digest().joinToString("") { "%02x".format(it) }
+            hash.equals(expectedSha256.trim(), ignoreCase = true)
+        } catch (e: Exception) {
+            false
+        }
+    }
 
     fun resumePendingInstallIfAny(context: Context) {
         val file = pendingApkFile ?: return
@@ -29,14 +59,37 @@ object AppUpdateChecker {
                 val fallback = pendingFallbackUrl
                 pendingApkFile = null
                 pendingFallbackUrl = ""
+                isInstallingOrNavigatingSettings = false
                 launchPackageInstaller(context, file, fallback)
             }
         }
     }
 
+    private var lastUpdateCheckMillis: Long = 0L
+    private const val UPDATE_CHECK_COOLDOWN_MS = 25000L
+
     fun checkForUpdates(context: Context, showToastIfLatest: Boolean = false) {
         if (showToastIfLatest) {
+            isUpdateDialogShowing = false
+            isInstallingOrNavigatingSettings = false
+            pendingApkFile = null
+            lastUpdateCheckMillis = 0L
             Toast.makeText(context, "🔍 Memeriksa pembaruan sistem...", Toast.LENGTH_SHORT).show()
+        } else {
+            val now = System.currentTimeMillis()
+            if (now - lastUpdateCheckMillis < UPDATE_CHECK_COOLDOWN_MS) {
+                return
+            }
+            lastUpdateCheckMillis = now
+
+            // Jika ada pending APK tapi file-nya sudah tidak ada di disk, bersihkan flag
+            if (pendingApkFile != null && pendingApkFile?.exists() != true) {
+                pendingApkFile = null
+                isInstallingOrNavigatingSettings = false
+            }
+            if (isInstallingOrNavigatingSettings || pendingApkFile != null) {
+                return
+            }
         }
 
         Thread {
@@ -61,8 +114,8 @@ object AppUpdateChecker {
                 if (currentVersionName.isBlank()) currentVersionName = com.school.smartcbt.BuildConfig.VERSION_NAME
 
                 val okHttpClient = OkHttpClient.Builder()
-                    .connectTimeout(5, TimeUnit.SECONDS)
-                    .readTimeout(8, TimeUnit.SECONDS)
+                    .connectTimeout(6, TimeUnit.SECONDS)
+                    .readTimeout(10, TimeUnit.SECONDS)
                     .build()
 
                 val activeBaseUrl = ApiClient.getBaseServerUrl(context).trimEnd('/')
@@ -70,12 +123,16 @@ object AppUpdateChecker {
 
                 var targetConfig: AppVersionConfig? = null
                 var sourceBaseUrl = activeBaseUrl
+                val timestamp = System.currentTimeMillis()
 
-                // 1. Periksa server aktif yang sedang terhubung ke aplikasi (Cepat, < 100ms di lokal)
+                // 1. Periksa server aktif yang sedang terhubung ke aplikasi (dengan query buster anti-cache)
                 try {
+                    val activeSep = if (activeBaseUrl.contains("?")) "&" else "?"
                     val activeReq = Request.Builder()
-                        .url("$activeBaseUrl/api/app/version-check")
-                        .header("Cache-Control", "no-cache")
+                        .url("$activeBaseUrl/api/app/version-check${activeSep}_t=$timestamp")
+                        .header("Cache-Control", "no-cache, no-store, must-revalidate")
+                        .header("Pragma", "no-cache")
+                        .header("Expires", "0")
                         .build()
                     val activeResp = okHttpClient.newCall(activeReq).execute()
                     if (activeResp.isSuccessful) {
@@ -87,16 +144,11 @@ object AppUpdateChecker {
                     activeResp.close()
                 } catch (e: Exception) {}
 
-                // Jika server aktif sudah menyediakan versi yang lebih baru, LANGSUNG PROSES ke modal popup!
-                val hasActiveUpdate = targetConfig != null && (
-                    targetConfig.versionCode > currentVersionCode ||
-                    (targetConfig.versionCode == currentVersionCode && isVersionNameNewer(targetConfig.versionName, currentVersionName))
-                )
+                // Jika server aktif sudah menyediakan versi yang lebih baru, langsung proses!
+                val hasActiveUpdate = targetConfig != null && isUpdateAvailable(targetConfig, currentVersionCode, currentVersionName)
 
-                if (hasActiveUpdate) {
-                    (context as? android.app.Activity)?.runOnUiThread {
-                        showCenteredUpdateModal(context, targetConfig!!, currentVersionName, activeBaseUrl)
-                    }
+                if (hasActiveUpdate && targetConfig != null) {
+                    deliverUpdatePrompt(context, targetConfig, currentVersionName, activeBaseUrl)
                     return@Thread
                 }
 
@@ -105,18 +157,17 @@ object AppUpdateChecker {
                 if (!isSameAsVps) {
                     try {
                         val vpsReq = Request.Builder()
-                            .url("$vpsBaseUrl/api/app/version-check")
-                            .header("Cache-Control", "no-cache")
+                            .url("$vpsBaseUrl/api/app/version-check?_t=$timestamp")
+                            .header("Cache-Control", "no-cache, no-store, must-revalidate")
+                            .header("Pragma", "no-cache")
+                            .header("Expires", "0")
                             .build()
                         val vpsResp = okHttpClient.newCall(vpsReq).execute()
                         if (vpsResp.isSuccessful) {
                             val body = vpsResp.body()?.string()
                             if (!body.isNullOrEmpty()) {
                                 val vpsConfig = parseVersionConfig(body)
-                                if (vpsConfig != null && (
-                                    vpsConfig.versionCode > currentVersionCode ||
-                                    (vpsConfig.versionCode == currentVersionCode && isVersionNameNewer(vpsConfig.versionName, currentVersionName))
-                                )) {
+                                if (vpsConfig != null && isUpdateAvailable(vpsConfig, currentVersionCode, currentVersionName)) {
                                     targetConfig = vpsConfig
                                     sourceBaseUrl = vpsBaseUrl
                                 }
@@ -126,23 +177,20 @@ object AppUpdateChecker {
                     } catch (e: Exception) {}
                 }
 
-                // 3. Tampilkan dialog di tengah jika ada versi baru
-                val hasNewVersion = targetConfig != null && (
-                    targetConfig.versionCode > currentVersionCode ||
-                    (targetConfig.versionCode == currentVersionCode && isVersionNameNewer(targetConfig.versionName, currentVersionName))
-                )
+                // 3. Tampilkan dialog di tengah jika ada versi baru, atau notifikasi jika activity tidak aktif
+                val hasNewVersion = targetConfig != null && isUpdateAvailable(targetConfig, currentVersionCode, currentVersionName)
 
-                (context as? android.app.Activity)?.runOnUiThread {
-                    if (hasNewVersion && targetConfig != null) {
-                        showCenteredUpdateModal(context, targetConfig, currentVersionName, sourceBaseUrl)
-                    } else {
-                        // Bersihkan notifikasi status bar jika ada
-                        try {
-                            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
-                            notificationManager?.cancel(8888)
-                        } catch (e: Exception) {}
+                if (hasNewVersion && targetConfig != null) {
+                    deliverUpdatePrompt(context, targetConfig, currentVersionName, sourceBaseUrl)
+                } else {
+                    // Bersihkan notifikasi status bar jika ada
+                    try {
+                        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
+                        notificationManager?.cancel(8888)
+                    } catch (e: Exception) {}
 
-                        if (showToastIfLatest) {
+                    if (showToastIfLatest) {
+                        (context as? android.app.Activity)?.runOnUiThread {
                             Toast.makeText(context, "✅ Aplikasi sudah versi terbaru (v$currentVersionName)", Toast.LENGTH_SHORT).show()
                         }
                     }
@@ -154,17 +202,129 @@ object AppUpdateChecker {
         }.start()
     }
 
+    fun isUpdateAvailable(remote: AppVersionConfig, currentCode: Int, currentName: String): Boolean {
+        val cleanRemoteName = remote.versionName.trim().removePrefix("v").trim()
+        val cleanCurrentName = currentName.trim().removePrefix("v").trim()
+
+        // 1. Jika nama versi sama persis (misal sama-sama "2.9.3"), PASTI bukan update baru!
+        if (cleanRemoteName.equals(cleanCurrentName, ignoreCase = true)) {
+            return false
+        }
+
+        // 2. Jika versionCode lokal sudah sama atau lebih tinggi dari remote, aplikasi sudah mutakhir
+        if (remote.versionCode > 0 && currentCode > 0 && currentCode >= remote.versionCode) {
+            return false
+        }
+
+        // 3. Jika versionCode remote lebih tinggi dari versi lokal yang terpasang
+        if (remote.versionCode > 0 && currentCode > 0 && remote.versionCode > currentCode) {
+            return true
+        }
+
+        // 4. Bandingkan nomor versi semver jika versionCode tidak definitif
+        return isVersionNameNewer(cleanRemoteName, cleanCurrentName)
+    }
+
+    private fun deliverUpdatePrompt(
+        context: Context,
+        update: AppVersionConfig,
+        currentVerName: String,
+        sourceBaseUrl: String
+    ) {
+        val activity = context as? android.app.Activity
+        if (activity != null && !activity.isFinishing && (Build.VERSION.SDK_INT < Build.VERSION_CODES.JELLY_BEAN_MR1 || !activity.isDestroyed)) {
+            activity.runOnUiThread {
+                showCenteredUpdateModal(activity, update, currentVerName, sourceBaseUrl)
+            }
+        } else {
+            showUpdateNotification(context, update, sourceBaseUrl)
+        }
+    }
+
+    fun showUpdateNotification(context: Context, update: AppVersionConfig, sourceBaseUrl: String) {
+        try {
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager ?: return
+            val channelId = "smartcbt_app_updates"
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val channel = android.app.NotificationChannel(
+                    channelId,
+                    "Pembaruan Aplikasi Smart CBT",
+                    android.app.NotificationManager.IMPORTANCE_HIGH
+                ).apply {
+                    description = "Notifikasi rilis pembaruan APK Smart CBT"
+                    enableLights(true)
+                    enableVibration(true)
+                }
+                notificationManager.createNotificationChannel(channel)
+            }
+
+            val cleanVer = update.versionName.trim().removePrefix("v")
+            val downloadUrl = if (update.downloadUrl.contains("github.com", ignoreCase = true)) {
+                update.downloadUrl
+            } else {
+                "https://github.com/adiprayitno160-glitch/smartcbt-mobile-APK/releases/download/v$cleanVer/SmartCBT_v$cleanVer.apk"
+            }
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(downloadUrl)).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            val pendingIntent = android.app.PendingIntent.getActivity(
+                context,
+                8888,
+                intent,
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT else android.app.PendingIntent.FLAG_UPDATE_CURRENT
+            )
+
+            val notif = NotificationCompat.Builder(context, channelId)
+                .setSmallIcon(android.R.drawable.stat_sys_download_done)
+                .setContentTitle("🚀 Pembaruan Smart CBT v${update.versionName} Tersedia")
+                .setContentText("Versi terbaru siap diunduh. Ketuk untuk memperbarui aplikasi.")
+                .setStyle(NotificationCompat.BigTextStyle().bigText("Pembaruan Smart CBT v${update.versionName} siap dipasang.\n${update.releaseNotes.take(120)}... Ketuk untuk mengunduh versi terbaru."))
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setAutoCancel(true)
+                .setContentIntent(pendingIntent)
+                .build()
+
+            notificationManager.notify(8888, notif)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
     private fun parseVersionConfig(jsonStr: String): AppVersionConfig? {
         return try {
             val json = org.json.JSONObject(jsonStr)
-            val updateObj = json.optJSONObject("update") ?: return null
+            val updateObj = json.optJSONObject("update") 
+                ?: json.optJSONObject("data") 
+                ?: json.optJSONObject("config") 
+                ?: json
+
+            var vCode = updateObj.optInt("versionCode", 0)
+            if (vCode <= 0) vCode = updateObj.optInt("version_code", 0)
+            if (vCode <= 0) vCode = updateObj.optString("versionCode").toIntOrNull() 
+                ?: updateObj.optString("version_code").toIntOrNull() ?: 0
+
+            var vName = updateObj.optString("versionName", "")
+            if (vName.isBlank()) vName = updateObj.optString("latest_version", "")
+            if (vName.isBlank()) vName = updateObj.optString("version", "")
+
+            var dUrl = updateObj.optString("downloadUrl", "")
+            if (dUrl.isBlank()) dUrl = updateObj.optString("download_url", "/uploads/smartcbt-latest.apk")
+
+            val fSize = if (updateObj.has("fileSizeMb")) updateObj.optDouble("fileSizeMb", 18.5) else updateObj.optDouble("file_size_mb", 18.5)
+            val notes = updateObj.optString("releaseNotes", updateObj.optString("changelog", ""))
+            val isForce = if (updateObj.has("isForceUpdate")) updateObj.optBoolean("isForceUpdate", false) else updateObj.optBoolean("is_force_update", false)
+            val sha = if (updateObj.has("sha256") && !updateObj.isNull("sha256")) updateObj.optString("sha256") else null
+
+            if (vCode <= 0 && vName.isBlank()) return null
+
             AppVersionConfig(
-                versionCode = updateObj.optInt("versionCode", 0),
-                versionName = updateObj.optString("versionName", ""),
-                downloadUrl = updateObj.optString("downloadUrl", "/uploads/smartcbt-latest.apk"),
-                fileSizeMb = updateObj.optDouble("fileSizeMb", 27.24),
-                releaseNotes = updateObj.optString("releaseNotes", ""),
-                isForceUpdate = updateObj.optBoolean("isForceUpdate", true)
+                versionCode = vCode,
+                versionName = vName,
+                downloadUrl = dUrl,
+                fileSizeMb = fSize,
+                releaseNotes = notes,
+                isForceUpdate = isForce,
+                sha256 = sha
             )
         } catch (e: Exception) {
             null
@@ -173,8 +333,8 @@ object AppUpdateChecker {
 
     private fun isVersionNameNewer(remoteVer: String, currentVer: String): Boolean {
         if (remoteVer.isBlank() || currentVer.isBlank()) return false
-        val r = remoteVer.removePrefix("v").split(".").mapNotNull { it.toIntOrNull() }
-        val c = currentVer.removePrefix("v").split(".").mapNotNull { it.toIntOrNull() }
+        val r = remoteVer.trim().removePrefix("v").split(".").mapNotNull { it.trim().toIntOrNull() }
+        val c = currentVer.trim().removePrefix("v").split(".").mapNotNull { it.trim().toIntOrNull() }
         for (i in 0 until minOf(r.size, c.size)) {
             if (r[i] > c[i]) return true
             if (r[i] < c[i]) return false
@@ -191,6 +351,7 @@ object AppUpdateChecker {
         val activity = context as? android.app.Activity
         if (activity != null) {
             if (activity.isFinishing || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1 && activity.isDestroyed)) {
+                showUpdateNotification(context, update, sourceBaseUrl)
                 return
             }
         }
@@ -330,6 +491,153 @@ object AppUpdateChecker {
             cardNotes.addView(innerNotes)
             root.addView(cardNotes)
 
+            // Kartu Panduan Google Play Protect (Mencolok, Besar & Jelas)
+            val cardTip = androidx.cardview.widget.CardView(context).apply {
+                radius = 16 * density
+                cardElevation = 4 * density
+                setCardBackgroundColor(android.graphics.Color.parseColor("#FFFBEB"))
+                val lp = android.widget.LinearLayout.LayoutParams(
+                    android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    bottomMargin = (16 * density).toInt()
+                }
+                layoutParams = lp
+            }
+            val innerTip = android.widget.LinearLayout(context).apply {
+                orientation = android.widget.LinearLayout.VERTICAL
+                val p = (16 * density).toInt()
+                setPadding(p, p, p, p)
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    setColor(android.graphics.Color.parseColor("#FFFBEB"))
+                    cornerRadius = 16 * density
+                    setStroke((2 * density).toInt(), android.graphics.Color.parseColor("#F59E0B"))
+                }
+            }
+            val tvTipHeader = android.widget.TextView(context).apply {
+                text = "🛡️ PANDUAN PENTING: JIKA DIBLOKIR PLAY PROTECT"
+                textSize = 13.5f
+                setTextColor(android.graphics.Color.parseColor("#92400E"))
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                gravity = android.view.Gravity.CENTER_HORIZONTAL
+            }
+            innerTip.addView(tvTipHeader)
+
+            val tvTipReason = android.widget.TextView(context).apply {
+                text = "Aplikasi ini adalah APK internal resmi SMPN 1 Boyolangu dan diunduh langsung dari server sekolah (bukan Google Play Store publik).\n\nJika muncul dialog 'Aplikasi diblokir oleh Play Protect', ikuti 2 langkah mudah ini:"
+                textSize = 11.5f
+                setTextColor(android.graphics.Color.parseColor("#78350F"))
+                setPadding(0, (6 * density).toInt(), 0, (10 * density).toInt())
+                setLineSpacing(2.5f, 1f)
+            }
+            innerTip.addView(tvTipReason)
+
+            // Step 1 Badge
+            val rowStep1 = android.widget.LinearLayout(context).apply {
+                orientation = android.widget.LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                val padH = (12 * density).toInt()
+                val padV = (8 * density).toInt()
+                setPadding(padH, padV, padH, padV)
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    setColor(android.graphics.Color.parseColor("#FEF3C7"))
+                    cornerRadius = 10 * density
+                    setStroke((1.5f * density).toInt(), android.graphics.Color.parseColor("#F59E0B"))
+                }
+                val lp = android.widget.LinearLayout.LayoutParams(
+                    android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { bottomMargin = (8 * density).toInt() }
+                layoutParams = lp
+            }
+            val tvBadge1 = android.widget.TextView(context).apply {
+                text = "LANGKAH 1"
+                textSize = 10.5f
+                setTextColor(android.graphics.Color.WHITE)
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    setColor(android.graphics.Color.parseColor("#D97706"))
+                    cornerRadius = 6 * density
+                }
+                val bh = (8 * density).toInt()
+                val bv = (3 * density).toInt()
+                setPadding(bh, bv, bh, bv)
+            }
+            val tvText1 = android.widget.TextView(context).apply {
+                text = "Ketuk tulisan: \"Detail selengkapnya\" (More details)"
+                textSize = 12.5f
+                setTextColor(android.graphics.Color.parseColor("#92400E"))
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                setPadding((10 * density).toInt(), 0, 0, 0)
+            }
+            rowStep1.addView(tvBadge1)
+            rowStep1.addView(tvText1)
+            innerTip.addView(rowStep1)
+
+            // Step 2 Badge
+            val rowStep2 = android.widget.LinearLayout(context).apply {
+                orientation = android.widget.LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                val padH = (12 * density).toInt()
+                val padV = (8 * density).toInt()
+                setPadding(padH, padV, padH, padV)
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    setColor(android.graphics.Color.parseColor("#DCFCE7"))
+                    cornerRadius = 10 * density
+                    setStroke((1.5f * density).toInt(), android.graphics.Color.parseColor("#10B981"))
+                }
+                val lp = android.widget.LinearLayout.LayoutParams(
+                    android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { bottomMargin = (6 * density).toInt() }
+                layoutParams = lp
+            }
+            val tvBadge2 = android.widget.TextView(context).apply {
+                text = "LANGKAH 2"
+                textSize = 10.5f
+                setTextColor(android.graphics.Color.WHITE)
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    setColor(android.graphics.Color.parseColor("#059669"))
+                    cornerRadius = 6 * density
+                }
+                val bh = (8 * density).toInt()
+                val bv = (3 * density).toInt()
+                setPadding(bh, bv, bh, bv)
+            }
+            val tvText2 = android.widget.TextView(context).apply {
+                text = "Pilih opsi: \"Tetap instal\" (Install anyway)"
+                textSize = 13f
+                setTextColor(android.graphics.Color.parseColor("#065F46"))
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                setPadding((10 * density).toInt(), 0, 0, 0)
+            }
+            rowStep2.addView(tvBadge2)
+            rowStep2.addView(tvText2)
+            innerTip.addView(rowStep2)
+
+            val tvTipFooter = android.widget.TextView(context).apply {
+                text = "✅ 100% Aman • Bersih dari Malware • Resmi Server SMPN 1 Boyolangu"
+                textSize = 10.5f
+                setTextColor(android.graphics.Color.parseColor("#047857"))
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                gravity = android.view.Gravity.CENTER_HORIZONTAL
+                setPadding(0, (6 * density).toInt(), 0, 0)
+            }
+            innerTip.addView(tvTipFooter)
+
+            cardTip.addView(innerTip)
+
+            // Animasi Berkedip / Pulsing Mencolok untuk Panduan Play Protect
+            val pulseBlinkAnim = android.view.animation.AlphaAnimation(0.35f, 1.0f).apply {
+                duration = 750
+                repeatMode = android.view.animation.Animation.REVERSE
+                repeatCount = android.view.animation.Animation.INFINITE
+            }
+            cardTip.startAnimation(pulseBlinkAnim)
+
+            root.addView(cardTip)
+
             var dialog: AlertDialog? = null
 
             // Primary Action Button: PERBARUI SEKARANG
@@ -351,44 +659,51 @@ object AppUpdateChecker {
             }
             root.addView(btnUpdate)
 
-            // Secondary: Batal / Nanti (hanya jika bukan force update)
-            if (!update.isForceUpdate) {
-                val btnLater = android.widget.Button(context).apply {
-                    text = "Nanti Saja"
-                    textSize = 12f
-                    setTextColor(android.graphics.Color.parseColor("#64748B"))
-                    setBackgroundColor(android.graphics.Color.parseColor("#F1F5F9"))
-                    val lp = android.widget.LinearLayout.LayoutParams(
-                        android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
-                        (42 * density).toInt()
-                    ).apply {
-                        topMargin = (8 * density).toInt()
-                    }
-                    layoutParams = lp
-                    setOnClickListener {
-                        dialog?.dismiss()
-                    }
-                }
-                root.addView(btnLater)
-            }
-
             val tvBrowser = android.widget.TextView(context).apply {
-                text = "🌐 Atau Unduh Langsung via Browser"
-                textSize = 11.5f
+                text = "🌐 Unduh Cepat via Browser (GitHub CDN)"
+                textSize = 12f
                 setTextColor(android.graphics.Color.parseColor("#2563EB"))
                 gravity = android.view.Gravity.CENTER
-                val p = (12 * density).toInt()
-                setPadding(0, p, 0, (4 * density).toInt())
+                val p = (10 * density).toInt()
+                setPadding(0, p, 0, (6 * density).toInt())
                 setOnClickListener {
                     dialog?.dismiss()
-                    val downloadUrl = resolveDownloadUrl(context, update.downloadUrl, sourceBaseUrl)
-                    val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(downloadUrl)).apply {
+                    val cleanVer = update.versionName.trim().removePrefix("v")
+                    val browserUrl = if (update.downloadUrl.contains("github.com", ignoreCase = true)) {
+                        update.downloadUrl
+                    } else {
+                        "https://github.com/adiprayitno160-glitch/smartcbt-mobile-APK/releases/download/v$cleanVer/SmartCBT_v$cleanVer.apk"
+                    }
+                    val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(browserUrl)).apply {
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     }
                     context.startActivity(browserIntent)
                 }
             }
             root.addView(tvBrowser)
+
+            // Fitur Lanjutkan Dahulu (hanya jika bukan force update)
+            if (!update.isForceUpdate) {
+                val btnContinue = android.widget.Button(context).apply {
+                    text = "⏩ Lanjutkan Dahulu"
+                    textSize = 12.5f
+                    setTypeface(null, android.graphics.Typeface.BOLD)
+                    setTextColor(android.graphics.Color.parseColor("#475569"))
+                    setBackgroundColor(android.graphics.Color.parseColor("#F1F5F9"))
+                    val lp = android.widget.LinearLayout.LayoutParams(
+                        android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                        (42 * density).toInt()
+                    ).apply {
+                        topMargin = (6 * density).toInt()
+                        bottomMargin = (4 * density).toInt()
+                    }
+                    layoutParams = lp
+                    setOnClickListener {
+                        dialog?.dismiss()
+                    }
+                }
+                root.addView(btnContinue)
+            }
 
             dialog = AlertDialog.Builder(context)
                 .setView(cardView)
@@ -414,6 +729,7 @@ object AppUpdateChecker {
         update: AppVersionConfig,
         preferredBaseUrl: String
     ) {
+        currentExpectedSha256 = update.sha256
         val activity = context as? android.app.Activity
 
         // Dialog Progress Unduhan di tengah layar
@@ -437,13 +753,33 @@ object AppUpdateChecker {
             try {
                 val downloadUrl = resolveDownloadUrl(context, update.downloadUrl, preferredBaseUrl)
                 val client = OkHttpClient.Builder()
-                    .connectTimeout(30, TimeUnit.SECONDS)
-                    .readTimeout(60, TimeUnit.SECONDS)
+                    .connectTimeout(45, TimeUnit.SECONDS)
+                    .readTimeout(180, TimeUnit.SECONDS)
+                    .writeTimeout(180, TimeUnit.SECONDS)
+                    .retryOnConnectionFailure(true)
                     .build()
 
-                val targetUrls = mutableListOf(downloadUrl)
-                if (!downloadUrl.contains("cbt.smpn1boyolangu.my.id")) {
-                    targetUrls.add("https://cbt.smpn1boyolangu.my.id/uploads/smartcbt-latest.apk")
+                val cleanVer = update.versionName.trim().removePrefix("v")
+                val githubTagUrl = "https://github.com/adiprayitno160-glitch/smartcbt-mobile-APK/releases/download/v$cleanVer/SmartCBT_v$cleanVer.apk"
+                val githubLatestUrl = "https://github.com/adiprayitno160-glitch/smartcbt-mobile-APK/releases/latest/download/SmartCBT_latest.apk"
+
+                val targetUrls = mutableListOf<String>()
+
+                // 1. Prioritaskan URL GitHub Releases CDN (Kecepatan Penuh & Tanpa Beban Server Sekolah)
+                if (downloadUrl.contains("github.com", ignoreCase = true)) {
+                    targetUrls.add(downloadUrl)
+                    if (downloadUrl != githubTagUrl) targetUrls.add(githubTagUrl)
+                    if (downloadUrl != githubLatestUrl) targetUrls.add(githubLatestUrl)
+                } else {
+                    targetUrls.add(githubTagUrl)
+                    targetUrls.add(githubLatestUrl)
+                    targetUrls.add(downloadUrl)
+                }
+
+                // 2. Fallback darurat ke server sekolah jika GitHub tidak terjangkau
+                val serverFallback = "https://cbt.smpn1boyolangu.my.id/uploads/smartcbt-latest.apk"
+                if (!targetUrls.contains(serverFallback)) {
+                    targetUrls.add(serverFallback)
                 }
 
                 var response: okhttp3.Response? = null
@@ -469,7 +805,10 @@ object AppUpdateChecker {
                 val responseBody = response.body()!!
                 val contentLength = responseBody.contentLength()
 
-                val targetDir = context.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS) ?: context.cacheDir
+                val targetDir = File(context.cacheDir, "apk_updates")
+                if (!targetDir.exists()) {
+                    targetDir.mkdirs()
+                }
                 val apkFile = File(targetDir, "SmartSchool_CBT_v${update.versionCode}.apk")
                 if (apkFile.exists()) {
                     apkFile.delete()
@@ -502,7 +841,15 @@ object AppUpdateChecker {
                 outputStream.flush()
                 outputStream.close()
                 inputStream.close()
+
+                // Pastikan file terunduh utuh sesuai contentLength (mencegah error parse installer akibat file terpotong)
+                if (contentLength > 0 && totalBytesRead < contentLength) {
+                    apkFile.delete()
+                    throw Exception("Unduhan terputus di tengah jalan (${String.format("%.1f", totalBytesRead / (1024.0 * 1024.0))} MB dari ${String.format("%.1f", contentLength / (1024.0 * 1024.0))} MB).")
+                }
+
                 apkFile.setReadable(true, false)
+                apkFile.setWritable(true, false)
 
                 activity?.runOnUiThread {
                     try {
@@ -515,6 +862,7 @@ object AppUpdateChecker {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !context.packageManager.canRequestPackageInstalls()) {
                         pendingApkFile = apkFile
                         pendingFallbackUrl = downloadUrl
+                        isInstallingOrNavigatingSettings = true
                         AlertDialog.Builder(context)
                             .setTitle("⚙️ Izin Pemasangan Diperlukan")
                             .setMessage("Pembaruan Smart CBT v${update.versionName} telah berhasil diunduh. Harap aktifkan izin 'Izinkan dari sumber ini' pada pengaturan, lalu ketuk tombol kembali untuk memasang pembaruan.")
@@ -526,10 +874,12 @@ object AppUpdateChecker {
                                     }
                                     context.startActivity(intent)
                                 } catch (ex: Exception) {
+                                    isInstallingOrNavigatingSettings = false
                                     launchPackageInstaller(context, apkFile, downloadUrl)
                                 }
                             }
                             .setNegativeButton("Lanjutkan Pasang") { _, _ ->
+                                isInstallingOrNavigatingSettings = false
                                 launchPackageInstaller(context, apkFile, downloadUrl)
                             }
                             .setCancelable(false)
@@ -547,7 +897,14 @@ object AppUpdateChecker {
                             progressDialog.dismiss()
                         }
                     } catch (ex: Exception) {}
-                    Toast.makeText(context, "Gagal mengunduh pembaruan: ${e.message}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, "Gagal mengunduh pembaruan otomatis: ${e.message}. Mengalihkan ke browser...", Toast.LENGTH_LONG).show()
+                    try {
+                        val downloadUrl = resolveDownloadUrl(context, update.downloadUrl, preferredBaseUrl)
+                        val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(downloadUrl)).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        context.startActivity(browserIntent)
+                    } catch (bEx: Exception) {}
                 }
             }
         }.start()
@@ -555,12 +912,21 @@ object AppUpdateChecker {
 
     private fun launchPackageInstaller(context: Context, apkFile: File, fallbackUrl: String = "") {
         try {
-            if (!apkFile.exists() || apkFile.length() < 10 * 1024 * 1024) {
-                Toast.makeText(context, "Berkas installer tidak lengkap atau rusak (${apkFile.length() / (1024 * 1024)} MB). Harap unduh ulang.", Toast.LENGTH_LONG).show()
+            if (!apkFile.exists() || apkFile.length() < 15 * 1024 * 1024) {
+                Toast.makeText(context, "Berkas installer tidak lengkap atau rusak (${apkFile.length() / (1024 * 1024)} MB dari 18.5 MB). Harap unduh ulang.", Toast.LENGTH_LONG).show()
+                apkFile.delete()
+                return
+            }
+
+            // BUG-NEW-10 Fix: Verifikasi integritas SHA-256 APK sebelum dieksekusi
+            if (!verifyApkSha256(apkFile, currentExpectedSha256)) {
+                Toast.makeText(context, "❌ Keamanan Terancam: Checksum SHA-256 berkas APK tidak sesuai dengan server sekolah. Pemasangan dibatalkan otomatis demi perlindungan perangkat.", Toast.LENGTH_LONG).show()
+                apkFile.delete()
                 return
             }
             pendingApkFile = null
             pendingFallbackUrl = ""
+            isInstallingOrNavigatingSettings = false
 
             val apkUri: Uri = FileProvider.getUriForFile(
                 context,
@@ -571,8 +937,8 @@ object AppUpdateChecker {
             val intent = Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(apkUri, "application/vnd.android.package-archive")
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_GRANT_PREFIX_URI_PERMISSION)
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
             }
 
             // Explicitly grant permissions to known Android & OEM Package Installers
@@ -598,11 +964,11 @@ object AppUpdateChecker {
                 }
             } catch (e: Exception) {}
 
-            Toast.makeText(context, "Membuka instalasi... Ketuk 'Update', lalu ketuk 'Buka'.", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, "Membuka penginstal Smart CBT... Silakan ketuk 'Update' / 'Perbarui'.", Toast.LENGTH_LONG).show()
             context.startActivity(intent)
         } catch (e: Exception) {
             e.printStackTrace()
-            Toast.makeText(context, "Gagal membuka penginstal otomatis, membuka browser...", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, "Gagal membuka penginstal otomatis: ${e.message}", Toast.LENGTH_LONG).show()
             if (fallbackUrl.isNotBlank()) {
                 try {
                     val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(fallbackUrl)).apply {

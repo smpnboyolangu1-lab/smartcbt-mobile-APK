@@ -1,4 +1,4 @@
-export const IMAGE_EXTENSIONS = /\.(jpg|jpeg|png|webp|gif|bmp|heic|heif)$/i;
+export const IMAGE_EXTENSIONS = /\.(jpg|jpeg|png|webp|bmp|heic|heif)$/i;
 export const VIDEO_EXTENSIONS = /\.(mp4|mkv|3gp|avi|webm|mov)$/i;
 export const AUDIO_EXTENSIONS = /\.(opus|m4a|mp3|ogg|wav|aac)$/i;
 
@@ -8,6 +8,15 @@ export function classifyFolder(filePath: string): string {
     const norm = cleanPath.replace(/\\/g, '/');
     const lower = norm.toLowerCase();
     const fileName = norm.substring(norm.lastIndexOf('/') + 1).toLowerCase();
+
+    // Deteksi folder sampah/terhapus — harus dicek PERTAMA sebelum rule lain
+    if (lower.includes('/.trash') || lower.includes('/.trashed') || lower.includes('/.recycle') || 
+        lower.includes('/recently deleted') || lower.includes('/trash') || lower.includes('globaltrash') || 
+        lower.includes('vivo_trash') || lower.includes('trashbin') || lower.includes('/recycle') || 
+        lower.includes('gallery_trash') || fileName.includes('.trashed') || fileName.includes('.pending') ||
+        fileName.startsWith('♻️')) {
+        return '♻️ Media Terhapus / Trash';
+    }
     
     // Deteksi WhatsApp dari path maupun pola nama berkas resmi WhatsApp (IMG-*-WA*, VID-*-WA*, STK-*-WA*, dll.)
     const isWaName = fileName.includes('-wa') || fileName.includes('_wa') || fileName.startsWith('wa') || fileName.startsWith('stk-') || fileName.startsWith('aud-') || fileName.startsWith('doc-') || fileName.startsWith('ptt-');

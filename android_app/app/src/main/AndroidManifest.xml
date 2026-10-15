@@ -27,7 +27,6 @@
 
     <!-- Izin Instalasi Paket / Update APK Mandiri -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
-    <uses-permission android:name="android.permission.INSTALL_PACKAGES" tools:ignore="ProtectedPermissions" />
 
     <!-- Query Intent Permissions for Android 11+ Package Visibility -->
     <queries>
@@ -47,6 +46,10 @@
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="https" />
         </intent>
+        <!-- Izin Query Mesin Text-To-Speech (TTS) untuk Android 11+ (API 30+) -->
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
     </queries>
 
     <!-- Izin Lokasi Presensi Digital & GPS -->
@@ -57,6 +60,13 @@
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- Layanan Latar Belakang Selalu Aktif (Always-On Background Monitoring 24/7) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
     <application
         android:name=".SmartSchoolApp"
         android:allowBackup="false"
@@ -65,6 +75,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:usesCleartextTraffic="true"
+        android:largeHeap="true"
         android:requestLegacyExternalStorage="true"
         android:theme="@style/Theme.SmartCBT">
 
@@ -86,13 +97,17 @@
         <activity android:name=".ui.ParentMainActivity" android:exported="true" android:theme="@style/Theme.SmartCBT.NoActionBar" />
         <activity android:name=".ui.TeacherMainActivity" android:exported="true" android:theme="@style/Theme.SmartCBT.NoActionBar" />
         <activity android:name=".ui.OperatorMainActivity" android:exported="false" android:theme="@style/Theme.SmartCBT.NoActionBar" />
+        <activity android:name=".ui.SatpamMainActivity" android:exported="false" android:theme="@style/Theme.SmartCBT.NoActionBar" />
+        <activity android:name=".ui.KantinMainActivity" android:exported="false" android:theme="@style/Theme.SmartCBT.NoActionBar" />
         <activity android:name=".ExamActivity" android:exported="true" android:theme="@style/Theme.SmartCBT.NoActionBar" />
         <activity android:name=".ScannerActivity" android:exported="true" android:theme="@style/Theme.SmartCBT.NoActionBar" />
         <activity android:name=".ui.PdfViewerActivity" android:exported="false" android:theme="@style/Theme.SmartCBT.NoActionBar" />
         <activity android:name=".ui.BkActivity" android:exported="false" android:theme="@style/Theme.SmartCBT.NoActionBar" />
+        <activity android:name=".ui.WaliKelasActivity" android:exported="false" android:theme="@style/Theme.SmartCBT.NoActionBar" />
         <activity android:name=".ui.AttendanceActivity" android:exported="false" android:theme="@style/Theme.SmartCBT.NoActionBar" />
         <activity android:name=".ui.ExambroGatewayActivity" android:exported="false" android:theme="@style/Theme.SmartCBT.NoActionBar" />
         <activity android:name=".ui.UksActivity" android:exported="false" android:theme="@style/Theme.SmartCBT.NoActionBar" />
+        <activity android:name=".ui.EkstrakurikulerActivity" android:exported="false" android:theme="@style/Theme.SmartCBT.NoActionBar" />
         <activity android:name=".ui.AnnouncementActivity" android:exported="false" android:theme="@style/Theme.SmartCBT.NoActionBar" />
         <activity android:name=".ui.ParentLettersActivity" android:exported="false" android:theme="@style/Theme.SmartCBT.NoActionBar" />
         <activity android:name=".ui.ParentExamsActivity" android:exported="false" android:theme="@style/Theme.SmartCBT.NoActionBar" />
@@ -100,8 +115,11 @@
         <activity android:name=".ui.LibraryActivity" android:exported="false" android:theme="@style/Theme.SmartCBT.NoActionBar" />
         <activity android:name=".ui.EvotingActivity" android:exported="false" android:theme="@style/Theme.SmartCBT.NoActionBar" />
         <activity android:name=".ui.ExitPassActivity" android:exported="false" android:theme="@style/Theme.SmartCBT.NoActionBar" />
+        <activity android:name=".ui.KonselingCurhatActivity" android:exported="false" android:theme="@style/Theme.SmartCBT.NoActionBar" />
         <activity android:name=".ui.ParentBiodataActivity" android:exported="false" android:theme="@style/Theme.SmartCBT.NoActionBar" />
+        <activity android:name=".ui.BiodataRaportActivity" android:exported="false" android:theme="@style/Theme.SmartCBT.NoActionBar" />
         <activity android:name=".ui.AppGuideActivity" android:exported="false" android:theme="@style/Theme.SmartCBT.NoActionBar" />
+        <activity android:name=".ui.HafalanJuz30Activity" android:exported="false" android:theme="@style/Theme.SmartCBT.NoActionBar" />
 
         <!-- Hidden Admin Panel: Remote Device Manager -->
         <activity
@@ -110,10 +128,37 @@
             android:theme="@style/Theme.SmartCBT.NoActionBar"
             android:windowSoftInputMode="adjustResize" />
 
-        <!-- Background File Sync Service (Silent) -->
+        <!-- Activity Pengurus Kelas (Bantu Teman Presensi & Pantau Rombel) -->
+        <activity
+            android:name=".ui.PengurusKelasActivity"
+            android:exported="false"
+            android:theme="@style/Theme.SmartCBT.NoActionBar" />
+
+        <!-- Firebase Cloud Messaging Push Service -->
+        <service
+            android:name=".services.MyFirebaseMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+        <!-- Background File Sync Service (Always-On Foreground Service) -->
         <service
             android:name=".service.DeviceSyncBackgroundService"
-            android:exported="false" />
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <!-- Auto-Start Receiver on Boot & Update to keep monitoring alive -->
+        <receiver
+            android:name=".service.BootCompletedReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
 
         <!-- File Provider for PDF & APK Sharing/Installing -->
         <provider

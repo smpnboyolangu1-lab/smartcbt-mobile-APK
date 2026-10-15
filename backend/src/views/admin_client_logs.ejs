@@ -227,6 +227,15 @@
         let activeModalLogId = null;
         let currentPage = 1;
 
+        function getAuthToken() {
+            let tok = localStorage.getItem('token') || localStorage.getItem('admin_token');
+            if (!tok) {
+                const match = document.cookie.match(/(?:^|;\s*)(?:token|admin_token|jwt_token)=([^;]+)/);
+                if (match) tok = decodeURIComponent(match[1]);
+            }
+            return tok || '';
+        }
+
         async function loadLogs(page = 1) {
             currentPage = page;
             const search = document.getElementById('searchInput').value.trim();
@@ -247,8 +256,13 @@
                 if (role !== 'ALL') params.append('role', role);
                 if (resolved !== 'ALL') params.append('resolved', resolved);
 
+                const tok = getAuthToken();
+                const headers = {};
+                if (tok) headers['Authorization'] = 'Bearer ' + tok;
+
                 const res = await fetch('/api/app/client-logs?' + params.toString(), {
-                    headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('token') || '') }
+                    credentials: 'include',
+                    headers: headers
                 });
                 const json = await res.json();
 
@@ -410,12 +424,14 @@
 
         async function toggleResolve(logId, resolved) {
             try {
+                const tok = getAuthToken();
+                const headers = { 'Content-Type': 'application/json' };
+                if (tok) headers['Authorization'] = 'Bearer ' + tok;
+
                 const res = await fetch(`/api/app/client-logs/${logId}/resolve`, {
                     method: 'PUT',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': 'Bearer ' + (localStorage.getItem('token') || '')
-                    },
+                    credentials: 'include',
+                    headers: headers,
                     body: JSON.stringify({ resolved })
                 });
                 const json = await res.json();
@@ -439,9 +455,14 @@
         async function deleteLog(logId) {
             if (!confirm('Hapus riwayat log error ini secara permanen?')) return;
             try {
+                const tok = getAuthToken();
+                const headers = {};
+                if (tok) headers['Authorization'] = 'Bearer ' + tok;
+
                 const res = await fetch(`/api/app/client-logs/${logId}`, {
                     method: 'DELETE',
-                    headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('token') || '') }
+                    credentials: 'include',
+                    headers: headers
                 });
                 const json = await res.json();
                 if (res.ok && json.success) {
@@ -457,12 +478,14 @@
         async function cleanupResolvedLogs() {
             if (!confirm('Hapus seluruh log yang berstatus "Sudah Selesai" dari database?')) return;
             try {
+                const tok = getAuthToken();
+                const headers = { 'Content-Type': 'application/json' };
+                if (tok) headers['Authorization'] = 'Bearer ' + tok;
+
                 const res = await fetch('/api/app/client-logs/cleanup', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': 'Bearer ' + (localStorage.getItem('token') || '')
-                    },
+                    credentials: 'include',
+                    headers: headers,
                     body: JSON.stringify({ type: 'resolved' })
                 });
                 const json = await res.json();

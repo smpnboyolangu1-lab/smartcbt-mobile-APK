@@ -226,6 +226,7 @@ export const getAttendanceConfig = async (req: Request, res: Response) => {
   try {
     const [
       geolocationEnabled,
+      masterGeofenceEnabled,
       antiFakeGps,
       antiRoot,
       latStr,
@@ -234,22 +235,49 @@ export const getAttendanceConfig = async (req: Request, res: Response) => {
       zoneGoodStr,
       zoneDegradedStr,
       countdownStr,
-      clockDriftStr
+      clockDriftStr,
+      kalmanFilter,
+      averaging,
+      sampleCountStr,
+      intervalMsStr,
+      minAccuracyStr,
+      rejectAboveStr,
+      bufferDefaultStr,
+      requireHighAccuracy,
+      showAccuracyToUser,
+      multiZone
     ] = await Promise.all([
       getSettingBoolean("feature.scanner.geolocation", true),
+      getSettingBoolean("feature.geofence.enabled", true),
       getSettingBoolean("feature.scanner.antiFakeGps", true),
       getSettingBoolean("feature.scanner.antiRoot", true),
-      getSettingValue("gps.school.lat", "-8.125506"),
-      getSettingValue("gps.school.lng", "111.893526"),
+      getSettingValue("gps.school.lat", "-8.125157"),
+      getSettingValue("gps.school.lng", "111.893912"),
       getSettingValue("gps.radius.global", "150"),
       getSettingValue("gps.accuracy.zone_good", "50"),
       getSettingValue("gps.accuracy.zone_degraded", "100"),
       getSettingValue("gps.countdown_seconds", "60"),
-      getSettingValue("attendance.clock_drift_limit_minutes", "5")
+      getSettingValue("attendance.clock_drift_limit_minutes", "5"),
+      getSettingBoolean("feature.gps.kalmanFilter", true),
+      getSettingBoolean("feature.gps.averaging", true),
+      getSettingValue("gps.averaging.sampleCount", "5"),
+      getSettingValue("gps.averaging.intervalMs", "600"),
+      getSettingValue("gps.minAccuracyMeters", "50"),
+      getSettingValue("gps.rejectAboveAccuracy", "100"),
+      getSettingValue("gps.buffer.default", "30"),
+      getSettingBoolean("feature.gps.requireHighAccuracy", true),
+      getSettingBoolean("feature.gps.showAccuracyToUser", true),
+      getSettingBoolean("feature.geofence.multiZone", true)
     ]);
 
     const now = new Date();
     const serverTimeWib = now.toLocaleTimeString("sv-SE", { timeZone: "Asia/Jakarta" }).substring(0, 5);
+
+    // Ambil seluruh zona geofence aktif
+    const activeZones = await prisma.roomGeofence.findMany({
+      where: { isActive: true },
+      orderBy: [{ zonePriority: 'asc' }, { radiusMeters: 'desc' }]
+    });
 
     // Ambil seluruh barcode kelas aktif untuk fallback QR statis di ruang kelas
     const classes = await prisma.class.findMany({
@@ -269,19 +297,44 @@ export const getAttendanceConfig = async (req: Request, res: Response) => {
     res.json({
       success: true,
       scannerGeolocationEnabled: geolocationEnabled,
+      geofenceEnabled: masterGeofenceEnabled,
       antiFakeGps,
       antiRoot,
       school: {
         name: "SMPN 1 Boyolangu",
-        lat: parseFloat(latStr) || -8.125506,
-        lng: parseFloat(lngStr) || 111.893526,
-        radiusMeters: parseInt(radiusStr) || 150
+        lat: parseFloat(latStr) || -8.125157,
+        lng: parseFloat(lngStr) || 111.893912,
+        radiusMeters: parseInt(radiusStr) || 150,
+        bufferMeters: parseInt(bufferDefaultStr) || 30
       },
       gpsThresholds: {
         zoneGood: parseFloat(zoneGoodStr) || 50,
         zoneDegraded: parseFloat(zoneDegradedStr) || 100,
         countdownSeconds: parseInt(countdownStr) || 60
       },
+      gpsEnhancement: {
+        kalmanFilterEnabled: kalmanFilter,
+        averagingEnabled: averaging,
+        sampleCount: parseInt(sampleCountStr) || 5,
+        intervalMs: parseInt(intervalMsStr) || 600,
+        minAccuracyMeters: parseFloat(minAccuracyStr) || 50,
+        rejectAboveAccuracy: parseFloat(rejectAboveStr) || 100,
+        bufferDefault: parseFloat(bufferDefaultStr) || 30,
+        requireHighAccuracy,
+        showAccuracyToUser,
+        multiZoneEnabled: multiZone
+      },
+      geofenceZones: activeZones.map(z => ({
+        id: z.id,
+        name: z.roomName,
+        lat: z.latCenter,
+        lng: z.longCenter,
+        radiusMeters: z.radiusMeters,
+        bufferMeters: z.bufferMeters,
+        zonePriority: z.zonePriority,
+        zoneType: z.zoneType,
+        validWifiSsid: z.validWifiSsid
+      })),
       clockDriftLimitMinutes: parseInt(clockDriftStr) || 5,
       serverTime: now.toISOString(),
       serverTimeWib,

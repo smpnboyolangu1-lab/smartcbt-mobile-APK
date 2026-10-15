@@ -36,7 +36,7 @@ export async function syncParentAccountForStudent(student: StudentData, oldNisn?
                     data: {
                         username: newParentUsername,
                         password: newHashedPassword,
-                        name: `Orang Tua / Wali ${student.name}`,
+                        name: student.name,
                         className: student.className || null,
                         parentPhone: student.parentPhone || null,
                         nisn: cleanNewNisn,
@@ -57,7 +57,7 @@ export async function syncParentAccountForStudent(student: StudentData, oldNisn?
             const parentUser = await prisma.user.upsert({
                 where: { username: parentUsername },
                 update: {
-                    name: `Orang Tua / Wali ${student.name}`,
+                    name: student.name,
                     className: student.className || null,
                     parentPhone: student.parentPhone || null,
                     nisn: cleanNewNisn,
@@ -66,7 +66,7 @@ export async function syncParentAccountForStudent(student: StudentData, oldNisn?
                 create: {
                     username: parentUsername,
                     password: hashedPassword,
-                    name: `Orang Tua / Wali ${student.name}`,
+                    name: student.name,
                     role: 'PARENT',
                     className: student.className || null,
                     parentPhone: student.parentPhone || null,

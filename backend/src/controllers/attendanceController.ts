@@ -1,6 +1,60 @@
 import { Request, Response } from 'express';
+import crypto from 'crypto';
 import prisma from '../utils/db';
-import { getSchoolSignatures } from '../utils/schoolSignatures';
+import { getSchoolSignatures, getSchoolSignaturesForClass } from '../utils/schoolSignatures';
+import { validateGpsAttendance } from '../services/gpsValidationService';
+import { compareClassNames, sortStudentsByGradeAndName } from '../utils/classSort';
+import { sendFcmToUser, sendFcmToRole } from '../services/fcmService';
+import { sendSingleWhatsApp } from '../services/whatsappBlastService';
+import { formatTimeWib, formatTimeWibWithSuffix } from '../utils/dateUtils';
+
+export const DYNAMIC_QR_SALT = 'SmartCBT_Boyolangu_DynQR_Salt_2026';
+
+export function verifyDynamicClassQr(payload: string, studentClass: string): { isValid: boolean; message?: string; className?: string } {
+    const parts = (payload || '').trim().split('|');
+    if (parts.length < 4 || parts[0] !== 'DYNAMIC_CLASS_QR') {
+        return { isValid: false, message: 'Format barcode dinamis tidak valid' };
+    }
+    const targetClass = parts[1].trim();
+    const step = parseInt(parts[2].trim(), 10);
+    const receivedHash = parts[3].trim();
+
+    if (!targetClass || isNaN(step) || !receivedHash) {
+        return { isValid: false, message: 'Komponen barcode dinamis tidak lengkap' };
+    }
+
+    // Normalisasi nama kelas (misal "VII-A" vs "VII A" vs "7A")
+    const normTarget = targetClass.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+    const normStudent = (studentClass || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+    if (normTarget !== normStudent) {
+        return {
+            isValid: false,
+            message: `Barcode dinamis ini khusus untuk Kelas ${targetClass}, bukan untuk kelas Anda (${studentClass}).`
+        };
+    }
+
+    // Toleransi jendela waktu: step sekarang, step - 1, step + 1 (toleransi 10-15 detik)
+    const currentStep = Math.floor(Date.now() / 10000);
+    const validSteps = [currentStep, currentStep - 1, currentStep + 1];
+
+    let match = false;
+    for (const s of validSteps) {
+        const expectedHash = crypto.createHash('sha256').update(`${targetClass}|${s}|${DYNAMIC_QR_SALT}`).digest('hex').substring(0, 12);
+        if (expectedHash.toLowerCase() === receivedHash.toLowerCase()) {
+            match = true;
+            break;
+        }
+    }
+
+    if (!match) {
+        return {
+            isValid: false,
+            message: 'Barcode dinamis sudah kedaluwarsa. Silakan minta Pengurus Kelas untuk menunjukkan kode terbaru (ganti tiap 10 detik).'
+        };
+    }
+
+    return { isValid: true, className: targetClass };
+}
 
 export interface DaySchedule {
     day: number; // 0: Minggu, 1: Senin, 2: Selasa, 3: Rabu, 4: Kamis, 5: Jumat, 6: Sabtu
@@ -18,41 +72,47 @@ export const DEFAULT_DAILY_SCHEDULE: DaySchedule[] = [
     { day: 2, dayName: 'Selasa', isActive: true, gateInStart: '06:00', gateInEnd: '07:15', gateInMax: '12:00', gateOutStart: '14:00', gateOutEnd: '18:00' },
     { day: 3, dayName: 'Rabu', isActive: true, gateInStart: '06:00', gateInEnd: '07:15', gateInMax: '12:00', gateOutStart: '14:00', gateOutEnd: '18:00' },
     { day: 4, dayName: 'Kamis', isActive: true, gateInStart: '06:00', gateInEnd: '07:15', gateInMax: '12:00', gateOutStart: '14:00', gateOutEnd: '18:00' },
-    { day: 5, dayName: 'Jumat', isActive: true, gateInStart: '06:00', gateInEnd: '07:15', gateInMax: '11:30', gateOutStart: '11:30', gateOutEnd: '16:00' },
-    { day: 6, dayName: 'Sabtu', isActive: true, gateInStart: '06:00', gateInEnd: '07:15', gateInMax: '12:00', gateOutStart: '12:30', gateOutEnd: '15:30' },
+    { day: 5, dayName: 'Jumat', isActive: true, gateInStart: '06:00', gateInEnd: '07:15', gateInMax: '10:30', gateOutStart: '10:30', gateOutEnd: '16:00' },
+    { day: 6, dayName: 'Sabtu', isActive: true, gateInStart: '06:00', gateInEnd: '07:15', gateInMax: '12:00', gateOutStart: '11:30', gateOutEnd: '15:30' },
     { day: 0, dayName: 'Minggu', isActive: false, gateInStart: '06:00', gateInEnd: '07:15', gateInMax: '12:00', gateOutStart: '14:00', gateOutEnd: '18:00' }
 ];
 
-export function getWibDate(date: Date = new Date()): { dayOfWeek: number; timeStr: string; dateStr: string; dayName: string } {
+export function getWibDate(date: Date = new Date()): { dayOfWeek: number; timeStr: string; timeWithSecStr: string; dateStr: string; dayName: string } {
     try {
         const d = new Date(date);
         const dayNames = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
-        const timeStr = d.toLocaleTimeString('sv-SE', { timeZone: 'Asia/Jakarta' }).substring(0, 5); // "HH:mm"
+        const timeWithSecStr = d.toLocaleTimeString('sv-SE', { timeZone: 'Asia/Jakarta' }); // "HH:mm:ss"
+        const timeStr = timeWithSecStr.substring(0, 5); // "HH:mm"
         const dateStr = d.toLocaleDateString('sv-SE', { timeZone: 'Asia/Jakarta' }); // "YYYY-MM-DD"
         const wibDateObj = new Date(dateStr + 'T12:00:00+07:00');
         const dayOfWeek = wibDateObj.getDay();
         return {
             dayOfWeek,
             timeStr,
+            timeWithSecStr,
             dateStr,
             dayName: dayNames[dayOfWeek]
         };
     } catch {
         const d = new Date(date);
-        const hours = String(d.getHours()).padStart(2, '0');
-        const minutes = String(d.getMinutes()).padStart(2, '0');
+        const utc = d.getTime() + (d.getTimezoneOffset() * 60000);
+        const wib = new Date(utc + (3600000 * 7));
+        const hours = String(wib.getHours()).padStart(2, '0');
+        const minutes = String(wib.getMinutes()).padStart(2, '0');
+        const seconds = String(wib.getSeconds()).padStart(2, '0');
         const dayNames = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
         return {
-            dayOfWeek: d.getDay(),
+            dayOfWeek: wib.getDay(),
             timeStr: `${hours}:${minutes}`,
-            dateStr: d.toISOString().split('T')[0],
-            dayName: dayNames[d.getDay()]
+            timeWithSecStr: `${hours}:${minutes}:${seconds}`,
+            dateStr: wib.toISOString().split('T')[0],
+            dayName: dayNames[wib.getDay()]
         };
     }
 }
 
 export function getEffectiveGateSettings(settings: any, date: Date = new Date()) {
-    const { dayOfWeek, timeStr, dateStr, dayName } = getWibDate(date);
+    const { dayOfWeek, timeStr, timeWithSecStr, dateStr, dayName } = getWibDate(date);
 
     const rootInStart = settings?.gateInStartTime || '06:00';
     const rootInEnd = settings?.gateInEndTime || '07:15';
@@ -65,8 +125,8 @@ export function getEffectiveGateSettings(settings: any, date: Date = new Date())
         { day: 2, dayName: 'Selasa', isActive: true, gateInStart: rootInStart, gateInEnd: rootInEnd, gateInMax: rootInMax, gateOutStart: rootOutStart, gateOutEnd: rootOutEnd },
         { day: 3, dayName: 'Rabu', isActive: true, gateInStart: rootInStart, gateInEnd: rootInEnd, gateInMax: rootInMax, gateOutStart: rootOutStart, gateOutEnd: rootOutEnd },
         { day: 4, dayName: 'Kamis', isActive: true, gateInStart: rootInStart, gateInEnd: rootInEnd, gateInMax: rootInMax, gateOutStart: rootOutStart, gateOutEnd: rootOutEnd },
-        { day: 5, dayName: 'Jumat', isActive: true, gateInStart: rootInStart, gateInEnd: rootInEnd, gateInMax: '11:30', gateOutStart: '11:30', gateOutEnd: '16:00' },
-        { day: 6, dayName: 'Sabtu', isActive: true, gateInStart: rootInStart, gateInEnd: rootInEnd, gateInMax: '12:00', gateOutStart: '12:30', gateOutEnd: '15:30' },
+        { day: 5, dayName: 'Jumat', isActive: true, gateInStart: rootInStart, gateInEnd: rootInEnd, gateInMax: '10:30', gateOutStart: '10:30', gateOutEnd: '16:00' },
+        { day: 6, dayName: 'Sabtu', isActive: true, gateInStart: rootInStart, gateInEnd: rootInEnd, gateInMax: '12:00', gateOutStart: '11:30', gateOutEnd: '15:30' },
         { day: 0, dayName: 'Minggu', isActive: false, gateInStart: rootInStart, gateInEnd: rootInEnd, gateInMax: rootInMax, gateOutStart: rootOutStart, gateOutEnd: rootOutEnd }
     ];
 
@@ -94,6 +154,7 @@ export function getEffectiveGateSettings(settings: any, date: Date = new Date())
 
     return {
         currentTimeStr: timeStr,
+        currentTimeWithSecStr: timeWithSecStr,
         currentDayOfWeek: dayOfWeek,
         currentDayName: dayName,
         currentDateStr: dateStr,
@@ -124,6 +185,29 @@ async function getOrCreateGateSettings() {
                 dailySchedule: JSON.stringify(DEFAULT_DAILY_SCHEDULE)
             }
         });
+    } else if (settings.isEmergencyGateOut || settings.isEarlyDismissal) {
+        // Mode darurat / pulang lebih awal berlaku 1x (khusus hari saat diaktifkan).
+        // Besok otomatis kembali ke jadwal normal operasional sekolah!
+        const nowWib = new Date(Date.now() + 7 * 3600 * 1000).toISOString().substring(0, 10);
+        const updatedWib = new Date(new Date(settings.updatedAt).getTime() + 7 * 3600 * 1000).toISOString().substring(0, 10);
+
+        const isTestingForever = Boolean(
+            settings.emergencyReason?.toLowerCase().includes('uji') || 
+            settings.emergencyReason?.toLowerCase().includes('test') || 
+            settings.emergencyReason?.toLowerCase().includes('trial')
+        );
+
+        if (updatedWib < nowWib && !isTestingForever) {
+            console.log(`[GATE_AUTO_RESET] Resetting 1x early dismissal/emergency gate-out from ${updatedWib} to normal schedule for today ${nowWib}.`);
+            settings = await prisma.gateSetting.update({
+                where: { id: 'default' },
+                data: {
+                    isEmergencyGateOut: false,
+                    isEarlyDismissal: false,
+                    emergencyReason: null
+                }
+            });
+        }
     }
     return settings;
 }
@@ -368,35 +452,69 @@ export const scanClassGate = async (req: Request, res: Response) => {
             return res.status(404).json({ message: 'Siswa tidak ditemukan dalam database.' });
         }
 
-        // 2. Ambil data kelas siswa untuk koordinat Geofence & Barcode
+        // 2. Deteksi Apakah Barcode adalah QR Dinamis Pengurus Kelas
         const rawCodeUpper = (barcodeCode || '').trim().toUpperCase();
+        const isDynamicOfficerQr = (barcodeCode || '').trim().startsWith('DYNAMIC_CLASS_QR|') || method === 'QR_DYNAMIC_OFFICER';
+
+        if (isDynamicOfficerQr) {
+            const dynVerify = verifyDynamicClassQr(barcodeCode, student.className || '');
+            if (!dynVerify.isValid) {
+                return res.status(400).json({
+                    success: false,
+                    message: dynVerify.message || 'Barcode dinamis pengurus kelas tidak sah atau sudah kedaluwarsa.'
+                });
+            }
+        }
+
         const isBkGateIn = rawCodeUpper === 'GATE_IN_BK' || rawCodeUpper === 'GATE_LATE_BK' || rawCodeUpper.includes('GATE_IN_BK');
         const isBkGateOut = rawCodeUpper === 'GATE_OUT_BK' || rawCodeUpper.includes('GATE_OUT_BK');
         const isBkBarcode = isBkGateIn || isBkGateOut;
+        const isMusholaIn = rawCodeUpper.includes('MUSHOLA_IN') || (rawCodeUpper.includes('MUSHOLA') && !rawCodeUpper.includes('OUT')) || rawCodeUpper === 'BARCODE_SHOLAT_DHUHUR_MASJID' || rawCodeUpper === 'BARCODE_SHOLAT_JUMAT_MASJID';
+        const isMusholaOut = rawCodeUpper.includes('MUSHOLA_OUT') || (rawCodeUpper.includes('MUSHOLA') && rawCodeUpper.includes('OUT'));
+        const isMusholaBarcode = isMusholaIn || isMusholaOut || rawCodeUpper.includes('MUSHOLA') || rawCodeUpper.includes('SHOLAT');
+
+        // Sesuai instruksi: QR Code statis (QR_STATIC / barcode stiker kelas) dinonaktifkan total!
+        // Wajib menggunakan QR Dinamis pada HP Pengurus Kelas (kecuali barcode khusus Ruang BK / Mushola / Mesin RFID).
+        if (!isDynamicOfficerQr && !isBkBarcode && !isMusholaBarcode && method !== 'RFID' && rawCodeUpper !== 'QR_DYNAMIC_OFFICER' && !rawCodeUpper.startsWith('DYNAMIC_CLASS_QR|')) {
+            return res.status(403).json({
+                success: false,
+                redirectDynamicQr: true,
+                message: '⛔ QR Code Statis (QR_STATIC) telah dinonaktifkan total! Silakan minta Pengurus Kelas untuk membuka menu QR Dinamis dan pindai langsung dari HP Pengurus Kelas.'
+            });
+        }
 
         const studentClass = student.className ? await prisma.class.findFirst({ where: { name: student.className } }) : null;
         
         // Ambil konfigurasi dinamis dari SystemSetting
-        const [geoEnabledRow, globalRadiusRow, schoolLatRow, schoolLngRow, driftLimitRow] = await Promise.all([
+        const [geoEnabledRow, masterGeoRow, globalRadiusRow, bufferDefaultRow, schoolLatRow, schoolLngRow, driftLimitRow] = await Promise.all([
             prisma.systemSetting.findUnique({ where: { key: "feature.scanner.geolocation" } }),
+            prisma.systemSetting.findUnique({ where: { key: "feature.geofence.enabled" } }),
             prisma.systemSetting.findUnique({ where: { key: "gps.radius.global" } }),
+            prisma.systemSetting.findUnique({ where: { key: "gps.buffer.default" } }),
             prisma.systemSetting.findUnique({ where: { key: "gps.school.lat" } }),
             prisma.systemSetting.findUnique({ where: { key: "gps.school.lng" } }),
             prisma.systemSetting.findUnique({ where: { key: "attendance.clock_drift_limit_minutes" } })
         ]);
 
-        const isGeolocationActive = geoEnabledRow ? (geoEnabledRow.value === "true" || geoEnabledRow.value === "1") : true;
+        const isMasterGeoActive = masterGeoRow ? (masterGeoRow.value === "true" || masterGeoRow.value === "1") : true;
+        const isGeolocationActive = (geoEnabledRow ? (geoEnabledRow.value === "true" || geoEnabledRow.value === "1") : true) && isMasterGeoActive;
         const globalRadius = globalRadiusRow ? (parseInt(globalRadiusRow.value) || 150) : 150;
-        const defaultSchoolLat = schoolLatRow ? (parseFloat(schoolLatRow.value) || -8.125506) : -8.125506;
-        const defaultSchoolLng = schoolLngRow ? (parseFloat(schoolLngRow.value) || 111.893526) : 111.893526;
+        const defaultBuffer = bufferDefaultRow ? (parseInt(bufferDefaultRow.value) || 50) : 50;
+        const defaultSchoolLat = schoolLatRow ? (parseFloat(schoolLatRow.value) || -8.125157) : -8.125157;
+        const defaultSchoolLng = schoolLngRow ? (parseFloat(schoolLngRow.value) || 111.893912) : 111.893912;
         const clockDriftLimit = driftLimitRow ? (parseInt(driftLimitRow.value) || 5) : 5;
 
         // Ruang BK berada di area sekolah (koordinat pusat sekolah atau kelas)
         const targetLat = isBkBarcode ? defaultSchoolLat : (studentClass?.lat ?? defaultSchoolLat);
         const targetLng = isBkBarcode ? defaultSchoolLng : (studentClass?.lng ?? defaultSchoolLng);
-        // Toleransi geofence dinamis: pakai override kelas jika ada, jika tidak pakai global radius dari portal
-        const baseRadius = (studentClass?.radiusMeters && studentClass.radiusMeters >= 50) ? studentClass.radiusMeters : globalRadius;
-        const maxRadius = isBkBarcode ? Math.max(baseRadius, 250) : baseRadius;
+        const accuracyNum = req.body.accuracy ? Number(req.body.accuracy) : null;
+        // Toleransi geofence kampus: radius base (minimal 70m untuk seluruh area sekolah SMPN 1 Boyolangu) + toleransi indoor drift jika akurasi GPS terdegradasi
+        const configuredRadius = globalRadiusRow ? (parseInt(globalRadiusRow.value) || 70) : 70;
+        const defaultBufferVal = bufferDefaultRow ? (parseInt(bufferDefaultRow.value) || 15) : 15;
+        const rawClassRadius = (studentClass?.radiusMeters && studentClass.radiusMeters > 0) ? studentClass.radiusMeters : configuredRadius;
+        const baseRadius = Math.max(rawClassRadius, 70); // Minimal 70m mencakup seluruh area gedung sekolah SMPN 1 Boyolangu
+        const gpsAccuracyBuffer = (accuracyNum && accuracyNum > 25) ? Math.min(Math.round(accuracyNum * 0.65), 65) : 0;
+        const maxRadius = isBkBarcode ? Math.max(baseRadius + defaultBufferVal + gpsAccuracyBuffer, 85) : (baseRadius + defaultBufferVal + gpsAccuracyBuffer);
 
         const settings = await getOrCreateGateSettings();
         const effective = getEffectiveGateSettings(settings);
@@ -415,38 +533,44 @@ export const scanClassGate = async (req: Request, res: Response) => {
         });
         if (todayHoliday && !isTestingMode) {
             return res.status(403).json({
-                message: `🌴 Presensi Ditolak! Hari ini (${todayYmd}) adalah hari libur sekolah: ${todayHoliday.name}. Sekolah tidak menyelenggarakan presensi tatap muka.`
+                success: false,
+                isHoliday: true,
+                message: `🌴 Hari ini (${todayYmd}) adalah hari libur sekolah: ${todayHoliday.name}. Sekolah tidak menyelenggarakan presensi tatap muka.`
             });
         }
 
         // Jika hari ini libur mingguan (misal hari Minggu) dan bukan mode uji coba
         if (!effective.isDayActive && !isTestingMode && !settings.isEmergencyGateOut) {
             return res.status(403).json({
-                message: `🌴 Presensi Ditolak! Hari ${effective.currentDayName} adalah hari libur operasional sekolah.`
+                success: false,
+                isHoliday: true,
+                message: `🌴 Hari ${effective.currentDayName} adalah hari libur operasional sekolah! Tidak ada presensi tatap muka hari ini. Selamat berlibur!`
             });
         }
 
-        const isQrStaticFallback = method === 'QR_STATIC';
         let distanceMeters: number | null = null;
-        const accuracyNum = req.body.accuracy ? Number(req.body.accuracy) : null;
 
-        // Validasi Geolocation jika diaktifkan dan bukan mode QR-Only murni
-        if (isGeolocationActive) {
+        // Validasi Lokasi:
+        // A. JIKA MENGGUNAKAN QR DINAMIS PENGURUS KELAS:
+        // Presensi sah 100% tanpa GPS (karena pengurus kelas membawa HP di kelas & barcode berganti tiap 10s).
+        if (isDynamicOfficerQr) {
+            distanceMeters = 0; // Sah di kelas bersama pengurus kelas
+        } else if (isGeolocationActive) {
+            // B. JIKA MENGGUNAKAN QR STIKER KELAS FISIK / GPS:
             if (lat !== undefined && lng !== undefined && lat !== null && lng !== null && Number(lat) !== 0 && Number(lng) !== 0) {
                 distanceMeters = calculateDistanceMeters(Number(lat), Number(lng), targetLat, targetLng);
 
-                // Tolak jika berada di luar radius sekolah, KECUALI jika siswa menggunakan mode fallback scan QR statis kelas
+                // Tolak jika berada di luar radius sekolah (mencegah stiker difoto dibawa pulang)
                 if (distanceMeters > maxRadius && (!isTestingMode || distanceMeters > 500)) {
-                    if (!isQrStaticFallback) {
-                        const locTarget = isBkBarcode ? 'Ruang BK' : `lingkungan sekolah / kelas ${student.className}`;
-                        return res.status(403).json({
-                            message: `📍 Presensi Ditolak! Anda terdeteksi berada ${distanceMeters} meter di luar area ${locTarget} (Batas toleransi: ${maxRadius} meter). Jika GPS bermasalah, silakan gunakan tombol Scan QR Kelas.`
-                        });
-                    }
+                    return res.status(403).json({
+                        success: false,
+                        redirectDynamicQr: true,
+                        message: `📍 Presensi Ditolak! Anda terdeteksi berada ${distanceMeters} meter di luar sekolah (Batas maksimal: ${maxRadius} meter). Presensi hanya dapat dilakukan di dalam area SMP Negeri 1 Boyolangu.`
+                    });
                 }
 
                 // Cek Akurasi GPS terdegradasi (51m - 100m)
-                if (accuracyNum !== null && accuracyNum > 50 && accuracyNum <= 100 && !isQrStaticFallback) {
+                if (accuracyNum !== null && accuracyNum > 50 && accuracyNum <= 100) {
                     await prisma.attendanceAnomalyLog.create({
                         data: {
                             userId: student.id,
@@ -463,9 +587,13 @@ export const scanClassGate = async (req: Request, res: Response) => {
                         }
                     }).catch(() => {});
                 }
-            } else if (!isTestingMode && !isQrStaticFallback) {
-                return res.status(400).json({
-                    message: '📍 Presensi Ditolak! Sinyal GPS belum terkunci. Tunggu beberapa saat di area terbuka atau gunakan tombol Scan QR Kelas jika berada di dalam ruangan.'
+            } else if (!isTestingMode) {
+                // Sesuai instruksi: jika scan stiker statis tapi GPS mati / tidak terkunci,
+                // tolak dan alihkan siswa untuk scan QR Dinamis Pengurus Kelas
+                return res.status(403).json({
+                    success: false,
+                    redirectDynamicQr: true,
+                    message: 'Presensi GPS tidak terkunci. Silakan pindai QR Dinamis pada HP Pengurus Kelas Anda.'
                 });
             }
         }
@@ -504,58 +632,42 @@ export const scanClassGate = async (req: Request, res: Response) => {
         }
 
         const now = new Date();
+        let effectiveScanTime = now;
+        if (req.body.clientScanTime) {
+            const parsedClientDate = new Date(Number(req.body.clientScanTime));
+            // Validasi: tidak boleh di masa depan > 5 menit, dan tidak boleh lebih lampau dari 24 jam
+            if (!isNaN(parsedClientDate.getTime()) && parsedClientDate.getTime() <= (Date.now() + 5 * 60 * 1000) && parsedClientDate.getTime() >= (Date.now() - 24 * 60 * 60 * 1000)) {
+                effectiveScanTime = parsedClientDate;
+            }
+        } else if (req.body.deviceTime && typeof req.body.deviceTime === 'string') {
+            const [devH, devM] = req.body.deviceTime.split(':').map(Number);
+            if (!isNaN(devH) && !isNaN(devM)) {
+                const reconstructed = new Date();
+                reconstructed.setHours(devH, devM, 0, 0);
+                if (Math.abs(reconstructed.getTime() - Date.now()) <= 45 * 60 * 1000) {
+                    effectiveScanTime = reconstructed;
+                }
+            }
+        }
+
+        const scanTimeHms = effectiveScanTime.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+        const compareTimeSec = scanTimeHms.replace(/\./g, ':').padStart(8, '0');
         const currentTimeStr = effective.currentTimeStr;
 
-        let scanType = type;
-        if (!scanType) {
-            if (isBkGateIn) scanType = 'GATE_IN';
-            else if (isBkGateOut) scanType = 'GATE_OUT';
-            else if (barcodeCode.startsWith('GATE_IN') || barcodeCode.startsWith('GATE-CLASS')) scanType = 'GATE_IN';
-            else if (barcodeCode.startsWith('GATE_OUT')) scanType = 'GATE_OUT';
-            else scanType = 'GATE_IN';
-        }
-
-        if (!student.className || student.className.trim() === '') {
-            return res.status(400).json({
-                message: 'Presensi Ditolak! Akun siswa Anda belum ditentukan rombel kelasnya. Silakan hubungi admin sekolah.'
-            });
-        }
-
-        // Jika bukan barcode BK, wajib validasi barcode ruang kelas siswa
-        if (!isBkBarcode) {
-            const expectedGateIn = 'GATE_IN_' + student.className.trim();
-            const expectedGateOut = 'GATE_OUT_' + student.className.trim();
-            const classNorm = student.className.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
-            const codeNorm = (barcodeCode || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
-            const isMatchClass = classNorm.length > 0 && codeNorm.includes(classNorm);
-
-            if (scanType === 'GATE_IN' && barcodeCode !== expectedGateIn && !isMatchClass) {
-                return res.status(400).json({
-                    message: 'Presensi Ditolak! Anda mencoba scan barcode kelas lain. Silakan scan Barcode Gate-In di ruang kelas ' + student.className
-                });
-            }
-
-            if (scanType === 'GATE_OUT' && barcodeCode !== expectedGateOut && !isMatchClass) {
-                return res.status(400).json({
-                    message: 'Presensi Ditolak! Anda mencoba scan barcode kelas lain. Silakan scan Barcode Gate-Out di ruang kelas ' + student.className
-                });
-            }
-        }
-
-        // ============================================================
-        // 1X ABSENSI LOCK (ANTI-DUPLIKASI PRESENSI HARI INI)
-        // ============================================================
-        const startOfDay = new Date(now);
-        startOfDay.setHours(0, 0, 0, 0);
-        const endOfDay = new Date(now);
-        endOfDay.setHours(23, 59, 59, 999);
+        // Hitung batas awal dan akhir hari ini (WIB)
+        const nowUtc = now.getTime();
+        const wibOffset = 7 * 60 * 60 * 1000;
+        const nowWib = new Date(nowUtc + wibOffset);
+        const y = nowWib.getUTCFullYear();
+        const m = nowWib.getUTCMonth();
+        const d = nowWib.getUTCDate();
+        const startOfDay = new Date(Date.UTC(y, m, d, 0, 0, 0, 0) - wibOffset);
+        const endOfDay = new Date(Date.UTC(y, m, d, 23, 59, 59, 999) - wibOffset);
 
         const todayInRecord = await prisma.attendance.findFirst({
             where: {
                 userId: student.id,
                 type: 'GATE_IN',
-                method: { in: ['BARCODE', 'RFID', 'GPS', 'MANUAL'] },
-                status: { in: ['PRESENT', 'LATE'] },
                 scanTime: { gte: startOfDay, lte: endOfDay }
             }
         });
@@ -564,54 +676,377 @@ export const scanClassGate = async (req: Request, res: Response) => {
             where: {
                 userId: student.id,
                 type: 'GATE_OUT',
-                method: { in: ['BARCODE', 'RFID', 'GPS', 'MANUAL'] },
                 scanTime: { gte: startOfDay, lte: endOfDay }
             }
         });
 
-        if (scanType === 'GATE_IN') {
-            if (todayInRecord && !isTestingMode) {
-                const inTimeStr = new Date(todayInRecord.scanTime).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        let scanType = type;
+        const gateOutStartSec = (effective.gateOutStartTime || '12:00') + ':00';
+        const isCurrentlyDismissalTime = compareTimeSec >= gateOutStartSec || settings.isEmergencyGateOut || settings.isEarlyDismissal;
+
+        // PENANGANAN SISWA MEMINDAI BARCODE GATE_OUT DI PAGI HARI (SEBELUM JAM PULANG):
+        // Jika scan dilakukan sebelum jam kepulangan resmi dibuka dan siswa memindai barcode GATE_OUT:
+        // Berikan keterangan edukatif yang jelas dan menenangkan agar siswa tidak panik,
+        // bahwa yang dipindai adalah Barcode Kepulangan (Gate-Out) yang saat ini sedang ditutup,
+        // dan instruksikan untuk memindai Barcode Masuk (Gate-In) di samping pintu ruang kelas.
+        let autoRedirectedFromGateOut = false;
+        if (!isCurrentlyDismissalTime && !isBkGateOut && !isMusholaOut) {
+            const isGateOutScanned = scanType === 'GATE_OUT' || (barcodeCode && barcodeCode.startsWith('GATE_OUT'));
+            if (isGateOutScanned) {
                 return res.status(400).json({
-                    message: `⚠️ Presensi Ditolak! Anda sudah melakukan presensi masuk (Gate-In) hari ini pukul ${inTimeStr} WIB. Presensi masuk dikunci dan hanya dapat dilakukan 1x per hari.`
+                    success: false,
+                    isGateOutInMorning: true,
+                    message: `⛔ Anda Memindai Barcode Kepulangan (Gate-Out)! Gerbang kepulangan saat ini SEDANG DITUTUP (Baru dibuka pukul ${effective.gateOutStartTime} WIB). Jangan panik! Silakan pindai Barcode Masuk (Gate-In) di samping pintu ruang kelas ${student.className} untuk mencatat kehadiran pagi ini.`
+                });
+            }
+        }
+
+        // SMART AUTO-CORRECTION (SIANG HARI - JAM KEPULANGAN):
+        // Jika scan dilakukan saat jam kepulangan resmi sekolah (isCurrentlyDismissalTime === true),
+        // siswa SUDAH memiliki presensi masuk pagi (todayInRecord ada) dan BELUM presensi pulang (todayOutRecord belum ada):
+        // Jika siswa memindai barcode GATE_IN di kelas (karena kamera menyorot barcode masuk atau salah pilih menu),
+        // otomatis konversi menjadi presensi pulang (GATE_OUT)!
+        // Ini mencegah 100% siswa terkecoh respons "✅ Anda sudah tercatat Presensi Masuk pukul 06.56 WIB" lalu pulang tanpa data kepulangan.
+        let autoRedirectedFromGateIn = false;
+        if (isCurrentlyDismissalTime && todayInRecord && !todayOutRecord && !isBkGateIn && !isMusholaIn) {
+            if (scanType === 'GATE_IN' || (barcodeCode && (barcodeCode.startsWith('GATE_IN') || barcodeCode.startsWith('GATE-CLASS')))) {
+                scanType = 'GATE_OUT';
+                autoRedirectedFromGateIn = true;
+                console.log(`[SMART SCAN AUTO-CORRECT SIANG] Siswa ${student.name} (${student.className}) scan barcode GATE_IN di jam pulang (${currentTimeStr} WIB) -> Otomatis dikonversi ke GATE_OUT.`);
+            }
+        }
+
+        if (isMusholaBarcode) {
+            if (type === 'GATE_OUT' || type === 'MUSHOLA_OUT' || isMusholaOut) {
+                scanType = 'MUSHOLA_OUT';
+            } else if (type === 'GATE_IN' || type === 'MUSHOLA_IN') {
+                scanType = 'MUSHOLA_IN';
+            } else if (isCurrentlyDismissalTime) {
+                // Jam kepulangan telah tiba: scan barcode mushola otomatis menjadi presensi pulang
+                scanType = 'MUSHOLA_OUT';
+            } else {
+                scanType = 'MUSHOLA_IN';
+            }
+        } else if (!scanType) {
+            if (isBkGateIn) scanType = 'GATE_IN';
+            else if (isBkGateOut) scanType = 'GATE_OUT';
+            else if (barcodeCode.startsWith('GATE_IN') || barcodeCode.startsWith('GATE-CLASS')) {
+                if (isCurrentlyDismissalTime && todayInRecord && !todayOutRecord) {
+                    scanType = 'GATE_OUT';
+                    autoRedirectedFromGateIn = true;
+                } else {
+                    scanType = 'GATE_IN';
+                }
+            } else if (barcodeCode.startsWith('GATE_OUT')) {
+                scanType = 'GATE_OUT';
+            } else scanType = 'GATE_IN';
+        }
+
+        if (!student.className || student.className.trim() === '') {
+            return res.status(400).json({
+                message: 'Presensi Ditolak! Akun siswa Anda belum ditentukan rombel kelasnya. Silakan hubungi admin sekolah.'
+            });
+        }
+
+        // ============================================================
+        // ATURAN 1 & 2: DUAL-POINT CHECKOUT - TITIK MUSHOLA SEKOLAH
+        // ============================================================
+        if (isMusholaBarcode) {
+            const todayDay = now.getDay();
+            const prayerSchedule = await (prisma as any).prayerClassSchedule.findFirst({
+                where: { dayOfWeek: todayDay, isActive: true }
+            });
+
+            const scheduledClasses = (prayerSchedule?.classNames || '').split(',').map((c: string) => c.trim().toUpperCase());
+            const isAllMaleSchedule = prayerSchedule?.prayerType === 'JUMAT' || scheduledClasses.includes('ALL_MALE');
+            const studentGender = (student.gender || 'L').toUpperCase().startsWith('P') ? 'P' : 'L';
+            
+            const isClassScheduled = isAllMaleSchedule 
+                ? (studentGender === 'L') 
+                : scheduledClasses.includes(student.className.trim().toUpperCase());
+
+            // ATURAN 1: Barcode di mushola hanya valid untuk kelas yang memiliki jadwal sholat di mushola pada jam/hari tersebut (Kecuali Mode Pulang Cepat / Darurat).
+            if (!isClassScheduled && !isTestingMode && !settings.isEmergencyGateOut && !settings.isEarlyDismissal) {
+                return res.status(403).json({
+                    success: false,
+                    message: `⛔ Akses Mushola Ditolak! Rombel ${student.className} tidak memiliki jadwal sholat berjamaah di mushola hari ini (${prayerSchedule?.dayName || 'Hari Ini'}). Siswa dipersilakan melakukan presensi kepulangan langsung di Ruang Kelas.`
                 });
             }
 
+            const todayYmdStr = new Date(now).toISOString().substring(0, 10);
+            const pType = prayerSchedule?.prayerType || (todayDay === 5 ? 'JUMAT' : 'DHUHUR');
+
+            // ATURAN 2A: Siswa melakukan "Scan In" saat tiba di mushola
+            if (isMusholaIn || scanType === 'MUSHOLA_IN') {
+                const todayPrayerIn = await (prisma as any).studentPrayerAttendance.findFirst({
+                    where: { studentId: student.id, date: todayYmdStr, prayerType: pType }
+                });
+
+                if (todayPrayerIn) {
+                    const inTime = formatTimeWib(todayPrayerIn.createdAt);
+                    return res.json({
+                        success: true,
+                        alreadyScanned: true,
+                        message: `✅ Anda sudah tercatat Scan In di Mushola hari ini pukul ${inTime} WIB. Silakan bersiap melaksanakan Sholat ${pType} Berjamaah.`
+                    });
+                }
+
+                await (prisma as any).studentPrayerAttendance.create({
+                    data: {
+                        studentId: student.id,
+                        studentName: student.name,
+                        className: student.className,
+                        gender: studentGender,
+                        prayerType: pType,
+                        date: todayYmdStr,
+                        status: 'SHOLAT_BERJAMAAH',
+                        method: 'STATIC_BARCODE',
+                        recordedById: student.id,
+                        recordedByName: student.name,
+                        notes: `Scan In kedatangan di Mushola Sekolah (Rombel ${student.className})`
+                    }
+                });
+
+                return res.json({
+                    success: true,
+                    scanType: 'MUSHOLA_IN',
+                    message: `🕌 Scan In Mushola Berhasil! Selamat menunaikan Sholat ${pType} Berjamaah. Lakukan Scan Out setelah selesai sholat untuk presensi kepulangan otomatis.`
+                });
+            }
+
+            // ATURAN 2B: Siswa melakukan "Scan Out" setelah sholat selesai -> Otomatis tercatat "PULANG" (lokasi_pulang = 'MUSHOLA')
+            if (isMusholaOut || scanType === 'MUSHOLA_OUT' || scanType === 'GATE_OUT') {
+                // Validasi Jam Buka Kepulangan Mushola (Disamakan resmi dengan jam pulang sekolah hari ini)
+                const musholaOutStartTime = (effective.gateOutStartTime || '12:00') + ':00';
+                if (compareTimeSec < musholaOutStartTime && !isTestingMode && !settings.isEmergencyGateOut && !settings.isEarlyDismissal) {
+                    return res.status(400).json({
+                        success: false,
+                        message: `⚠️ Gerbang Kepulangan Mushola Belum Dibuka! Presensi kepulangan dari mushola dibuka mulai pukul ${effective.gateOutStartTime} WIB (Waktu saat ini: ${currentTimeStr} WIB). KBM masih berlangsung.`
+                    });
+                }
+
+                // Cek atau buat record sholat jika siswa scan pulang langsung di mushola
+                let todayPrayerIn = await (prisma as any).studentPrayerAttendance.findFirst({
+                    where: { studentId: student.id, date: todayYmdStr, prayerType: pType }
+                });
+
+                if (!todayPrayerIn) {
+                    try {
+                        todayPrayerIn = await (prisma as any).studentPrayerAttendance.create({
+                            data: {
+                                studentId: student.id,
+                                studentName: student.name,
+                                className: student.className,
+                                gender: studentGender,
+                                prayerType: pType,
+                                date: todayYmdStr,
+                                status: 'SHOLAT_BERJAMAAH',
+                                method: 'AUTO_GATE_OUT_MUSHOLA',
+                                recordedById: student.id,
+                                recordedByName: student.name,
+                                notes: `Hadir sholat & scan pulang di Mushola (${currentTimeStr} WIB)`
+                            }
+                        });
+                    } catch (e) {}
+                }
+
+                // ATURAN 5: Pencegahan Duplikasi (1 Siswa hanya boleh memiliki status kepulangan 1x per hari)
+                const startOfDayToday = new Date(now);
+                startOfDayToday.setHours(0, 0, 0, 0);
+                const endOfDayToday = new Date(now);
+                endOfDayToday.setHours(23, 59, 59, 999);
+
+                const existingGateOut = await prisma.attendance.findFirst({
+                    where: {
+                        userId: student.id,
+                        type: 'GATE_OUT',
+                        scanTime: { gte: startOfDayToday, lte: endOfDayToday }
+                    }
+                });
+
+                if (existingGateOut && !isTestingMode) {
+                    const outTimeStr = formatTimeWib(existingGateOut.scanTime, true);
+                    return res.status(400).json({
+                        success: false,
+                        message: `⚠️ Presensi Kepulangan Ditolak! Anda sudah melakukan presensi pulang hari ini pukul ${outTimeStr} WIB (${existingGateOut.note || 'Gate-Out'}). Presensi pulang dikunci 1x per hari.`
+                    });
+                }
+
+                // Update catatan presensi sholat
+                if (todayPrayerIn) {
+                    await (prisma as any).studentPrayerAttendance.update({
+                        where: { id: todayPrayerIn.id },
+                        data: { notes: (todayPrayerIn.notes || '') + ' • Scan Out Pulang Mandiri' }
+                    });
+                }
+
+                // Buat record Attendance kepulangan GATE_OUT
+                const attOut = await prisma.attendance.create({
+                    data: {
+                        userId: student.id,
+                        type: 'GATE_OUT',
+                        method: method || 'BARCODE',
+                        status: 'PRESENT',
+                        lat: lat ? Number(lat) : null,
+                        lng: lng ? Number(lng) : null,
+                        geofenceZoneName: 'MUSHOLA',
+                        note: `Pulang Otomatis Selesai Sholat di Mushola (Rombel ${student.className})`,
+                        accuracyMeters: accuracyNum,
+                        jarakKeSekolah: distanceMeters,
+                        statusVerifikasi: 'AUTO'
+                    }
+                });
+
+                return res.json({
+                    success: true,
+                    scanType: 'GATE_OUT',
+                    lokasi_pulang: 'MUSHOLA',
+                    record: attOut,
+                    message: `✅ Scan Out Mushola Berhasil! Anda tercatat PULANG dari Mushola (Selesai Sholat Berjamaah). Anda dapat langsung pulang tanpa perlu kembali ke kelas.`
+                });
+            }
+        }
+
+        const isSpecialCheckout = req.body.isSpecialCheckoutWithoutIn === true || req.body.isSpecialCheckoutWithoutIn === 'true';
+
+        // Jika bukan barcode BK dan bukan Mushola, wajib validasi barcode ruang kelas siswa
+        if (!isBkBarcode && !isMusholaBarcode) {
+            const expectedGateIn = 'GATE_IN_' + student.className.trim();
+            const expectedGateOut = 'GATE_OUT_' + student.className.trim();
+            const classNorm = student.className.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+            const codeNorm = (barcodeCode || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+            const isMatchClass = classNorm.length > 0 && codeNorm.includes(classNorm);
+
+            if (scanType === 'GATE_IN') {
+                const isValidInBarcode = barcodeCode === expectedGateIn || isMatchClass;
+                if (!isValidInBarcode) {
+                    return res.status(400).json({
+                        success: false,
+                        isClassMismatch: true,
+                        message: 'Presensi Ditolak! Anda mencoba scan barcode kelas lain. Silakan scan Barcode Gate-In di ruang kelas ' + student.className
+                    });
+                }
+            }
+
+            if (scanType === 'GATE_OUT') {
+                const isValidOutBarcode = barcodeCode === expectedGateOut || (autoRedirectedFromGateIn && barcodeCode === expectedGateIn) || isMatchClass;
+                if (!isValidOutBarcode) {
+                    return res.status(400).json({
+                        message: 'Presensi Ditolak! Anda mencoba scan barcode kelas lain. Silakan scan Barcode Gate-Out di ruang kelas ' + student.className
+                    });
+                }
+            }
+        }
+
+        // ============================================================
+        // SIBOY A10 LOCK SAKIT: Jika siswa di-approve sakit oleh BK -> semua absensi LOCKED
+        // ============================================================
+        const todayStart = new Date(now);
+        todayStart.setHours(0, 0, 0, 0);
+        const todayEnd = new Date(now);
+        todayEnd.setHours(23, 59, 59, 999);
+
+        const approvedSickToday = await (prisma as any).studentLeaveRequest.findFirst({
+            where: {
+                studentId: student.id,
+                status: 'APPROVED',
+                category: { in: ['SICK', 'SAKIT'] },
+                startDate: { lte: todayEnd },
+                endDate: { gte: todayStart }
+            }
+        });
+
+        if (approvedSickToday) {
+            return res.status(400).json({
+                success: false,
+                isLocked: true,
+                message: `🔒 Absensi Terkunci (LOCKED): Ananda ${student.name} telah disetujui SAKIT oleh Guru BK hari ini (${approvedSickToday.reason || 'Surat Dokter / Izin Sakit'}). Seluruh absensi masuk, pulang, dan KBM otomatis dinonaktifkan.`
+            });
+        }
+
+        // ============================================================
+        // 1X ABSENSI LOCK (ANTI-DUPLIKASI PRESENSI HARI INI - ALL METHODS)
+        // ============================================================
+        let isMissingIn = false;
+
+        if (scanType === 'GATE_IN') {
+            if (todayInRecord && !isTestingMode) {
+                const inTimeStr = formatTimeWib(todayInRecord.scanTime, true);
+                return res.json({
+                    success: true,
+                    alreadyScanned: true,
+                    scanType: 'GATE_IN',
+                    message: `✅ Anda sudah tercatat Presensi Masuk (Gate-In) hari ini pukul ${inTimeStr} WIB (${todayInRecord.note || 'Tepat Waktu'}). Presensi masuk Anda sudah aman dan sah di sistem.`
+                });
+            }
+
+            const gateInStartSec = (effective.gateInStartTime || '06:00') + ':00';
+            const gateInEndSec = (effective.gateInEndTime || '07:00') + ':00';
+            const gateInMaxSec = (effective.gateInMaxTime || '12:00') + ':59';
+
             // Lock jika sebelum jam buka gerbang masuk (dilewati jika mode uji coba)
-            if (currentTimeStr < effective.gateInStartTime && !isTestingMode && !settings.isEmergencyGateOut) {
+            if (compareTimeSec < gateInStartSec && !isTestingMode && !settings.isEmergencyGateOut) {
                 return res.status(400).json({
                     message: `⚠️ Gerbang Masuk Belum Dibuka! Presensi masuk dibuka mulai pukul ${effective.gateInStartTime} WIB.`
                 });
             }
 
-            // KONDISI KHUSUS JAM BERAKHIR TEPAT WAKTU (gateInEndTime):
-            // - QR Kelas normal DIKUNCI di atas gateInEndTime
-            // - QR Ruang BK DIBUKA khusus untuk siswa terlambat di atas gateInEndTime
+            // KONDISI KHUSUS JAM BERAKHIR TEPAT WAKTU & TOLERANSI KELAS (07:30:00 WIB):
+            // Siswa tetap dapat scan langsung di kelas sampai dengan pukul 07:30:00 WIB dengan status TERLAMBAT (bukan via BK)
+            const classLateMaxSec = '07:30:00';
             if (isBkGateIn) {
-                if (currentTimeStr < effective.gateInEndTime && !isTestingMode) {
+                if (compareTimeSec <= gateInEndSec && !isTestingMode) {
                     return res.status(400).json({
-                        message: `⚠️ QR Ruang BK Belum Dibuka! Sebelum pukul ${effective.gateInEndTime} WIB, silakan lakukan presensi tepat waktu di ruang kelas Anda (${student.className}). QR Ruang BK otomatis aktif pukul ${effective.gateInEndTime} WIB khusus bagi siswa yang terlambat.`
+                        message: `⚠️ QR Ruang BK Belum Dibuka! Sebelum pukul ${effective.gateInEndTime}:00 WIB, silakan lakukan presensi tepat waktu di ruang kelas Anda (${student.className}). QR Ruang BK aktif mulai pukul ${effective.gateInEndTime}:01 WIB khusus bagi siswa yang terlambat.`
                     });
                 }
             } else {
-                if (currentTimeStr > effective.gateInEndTime && !isTestingMode && !settings.isEmergencyGateOut) {
+                if (compareTimeSec > classLateMaxSec && !isTestingMode && !settings.isEmergencyGateOut) {
+                    const [endH, endM] = (effective.gateInEndTime || '07:00').split(':').map(Number);
+                    const [currH, currM] = currentTimeStr.split(':').map(Number);
+                    const overLateMin = Math.max(1, (currH * 60 + currM) - (endH * 60 + endM));
                     return res.status(400).json({
-                        message: `⛔ Presensi Kelas Terkunci! Waktu kedatangan tepat waktu di ruang kelas berakhir tepat pukul ${effective.gateInEndTime} WIB. Anda hadir pukul ${currentTimeStr} WIB. Karena terlambat, silakan melapor dan scan QR Code di RUANG BK.`
+                        success: false,
+                        isClassGateClosedToBk: true,
+                        message: `⛔ Gerbang Kelas Ditutup Pukul 07:30 WIB! Batas toleransi presensi di ruang kelas telah berakhir. Anda memindai pukul ${compareTimeSec} WIB (Terlambat ${overLateMin} menit). Segera menuju ke Ruang BK untuk pendataan Guru BK.`
                     });
                 }
             }
         } else if (scanType === 'GATE_OUT') {
-            // Validasi: Wajib sudah scan masuk hari ini sebelum scan pulang (kecuali mode darurat / uji coba)
-            if (!todayInRecord && !isTestingMode && !settings.isEmergencyGateOut) {
-                return res.status(400).json({
-                    message: `⚠️ Presensi Kepulangan Ditolak! Anda belum tercatat melakukan presensi masuk (Gate-In) hari ini. Harap melapor ke Guru Piket / BK.`
+            // Validasi Keamanan Gerbang SIBOY: Toleransi Scan Pulang Tanpa Data Masuk
+            // Sesuai kebijakan: Jangan tolak scan pulang hanya karena data masuk tidak ditemukan.
+            // Scan pulang tetap diterima jika barcode benar, jam pulang tiba, dan GPS valid.
+            // Ditandai "Pulang tanpa data masuk – perlu verifikasi" dan dicatat ke daftar anomali untuk BK/Wali Kelas.
+            if (!todayInRecord && !settings.isEmergencyGateOut) {
+                isMissingIn = true;
+                setImmediate(async () => {
+                    try {
+                        const { recordAnomaly } = await import('../utils/anomalyDetector');
+                        await recordAnomaly({
+                            code: 'MISSING_GATE_IN_ON_OUT',
+                            level: 'SEDANG',
+                            module: 'ATTENDANCE',
+                            summary: `Siswa ${student.name} (${student.className}) scan pulang tanpa data masuk (ditandai perlu verifikasi BK/Wali Kelas).`,
+                            count: 1,
+                            sampleStudents: [{
+                                id: student.id,
+                                name: student.name,
+                                className: student.className,
+                                reason: 'Scan kepulangan tanpa data masuk pagi',
+                                time: new Date().toLocaleTimeString('id-ID')
+                            }]
+                        });
+                    } catch (e) {}
                 });
             }
 
             if (todayOutRecord && !isTestingMode) {
-                const outTimeStr = new Date(todayOutRecord.scanTime).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                return res.status(400).json({
-                    message: `⚠️ Presensi Ditolak! Anda sudah melakukan presensi kepulangan (Gate-Out) hari ini pukul ${outTimeStr} WIB. Presensi pulang dikunci dan hanya dapat dilakukan 1x per hari.`
+                const outTimeStr = formatTimeWib(todayOutRecord.scanTime, true);
+                return res.json({
+                    success: true,
+                    alreadyScanned: true,
+                    scanType: 'GATE_OUT',
+                    message: `✅ Anda sudah tercatat Presensi Pulang (Gate-Out) hari ini pukul ${outTimeStr} WIB (${todayOutRecord.note || 'Normal'}). Presensi kepulangan Anda sudah aman dan sah di sistem.`
                 });
             }
 
@@ -659,13 +1094,88 @@ export const scanClassGate = async (req: Request, res: Response) => {
                 const hasEarlyLeavePersonal = Boolean(approvedLeaveToday || uksSentHomeToday);
                 const isEmergency = Boolean(settings.isEmergencyGateOut);
                 const isEarlyDismissalAll = Boolean(settings.isEarlyDismissal);
-                const isGateOutPermitted = isTestingMode || isEmergency || isEarlyDismissalAll || hasEarlyLeavePersonal;
-                const isRegularOpen = currentTimeStr >= effective.gateOutStartTime && currentTimeStr <= effective.gateOutEndTime;
 
-                if (!isRegularOpen && !isGateOutPermitted) {
+                const gateOutStartSec = (effective.gateOutStartTime || '12:30') + ':00';
+                const gateOutEndSec = (effective.gateOutEndTime || '18:00') + ':59';
+                const isWithinOfficialDismissal = effective.currentTimeWithSecStr >= gateOutStartSec && effective.currentTimeWithSecStr <= gateOutEndSec;
+
+                const isGateOutPermitted = isTestingMode || isEmergency || isEarlyDismissalAll || hasEarlyLeavePersonal || isWithinOfficialDismissal;
+
+                if (!isGateOutPermitted) {
                     return res.status(400).json({
-                        message: `⚠️ Gerbang Kepulangan Terkunci (LOCK)! Jam kepulangan normal belum dibuka (Jadwal pulang hari ${effective.currentDayName}: ${effective.gateOutStartTime} - ${effective.gateOutEndTime} WIB). Anda mencoba scan pukul ${currentTimeStr} WIB. Gerbang hanya dibuka saat jam pulang tiba, mode darurat aktif, atau izin pulang lebih awal via Ruang BK.`
+                        success: false,
+                        isGateOutClosed: true,
+                        message: `⛔ Gerbang Kepulangan Belum Dibuka! Presensi kepulangan (Gate-Out) baru dibuka mulai pukul ${effective.gateOutStartTime} WIB sesuai jadwal operasional sekolah hari ${effective.currentDayName} (${effective.gateOutStartTime} - ${effective.gateOutEndTime} WIB). Saat ini baru pukul ${effective.currentTimeWithSecStr} WIB. KBM masih berlangsung.`
                     });
+                }
+
+                // ============================================================
+                // ATURAN 3 & 4: Penanganan Presensi Pulang Kelas vs Mushola
+                // ============================================================
+                const todayDay = now.getDay();
+                const prayerSchedule = await (prisma as any).prayerClassSchedule.findFirst({
+                    where: { dayOfWeek: todayDay, isActive: true }
+                });
+
+                if (prayerSchedule && !isEmergency && !isEarlyDismissalAll && !isTestingMode) {
+                    const scheduledClasses = (prayerSchedule.classNames || '').split(',').map((c: string) => c.trim().toUpperCase());
+                    const isAllMaleSchedule = prayerSchedule.prayerType === 'JUMAT' || scheduledClasses.includes('ALL_MALE');
+                    const studentGender = (student.gender || 'L').toUpperCase().startsWith('P') ? 'P' : 'L';
+                    const isClassScheduled = isAllMaleSchedule 
+                        ? (studentGender === 'L') 
+                        : scheduledClasses.includes(student.className.trim().toUpperCase());
+
+                    if (isClassScheduled) {
+                        // ATURAN 3 (Putra): Siswa putra dari kelas terjadwal WAJIB ke mushola (tidak boleh scan pulang di kelas)
+                        if (studentGender === 'L' && !isTestingMode) {
+                            return res.status(403).json({
+                                success: false,
+                                message: `🕌 Presensi Pulang di Kelas Ditolak! Rombel ${student.className} memiliki jadwal Sholat ${prayerSchedule.prayerType || 'Dhuhur'} Berjamaah di Mushola hari ini. Siswa putra WAJIB menuju ke mushola untuk sholat berjamaah dan melakukan Scan Out kepulangan di mushola.`
+                            });
+                        }
+
+                        // ATURAN 3 (Putri): Siswi putri yang berhalangan diizinkan scan pulang langsung di Kelas
+                        if (studentGender === 'P') {
+                            const isUzurParam = req.body.isBerhalangan === true || req.body.isBerhalangan === 'true' || 
+                                               req.body.isHaid === true || req.body.isHaid === 'true' || 
+                                               (typeof req.body.reason === 'string' && (req.body.reason.toLowerCase().includes('haid') || req.body.reason.toLowerCase().includes('halangan')));
+                            
+                            const todayYmdStr = new Date(now).toISOString().substring(0, 10);
+                            const pType = prayerSchedule.prayerType || (todayDay === 5 ? 'JUMAT' : 'DHUHUR');
+                            
+                            const existingPrayerRec = await (prisma as any).studentPrayerAttendance.findFirst({
+                                where: { studentId: student.id, date: todayYmdStr, prayerType: pType }
+                            });
+
+                            const isRecordedHaid = existingPrayerRec?.status === 'BERHALANGAN_HAID' || existingPrayerRec?.status === 'TIDAK_SHOLAT_UZUR';
+
+                            if (isUzurParam || isRecordedHaid) {
+                                if (!existingPrayerRec) {
+                                    await (prisma as any).studentPrayerAttendance.create({
+                                        data: {
+                                            studentId: student.id,
+                                            studentName: student.name,
+                                            className: student.className,
+                                            gender: 'P',
+                                            prayerType: pType,
+                                            date: todayYmdStr,
+                                            status: 'BERHALANGAN_HAID',
+                                            method: 'AUTO_GATE_OUT_UZUR',
+                                            recordedById: student.id,
+                                            recordedByName: student.name,
+                                            notes: 'Siswi berhalangan (Haid/Uzur), presensi kepulangan langsung di ruang kelas'
+                                        }
+                                    });
+                                }
+                            } else if (!isTestingMode) {
+                                return res.status(403).json({
+                                    success: false,
+                                    needsHaidConfirmation: true,
+                                    message: `🕌 Presensi Pulang di Kelas Ditolak! Rombel ${student.className} memiliki jadwal Sholat Berjamaah di Mushola hari ini. Siswi putri yang tidak berhalangan wajib sholat di mushola dan scan pulang di mushola. Jika Anda sedang berhalangan (haid/uzur), silakan konfirmasi Berhalangan Sholat untuk scan pulang langsung di kelas.`
+                                });
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -675,73 +1185,78 @@ export const scanClassGate = async (req: Request, res: Response) => {
         let lateMinutes = 0;
 
         if (scanType === 'GATE_IN') {
-            if (isBkGateIn || currentTimeStr > effective.gateInEndTime) {
-                status = 'LATE';
+            const gateInEndSec = (effective.gateInEndTime || '07:00') + ':00';
+            if (isBkGateIn || effective.currentTimeWithSecStr > gateInEndSec) {
                 const [endH, endM] = effective.gateInEndTime.split(':').map(Number);
                 const [currH, currM] = currentTimeStr.split(':').map(Number);
                 lateMinutes = Math.max(1, (currH * 60 + currM) - (endH * 60 + endM));
-                note = `Terlambat ${lateMinutes} menit masuk (Scan di Ruang BK pukul ${currentTimeStr} WIB - Batas normal ${settings.gateInEndTime})`;
 
-                // Catat pelanggaran disiplin BK (+5 poin)
-                try {
-                    await prisma.disciplineRecord.create({
-                        data: {
-                            userId: student.id,
-                            type: 'PELANGGARAN',
-                            description: `Keterlambatan masuk sekolah (${lateMinutes} menit) tercatat via QR Ruang BK pada pukul ${currentTimeStr} WIB`,
-                            points: 5
-                        }
-                    });
-                    await prisma.user.update({
-                        where: { id: student.id },
-                        data: { points: { increment: 5 } }
-                    });
+                // GAP-05: Cek apakah siswa memiliki dispensasi / alasan sah yang disetujui Guru Piket / BK
+                const todayMidnight = new Date();
+                todayMidnight.setHours(0, 0, 0, 0);
+                const activeDispensation = await (prisma as any).studentLeaveRequest.findFirst({
+                    where: {
+                        studentId: student.id,
+                        status: 'APPROVED',
+                        category: { in: ['DISPENSATION', 'SICK', 'PERMISSION'] },
+                        startDate: { lte: new Date() },
+                        endDate: { gte: todayMidnight }
+                    }
+                });
 
-                    // Kirim notifikasi ke Guru BK
-                    await prisma.notificationMessage.create({
-                        data: {
-                            recipientRole: 'COUNSELOR',
-                            studentId: student.id,
-                            studentName: student.name,
-                            className: student.className || undefined,
-                            category: 'BK_LATE',
-                            title: '⚠️ Siswa Terlambat di Ruang BK',
-                            message: `${student.name} (${student.className}) terlambat ${lateMinutes} menit dan scan di Ruang BK pukul ${currentTimeStr} WIB.`
-                        }
-                    });
-                } catch (e) {}
+                if (activeDispensation) {
+                    status = 'LATE_EXCUSED';
+                    note = `Terlambat Dimaklumi (Dispensasi Sah: ${activeDispensation.reason || activeDispensation.category}) • Pukul ${effective.currentTimeWithSecStr} WIB`;
+                } else {
+                    status = 'LATE';
+                    note = isBkGateIn
+                        ? `Terlambat ${lateMinutes} menit masuk (Scan di Ruang BK pukul ${effective.currentTimeWithSecStr} WIB - Batas normal ${effective.gateInEndTime}:00)`
+                        : `Terlambat ${lateMinutes} menit masuk (Scan langsung di Ruang Kelas ${student.className} pukul ${effective.currentTimeWithSecStr} WIB - Batas normal ${effective.gateInEndTime}:00)${autoRedirectedFromGateOut ? ' • Otomatis Presensi Masuk' : ''}`;
+
+                    // Catat rekam kedisiplinan (+2 poin keterlambatan)
+                    try {
+                        await prisma.disciplineRecord.create({
+                            data: {
+                                userId: student.id,
+                                type: 'PELANGGARAN',
+                                description: isBkGateIn
+                                    ? `Keterlambatan masuk sekolah (${lateMinutes} menit) tercatat via QR Ruang BK pada pukul ${currentTimeStr} WIB`
+                                    : `Keterlambatan masuk sekolah (${lateMinutes} menit) tercatat via scan Kelas ${student.className} pada pukul ${currentTimeStr} WIB`,
+                                points: 2
+                            }
+                        });
+                        await prisma.user.update({
+                            where: { id: student.id },
+                            data: { points: { increment: 2 } }
+                        });
+
+                        // Notifikasi ke BK dan Wali Kelas telah dinonaktifkan sesuai instruksi pengguna
+                    } catch (e) {}
+                }
             } else {
-                note = 'Hadir Tepat Waktu (Pukul ' + currentTimeStr + ' WIB) di Ruang Kelas ' + student.className;
+                note = 'Hadir Tepat Waktu (Pukul ' + currentTimeStr + ' WIB) di Ruang Kelas ' + student.className + (autoRedirectedFromGateOut ? ' • Otomatis Presensi Masuk' : '');
             }
         } else {
             if (isBkGateOut) {
                 status = 'EARLY_LEAVE';
                 note = `Izin Pulang Cepat Disetujui BK (Pukul ${currentTimeStr} WIB)`;
-
-                // Kirim notifikasi ke Guru BK
-                try {
-                    await prisma.notificationMessage.create({
-                        data: {
-                            recipientRole: 'COUNSELOR',
-                            studentId: student.id,
-                            studentName: student.name,
-                            className: student.className || undefined,
-                            category: 'BK_EARLY_LEAVE',
-                            title: '🚪 Izin Pulang Cepat BK',
-                            message: `${student.name} (${student.className}) telah menyelesaikan scan kepulangan izin di Ruang BK pukul ${currentTimeStr} WIB.`
-                        }
-                    });
-                } catch (e) {}
+                // Notifikasi ke BK dinonaktifkan sesuai instruksi pengguna
             } else if (settings.isEmergencyGateOut) {
                 note = `Presensi Pulang Darurat (Pukul ${currentTimeStr} WIB: ${settings.emergencyReason || 'Keadaan Darurat Sekolah'})`;
             } else if (settings.isEarlyDismissal) {
                 note = `Presensi Pulang Lebih Awal (Pukul ${currentTimeStr} WIB: ${settings.emergencyReason || 'Acara / Pulang Cepat Sekolah'})`;
+            } else if (isMissingIn) {
+                note = `Pulang tanpa data masuk – perlu verifikasi (Pukul ${currentTimeStr} WIB)`;
+            } else if (isSpecialCheckout && !todayInRecord) {
+                note = `Presensi Kepulangan Khusus (Pukul ${currentTimeStr} WIB - Lupa Scan Masuk Pagi, Tercatat Peringatan BK)`;
             } else {
-                note = `Presensi Kepulangan Normal (Pukul ${currentTimeStr} WIB)`;
+                note = `Presensi Kepulangan Normal (Pukul ${currentTimeStr} WIB)${autoRedirectedFromGateIn ? ' • Scan Kelas' : ''}`;
             }
         }
 
-        if (distanceMeters !== null) {
+        if (isDynamicOfficerQr) {
+            note += ' • Terverifikasi QR Dinamis Pengurus Kelas';
+        } else if (distanceMeters !== null) {
             note += ` • Jarak GPS: ${distanceMeters}m (Valid)`;
         }
 
@@ -749,15 +1264,37 @@ export const scanClassGate = async (req: Request, res: Response) => {
             data: {
                 userId: student.id,
                 type: scanType,
-                method: method || 'BARCODE',
+                method: isDynamicOfficerQr ? 'QR_DYNAMIC_OFFICER' : (method || 'BARCODE'),
                 status,
-                scanTime: now,
+                scanTime: effectiveScanTime,
                 lat: lat ? Number(lat) : null,
                 lng: lng ? Number(lng) : null,
                 isFakeGps: Boolean(isFakeGps),
+                accuracyMeters: accuracyNum,
+                jarakKeSekolah: distanceMeters,
+                statusVerifikasi: 'AUTO',
+                kalmanApplied: Boolean(req.body.kalmanApplied),
                 note
             }
         });
+
+        // Catat poin kedisiplinan otomatis jika melakukan Pulang Khusus tanpa scan masuk
+        if (scanType === 'GATE_OUT' && isSpecialCheckout && !todayInRecord) {
+            try {
+                await (prisma as any).disciplineRecord.create({
+                    data: {
+                        userId: student.id,
+                        type: 'PELANGGARAN',
+                        category: 'KEDISIPLINAN',
+                        description: 'Melakukan presensi kepulangan tanpa rekam kedatangan (Lupa scan masuk pagi)',
+                        points: 2,
+                        counselorName: 'Sistem Gerbang Otomatis'
+                    }
+                });
+            } catch (discErr) {
+                console.warn('Error recording auto discipline for special checkout:', discErr);
+            }
+        }
 
         // ============================================================
         // INTEGRASI NOTIFIKASI OTOMATIS KE ORANG TUA (TEPAT 1X MASUK & 1X PULANG PER HARI)
@@ -799,15 +1336,35 @@ export const scanClassGate = async (req: Request, res: Response) => {
         }
 
         if (!hasNotifiedToday) {
+            const methodLabel = method === 'GPS' ? 'Geolocation GPS Sekolah (Radius Valid)' : (method === 'RFID' ? 'Mesin Tap Kartu RFID Gerbang' : 'Pemindaian Barcode Siswa');
+            
             const parentTitle = scanType === 'GATE_IN'
-                ? (status === 'LATE' ? '⏰ Presensi Masuk: Siswa Hadir Terlambat' : '✅ Presensi Masuk: Siswa Tiba di Sekolah')
-                : '🏠 Presensi Pulang: Siswa Selesai KBM';
+                ? (status === 'LATE' ? '⏰ [SIBOY KEDISIPLINAN] Siswa Tiba Terlambat di Sekolah' : '✅ [SIBOY PRESENSI] Ananda Tiba di Sekolah Tepat Waktu')
+                : '🏠 [SIBOY KEPULANGAN] Ananda Selesai KBM & Menuju Rumah';
 
             const parentMsg = scanType === 'GATE_IN'
                 ? (status === 'LATE'
-                    ? `Pemberitahuan Orang Tua: Ananda ${student.name} (${student.className}) terdeteksi masuk sekolah TERLAMBAT ${lateMinutes} menit (Scan masuk pukul ${timeWithSec}).`
-                    : `Pemberitahuan Orang Tua: Ananda ${student.name} (${student.className}) telah hadir di sekolah tepat waktu (Scan masuk pukul ${timeWithSec}).`)
-                : `Pemberitahuan Orang Tua: Ananda ${student.name} (${student.className}) telah menyelesaikan KBM dan melakukan scan barcode kepulangan (Scan pulang pukul ${timeWithSec}).`;
+                    ? `Yth. Bapak/Ibu Wali Murid dari ananda ${student.name} (Kelas ${student.className || '-'}):\n\n` +
+                      `Kami menginformasikan bahwa ananda telah melakukan presensi di SMP Negeri 1 Boyolangu (di kelas) dengan catatan KETERLAMBATAN:\n` +
+                      `• Waktu Tiba: ${timeWithSec}\n` +
+                      `• Keterlambatan: ${lateMinutes} Menit (Batas Masuk: ${effective.gateInEndTime || '07:00'} WIB)\n` +
+                      `• Metode Presensi: ${methodLabel}\n` +
+                      `• Lokasi: Presensi di SMP Negeri 1 Boyolangu (Ruang Kelas ${student.className || '-'})\n` +
+                      `• Tindak Lanjut: Diarahkan oleh Tim Ketertiban / Guru Piket sebelum pembelajaran dimulai.\n\n` +
+                      `Mohon dukungan Bapak/Ibu untuk membimbing ananda agar dapat berangkat lebih awal demi kelancaran proses pembelajaran.`
+                    : `Yth. Bapak/Ibu Wali Murid dari ananda ${student.name} (Kelas ${student.className || '-'}):\n\n` +
+                      `Kami menginformasikan bahwa ananda telah hadir dan melakukan presensi di SMP Negeri 1 Boyolangu (di kelas) secara resmi:\n` +
+                      `• Waktu Tiba: ${timeWithSec}\n` +
+                      `• Status: HADIR TEPAT WAKTU (Disiplin)\n` +
+                      `• Metode Presensi: ${methodLabel}\n` +
+                      `• Lokasi: Presensi di SMP Negeri 1 Boyolangu (Ruang Kelas ${student.className || '-'})\n\n` +
+                      `Ananda saat ini bersiap mengikuti apel pagi / pembiasaan literasi dan jam pelajaran pertama. Terima kasih atas kerja sama Bapak/Ibu.`)
+                : `Yth. Bapak/Ibu Wali Murid dari ananda ${student.name} (Kelas ${student.className || '-'}):\n\n` +
+                  `Seluruh rangkaian Kegiatan Belajar Mengajar (KBM) hari ini telah berakhir.\n` +
+                  `• Waktu Presensi Pulang: ${timeWithSec}\n` +
+                  `• Status: PULANG RESMI (Tercatat di Sistem Kehadiran)\n` +
+                  `• Lokasi Terakhir: Presensi di SMP Negeri 1 Boyolangu (Ruang Kelas ${student.className || '-'})\n\n` +
+                  `Ananda saat ini dalam perjalanan pulang ke rumah / menunggu penjemputan. Mohon pastikan ananda tiba di rumah dengan selamat. Terima kasih atas kerja samanya.`;
 
             try {
                 await prisma.notificationMessage.create({
@@ -822,6 +1379,62 @@ export const scanClassGate = async (req: Request, res: Response) => {
                         category: 'ATTENDANCE'
                     }
                 });
+
+                // Kirim Push Notification FCM langsung ke HP Orang Tua (Heads-Up Banner seperti WhatsApp)
+                const cleanNisn = (student.nisn || student.username || '').replace(/^[Pp]/, '').trim();
+                const parentUsers = await prisma.user.findMany({
+                    where: {
+                        role: 'PARENT',
+                        OR: [
+                            { username: `P${cleanNisn}` },
+                            { username: `p${cleanNisn}` },
+                            { username: cleanNisn },
+                            { nisn: cleanNisn },
+                            ...(student.parentPhone ? [{ username: student.parentPhone }, { phone: student.parentPhone }] : [])
+                        ]
+                    }
+                });
+
+                for (const p of parentUsers) {
+                    await sendFcmToUser(p.id, parentTitle, parentMsg, {
+                        type: 'ATTENDANCE',
+                        scanType,
+                        studentId: student.id,
+                        studentName: student.name
+                    }).catch(e => console.warn('[FCM Attendance Parent]', e.message));
+                }
+
+                req.app.get('io')?.emit('attendance_updated', {
+                    studentId: student.id,
+                    studentName: student.name,
+                    className: student.className,
+                    scanType,
+                    status
+                });
+
+                // Kirim juga ke HP siswa
+                await sendFcmToUser(student.id, parentTitle, parentMsg, {
+                    type: 'ATTENDANCE',
+                    scanType,
+                    studentId: student.id
+                }).catch(e => console.warn('[FCM Attendance Student]', e.message));
+
+                // Sesuai instruksi: Notifikasi terlambat X menit dikirimkan langsung ke WhatsApp orang tua
+                if (status === 'LATE' && lateMinutes > 0 && student.parentPhone) {
+                    const waLateNotice = `*PEMBERITAHUAN KETERLAMBATAN SISWA*\n` +
+                        `*SMP NEGERI 1 BOYOLANGU*\n\n` +
+                        `Yth. Bapak/Ibu Orang Tua / Wali Murid dari ananda *${student.name}* (Kelas ${student.className || '-'}),\n\n` +
+                        `Kami menginformasikan bahwa ananda telah tiba di sekolah dengan status *TERLAMBAT*:\n` +
+                        `• *Waktu Tiba*: ${timeWithSec}\n` +
+                        `• *Keterlambatan*: *${lateMinutes} Menit* (Batas Masuk: ${effective.gateInEndTime || '07:00'} WIB)\n` +
+                        `• *Metode Presensi*: ${methodLabel}\n` +
+                        `• *Lokasi*: Ruang Kelas ${student.className || '-'}\n\n` +
+                        `Laporan kedisiplinan ini dikirimkan secara otomatis oleh Sistem Presensi Cerdas SMPN 1 Boyolangu. Mohon bantuan Bapak/Ibu untuk membimbing ananda agar dapat berangkat lebih awal. Terima kasih atas kerja samanya.`;
+
+                    sendSingleWhatsApp(student.parentPhone, waLateNotice).catch(waErr => {
+                        console.warn(`[WA Late Alert] Gagal mengirim pesan ke ${student.parentPhone}:`, waErr.message);
+                    });
+                }
             } catch (notifErr) {
                 console.error('Error recording parent notification:', notifErr);
             }
@@ -836,6 +1449,7 @@ export const scanClassGate = async (req: Request, res: Response) => {
             attendance: attRecord,
             scanTimeStr: timeWithSec,
             scanType,
+            lokasi_pulang: scanType === 'GATE_OUT' ? 'RUANG_KELAS' : undefined,
             status,
             distanceMeters,
             parentNotified: true,
@@ -892,9 +1506,9 @@ export const getClassGateBarcodes = async (req: Request, res: Response) => {
             classes = listToMap.map((name, idx) => ({ id: String(idx + 1), name } as any));
         }
 
-        const DEFAULT_LAT = -8.125506;
-        const DEFAULT_LNG = 111.893526;
-        const DEFAULT_RADIUS = 10;
+        const DEFAULT_LAT = -8.125157;
+        const DEFAULT_LNG = 111.893912;
+        const DEFAULT_RADIUS = 50;
 
         const barcodeList = classes.map(k => {
             const gateInCode = k.gateInBarcode || ('GATE_IN_' + k.name);
@@ -936,52 +1550,316 @@ export const getClassGateBarcodes = async (req: Request, res: Response) => {
 
 export const recordAttendanceScan = async (req: Request, res: Response) => {
     try {
-        const { identifier, method, type, lat, lng, isFakeGps, photoUrl, note } = req.body;
+        const {
+            identifier,
+            userId: inputUserId,
+            method,
+            type,
+            lat,
+            lng,
+            isFakeGps,
+            mockLocationDetected,
+            accuracyMeters,
+            gpsProvider,
+            kalmanApplied,
+            sampelKoordinat,
+            deviceAndroidId,
+            wifiSsid,
+            photoUrl,
+            note
+        } = req.body;
 
-        if (!identifier) {
-            return res.status(400).json({ message: 'Identifier (NISN/NIP/RFID) wajib disertakan' });
+        const targetIdentifier = identifier || inputUserId;
+        if (!targetIdentifier) {
+            return res.status(400).json({ success: false, message: 'Identifier (NISN/NIP/RFID/UserId) wajib disertakan' });
         }
 
         const user = await prisma.user.findFirst({
             where: {
                 OR: [
-                    { username: String(identifier) },
-                    { rfidChipUid: String(identifier) },
-                    { nis: String(identifier) },
-                    { nisn: String(identifier) }
+                    { id: String(targetIdentifier) },
+                    { username: String(targetIdentifier) },
+                    { rfidChipUid: String(targetIdentifier) },
+                    { nis: String(targetIdentifier) },
+                    { nisn: String(targetIdentifier) }
                 ]
             }
         });
 
         if (!user) {
-            return res.status(404).json({ message: 'User tidak ditemukan' });
+            return res.status(404).json({ success: false, message: 'User tidak ditemukan' });
         }
 
-        if (isFakeGps) {
-            return res.status(400).json({ message: 'Presensi ditolak! Terdeteksi Fake GPS / Mock Location.' });
+        const effectiveMock = Boolean(isFakeGps || mockLocationDetected);
+        const numLat = lat != null ? parseFloat(lat) : null;
+        const numLng = lng != null ? parseFloat(lng) : null;
+        const numAccuracy = accuracyMeters != null ? parseFloat(accuracyMeters) : null;
+
+        // Validasi GPS Berlapis jika koordinat tersedia atau metode GPS
+        let validationResult = {
+            isValid: true,
+            statusVerifikasi: 'AUTO',
+            jarakKeSekolah: null as number | null,
+            geofenceZoneId: null as string | null,
+            geofenceZoneName: null as string | null,
+            notes: 'Hadir normal',
+            isMockGps: false,
+            geofenceBypassed: true
+        };
+
+        if (numLat != null && numLng != null || method === 'GPS') {
+            const val = await validateGpsAttendance({
+                userId: user.id,
+                lat: numLat,
+                lng: numLng,
+                accuracyMeters: numAccuracy,
+                mockLocationDetected: effectiveMock,
+                wifiSsid,
+                classId: user.classId
+            });
+
+            validationResult = val;
+
+            if (val.isMockGps && !val.isValid) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Presensi ditolak! Terdeteksi aplikasi lokasi palsu (Fake GPS / Mock Location).',
+                    validation: val
+                });
+            }
+
+            if (!val.isValid && val.statusVerifikasi === 'REJECTED') {
+                return res.status(400).json({
+                    success: false,
+                    message: val.notes,
+                    validation: val
+                });
+            }
         }
 
         const now = new Date();
-        const hour = now.getHours();
-        const minute = now.getMinutes();
+        const settings = await getOrCreateGateSettings();
+        const effective = getEffectiveGateSettings(settings, now);
+
+        const nowUtc = now.getTime();
+        const wibOffset = 7 * 60 * 60 * 1000;
+        const nowWib = new Date(nowUtc + wibOffset);
+        const y = nowWib.getUTCFullYear();
+        const m = nowWib.getUTCMonth();
+        const d = nowWib.getUTCDate();
+        const startOfDay = new Date(Date.UTC(y, m, d, 0, 0, 0, 0) - wibOffset);
+        const endOfDay = new Date(Date.UTC(y, m, d, 23, 59, 59, 999) - wibOffset);
+
+        const existingIn = await prisma.attendance.findFirst({
+            where: {
+                userId: user.id,
+                type: 'GATE_IN',
+                scanTime: { gte: startOfDay, lte: endOfDay }
+            }
+        });
+
+        const existingOut = await prisma.attendance.findFirst({
+            where: {
+                userId: user.id,
+                type: 'GATE_OUT',
+                scanTime: { gte: startOfDay, lte: endOfDay }
+            }
+        });
+
+        let scanType = (type || 'GATE_IN').toUpperCase();
+
+        const gateInStartSec = (effective.gateInStartTime || '06:00') + ':00';
+        const gateInEndSec = (effective.gateInEndTime || '07:00') + ':00';
+        const classLateMaxSec = '07:30:00';
+        const gateOutStartSec = (effective.gateOutStartTime || '11:30') + ':00';
+        const gateOutEndSec = (effective.gateOutEndTime || '18:00') + ':59';
+
+        const isTestingMode = Boolean(
+            settings.isEmergencyGateOut && 
+            (settings.emergencyReason?.toLowerCase().includes('uji') || 
+             settings.emergencyReason?.toLowerCase().includes('test') || 
+             settings.emergencyReason?.toLowerCase().includes('trial'))
+        );
+
+        // SMART AUTO-CORRECTION 1: Jika scan GATE_OUT di pagi hari padahal belum ada presensi masuk
+        let autoRedirectedFromGateOut = false;
+        if (effective.currentTimeWithSecStr < gateOutStartSec && !existingIn && scanType === 'GATE_OUT') {
+            scanType = 'GATE_IN';
+            autoRedirectedFromGateOut = true;
+            console.log(`[RECORD SCAN AUTO-CORRECT PAGI] Siswa ${user.name} (${user.className}) scan GATE_OUT pagi hari tanpa data masuk -> Auto-convert to GATE_IN`);
+        }
+
+        // SMART AUTO-CORRECTION 2: Jika scan GATE_IN di siang hari saat jam pulang dan siswa sudah absen masuk
+        let autoRedirectedFromGateIn = false;
+        if (effective.currentTimeWithSecStr >= gateOutStartSec && existingIn && !existingOut && scanType === 'GATE_IN') {
+            scanType = 'GATE_OUT';
+            autoRedirectedFromGateIn = true;
+            console.log(`[RECORD SCAN AUTO-CORRECT SIANG] Siswa ${user.name} (${user.className}) scan GATE_IN siang hari jam pulang -> Auto-convert to GATE_OUT`);
+        }
+
+        if (scanType === 'GATE_OUT') {
+            // CEK OTOMATIS: Kunci QR Pulang di Ruang Kelas jika ada jadwal sholat hari ini
+            const studentUser = await prisma.user.findUnique({
+                where: { id: user.id },
+                select: { className: true, gender: true, religion: true }
+            });
+            const sClass = (studentUser?.className || '').trim().toUpperCase();
+            const todayDay = now.getDay();
+            const userRel = String(studentUser?.religion || '').toUpperCase().trim();
+            const isNonMuslim = userRel.length > 0 && !userRel.includes('ISLAM');
+
+            // Cek jadwal sholat hari ini
+            const prayerSched = await (prisma as any).prayerClassSchedule.findFirst({
+                where: { dayOfWeek: todayDay, isActive: true }
+            });
+
+            let isClassScheduledForPrayer = false;
+            if (!isNonMuslim) {
+                if (prayerSched && prayerSched.classNames) {
+                    const clsList = prayerSched.classNames.split(',').map((c: string) => c.trim().toUpperCase());
+                    if (clsList.includes('ALL') || clsList.includes('SEMUA') || clsList.includes(sClass)) {
+                        isClassScheduledForPrayer = true;
+                    } else if (todayDay === 5 && (clsList.includes('ALL_MALE') || clsList.includes('SEMUA_PUTRA'))) {
+                        const isMale = !studentUser?.gender?.toUpperCase().startsWith('P');
+                        if (isMale) isClassScheduledForPrayer = true;
+                    }
+                } else {
+                    if (todayDay === 1 && sClass.startsWith('VII')) isClassScheduledForPrayer = true;
+                    else if (todayDay === 2 && sClass.startsWith('VIII')) isClassScheduledForPrayer = true;
+                    else if (todayDay === 3 && sClass.startsWith('IX')) isClassScheduledForPrayer = true;
+                    else if (todayDay === 4 && (sClass.includes('F') || sClass.includes('G'))) isClassScheduledForPrayer = true;
+                    else if (todayDay === 5) {
+                        const isMale = !studentUser?.gender?.toUpperCase().startsWith('P');
+                        if (isMale) isClassScheduledForPrayer = true;
+                    } else if (todayDay === 6 && (sClass.startsWith('VII') || sClass.startsWith('VIII') || sClass.startsWith('IX'))) {
+                        isClassScheduledForPrayer = true;
+                    }
+                }
+            }
+
+            const cleanGateCode = String(req.body.gateCode || req.body.barcodeCode || req.body.barcode || req.body.identifier || '').toUpperCase();
+            const isMusholaOrKeputrianScan = cleanGateCode.includes('MUSHOLA') || 
+                cleanGateCode.includes('MASJID') || 
+                cleanGateCode.includes('KEPUTRIAN') || 
+                cleanGateCode.includes('SHOLAT');
+
+            const isEmergencyDismissalActive = Boolean(isTestingMode || settings.isEmergencyGateOut || settings.isEarlyDismissal);
+            if (isClassScheduledForPrayer && !isMusholaOrKeputrianScan && !isEmergencyDismissalActive) {
+                return res.status(400).json({
+                    success: false,
+                    isWarningYellow: true,
+                    message: `🕌 QR Code Pulang di kelas DITUTUP untuk kelas ${studentUser?.className || sClass} hari ini karena terjadwal Sholat Berjamaah! Seluruh siswa wajib sholat berjamaah dan melakukan scan kepulangan resmi di Mushola Sekolah.`
+                });
+            }
+
+            const isPermittedOut = isTestingMode || settings.isEmergencyGateOut || settings.isEarlyDismissal ||
+                (effective.currentTimeWithSecStr >= gateOutStartSec && effective.currentTimeWithSecStr <= gateOutEndSec);
+            if (!isPermittedOut) {
+                return res.status(400).json({
+                    success: false,
+                    message: `⚠️ Gerbang Kepulangan Terkunci (LOCK)! Presensi kepulangan (Gate-Out) dibuka mulai pukul ${effective.gateOutStartTime} WIB sesuai jadwal operasional sekolah (${effective.gateOutStartTime} - ${effective.gateOutEndTime} WIB). Saat ini baru pukul ${effective.currentTimeWithSecStr} WIB.`
+                });
+            }
+        } else {
+            // GATE_IN
+            if (effective.currentTimeWithSecStr < gateInStartSec && !isTestingMode && !settings.isEmergencyGateOut) {
+                return res.status(400).json({
+                    success: false,
+                    message: `⚠️ Gerbang Masuk Belum Dibuka! Presensi masuk dibuka mulai pukul ${effective.gateInStartTime} WIB.`
+                });
+            }
+            if (effective.currentTimeWithSecStr > classLateMaxSec && !isTestingMode && !settings.isEmergencyGateOut) {
+                return res.status(400).json({
+                    success: false,
+                    message: `⛔ Presensi Kelas Terkunci! Batas toleransi presensi di ruang kelas adalah pukul 07:30:00 WIB. Anda hadir pukul ${effective.currentTimeWithSecStr} WIB. Silakan lapor dan scan di Ruang BK.`
+                });
+            }
+        }
+
+        // ============================================================
+        // 1X ABSENSI LOCK (ANTI-DUPLIKASI PRESENSI HARI INI - ALL METHODS)
+        // ============================================================
+        let isMissingIn = false;
+        if (scanType === 'GATE_IN') {
+            if (existingIn && !isTestingMode) {
+                const inTimeStr = formatTimeWib(existingIn.scanTime, false);
+                return res.json({
+                    success: true,
+                    alreadyScanned: true,
+                    scanType: 'GATE_IN',
+                    message: `✅ Anda sudah tercatat Presensi Masuk (Gate-In) hari ini pukul ${inTimeStr} WIB (${existingIn.note || 'Tepat Waktu'}). Presensi masuk Anda sudah aman dan sah di sistem.`
+                });
+            }
+        } else if (scanType === 'GATE_OUT') {
+            if (!existingIn && !isTestingMode && !settings.isEmergencyGateOut) {
+                isMissingIn = true;
+                setImmediate(async () => {
+                    try {
+                        const { recordAnomaly } = await import('../utils/anomalyDetector');
+                        await recordAnomaly({
+                            code: 'MISSING_GATE_IN_ON_OUT',
+                            level: 'SEDANG',
+                            module: 'ATTENDANCE',
+                            summary: `Siswa ${user.name} (${user.className}) scan pulang tanpa data masuk (ditandai perlu verifikasi BK/Wali Kelas).`,
+                            count: 1,
+                            sampleStudents: [{
+                                id: user.id,
+                                name: user.name,
+                                className: user.className,
+                                reason: 'Scan kepulangan tanpa data masuk pagi',
+                                time: formatTimeWib(new Date(), true)
+                            }]
+                        });
+                    } catch (e) {}
+                });
+            }
+
+            const existingOut = await prisma.attendance.findFirst({
+                where: {
+                    userId: user.id,
+                    type: 'GATE_OUT',
+                    scanTime: { gte: startOfDay, lte: endOfDay }
+                }
+            });
+            if (existingOut && !isTestingMode) {
+                const outTimeStr = formatTimeWib(existingOut.scanTime, false);
+                return res.status(400).json({
+                    success: false,
+                    message: `⚠️ Presensi Ditolak! Anda sudah melakukan presensi kepulangan (Gate-Out) hari ini pukul ${outTimeStr} WIB. Presensi pulang dikunci 1x per hari.`
+                });
+            }
+        }
+
         let status = 'PRESENT';
-        
-        if (type === 'GATE_IN' && (hour > 7 || (hour === 7 && minute > 15))) {
+        if (scanType === 'GATE_IN' && effective.currentTimeWithSecStr > gateInEndSec) {
             status = 'LATE';
         }
 
         const attendance = await prisma.attendance.create({
             data: {
                 userId: user.id,
-                type: type || 'GATE_IN',
-                method: method || 'BARCODE',
+                type: scanType,
+                method: method || (numLat != null ? 'GPS' : 'BARCODE'),
                 status,
                 scanTime: now,
-                lat: lat ? parseFloat(lat) : null,
-                lng: lng ? parseFloat(lng) : null,
-                isFakeGps: !!isFakeGps,
+                lat: numLat,
+                lng: numLng,
+                isFakeGps: effectiveMock,
+                accuracyMeters: numAccuracy,
+                jarakKeSekolah: validationResult.jarakKeSekolah,
+                gpsProvider: gpsProvider || (numLat != null ? 'FUSED' : null),
+                geofenceZoneId: validationResult.geofenceZoneId,
+                geofenceZoneName: validationResult.geofenceZoneName,
+                statusVerifikasi: validationResult.statusVerifikasi,
+                kalmanApplied: Boolean(kalmanApplied),
+                sampelKoordinat: typeof sampelKoordinat === 'string' ? sampelKoordinat : (sampelKoordinat ? JSON.stringify(sampelKoordinat) : null),
+                deviceAndroidId: deviceAndroidId || null,
                 photoUrl: photoUrl || null,
-                note: note || (status === 'LATE' ? 'Terlambat scan masuk' : 'Hadir normal')
+                note: isMissingIn ? `Pulang tanpa data masuk – perlu verifikasi (Pukul ${effective.currentTimeStr} WIB)` : (
+                    settings.isEmergencyGateOut ? `Presensi Pulang Darurat (Pukul ${effective.currentTimeStr} WIB: ${settings.emergencyReason || 'Keadaan Darurat Sekolah'})` :
+                    settings.isEarlyDismissal ? `Presensi Pulang Lebih Awal (Prioritas Kepulangan Siswa: ${settings.emergencyReason || 'Pulang Cepat'})` :
+                    (note || validationResult.notes || (status === 'LATE' ? 'Terlambat scan masuk' : (scanType === 'GATE_OUT' ? `Presensi Pulang Normal${autoRedirectedFromGateIn ? ' (Auto GATE-OUT)' : ''}` : 'Hadir normal')))
+                )
             },
             include: {
                 user: {
@@ -996,13 +1874,23 @@ export const recordAttendanceScan = async (req: Request, res: Response) => {
         });
 
         res.json({
-            message: 'Presensi berhasil dicatat',
+            success: true,
+            message: validationResult.notes || 'Presensi berhasil dicatat',
+            validation: validationResult,
             attendance
         });
-    } catch (error) {
+    } catch (error: any) {
         console.error('Error recording attendance:', error);
-        res.status(500).json({ message: 'Gagal mencatat presensi' });
+        res.status(500).json({ success: false, message: 'Gagal mencatat presensi: ' + (error.message || '') });
     }
+};
+
+/**
+ * POST /api/absensi/gps
+ * Dedicated endpoint untuk Mobile APK dengan data GPS lengkap (Kalman + Averaging + Mock check)
+ */
+export const recordGpsAttendance = async (req: Request, res: Response) => {
+    return recordAttendanceScan(req, res);
 };
 
 export const recordManualAttendance = async (req: Request, res: Response) => {
@@ -1161,15 +2049,20 @@ export const getAttendanceRekap = async (req: Request, res: Response) => {
 
         const studentWhere: any = { role: 'STUDENT', isActive: true };
         if (className && className !== 'ALL') {
-            studentWhere.className = String(className);
+            const rawClass = String(className).trim();
+            const normalizedHyphen = rawClass.replace(/\s+/g, '-');
+            const normalizedSpace = rawClass.replace(/-/g, ' ');
+            studentWhere.className = { in: [rawClass, normalizedHyphen, normalizedSpace] };
         } else if (targetGrade && targetGrade !== 'ALL') {
             studentWhere.className = { startsWith: targetGrade };
         }
 
-        const students = await prisma.user.findMany({
+        const rawStudents = await prisma.user.findMany({
             where: studentWhere,
             orderBy: [{ className: 'asc' }, { name: 'asc' }]
         });
+        // Pastikan urutan selalu diawali dari kelas VII, VIII, lalu IX
+        const students = sortStudentsByGradeAndName(rawStudents);
 
         const [logs, uksVisitsToday, leaveRequestsToday] = await Promise.all([
             prisma.attendance.findMany({
@@ -1333,13 +2226,16 @@ export const getAttendanceRekap = async (req: Request, res: Response) => {
                     statusLabel = 'Hadir';
                     finalNote = outRecord.note || '🟢 Hadir & Tuntas Kepulangan';
                 } else if (inRecord) {
-                    statusCode = 'H';
-                    finalStatus = 'PRESENT';
-                    statusLabel = 'Hadir';
                     if (isPastDate || isPastGateOutEnd) {
+                        statusCode = '?';
+                        finalStatus = 'UNCONFIRMED_OUT';
+                        statusLabel = 'Tdk Scan Pulang';
                         const inTimeOnly = new Date(inRecord.scanTime).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
-                        finalNote = inRecord.note || `🟢 Hadir (Masuk pk. ${inTimeOnly} WIB - Tanpa Scan Pulang)`;
+                        finalNote = inRecord.note || `🔷 Hadir (Masuk pk. ${inTimeOnly} WIB - Belum/Tidak Scan Pulang)`;
                     } else {
+                        statusCode = 'H';
+                        finalStatus = 'PRESENT';
+                        statusLabel = 'Hadir';
                         finalNote = inRecord.note || '🟢 Sedang Belajar di Kelas';
                     }
                 }
@@ -1398,6 +2294,8 @@ export const getAttendanceRekap = async (req: Request, res: Response) => {
             S: rekapData.filter(r => r.statusCode === 'S').length,
             I: rekapData.filter(r => r.statusCode === 'I').length,
             A: rekapData.filter(r => r.statusCode === 'A').length,
+            NO_OUT: rekapData.filter(r => r.statusCode === '?' || r.status === 'UNCONFIRMED_OUT').length,
+            unconfirmedOut: rekapData.filter(r => r.statusCode === '?' || r.status === 'UNCONFIRMED_OUT').length,
             D: rekapData.filter(r => r.statusCode === 'D').length,
             U: rekapData.filter(r => r.statusCode === 'U').length,
             P: rekapData.filter(r => r.statusCode === 'P').length,
@@ -1406,7 +2304,7 @@ export const getAttendanceRekap = async (req: Request, res: Response) => {
             LBR: rekapData.filter(r => r.statusCode === 'LBR').length,
             notYet: rekapData.filter(r => r.statusCode === 'BELUM').length,
             // Legacy backward compatibility fields
-            present: rekapData.filter(r => r.statusCode === 'H').length,
+            present: rekapData.filter(r => r.statusCode === 'H' || r.statusCode === '?').length,
             late: rekapData.filter(r => r.statusCode === 'T').length,
             sick: rekapData.filter(r => r.statusCode === 'S').length,
             permission: rekapData.filter(r => r.statusCode === 'I' || r.statusCode === 'D').length,
@@ -1432,8 +2330,8 @@ export const getAttendanceRekap = async (req: Request, res: Response) => {
             select: { className: true },
             distinct: ['className']
         });
-        const availableClasses = classRows.map(c => c.className).filter(Boolean).sort() as string[];
-        const availableGrades = Array.from(new Set(availableClasses.map(c => (c || '').split('-')[0]))).filter(Boolean).sort();
+        const availableClasses = (classRows.map(c => c.className).filter(Boolean) as string[]).sort(compareClassNames);
+        const availableGrades = Array.from(new Set(availableClasses.map(c => (c || '').split('-')[0]))).filter(Boolean).sort(compareClassNames);
 
         res.json({
             date: startOfDay.toISOString().split('T')[0],
@@ -1575,8 +2473,12 @@ export const checkAndNotifyUnscannedStudents = async (req: Request, res: Respons
                             className: s.className,
                             recipientPhone: s.parentPhone,
                             recipientRole: 'PARENT',
-                            title: '🚨 Peringatan: Siswa Belum Scan Barcode (ALPA)',
-                            message: `Pemberitahuan kepada Orang Tua / Wali Murid: Ananda ${s.name} (${s.className || '-'}) belum melakukan presensi scan barcode hingga batas waktu masuk sekolah (${settings.gateInMaxTime} WIB). Status ditetapkan ALPA dan tercatat sebagai pelanggaran disiplin.`,
+                            title: '⚠️ [SIBOY KEDISIPLINAN] Konfirmasi Ketidakhadiran Siswa (Belum Presensi)',
+                            message: `Yth. Bapak/Ibu Wali Murid dari ananda ${s.name} (Kelas ${s.className || '-'}):\n\n` +
+                                     `Hingga batas akhir jam kedatangan sekolah (Pukul ${settings.gateInMaxTime || '07:00'} WIB), ananda tercatat BELUM MELAKUKAN PRESENSI di sistem gerbang SMPN 1 Boyolangu dan belum ada konfirmasi surat izin resmi.\n` +
+                                     `• Status Saat Ini: BELUM HADIR / ALPA\n` +
+                                     `• Tindak Lanjut: Laporan diteruskan ke Wali Kelas dan Guru Bimbingan Konseling (BK).\n\n` +
+                                     `Apabila ananda berhalangan hadir karena sakit atau kepentingan keluarga mendesak, mohon segera ajukan permohonan izin melalui aplikasi SIBOY Orang Tua agar status kehadiran ananda dapat diperbarui secara sah. Terima kasih.`,
                             category: 'ATTENDANCE_ALERT'
                         }
                     });
@@ -1605,6 +2507,139 @@ export const checkAndNotifyUnscannedStudents = async (req: Request, res: Respons
     } catch (e) {
         console.error('Error checking unscanned students:', e);
         res.status(500).json({ message: 'Gagal memproses notifikasi siswa belum scan' });
+    }
+};
+
+/**
+ * Otomatis mengirim notifikasi ke orang tua siswa yang hadir masuk pagi hari (PRESENT / LATE),
+ * tetapi belum melakukan scan presensi kepulangan (GATE_OUT) setelah jam kepulangan berakhir.
+ */
+export async function autoNotifyUnscannedGateOutStudents(): Promise<number> {
+    try {
+        const now = new Date();
+        const settings = await getOrCreateGateSettings();
+        const effective = getEffectiveGateSettings(settings, now);
+
+        if (!effective.isDayActive) return 0; // Libur hari Minggu / non-aktif
+
+        const startOfDay = new Date(now);
+        startOfDay.setHours(0, 0, 0, 0);
+        const endOfDay = new Date(now);
+        endOfDay.setHours(23, 59, 59, 999);
+
+        // Ambil seluruh siswa aktif
+        const students = await prisma.user.findMany({
+            where: { role: 'STUDENT', isActive: true },
+            select: { id: true, name: true, className: true, parentPhone: true }
+        });
+
+        if (students.length === 0) return 0;
+
+        // Ambil presensi masuk hari ini yang sah (GATE_IN / MUSHOLA_IN)
+        const attendedIn = await prisma.attendance.findMany({
+            where: {
+                type: { in: ['GATE_IN', 'MUSHOLA_IN', 'MANUAL_BK'] },
+                status: { in: ['PRESENT', 'LATE'] },
+                scanTime: { gte: startOfDay, lte: endOfDay }
+            },
+            select: { userId: true }
+        });
+        const attendedInUserIds = new Set(attendedIn.map(a => a.userId));
+
+        // Ambil presensi keluar hari ini (GATE_OUT / MUSHOLA_OUT)
+        const attendedOut = await prisma.attendance.findMany({
+            where: {
+                type: { in: ['GATE_OUT', 'MUSHOLA_OUT'] },
+                scanTime: { gte: startOfDay, lte: endOfDay }
+            },
+            select: { userId: true }
+        });
+        const attendedOutUserIds = new Set(attendedOut.map(a => a.userId));
+
+        // Ambil siswa yang memiliki izin/gatepass keluar hari ini
+        const gatepasses = await prisma.gatepassRequest.findMany({
+            where: {
+                status: { in: ['APPROVED', 'USED', 'CHECKED_OUT'] },
+                createdAt: { gte: startOfDay, lte: endOfDay }
+            },
+            select: { studentId: true }
+        });
+        const gatepassUserIds = new Set(gatepasses.map((g: any) => g.studentId));
+
+        let notifiedCount = 0;
+        for (const s of students) {
+            // Syarat: Siswa hadir masuk pagi, TAPI belum scan keluar, dan tidak ada dispensasi keluar
+            if (attendedInUserIds.has(s.id) && !attendedOutUserIds.has(s.id) && !gatepassUserIds.has(s.id)) {
+                // Cek apakah sudah pernah dikirimi notifikasi belum scan pulang hari ini
+                const existingNotif = await prisma.notificationMessage.findFirst({
+                    where: {
+                        studentId: s.id,
+                        category: 'ATTENDANCE_ALERT',
+                        title: { contains: 'Belum Scan Pulang' },
+                        sentAt: { gte: startOfDay, lte: endOfDay }
+                    }
+                });
+
+                if (!existingNotif) {
+                    await prisma.notificationMessage.create({
+                        data: {
+                            studentId: s.id,
+                            studentName: s.name,
+                            className: s.className || undefined,
+                            recipientPhone: s.parentPhone || undefined,
+                            recipientRole: 'PARENT',
+                            category: 'ATTENDANCE_ALERT',
+                            title: '⚠️ [SIBOY KEDISIPLINAN] Peringatan: Ananda Belum Scan Pulang Sekolah',
+                            message: `Yth. Bapak/Ibu Orang Tua/Wali dari ananda ${s.name} (Kelas ${s.className || '-'}):\n\n` +
+                                     `Diberitahukan bahwa ananda tercatat HADIR pada pagi hari di area SMP Negeri 1 Boyolangu, namun hingga saat ini BELUM MELAKUKAN PRESENSI KEPULANGAN (Scan QR Gate-Out).\n\n` +
+                                     `• Status: Hadir Pagi, Belum Scan Pulang\n` +
+                                     `• Mohon memastikan ananda telah pulang ke rumah dengan selamat dan mengingatkan ananda agar selalu memindai QR kepulangan di area SMP Negeri 1 Boyolangu sebelum meninggalkan sekolah. Terima kasih.`
+                        }
+                    });
+
+                    // Log anomali kepulangan
+                    await prisma.attendanceAnomalyLog.create({
+                        data: {
+                            userId: s.id,
+                            userName: s.name,
+                            jenisAnomali: 'MISSING_GATE_OUT',
+                            detail: JSON.stringify({
+                                message: 'Siswa hadir pagi tetapi belum scan presensi kepulangan (Gate-Out).',
+                                className: s.className,
+                                date: effective.currentDateStr
+                            })
+                        }
+                    }).catch(() => null);
+
+                    notifiedCount++;
+                }
+            }
+        }
+
+        if (notifiedCount > 0) {
+            console.log(`📢 [Auto-Notify Gate-Out] Mengirim ${notifiedCount} notifikasi ke orang tua siswa yang belum scan pulang.`);
+        }
+        return notifiedCount;
+    } catch (e: any) {
+        console.error('Error in autoNotifyUnscannedGateOutStudents:', e);
+        return 0;
+    }
+}
+
+/**
+ * Controller endpoint manual untuk memicu notifikasi siswa belum scan pulang dari portal admin/piket
+ */
+export const notifyUnscannedGateOutStudentsHandler = async (req: Request, res: Response) => {
+    try {
+        const notifiedCount = await autoNotifyUnscannedGateOutStudents();
+        res.json({
+            success: true,
+            message: `Pemeriksaan selesai. Sebanyak ${notifiedCount} notifikasi berhasil dikirimkan ke orang tua siswa yang belum scan kepulangan.`,
+            notifiedCount
+        });
+    } catch (e: any) {
+        console.error('Error in notifyUnscannedGateOutStudentsHandler:', e);
+        res.status(500).json({ message: 'Gagal memproses notifikasi siswa belum scan pulang.' });
     }
 };
 
@@ -1735,8 +2770,11 @@ async function getAttendanceDataForExport(params: {
     let scopeTitle = 'Semua Kelas';
 
     if ((scope === 'CLASS' || className) && className && className !== 'ALL') {
-        studentWhere.className = className;
-        scopeTitle = `Kelas ${className}`;
+        const rawClass = String(className).trim();
+        const normalizedHyphen = rawClass.replace(/\s+/g, '-');
+        const normalizedSpace = rawClass.replace(/-/g, ' ');
+        studentWhere.className = { in: [rawClass, normalizedHyphen, normalizedSpace] };
+        scopeTitle = `Kelas ${rawClass}`;
     } else if ((scope === 'GRADE' || scope === 'LEVEL' || scope === 'TINGKAT' || grade) && grade && grade !== 'ALL') {
         const clean = grade.trim().toUpperCase();
         let prefixes = [clean];
@@ -1766,10 +2804,12 @@ async function getAttendanceDataForExport(params: {
         scopeTitle = 'Seluruh Siswa (Semua Kelas)';
     }
 
-    const students = await prisma.user.findMany({
+    const rawStudents = await prisma.user.findMany({
         where: studentWhere,
         orderBy: [{ className: 'asc' }, { name: 'asc' }]
     });
+    // Pastikan urutan selalu diawali dari kelas VII, VIII, lalu IX
+    const students = sortStudentsByGradeAndName(rawStudents);
 
     const logs = await prisma.attendance.findMany({
         where: {
@@ -1795,12 +2835,7 @@ async function getAttendanceDataForExport(params: {
     const isPastGateOutEnd = currTimeStr > settings.gateOutEndTime;
 
     const formatTime = (dt: any) => {
-        if (!dt) return '-';
-        try {
-            return new Date(dt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WIB';
-        } catch {
-            return '-';
-        }
+        return formatTimeWibWithSuffix(dt, false);
     };
 
     const records = students.map((s, idx) => {
@@ -1814,9 +2849,9 @@ async function getAttendanceDataForExport(params: {
 
         if (userLogs.length > 0) {
             if (inRecord && !outRecord && (isPastDate || isPastGateOutEnd)) {
-                status = 'ABSENT';
-                statusText = 'Alpa (Tidak Scan Pulang)';
-                note = `Masuk pukul ${formatTime(inRecord.scanTime)}, tidak scan kepulangan. Ditetapkan Alpa.`;
+                status = 'UNCONFIRMED_OUT';
+                statusText = 'Hadir (Tidak Scan Pulang)';
+                note = `Masuk pukul ${formatTime(inRecord.scanTime)}, tidak ada rekaman scan kepulangan.`;
             } else if (userLogs.some(l => l.status === 'SICK')) {
                 status = 'SICK';
                 statusText = 'Izin Sakit';
@@ -1882,13 +2917,14 @@ async function getAttendanceDataForExport(params: {
 
     const totalStudents = students.length;
     const presentCount = records.filter(r => r.status === 'PRESENT').length;
+    const unconfirmedOutCount = records.filter(r => r.status === 'UNCONFIRMED_OUT').length;
     const lateCount = records.filter(r => r.status === 'LATE').length;
     const sickCount = records.filter(r => r.status === 'SICK').length;
     const permissionCount = records.filter(r => r.status === 'PERMISSION').length;
     const absentCount = records.filter(r => r.status === 'ABSENT').length;
     const notYetCount = records.filter(r => r.status === 'NOT_YET').length;
 
-    const totalHadirFisik = presentCount + lateCount;
+    const totalHadirFisik = presentCount + lateCount + unconfirmedOutCount;
     const attendancePercentage = totalStudents > 0 ? ((totalHadirFisik / totalStudents) * 100).toFixed(1) : '0';
 
     return {
@@ -1900,6 +2936,7 @@ async function getAttendanceDataForExport(params: {
         summary: {
             total: totalStudents,
             present: presentCount,
+            unconfirmedOut: unconfirmedOutCount,
             late: lateCount,
             sick: sickCount,
             permission: permissionCount,
@@ -1927,13 +2964,18 @@ export const exportAttendanceExcel = async (req: Request, res: Response) => {
         const format = (req.query.format ? String(req.query.format) : 'csv').toLowerCase();
         const todayId = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
 
-        const sigs = await getSchoolSignatures();
+        const targetClass = req.query.className ? String(req.query.className).trim() : null;
+        const isGradeOrAll = !targetClass || targetClass === 'ALL' || targetClass === 'SEMUA' || String(req.query.scope || '').toLowerCase().includes('semua') || String(req.query.scope || '').toLowerCase().includes('tingkat') || !!req.query.grade || !!req.query.tingkat;
+        const sigs = await getSchoolSignaturesForClass(targetClass, isGradeOrAll);
         const headmasterName = sigs.headmasterName;
         const headmasterNip = sigs.headmasterNip;
         const schoolName = sigs.schoolName;
         const bkCoordinatorName = sigs.bkCoordinatorName;
         const bkCoordinatorNip = sigs.bkCoordinatorNip;
         const bkCoordinatorTitle = sigs.bkCoordinatorTitle;
+        const homeroomName = sigs.homeroomName || '';
+        const homeroomNip = sigs.homeroomNip || '';
+        const homeroomTitle = sigs.homeroomTitle || '';
 
         if (format === 'xls' || format === 'xlsx') {
             const filename = `Rekap_Presensi_${safeScope}_${safeDate}.xls`;
@@ -2015,8 +3057,14 @@ export const exportAttendanceExcel = async (req: Request, res: Response) => {
                         <tr style="font-weight: bold; background: #e2e8f0;"><td colspan="6">Persentase Tingkat Kehadiran</td><td colspan="6">${data.summary.percentage}%</td></tr>
                         <tr><td colspan="12">&nbsp;</td></tr>
                         <tr>
-                            <td colspan="6" class="text-center">Mengetahui,<br>Kepala ${schoolName}<br><br><br><br><b>( ${headmasterName} )</b><br>NIP. ${headmasterNip || '-'}</td>
-                            <td colspan="6" class="text-center">Boyolangu, ${todayId}<br>${bkCoordinatorTitle}<br><br><br><br><b>( ${bkCoordinatorName} )</b><br>NIP. ${bkCoordinatorNip || '-'}</td>
+                            ${sigs.isFullGradeOrAll ? `
+                            <td colspan="6" class="text-center">Mengetahui,<br>Kepala ${schoolName}<br><br><br><br><b>( ${headmasterName || 'ADI SUTIGNYO, S.Pd.'} )</b><br>NIP. ${headmasterNip || '196801211991031004'}</td>
+                            <td colspan="6" class="text-center">Boyolangu, ${todayId}<br>${bkCoordinatorName ? 'Guru BK / Koordinator Presensi' : ''}<br><br><br><br><b>( ${bkCoordinatorName || '-'} )</b><br>NIP. ${bkCoordinatorNip || '-'}</td>
+                            ` : `
+                            <td colspan="4" class="text-center">Mengetahui,<br>Kepala ${schoolName}<br><br><br><br><b>( ${headmasterName || 'ADI SUTIGNYO, S.Pd.'} )</b><br>NIP. ${headmasterNip || '196801211991031004'}</td>
+                            <td colspan="4" class="text-center"><br>${homeroomTitle || 'Wali Kelas'}<br><br><br><br><b>( ${homeroomName || '-'} )</b><br>NIP. ${homeroomNip || '-'}</td>
+                            <td colspan="4" class="text-center">Boyolangu, ${todayId}<br>${bkCoordinatorTitle || 'Guru BK'}<br><br><br><br><b>( ${bkCoordinatorName || '-'} )</b><br>NIP. ${bkCoordinatorNip || '-'}</td>
+                            `}
                         </tr>
                     </table>
                 </body>
@@ -2086,18 +3134,24 @@ export const exportAttendancePdf = async (req: Request, res: Response) => {
 
         const todayId = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
 
-        const sigs = await getSchoolSignatures();
+        const targetClass = req.query.className ? String(req.query.className).trim() : null;
+        const isGradeOrAll = !targetClass || targetClass === 'ALL' || targetClass === 'SEMUA' || String(req.query.scope || '').toLowerCase().includes('semua') || String(req.query.scope || '').toLowerCase().includes('tingkat') || !!req.query.grade || !!req.query.tingkat;
+        const sigs = await getSchoolSignaturesForClass(targetClass, isGradeOrAll);
         const headmasterName = sigs.headmasterName;
         const headmasterNip = sigs.headmasterNip;
         const schoolName = sigs.schoolName;
         const bkCoordinatorName = sigs.bkCoordinatorName;
         const bkCoordinatorNip = sigs.bkCoordinatorNip;
         const bkCoordinatorTitle = sigs.bkCoordinatorTitle;
+        const homeroomName = sigs.homeroomName || '';
+        const homeroomNip = sigs.homeroomNip || '';
+        const homeroomTitle = sigs.homeroomTitle || '';
 
         const rowsHtml = data.records.map(r => {
             let badgeClass = 'background:#f1f5f9; color:#475569; border:1px solid #cbd5e1;';
             if (r.status === 'PRESENT') badgeClass = 'background:#dcfce7; color:#15803d; border:1px solid #86efac;';
             else if (r.status === 'LATE') badgeClass = 'background:#fef9c3; color:#854d0e; border:1px solid #fde047;';
+            else if (r.status === 'UNCONFIRMED_OUT') badgeClass = 'background:#e0f2fe; color:#0369a1; border:1px solid #7dd3fc;';
             else if (r.status === 'SICK') badgeClass = 'background:#dbeafe; color:#1e40af; border:1px solid #93c5fd;';
             else if (r.status === 'PERMISSION') badgeClass = 'background:#f3e8ff; color:#6b21a8; border:1px solid #d8b4fe;';
             else if (r.status === 'ABSENT') badgeClass = 'background:#fee2e2; color:#b91c1c; border:1px solid #fca5a5;';
@@ -2368,13 +3422,21 @@ export const exportAttendancePdf = async (req: Request, res: Response) => {
             <div class="signature-box">
                 <p>Mengetahui,</p>
                 <p style="font-weight: bold; margin-bottom: 60px;">Kepala ${schoolName}</p>
-                <p style="font-weight: 800; text-decoration: underline; margin: 0;">${headmasterName}</p>
-                <p style="margin: 2px 0 0; color: #475569;">NIP. ${headmasterNip || '-'}</p>
+                <p style="font-weight: 800; text-decoration: underline; margin: 0;">${headmasterName || 'ADI SUTIGNYO, S.Pd.'}</p>
+                <p style="margin: 2px 0 0; color: #475569;">NIP. ${headmasterNip || '196801211991031004'}</p>
             </div>
+            ${(!sigs.isFullGradeOrAll && homeroomName) ? `
+            <div class="signature-box">
+                <p>&nbsp;</p>
+                <p style="font-weight: bold; margin-bottom: 60px;">${homeroomTitle || 'Wali Kelas'}</p>
+                <p style="font-weight: 800; text-decoration: underline; margin: 0;">${homeroomName}</p>
+                <p style="margin: 2px 0 0; color: #475569;">NIP. ${homeroomNip || '-'}</p>
+            </div>
+            ` : ''}
             <div class="signature-box">
                 <p>Boyolangu, ${todayId}</p>
-                <p style="font-weight: bold; margin-bottom: 60px;">${bkCoordinatorTitle}</p>
-                <p style="font-weight: 800; text-decoration: underline; margin: 0;">${bkCoordinatorName}</p>
+                <p style="font-weight: bold; margin-bottom: 60px;">${sigs.isFullGradeOrAll ? (bkCoordinatorName ? 'Guru BK / Koordinator Presensi' : '') : (bkCoordinatorTitle || (bkCoordinatorName ? 'Guru BK' : ''))}</p>
+                <p style="font-weight: 800; text-decoration: underline; margin: 0;">${bkCoordinatorName || '-'}</p>
                 <p style="margin: 2px 0 0; color: #475569;">NIP. ${bkCoordinatorNip || '-'}</p>
             </div>
         </div>
@@ -2436,23 +3498,47 @@ export const tapCardAttendance = async (req: Request, res: Response) => {
 
         const settings = await getOrCreateGateSettings();
         const now = new Date();
-        const currentTimeStr = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false });
+        const effective = getEffectiveGateSettings(settings, now);
 
         let scanType = type || 'GATE_IN';
         let status = 'PRESENT';
         let isLate = false;
         let note = `Tap Kartu ${method || 'RFID'} Masuk`;
 
+        const gateInEndSec = '07:00:00'; // Batas resmi mutlak: 07:00:00 WIB
+        const gateOutStartSec = (effective.gateOutStartTime || '12:30') + ':00';
+        const gateOutEndSec = (effective.gateOutEndTime || '18:00') + ':59';
+
+        const isTestingMode = Boolean(
+            settings.isEmergencyGateOut && 
+            (settings.emergencyReason?.toLowerCase().includes('uji') || 
+             settings.emergencyReason?.toLowerCase().includes('test') || 
+             settings.emergencyReason?.toLowerCase().includes('trial'))
+        );
+
+        let lateMinutes = 0;
         if (scanType === 'GATE_IN') {
-            if (currentTimeStr > settings.gateInEndTime) {
+            if (effective.currentTimeWithSecStr > gateInEndSec) {
                 status = 'LATE';
                 isLate = true;
-                note = `Terlambat Tap Masuk (${currentTimeStr})`;
+                const [curH, curM, curS] = effective.currentTimeWithSecStr.split(':').map(Number);
+                const curSeconds = (curH || 0) * 3600 + (curM || 0) * 60 + (curS || 0);
+                const limitSeconds = 7 * 3600; // 07:00:00
+                lateMinutes = Math.max(1, Math.ceil((curSeconds - limitSeconds) / 60));
+                note = `Terlambat Tap Masuk (${lateMinutes} menit - Pk. ${effective.currentTimeWithSecStr} WIB)`;
             }
         } else {
+            const isPermittedOut = isTestingMode || settings.isEmergencyGateOut || settings.isEarlyDismissal ||
+                (effective.currentTimeWithSecStr >= gateOutStartSec && effective.currentTimeWithSecStr <= gateOutEndSec);
+            if (!isPermittedOut) {
+                return res.status(400).json({
+                    success: false,
+                    message: `⚠️ Gerbang Kepulangan Terkunci (LOCK)! Presensi kepulangan dibuka mulai pukul ${effective.gateOutStartTime} WIB (saat ini ${effective.currentTimeWithSecStr} WIB).`
+                });
+            }
             note = settings.isEmergencyGateOut
                 ? `Pulang Lebih Awal: ${settings.emergencyReason || 'Izin Acara'}`
-                : `Tap Kartu Kepulangan Normal (${currentTimeStr})`;
+                : `Tap Kartu Kepulangan Normal (${effective.currentTimeWithSecStr} WIB)`;
         }
 
         // Catat ke Database Attendance
@@ -2467,8 +3553,65 @@ export const tapCardAttendance = async (req: Request, res: Response) => {
             }
         });
 
+        // Kirim Notifikasi Real-time ke Orang Tua
+        try {
+            let notifTitle = `✅ Presensi Masuk (RFID): ${student.name}`;
+            let notifMsg = `Alhamdulillah, ananda ${student.name} (Kelas ${student.className || '-'}) telah tiba di sekolah dan melakukan tap kartu RFID tepat waktu pada pukul ${effective.currentTimeWithSecStr} WIB.`;
+
+            if (scanType === 'GATE_IN' && isLate) {
+                notifTitle = `⚠️ Presensi Masuk Terlambat (RFID): ${student.name}`;
+                notifMsg = `Pemberitahuan: Ananda ${student.name} (Kelas ${student.className || '-'}) melakukan tap kartu RFID masuk pukul ${effective.currentTimeWithSecStr} WIB (Terlambat ${lateMinutes} menit dari batas resmi 07:00:00 WIB).`;
+            } else if (scanType === 'GATE_OUT') {
+                notifTitle = `🔵 Presensi Kepulangan (RFID): ${student.name}`;
+                notifMsg = `Ananda ${student.name} (Kelas ${student.className || '-'}) telah melakukan tap kartu kepulangan presensi di SMP Negeri 1 Boyolangu (di kelas) pada pukul ${effective.currentTimeWithSecStr} WIB.`;
+            }
+
+            await (prisma as any).notificationMessage.create({
+                data: {
+                    recipientRole: 'PARENT',
+                    studentId: student.id,
+                    studentName: student.name,
+                    className: student.className,
+                    title: notifTitle,
+                    message: notifMsg,
+                    category: 'ATTENDANCE'
+                }
+            });
+
+            const cleanNisn = (student.nisn || student.username || '').replace(/^[Pp]/, '').trim();
+            const parentUsers = await prisma.user.findMany({
+                where: {
+                    role: 'PARENT',
+                    OR: [
+                        { username: `P${cleanNisn}` },
+                        { username: `p${cleanNisn}` },
+                        { username: cleanNisn },
+                        { nisn: cleanNisn },
+                        ...(student.parentPhone ? [{ username: student.parentPhone }] : [])
+                    ]
+                }
+            });
+
+            for (const p of parentUsers) {
+                await sendFcmToUser(p.id, notifTitle, notifMsg, {
+                    type: 'ATTENDANCE_RFID',
+                    scanType,
+                    studentId: student.id,
+                    studentName: student.name
+                }).catch(e => console.warn('[FCM RFID Parent]', e.message));
+            }
+
+            req.app.get('io')?.emit('attendance_updated', {
+                studentId: student.id,
+                studentName: student.name,
+                className: student.className,
+                scanType,
+                status
+            });
+        } catch (nErr) {}
+
         const statusLabel = scanType === 'GATE_IN' 
-            ? (status === 'LATE' ? 'TERLAMBAT' : 'HADIR TEPAT WAKTU')
+            ? (status === 'LATE' ? `TERLAMBAT (+${lateMinutes}m)` : 'HADIR TEPAT WAKTU')
             : 'PULANG';
 
         res.json({
@@ -2481,11 +3624,15 @@ export const tapCardAttendance = async (req: Request, res: Response) => {
                 role: student.role,
                 className: student.className || 'Staff/Guru',
                 nisn: student.nisn || student.username,
-                nis: student.nis,
+                nis: student.nis || '-',
                 photoUrl: student.profilePicUrl,
-                points: student.points
+                points: student.points ?? 0,
+                homeroomTeacher: student.homeroomTeacher || 'Wali Kelas Belum Diplot',
+                parentPhone: student.parentPhone || '-'
             },
-            scanTime: currentTimeStr,
+            lateMinutes,
+            parentNotified: true,
+            scanTime: effective.currentTimeWithSecStr,
             status: statusLabel,
             isLate
         });
@@ -2508,6 +3655,20 @@ export const bulkSyncAttendance = async (req: Request, res: Response) => {
 
         const settings = await getOrCreateGateSettings();
         const effective = getEffectiveGateSettings(settings);
+
+        // Ambil koordinat resmi sekolah untuk memvalidasi presensi offline
+        const [schoolLatRow, schoolLngRow, globalRadiusRow, bufferDefaultRow] = await Promise.all([
+            prisma.systemSetting.findUnique({ where: { key: "gps.school.lat" } }),
+            prisma.systemSetting.findUnique({ where: { key: "gps.school.lng" } }),
+            prisma.systemSetting.findUnique({ where: { key: "gps.radius.global" } }),
+            prisma.systemSetting.findUnique({ where: { key: "gps.buffer.default" } })
+        ]);
+        const defaultSchoolLat = schoolLatRow ? (parseFloat(schoolLatRow.value) || -8.125157) : -8.125157;
+        const defaultSchoolLng = schoolLngRow ? (parseFloat(schoolLngRow.value) || 111.893912) : 111.893912;
+        const globalRadius = globalRadiusRow ? (parseInt(globalRadiusRow.value) || 55) : 55;
+        const defaultBuffer = bufferDefaultRow ? (parseInt(bufferDefaultRow.value) || 10) : 10;
+        const allowedRadiusOffline = globalRadius + defaultBuffer; // Maksimal radius lingkungan sekolah (65m)
+
         const results = [];
         let syncedCount = 0;
         let failedCount = 0;
@@ -2563,25 +3724,141 @@ export const bulkSyncAttendance = async (req: Request, res: Response) => {
                     continue;
                 }
 
-                // Evaluasi status HADIR / LATE berdasarkan jam scan
-                const scanTimeStr = scanDate.toLocaleTimeString('sv-SE', { timeZone: 'Asia/Jakarta' }).substring(0, 5);
-                const [scanH, scanM] = scanTimeStr.split(':').map(Number);
-                const [endH, endM] = (effective.todaySchedule?.gateInEnd || '07:15').split(':').map(Number);
-                const isLate = (scanH * 60 + scanM) > (endH * 60 + endM);
+                const itemType = (item.type || 'GATE_IN').toUpperCase();
+                const scanWib = getWibDate(scanDate);
+                const scanTimeSec = scanWib.timeWithSecStr;
+                const scanTimeStr = scanWib.timeStr;
+                const isTestingMode = Boolean(
+                    settings.isEmergencyGateOut && 
+                    (settings.emergencyReason?.toLowerCase().includes('uji') || 
+                     settings.emergencyReason?.toLowerCase().includes('test') || 
+                     settings.emergencyReason?.toLowerCase().includes('trial'))
+                );
 
+                // 1. KEAMANAN GEOFENCE KETAT OFFLINE: Mencegah presensi curang di luar sekolah
+                if (item.isFakeGps === true) {
+                    results.push({
+                        clientLocalId: item.clientLocalId,
+                        status: 'REJECTED',
+                        message: 'Presensi offline ditolak: Terdeteksi manipulasi Fake GPS / Lokasi Palsu.'
+                    });
+                    failedCount++;
+                    continue;
+                }
+
+                let distanceMeters: number | null = null;
+                const hasCoordinates = item.lat !== undefined && item.lat !== null && item.lng !== undefined && item.lng !== null && Number(item.lat) !== 0 && Number(item.lng) !== 0;
+
+                if (hasCoordinates) {
+                    distanceMeters = calculateDistanceMeters(Number(item.lat), Number(item.lng), defaultSchoolLat, defaultSchoolLng);
+                    if (distanceMeters > allowedRadiusOffline && !isTestingMode) {
+                        results.push({
+                            clientLocalId: item.clientLocalId,
+                            status: 'REJECTED',
+                            message: `Sinkronisasi presensi ditolak: Koordinat GPS saat scan offline berada ${distanceMeters} meter di luar lingkungan SMPN 1 Boyolangu (Batas toleransi: ${allowedRadiusOffline}m).`
+                        });
+                        failedCount++;
+                        continue;
+                    }
+                } else if (!isTestingMode) {
+                    results.push({
+                        clientLocalId: item.clientLocalId,
+                        status: 'REJECTED',
+                        message: 'Sinkronisasi presensi offline ditolak: Koordinat satelit GPS wajib terkunci di lingkungan sekolah untuk mencegah kecurangan di luar sekolah.'
+                    });
+                    failedCount++;
+                    continue;
+                }
+
+                // Validasi ketat untuk Kepulangan (GATE_OUT):
+                let isMissingInBatch = false;
+                if (itemType === 'GATE_OUT') {
+                    // Pengecekan ada atau tidaknya GATE_IN hari ini (tidak menolak, hanya menandai verifikasi)
+                    const hasInToday = await prisma.attendance.findFirst({
+                        where: {
+                            userId: student.id,
+                            type: 'GATE_IN',
+                            scanTime: {
+                                gte: new Date(todayStr + 'T00:00:00+07:00'),
+                                lte: new Date(todayStr + 'T23:59:59+07:00')
+                            }
+                        }
+                    });
+
+                    if (!hasInToday && !isTestingMode && !settings.isEmergencyGateOut) {
+                        isMissingInBatch = true;
+                    }
+
+                    // 2. Wajib dalam jam operasional Gate-Out resmi
+                    const gateOutStartSec = (effective.gateOutStartTime || '12:30') + ':00';
+                    const gateOutEndSec = (effective.gateOutEndTime || '18:00') + ':59';
+                    const isPermittedOutTime = isTestingMode || settings.isEmergencyGateOut || settings.isEarlyDismissal ||
+                        (scanTimeSec >= gateOutStartSec && scanTimeSec <= gateOutEndSec);
+
+                    if (!isPermittedOutTime) {
+                        results.push({
+                            clientLocalId: item.clientLocalId,
+                            status: 'REJECTED',
+                            message: `Gate-Out ditolak: Scan dilakukan di luar jam kepulangan resmi (Scan ${scanTimeSec} WIB - Gerbang Pulang dibuka pukul ${effective.gateOutStartTime} s.d. ${effective.gateOutEndTime} WIB).`
+                        });
+                        failedCount++;
+                        continue;
+                    }
+                }
+
+                // Validasi ketat untuk Masuk (GATE_IN):
+                if (itemType === 'GATE_IN') {
+                    const gateInStartSec = (effective.gateInStartTime || '06:00') + ':00';
+                    const gateInEndSec = (effective.gateInEndTime || '07:00') + ':00';
+                    const isBk = (item.barcodeCode || '').toUpperCase().includes('BK');
+
+                    // Tolak jika scan sebelum jam buka gerbang
+                    if (scanTimeSec < gateInStartSec && !isTestingMode && !settings.isEmergencyGateOut) {
+                        results.push({ clientLocalId: item.clientLocalId, status: 'REJECTED', message: `Gate-In ditolak: Scan sebelum jam buka gerbang (${scanTimeSec} < ${effective.gateInStartTime} WIB).` });
+                        failedCount++;
+                        continue;
+                    }
+
+                    // Tolak scan kelas biasa jika melewati batas 07:00:00 WIB
+                    if (!isBk && scanTimeSec > gateInEndSec && !isTestingMode && !settings.isEmergencyGateOut) {
+                        results.push({
+                            clientLocalId: item.clientLocalId,
+                            status: 'REJECTED',
+                            message: `Gate-In kelas ditolak: Melewati batas waktu kedatangan (Scan ${scanTimeSec} > ${effective.gateInEndTime}:00 WIB). Siswa terlambat wajib scan di Ruang BK.`
+                        });
+                        failedCount++;
+                        continue;
+                    }
+                }
+
+                // QR Code statis dinonaktifkan total
+                if (item.method === 'QR_STATIC' || (item.barcodeCode && !item.barcodeCode.startsWith('DYNAMIC_CLASS_QR|') && !item.barcodeCode.includes('BK') && !item.barcodeCode.includes('SHOLAT'))) {
+                    results.push({
+                        clientLocalId: item.clientLocalId,
+                        status: 'REJECTED',
+                        message: '⛔ QR Code Statis (QR_STATIC) telah dinonaktifkan. Wajib menggunakan QR Dinamis Pengurus Kelas.'
+                    });
+                    failedCount++;
+                    continue;
+                }
+
+                const isLate = itemType === 'GATE_IN' && scanTimeSec > ((effective.gateInEndTime || '07:00') + ':00');
                 const hoursDrift = Math.round(Math.abs(Date.now() - scanDate.getTime()) / (1000 * 60 * 60));
-                const note = `[OFFLINE SYNC] Scan: ${scanTimeStr} WIB${hoursDrift > 0 ? ` (+${hoursDrift} jam sinkron)` : ''} | Method: ${item.method || 'QR_STATIC'}${item.note ? ' | ' + item.note : ''}`;
+                const distText = distanceMeters !== null ? ` | GPS: ${distanceMeters}m (Valid)` : '';
+                const verifyPrefix = isMissingInBatch ? '[Pulang tanpa data masuk – perlu verifikasi] ' : '';
+                const note = `${verifyPrefix}[OFFLINE SYNC] Scan: ${scanTimeSec} WIB${hoursDrift > 0 ? ` (+${hoursDrift} jam sinkron)` : ''}${distText} | Method: ${item.method || 'QR_STATIC'}${item.note ? ' | ' + item.note : ''}`;
 
                 await prisma.attendance.create({
                     data: {
                         userId: student.id,
-                        type: item.type || 'GATE_IN',
+                        type: itemType,
                         method: item.method || 'QR_STATIC',
                         status: isLate ? 'LATE' : 'PRESENT',
                         scanTime: scanDate,
                         lat: item.lat ? Number(item.lat) : null,
                         lng: item.lng ? Number(item.lng) : null,
                         isFakeGps: Boolean(item.isFakeGps),
+                        jarakKeSekolah: distanceMeters,
                         note
                     }
                 });
@@ -2707,12 +3984,15 @@ export const getAttendanceRekapPeriode = async (req: Request, res: Response) => 
         // Ambil daftar siswa
         const studentWhere: any = { role: 'STUDENT', isActive: true };
         if (className && className !== 'ALL') {
-            studentWhere.className = String(className);
+            const rawClass = String(className).trim();
+            const normalizedHyphen = rawClass.replace(/\s+/g, '-');
+            const normalizedSpace = rawClass.replace(/-/g, ' ');
+            studentWhere.className = { in: [rawClass, normalizedHyphen, normalizedSpace] };
         } else if (targetGrade && targetGrade !== 'ALL') {
             studentWhere.className = { startsWith: targetGrade };
         }
 
-        const [students, holidays, allLogs, leaveRequests, uksVisits] = await Promise.all([
+        const [rawStudents, holidays, allLogs, leaveRequests, uksVisits] = await Promise.all([
             prisma.user.findMany({
                 where: studentWhere,
                 select: {
@@ -2756,6 +4036,9 @@ export const getAttendanceRekapPeriode = async (req: Request, res: Response) => 
                 }
             })
         ]);
+
+        // Pastikan siswa diurutkan selalu diawali dari rombel VII, VIII, lalu IX
+        const students = sortStudentsByGradeAndName(rawStudents);
 
         const holidayDateMap = new Map<string, string>();
         holidays.forEach(h => holidayDateMap.set(h.date, h.name));
@@ -2955,7 +4238,7 @@ export const getAttendanceRekapPeriode = async (req: Request, res: Response) => 
                 A: st.totalA,
                 presenceRate
             };
-        }).sort((a, b) => a.className.localeCompare(b.className));
+        }).sort((a, b) => compareClassNames(a.className, b.className));
 
         // Tren harian dalam periode terpilih (untuk grafik tren bar)
         const dailyTrendData = effectiveDayDates.slice(-14).map(dStr => {
@@ -3023,8 +4306,8 @@ export const getAttendanceRekapPeriode = async (req: Request, res: Response) => 
             select: { className: true },
             distinct: ['className']
         });
-        const availableClasses = classRows.map(c => c.className).filter(Boolean).sort() as string[];
-        const availableGrades = Array.from(new Set(availableClasses.map(c => (c || '').split('-')[0]))).filter(Boolean).sort();
+        const availableClasses = (classRows.map(c => c.className).filter(Boolean) as string[]).sort(compareClassNames);
+        const availableGrades = Array.from(new Set(availableClasses.map(c => (c || '').split('-')[0]))).filter(Boolean).sort(compareClassNames);
 
         res.json({
             success: true,
@@ -3255,10 +4538,10 @@ export const getAttendanceRekapSiswa = async (req: Request, res: Response) => {
                         }
                         totalLateMinutes += lateMinutes;
                         note = `🟡 Terlambat ${lateMinutes} menit (${gateInTime})`;
-                    } else if (inRec || outRec) {
+                    } else if (inRec || outRec || logsOnDay.some(l => l.method !== 'SYSTEM_AUTO' || (l.status !== 'ABSENT' && l.status !== 'ALPA'))) {
                         statusCode = 'H';
                         statusLabel = 'Hadir Tepat';
-                        note = inRec?.note || '🟢 Hadir Tepat Waktu';
+                        note = inRec?.note || outRec?.note || logsOnDay[0]?.note || '🟢 Hadir';
                         countH++;
                     }
                 } else {
@@ -3316,5 +4599,185 @@ export const getAttendanceRekapSiswa = async (req: Request, res: Response) => {
     } catch (error: any) {
         console.error('Error getAttendanceRekapSiswa:', error);
         res.status(500).json({ success: false, message: 'Gagal mengambil rekapitulasi presensi siswa: ' + error.message });
+    }
+};
+
+/**
+ * DEKLARASI MAKLUMAT GANGGUAN SERVER HARI INI (Admin / BK / Operator)
+ * POST /api/attendance/server-outage/declare
+ * Otomatis memberikan dispensasi gangguan server untuk seluruh siswa dan mencegah status Alfa.
+ */
+export const declareServerOutage = async (req: Request, res: Response) => {
+    try {
+        const user = (req as any).user;
+        const { reason, scope, date } = req.body;
+        const todayStr = date || new Date().toISOString().substring(0, 10);
+        const resolvedReason = reason || 'Kendala sinkronisasi jaringan dan sistem server sekolah';
+
+        const outageData = {
+            active: true,
+            date: todayStr,
+            scope: scope || 'FULL_DAY',
+            reason: resolvedReason,
+            declaredBy: user?.name || 'Administrator / BK',
+            declaredAt: new Date().toISOString()
+        };
+
+        await prisma.settings.upsert({
+            where: { key: 'SERVER_OUTAGE_MAKLUMAT' },
+            create: {
+                key: 'SERVER_OUTAGE_MAKLUMAT',
+                value: JSON.stringify(outageData)
+            },
+            update: {
+                value: JSON.stringify(outageData)
+            }
+        });
+
+        // Broadcast notifikasi resmi ke seluruh siswa dan orang tua
+        try {
+            await (prisma as any).notificationMessage.create({
+                data: {
+                    recipientRole: 'ALL',
+                    title: '⚠️ Maklumat Kendala Server: Presensi Otomatis Dispensasi',
+                    message: `Pengumuman Resmi Sekolah: Pada hari ini (${todayStr}), server sekolah mengalami kendala teknis: ${resolvedReason}. Seluruh siswa yang belum sempat memindai presensi diberikan dispensasi otomatis resmi (bukan Alfa).`,
+                    category: 'ANNOUNCEMENT'
+                }
+            });
+        } catch (e) {}
+
+        res.json({
+            success: true,
+            message: `Maklumat gangguan server pada tanggal ${todayStr} berhasil diaktifkan. Seluruh presensi hari ini dibebaskan dari status Alpa.`,
+            outage: outageData
+        });
+    } catch (error: any) {
+        res.status(500).json({ success: false, message: 'Gagal mendeklarasikan gangguan server: ' + error.message });
+    }
+};
+
+/**
+ * BATALKAN MAKLUMAT GANGGUAN SERVER
+ * POST /api/attendance/server-outage/cancel
+ */
+export const cancelServerOutage = async (req: Request, res: Response) => {
+    try {
+        const user = (req as any).user;
+        const setting = await prisma.settings.findUnique({ where: { key: 'SERVER_OUTAGE_MAKLUMAT' } });
+        if (setting && setting.value) {
+            const parsed = JSON.parse(setting.value);
+            parsed.active = false;
+            parsed.cancelledBy = user?.name || 'Administrator';
+            parsed.cancelledAt = new Date().toISOString();
+            await prisma.settings.update({
+                where: { key: 'SERVER_OUTAGE_MAKLUMAT' },
+                data: { value: JSON.stringify(parsed) }
+            });
+        }
+        res.json({ success: true, message: 'Maklumat gangguan server berhasil dinonaktifkan.' });
+    } catch (error: any) {
+        res.status(500).json({ success: false, message: 'Gagal membatalkan gangguan server: ' + error.message });
+    }
+};
+
+/**
+ * STATUS MAKLUMAT GANGGUAN SERVER
+ * GET /api/attendance/server-outage/status
+ */
+export const getServerOutageStatus = async (req: Request, res: Response) => {
+    try {
+        const setting = await prisma.settings.findUnique({ where: { key: 'SERVER_OUTAGE_MAKLUMAT' } });
+        if (!setting || !setting.value) {
+            return res.json({ success: true, active: false, outage: null });
+        }
+        const parsed = JSON.parse(setting.value);
+        const todayStr = new Date().toISOString().substring(0, 10);
+        const isCurrentlyActive = parsed.active === true && parsed.date === todayStr;
+        res.json({
+            success: true,
+            active: isCurrentlyActive,
+            outage: parsed
+        });
+    } catch (error: any) {
+        res.status(500).json({ success: false, message: 'Gagal membaca status gangguan server: ' + error.message });
+    }
+};
+
+/**
+ * QR CODE DINAMIS 10 DETIK PENGURUS KELAS
+ * GET /api/class-officer/dynamic-qr
+ * Menghasilkan token barcode berputar per 10 detik untuk presensi teman sekelas tanpa GPS
+ */
+export const getClassOfficerDynamicQr = async (req: Request, res: Response) => {
+    try {
+        const user = (req as any).user;
+        const queryClass = req.query.className as string;
+        const className = queryClass || user?.className;
+
+        if (!className) {
+            return res.status(400).json({ success: false, message: 'Identitas kelas tidak ditemukan.' });
+        }
+
+        const now = Date.now();
+        const step = Math.floor(now / 10000); // 10 Detik per Step
+        const hash = crypto.createHash('sha256').update(`${className}|${step}|${DYNAMIC_QR_SALT}`).digest('hex').substring(0, 12);
+        const payload = `DYNAMIC_CLASS_QR|${className}|${step}|${hash}`;
+        const secondsRemaining = 10 - Math.floor((now % 10000) / 1000);
+
+        return res.json({
+            success: true,
+            className,
+            payload,
+            step,
+            expiresInSeconds: secondsRemaining,
+            serverTimestamp: now
+        });
+    } catch (err: any) {
+        console.error('Error getClassOfficerDynamicQr:', err);
+        return res.status(500).json({ success: false, message: 'Gagal menghasilkan QR dinamis: ' + err.message });
+    }
+};
+
+/**
+ * GAP-05: Guru Piket / Guru BK Menyetujui Pemakluman Keterlambatan Siswa (LATE_EXCUSED)
+ */
+export const excuseLateStudent = async (req: Request, res: Response) => {
+    try {
+        const { attendanceId, studentId, date, reason } = req.body;
+        const user = (req as any).user;
+
+        const todayStr = date || new Date().toISOString().substring(0, 10);
+        const whereClause: any = attendanceId ? { id: attendanceId } : {
+            studentId,
+            date: todayStr,
+            status: 'LATE'
+        };
+
+        const target = await prisma.attendance.findFirst({ where: whereClause });
+        if (!target) {
+            return res.status(404).json({ success: false, message: 'Data keterlambatan siswa tidak ditemukan' });
+        }
+
+        await prisma.attendance.update({
+            where: { id: target.id },
+            data: {
+                status: 'LATE_EXCUSED',
+                note: `Terlambat Dimaklumi oleh ${user?.name || 'Guru Piket'}: ${reason || 'Alasan sah'}`
+            }
+        });
+
+        // Hapus poin pelanggaran kedisiplinan jika sebelumnya sempat bertambah
+        await prisma.disciplineRecord.deleteMany({
+            where: {
+                userId: target.userId,
+                type: 'PELANGGARAN',
+                description: { contains: 'Keterlambatan masuk sekolah' },
+                createdAt: { gte: new Date(new Date().setHours(0, 0, 0, 0)) }
+            }
+        }).catch(() => {});
+
+        res.json({ success: true, message: 'Status keterlambatan berhasil dimaklumi (LATE_EXCUSED).' });
+    } catch (e: any) {
+        res.status(500).json({ success: false, message: e.message });
     }
 };

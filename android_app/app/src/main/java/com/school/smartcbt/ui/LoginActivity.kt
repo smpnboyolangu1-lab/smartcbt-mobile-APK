@@ -63,6 +63,12 @@ class LoginActivity : AppCompatActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        com.school.smartcbt.utils.AppUpdateChecker.resumePendingInstallIfAny(this)
+        com.school.smartcbt.utils.AppUpdateChecker.checkForUpdates(this)
+    }
+
     private fun updateAppVersionDisplay() {
         try {
             val pInfo = packageManager.getPackageInfo(packageName, 0)
@@ -73,6 +79,14 @@ class LoginActivity : AppCompatActivity() {
     }
 
     private fun setupListeners() {
+        if (sessionManager.isRememberLogin()) {
+            val remU = sessionManager.getRememberedUsername()
+            val remP = sessionManager.getRememberedPassword()
+            if (remU.isNotEmpty()) binding.etUsername.setText(remU)
+            if (remP.isNotEmpty()) binding.etPassword.setText(remP)
+            binding.cbRememberMe.isChecked = true
+        }
+
         autoDetectAndConnectServer()
 
         binding.llVpsStatus.setOnClickListener {
@@ -88,22 +102,9 @@ class LoginActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
 
-            // Default password Siswa & Orang Tua adalah NISN
             if (password.isEmpty()) {
-                val isNumericNisn = username.all { it.isDigit() }
-                val isParentPrefix = (username.startsWith("P", ignoreCase = true)) && username.substring(1).all { it.isDigit() }
-
-                if (isNumericNisn) {
-                    password = username
-                    binding.etPassword.setText(username)
-                } else if (isParentPrefix) {
-                    val rawNisn = username.substring(1)
-                    password = rawNisn
-                    binding.etPassword.setText(rawNisn)
-                } else {
-                    Toast.makeText(this, "Mohon masukkan Password", Toast.LENGTH_SHORT).show()
-                    return@setOnClickListener
-                }
+                Toast.makeText(this, "Mohon masukkan Kata Sandi Anda", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
             }
 
             performLogin(username, password)
@@ -266,27 +267,8 @@ class LoginActivity : AppCompatActivity() {
                     val body = response.body()!!
                     val role = body.user.role
 
-                    if (role == "ADMIN" || role == "OPERATOR") {
-                        sessionManager.saveAuth(
-                            token = body.token,
-                            id = body.user.id,
-                            name = body.user.name,
-                            role = role,
-                            className = body.user.className ?: "",
-                            nisn = body.user.nisn ?: "",
-                            username = body.user.username ?: u,
-                            refreshToken = body.refreshToken
-                        )
-                        AlertDialog.Builder(this@LoginActivity)
-                            .setTitle("🛠️ Akses Administrator")
-                            .setMessage("Halo ${body.user.name}, Anda terautentikasi sebagai $role.\nBuka Remote Device Manager?")
-                            .setPositiveButton("Buka Panel") { _, _ ->
-                                startActivity(Intent(this@LoginActivity, HiddenAdminActivity::class.java))
-                            }
-                            .setNegativeButton("Tutup", null)
-                            .show()
-                        return
-                    }
+                    // Simpan status Ingat Saya di perangkat ini
+                    sessionManager.saveRememberedCredentials(trimmedU, trimmedP, binding.cbRememberMe.isChecked)
 
                     sessionManager.saveAuth(
                         token = body.token,
@@ -303,9 +285,17 @@ class LoginActivity : AppCompatActivity() {
                         classRole = body.user.classRole ?: "Siswa",
                         profilePicUrl = body.user.profilePicUrl,
                         tugasTambahan = body.user.tugasTambahan,
-                        availableRoles = body.user.availableRoles
+                        availableRoles = body.user.availableRoles,
+                        gender = body.user.gender
                     )
 
+
+                    com.school.smartcbt.utils.ClientLogger.logAuth(
+                        context = this@LoginActivity,
+                        action = "USER_LOGIN",
+                        outcome = "SUCCESS",
+                        message = "Login berhasil sebagai $role (${body.user.name})"
+                    )
 
                     com.school.smartcbt.utils.NotificationHelper.showHeadsUpNotification(
                         this@LoginActivity,
@@ -324,12 +314,21 @@ class LoginActivity : AppCompatActivity() {
                     } catch (e: Exception) {
                         "Login Gagal: Username atau Password Salah"
                     }
+
+                    com.school.smartcbt.utils.ClientLogger.logAuth(
+                        context = this@LoginActivity,
+                        action = "USER_LOGIN",
+                        outcome = "REJECTED",
+                        message = msg,
+                        extra = mapOf("usernameEntered" to trimmedU)
+                    )
+
                     DialogHelper.showAccessDeniedDialog(
                         this@LoginActivity,
                         title = "Akses Masuk Ditolak",
                         message = msg,
                         subtitle = "Verifikasi Kredensial Pengguna Gagal",
-                        hint = "Pastikan NISN atau username sudah benar. Default password siswa dan orang tua adalah NISN."
+                        hint = "Silakan periksa kembali Username dan Kata Sandi Anda. Jika lupa kata sandi, hubungi Administrator atau Operator Sekolah."
                     )
                 }
             }
@@ -337,6 +336,16 @@ class LoginActivity : AppCompatActivity() {
             override fun onFailure(call: Call<LoginResponse>, t: Throwable) {
                 binding.progressBar.visibility = View.GONE
                 binding.btnLogin.isEnabled = true
+                val netErr = t.message ?: "Koneksi terputus"
+
+                com.school.smartcbt.utils.ClientLogger.logAuth(
+                    context = this@LoginActivity,
+                    action = "USER_LOGIN",
+                    outcome = "ERROR",
+                    message = "Koneksi server gagal: $netErr",
+                    extra = mapOf("usernameEntered" to trimmedU)
+                )
+
                 Toast.makeText(this@LoginActivity, "Koneksi ke Server Terputus. Pastikan terhubung ke jaringan sekolah.", Toast.LENGTH_LONG).show()
             }
         })
@@ -360,25 +369,32 @@ class LoginActivity : AppCompatActivity() {
             com.school.smartcbt.service.FileSyncWorker.runOnce(applicationContext)
         } catch (e: Throwable) {}
 
+        val roleUpper = role.uppercase()
         val subject = sessionManager.getTeachingSubject()?.uppercase() ?: ""
-        val isBkUser = role == "COUNSELOR" || role == "BK" || subject.contains("BK") || subject.contains("BIMBINGAN") || subject.contains("KONSELING")
-        if (role == "LIBRARIAN") {
+        val isBkUser = roleUpper == "COUNSELOR" || roleUpper == "BK" || subject.contains("BK") || subject.contains("BIMBINGAN") || subject.contains("KONSELING")
+        val isSecurityUser = roleUpper == "SECURITY" || roleUpper == "SATPAM" || subject.contains("SATPAM") || subject.contains("KEAMANAN")
+        val isKantinUser = roleUpper == "KANTIN" || roleUpper == "CANTIN" || roleUpper == "KASIR" || roleUpper == "STAND_KANTIN" || subject.contains("KANTIN")
+        if (isSecurityUser) {
+            startActivity(Intent(this, SatpamMainActivity::class.java))
+        } else if (isKantinUser) {
+            startActivity(Intent(this, KantinMainActivity::class.java))
+        } else if (roleUpper == "LIBRARIAN") {
             val intent = Intent(this, LibraryActivity::class.java).apply {
                 putExtra("EXTRA_IS_ADMIN", true)
             }
             startActivity(intent)
-        } else if (role == "MEDICAL") {
+        } else if (roleUpper == "MEDICAL") {
             val intent = Intent(this, UksActivity::class.java).apply {
                 putExtra("EXTRA_IS_ADMIN", true)
             }
             startActivity(intent)
         } else if (isBkUser) {
             startActivity(Intent(this, BkActivity::class.java))
-        } else if (role == "OPERATOR" || role == "ADMIN") {
+        } else if (roleUpper == "OPERATOR" || roleUpper == "ADMIN") {
             startActivity(Intent(this, OperatorMainActivity::class.java))
-        } else if (role == "TEACHER" || role == "GURU") {
+        } else if (roleUpper == "TEACHER" || roleUpper == "GURU" || roleUpper == "KURIKULUM") {
             startActivity(Intent(this, TeacherMainActivity::class.java))
-        } else if (role == "PARENT" || role == "ORANGTUA") {
+        } else if (roleUpper == "PARENT" || roleUpper == "ORANGTUA") {
             startActivity(Intent(this, ParentMainActivity::class.java))
         } else {
             startActivity(Intent(this, StudentMainActivity::class.java))

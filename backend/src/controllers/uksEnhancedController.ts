@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
+import { sendFcmToUser } from '../services/fcmService';
 
 const prisma = new PrismaClient();
 
@@ -150,6 +151,61 @@ export const updateUksTriage = async (req: Request, res: Response) => {
                     status: 'APPROVED'
                 }
             });
+
+            if (status === 'PERLU_DIJEMPUT') {
+                const notifTitle = "🚨 SISWA MEMBUTUHKAN PENJEMPUTAN (UKS)";
+                const notifMsg = `Ananda memerlukan penjemputan segera oleh orang tua/wali dari ruang UKS dikarenakan: ${visit.keluhan || 'kondisi medis'}.`;
+
+                (async () => {
+                    try {
+                        await (prisma as any).notificationMessage.create({
+                            data: {
+                                studentId: visit.siswaId,
+                                recipientRole: 'PARENT',
+                                title: notifTitle,
+                                message: notifMsg,
+                                category: 'UKS_PICKUP',
+                                isRead: false,
+                                sentAt: new Date()
+                            }
+                        });
+
+                        const student = await prisma.user.findUnique({ where: { id: visit.siswaId } });
+                        let parentUser = null;
+                        if (student?.nisn) {
+                            parentUser = await prisma.user.findFirst({
+                                where: {
+                                    role: 'PARENT',
+                                    OR: [
+                                        { username: `P${student.nisn}` },
+                                        { nisn: student.nisn }
+                                    ]
+                                }
+                            });
+                        }
+
+                        if (parentUser) {
+                            await sendFcmToUser(parentUser.id, notifTitle, notifMsg, {
+                                category: 'UKS_PICKUP',
+                                studentId: visit.siswaId,
+                                type: 'UKS_PICKUP',
+                                title: notifTitle,
+                                body: notifMsg
+                            });
+                        }
+
+                        await sendFcmToUser(visit.siswaId, notifTitle, notifMsg, {
+                            category: 'UKS_PICKUP',
+                            studentId: visit.siswaId,
+                            type: 'UKS_PICKUP',
+                            title: notifTitle,
+                            body: notifMsg
+                        });
+                    } catch (e: any) {
+                        console.warn('[UKS Pickup] Error sending notification:', e.message);
+                    }
+                })();
+            }
         }
 
         return res.json({

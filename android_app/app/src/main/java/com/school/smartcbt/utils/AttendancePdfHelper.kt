@@ -277,6 +277,9 @@ object AttendancePdfHelper {
                 setTitle("Laporan Presensi SMPN 1 Boyolangu")
                 setDescription("Mengunduh laporan rekapitulasi presensi...")
                 setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                setAllowedNetworkTypes(DownloadManager.Request.NETWORK_WIFI or DownloadManager.Request.NETWORK_MOBILE)
+                setAllowedOverMetered(true)
+                setAllowedOverRoaming(true)
                 setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
                 setMimeType("text/html")
             }
@@ -406,6 +409,9 @@ object AttendancePdfHelper {
                         setTitle("Rekap Sholat Berjamaah")
                         setDescription("Mengunduh $fileName...")
                         setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                        setAllowedNetworkTypes(DownloadManager.Request.NETWORK_WIFI or DownloadManager.Request.NETWORK_MOBILE)
+                        setAllowedOverMetered(true)
+                        setAllowedOverRoaming(true)
                         setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
                         setMimeType("application/pdf")
                     }

@@ -10,7 +10,7 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="#1E1B4B"
+        android:background="@drawable/bg_gradient_operator"
         android:elevation="4dp"
         android:orientation="vertical"
         android:paddingHorizontal="16dp"
@@ -42,7 +42,7 @@
                     android:id="@+id/tvOpTopTitle"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="⚙️ Dashboard Operator Sekolah"
+                    android:text="âš™ï¸ Dashboard Operator Sekolah"
                     android:textColor="#FFFFFF"
                     android:textSize="16sp"
                     android:textStyle="bold" />
@@ -62,7 +62,19 @@
                 android:layout_height="34dp"
                 android:background="@drawable/bg_btn_amber_rounded"
                 android:paddingHorizontal="12dp"
-                android:text="👨‍🏫 Mode Guru"
+                android:text="✨"
+                android:textColor="#1E1B4B"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+
+            <Button
+                android:id="@+id/btnCheckUpdateOperator"
+                android:layout_width="wrap_content"
+                android:layout_height="34dp"
+                android:layout_marginStart="6dp"
+                android:background="@drawable/bg_btn_amber_rounded"
+                android:paddingHorizontal="10dp"
+                android:text="✨"
                 android:textColor="#1E1B4B"
                 android:textSize="11sp"
                 android:textStyle="bold" />
@@ -101,7 +113,7 @@
                     android:id="@+id/tvTabOpLeaves"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="📋 Izin Guru &amp; Piket"
+                    android:text="✨"
                     android:textColor="#FFFFFF"
                     android:textSize="12sp"
                     android:textStyle="bold" />
@@ -123,7 +135,7 @@
                     android:id="@+id/tvTabOpBroadcast"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="📢 Broadcast PDF"
+                    android:text="✨"
                     android:textColor="#64748B"
                     android:textSize="12sp" />
             </LinearLayout>
@@ -144,7 +156,7 @@
                     android:id="@+id/tvTabOpCbt"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="🔑 Token CBT"
+                    android:text="✨"
                     android:textColor="#64748B"
                     android:textSize="12sp" />
             </LinearLayout>
@@ -165,7 +177,7 @@
                     android:id="@+id/tvTabOpDevice"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="📱 Reset Device"
+                    android:text="✨"
                     android:textColor="#64748B"
                     android:textSize="12sp" />
             </LinearLayout>
@@ -185,7 +197,7 @@
                     android:id="@+id/tvTabOpPrayer"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="🕌 Jadwal Sholat"
+                    android:text="✨"
                     android:textColor="#64748B"
                     android:textSize="12sp" />
             </LinearLayout>
@@ -206,7 +218,7 @@
                     android:id="@+id/tvTabOpAttendancePdf"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="📄 Rekap Presensi PDF"
+                    android:text="✨"
                     android:textColor="#64748B"
                     android:textSize="12sp" />
             </LinearLayout>
@@ -247,7 +259,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="📋 PERSETUJUAN IZIN GURU OLEH OPERATOR"
+                            android:text="✨"
                             android:textColor="#312E81"
                             android:textSize="12sp"
                             android:textStyle="bold" />
@@ -267,7 +279,7 @@
                             android:layout_height="38dp"
                             android:layout_marginTop="10dp"
                             android:backgroundTint="#EEF2FF"
-                            android:text="🔄 Segarkan Data Izin Guru"
+                            android:text="✨"
                             android:textColor="#312E81"
                             android:textSize="11.5sp" />
                     </LinearLayout>
@@ -305,7 +317,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="📢 KIRIM BROADCAST PENGUMUMAN &amp; SURAT PDF"
+                            android:text="✨"
                             android:textColor="#312E81"
                             android:textSize="12sp"
                             android:textStyle="bold" />
@@ -380,7 +392,7 @@
                                 android:layout_width="wrap_content"
                                 android:layout_height="36dp"
                                 android:backgroundTint="#4338CA"
-                                android:text="📎 Pilih PDF"
+                                android:text="✨"
                                 android:textColor="#FFFFFF"
                                 android:textSize="11sp" />
 
@@ -403,7 +415,7 @@
                             android:layout_height="44dp"
                             android:layout_marginTop="12dp"
                             android:backgroundTint="#312E81"
-                            android:text="🚀 Kirim Pengumuman &amp; PDF Sekarang"
+                            android:text="✨"
                             android:textColor="#FFFFFF"
                             android:textSize="12.5sp"
                             android:textStyle="bold" />
@@ -414,7 +426,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="16dp"
-                    android:text="📜 Riwayat Broadcast Pengumuman Resmi"
+                    android:text="✨"
                     android:textColor="#334155"
                     android:textSize="13sp"
                     android:textStyle="bold" />
@@ -451,7 +463,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="🔑 KONTROL TOKEN CBT &amp; PENGAWAS"
+                            android:text="✨"
                             android:textColor="#312E81"
                             android:textSize="12sp"
                             android:textStyle="bold" />
@@ -470,7 +482,7 @@
                             android:layout_height="38dp"
                             android:layout_marginTop="10dp"
                             android:backgroundTint="#EEF2FF"
-                            android:text="🔄 Segarkan Token &amp; Ujian Aktif"
+                            android:text="✨"
                             android:textColor="#312E81"
                             android:textSize="11.5sp" />
                     </LinearLayout>
@@ -484,7 +496,7 @@
                     android:orientation="vertical" />
             </LinearLayout>
 
-            <!-- ================= TAB 3: RESET DEVICE BINDING ================= -->
+            <!-- ================= TAB 3: RESET DEVICE & KELOLA SISWA ================= -->
             <LinearLayout
                 android:id="@+id/containerTabOpDevice"
                 android:layout_width="match_parent"
@@ -508,7 +520,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="📱 RESET KUNCI PERANGKAT SISWA (DEVICE BINDING)"
+                            android:text="✨"
                             android:textColor="#312E81"
                             android:textSize="12sp"
                             android:textStyle="bold" />
@@ -517,7 +529,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="2dp"
-                            android:text="Bantu siswa yang ganti ponsel atau lupa reset kunci perangkat agar dapat login kembali"
+                            android:text="Reset kunci perangkat, buka kunci biodata orang tua untuk perbaikan data, atau ubah status Siswa Tanpa HP"
                             android:textColor="#64748B"
                             android:textSize="11sp" />
 
@@ -531,16 +543,51 @@
                             android:paddingHorizontal="14dp"
                             android:textSize="12.5sp" />
 
+                        <!-- Tombol 1: Reset Device -->
                         <Button
                             android:id="@+id/btnOpDoResetDevice"
                             android:layout_width="match_parent"
                             android:layout_height="44dp"
-                            android:layout_marginTop="10dp"
+                            android:layout_marginTop="12dp"
                             android:backgroundTint="#059669"
-                            android:text="🔓 Reset Device Binding Siswa"
+                            android:text="✨"
                             android:textColor="#FFFFFF"
-                            android:textSize="12.5sp"
+                            android:textSize="12sp"
                             android:textStyle="bold" />
+
+                        <!-- Tombol 2: Unlock Biodata -->
+                        <Button
+                            android:id="@+id/btnOpUnlockBiodata"
+                            android:layout_width="match_parent"
+                            android:layout_height="44dp"
+                            android:layout_marginTop="8dp"
+                            android:backgroundTint="#3B82F6"
+                            android:text="✨"
+                            android:textColor="#FFFFFF"
+                            android:textSize="12sp"
+                            android:textStyle="bold" />
+
+                        <!-- Tombol 3: Toggle Tanpa HP -->
+                        <Button
+                            android:id="@+id/btnOpToggleNoPhone"
+                            android:layout_width="match_parent"
+                            android:layout_height="44dp"
+                            android:layout_marginTop="8dp"
+                            android:backgroundTint="#F59E0B"
+                            android:text="✨"
+                            android:textColor="#FFFFFF"
+                            android:textSize="12sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="12dp"
+                            android:background="#F8FAFC"
+                            android:padding="10dp"
+                            android:text="✨"
+                            android:textColor="#475569"
+                            android:textSize="10.5sp" />
                     </LinearLayout>
                 </androidx.cardview.widget.CardView>
             </LinearLayout>
@@ -597,15 +644,114 @@
                             android:layout_marginTop="4dp"
                             android:background="@android:drawable/btn_dropdown" />
 
+                        <!-- Live Summary Badge -->
+                        <TextView
+                            android:id="@+id/tvOpPrayerSummaryBadge"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="10dp"
+                            android:background="#ECFDF5"
+                            android:padding="8dp"
+                            android:text="🕌 Pilih Rombel Terjadwal (Per Tingkat &amp; Centang Kelas)"
+                            android:textColor="#065F46"
+                            android:textSize="11.5sp"
+                            android:textStyle="bold" />
+
+                        <!-- Quick Grade Selection Buttons -->
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:orientation="horizontal">
+
+                            <Button
+                                android:id="@+id/btnOpQuickAll7"
+                                android:layout_width="0dp"
+                                android:layout_height="36dp"
+                                android:layout_marginEnd="4dp"
+                                android:layout_weight="1"
+                                android:backgroundTint="#0284C7"
+                                android:padding="0dp"
+                                android:text="+ VII (11)"
+                                android:textColor="#FFFFFF"
+                                android:textSize="10sp"
+                                android:textStyle="bold" />
+
+                            <Button
+                                android:id="@+id/btnOpQuickAll8"
+                                android:layout_width="0dp"
+                                android:layout_height="36dp"
+                                android:layout_marginEnd="4dp"
+                                android:layout_weight="1"
+                                android:backgroundTint="#4F46E5"
+                                android:padding="0dp"
+                                android:text="+ VIII (11)"
+                                android:textColor="#FFFFFF"
+                                android:textSize="10sp"
+                                android:textStyle="bold" />
+
+                            <Button
+                                android:id="@+id/btnOpQuickAll9"
+                                android:layout_width="0dp"
+                                android:layout_height="36dp"
+                                android:layout_weight="1"
+                                android:backgroundTint="#7C3AED"
+                                android:padding="0dp"
+                                android:text="+ IX (11)"
+                                android:textColor="#FFFFFF"
+                                android:textSize="10sp"
+                                android:textStyle="bold" />
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:orientation="horizontal">
+
+                            <Button
+                                android:id="@+id/btnOpQuickAllMale"
+                                android:layout_width="0dp"
+                                android:layout_height="36dp"
+                                android:layout_marginEnd="4dp"
+                                android:layout_weight="1"
+                                android:backgroundTint="#059669"
+                                android:padding="0dp"
+                                android:text="🕌 Putra (JUMAT)"
+                                android:textColor="#FFFFFF"
+                                android:textSize="10sp"
+                                android:textStyle="bold" />
+
+                            <Button
+                                android:id="@+id/btnOpQuickClear"
+                                android:layout_width="0dp"
+                                android:layout_height="36dp"
+                                android:layout_weight="1"
+                                android:backgroundTint="#DC2626"
+                                android:padding="0dp"
+                                android:text="🔄 Bersihkan"
+                                android:textColor="#FFFFFF"
+                                android:textSize="10sp"
+                                android:textStyle="bold" />
+                        </LinearLayout>
+
+                        <!-- Dynamic Checkboxes Container for Grades VII, VIII, IX -->
+                        <LinearLayout
+                            android:id="@+id/llOpPrayerCheckboxesContainer"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:orientation="vertical" />
+
                         <EditText
                             android:id="@+id/etOpPrayerClasses"
                             android:layout_width="match_parent"
                             android:layout_height="44dp"
                             android:layout_marginTop="10dp"
                             android:background="#F1F5F9"
-                            android:hint="Daftar Rombel (Contoh: VII-A, VII-B, VII-C)"
+                            android:hint="Rombel terpilih otomatis tersinkron di sini"
                             android:paddingHorizontal="14dp"
-                            android:textSize="12.5sp" />
+                            android:textSize="12sp" />
 
                         <Button
                             android:id="@+id/btnOpSavePrayerSchedule"
@@ -709,7 +855,7 @@
                             android:layout_height="48dp"
                             android:layout_marginTop="18dp"
                             android:backgroundTint="#0284C7"
-                            android:text="🖨️ Cetak / Simpan PDF (Sistem Android)"
+                            android:text="✨"
                             android:textColor="#FFFFFF"
                             android:textSize="12.5sp"
                             android:textStyle="bold" />
@@ -720,7 +866,7 @@
                             android:layout_height="44dp"
                             android:layout_marginTop="8dp"
                             android:backgroundTint="#059669"
-                            android:text="🌐 Buka / Unduh di Browser HP"
+                            android:text="✨"
                             android:textColor="#FFFFFF"
                             android:textSize="12.5sp"
                             android:textStyle="bold" />
@@ -729,4 +875,16 @@
             </LinearLayout>
         </LinearLayout>
     </ScrollView>
+
+    <!-- Footer Konsisten Sistem -->
+    <TextView
+        android:id="@+id/tvFooter"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:layout_marginBottom="24dp"
+        android:gravity="center"
+        android:text="Smart CBT v2.8.140 • SMP Negeri 1 Boyolangu"
+        android:textColor="#94A3B8"
+        android:textSize="11sp" />
 </LinearLayout>

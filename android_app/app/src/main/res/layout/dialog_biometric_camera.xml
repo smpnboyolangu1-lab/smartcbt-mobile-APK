@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#000000">
+
+    <!-- Camera Preview ViewFinder -->
+    <androidx.camera.view.PreviewView
+        android:id="@+id/biometricPreviewView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- AI Biometric Face & Shoulders Guide Overlay -->
+    <com.school.smartcbt.ui.BiometricFaceOverlayView
+        android:id="@+id/biometricOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- Top App Bar with Close & Torch Button -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#66000000"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingHorizontal="16dp"
+        android:paddingTop="36dp"
+        android:paddingBottom="12dp">
+
+        <ImageButton
+            android:id="@+id/btnBioClose"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@android:drawable/ic_menu_revert"
+            app:tint="#FFFFFF"
+            android:contentDescription="Kembali" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="📸 Kamera Pasfoto Biometrik Resmi"
+                android:textColor="#FFFFFF"
+                android:textSize="15sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="AI Auto-Crop &amp; Ganti Background Biru Solid"
+                android:textColor="#93C5FD"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <ImageButton
+            android:id="@+id/btnBioSwitchCamera"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@android:drawable/ic_menu_camera"
+            app:tint="#FFFFFF"
+            android:contentDescription="Putar Kamera" />
+    </LinearLayout>
+
+    <!-- Bottom Capture Floating Controls -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:background="#88000000"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:paddingHorizontal="24dp"
+        android:paddingTop="16dp"
+        android:paddingBottom="36dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="💡 Pastikan pencahayaan terang dan wajah menghadap lurus ke depan"
+            android:textColor="#E2E8F0"
+            android:textSize="11sp"
+            android:gravity="center"
+            android:layout_marginBottom="16dp" />
+
+        <ImageButton
+            android:id="@+id/btnBioCapture"
+            android:layout_width="74dp"
+            android:layout_height="74dp"
+            android:background="@drawable/bg_fab_scan"
+            android:src="@android:drawable/ic_menu_camera"
+            app:tint="#FFFFFF"
+            android:contentDescription="Ambil Pasfoto" />
+    </LinearLayout>
+</FrameLayout>

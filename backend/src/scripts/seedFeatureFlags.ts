@@ -42,9 +42,15 @@ export const DEFAULT_FEATURE_SETTINGS = [
   },
   {
     key: "feature.attendance.offlineQueue",
-    value: "true",
+    value: "false",
     type: "boolean",
-    description: "Mode antrian absensi offline: Siswa tanpa kuota data tetap bisa memindai, data tersimpan aman di database lokal HP dan otomatis tersinkronisasi saat HP terhubung internet."
+    description: "Mode antrian absensi offline: Dinonaktifkan sesuai kebijakan presensi langsung online real-time."
+  },
+  {
+    key: "feature.ekantin.enabled",
+    value: "false",
+    type: "boolean",
+    description: "Modul E-Kantin Digital Siswa, Orang Tua & Kasir Stand Kantin: Dompet digital siswa, limit belanja harian, dan kasir POS stand kantin (Status: Dalam Pengembangan - Default Nonaktif)."
   },
   {
     key: "feature.remote.wifiOnlyUpload",
@@ -142,15 +148,15 @@ export const DEFAULT_FEATURE_SETTINGS = [
   // 3. PENGATURAN GPS SEKOLAH & TOLERANSI
   {
     key: "gps.school.lat",
-    value: "-8.125506",
+    value: "-8.125157",
     type: "string",
-    description: "Titik Latitude Pusat Kampus SMPN 1 Boyolangu (-8.125506)."
+    description: "Titik Latitude Pusat Kampus SMPN 1 Boyolangu (-8.125157)."
   },
   {
     key: "gps.school.lng",
-    value: "111.893526",
+    value: "111.893912",
     type: "string",
-    description: "Titik Longitude Pusat Kampus SMPN 1 Boyolangu (111.893526)."
+    description: "Titik Longitude Pusat Kampus SMPN 1 Boyolangu (111.893912)."
   },
   {
     key: "gps.radius.global",
@@ -181,6 +187,74 @@ export const DEFAULT_FEATURE_SETTINGS = [
     value: "5",
     type: "string",
     description: "Batas selisih jam HP siswa dengan Jam Server WIB (Default 5 menit). Melebihi ini dicatat sebagai indikasi manipulasi jam."
+  },
+
+  // 4. GPS ENHANCEMENT & GEOFENCE MASTER TOGGLE
+  {
+    key: "feature.geofence.enabled",
+    value: "true",
+    type: "boolean",
+    description: "🔘 MASTER TOGGLE GEOFENCE: Mengaktifkan atau menonaktifkan seluruh validasi Geofence GPS presensi secara terpusat dari portal. Jika NONAKTIF, siswa/guru dapat presensi tanpa diblokir validasi radius lokasi."
+  },
+  {
+    key: "feature.gps.kalmanFilter",
+    value: "true",
+    type: "boolean",
+    description: "Aktifkan Kalman Filter 4D di APK untuk smoothing koordinat GPS dan mereduksi indoor signal drift."
+  },
+  {
+    key: "feature.gps.averaging",
+    value: "true",
+    type: "boolean",
+    description: "Aktifkan Coordinate Averaging di APK: mengambil 3-5 sampel GPS berkala lalu merata-ratakan posisinya."
+  },
+  {
+    key: "gps.averaging.sampleCount",
+    value: "5",
+    type: "string",
+    description: "Jumlah sampel GPS yang diambil untuk averaging sebelum dikirim ke portal (3 - 10 sampel)."
+  },
+  {
+    key: "gps.averaging.intervalMs",
+    value: "600",
+    type: "string",
+    description: "Interval jeda antar sampel koordinat GPS dalam milidetik (default: 600ms)."
+  },
+  {
+    key: "gps.minAccuracyMeters",
+    value: "50",
+    type: "string",
+    description: "Batas akurasi GPS ideal yang diterima secara instan (meter). Di atas ini akan diperingatkan."
+  },
+  {
+    key: "gps.rejectAboveAccuracy",
+    value: "100",
+    type: "string",
+    description: "Batas penolakan otomatis presensi jika akurasi GPS terlalu buruk (meter)."
+  },
+  {
+    key: "gps.buffer.default",
+    value: "30",
+    type: "string",
+    description: "Buffer toleransi standar di luar radius base untuk kompensasi pantulan sinyal gedung beton (meter)."
+  },
+  {
+    key: "feature.gps.requireHighAccuracy",
+    value: "true",
+    type: "boolean",
+    description: "Wajibkan mode GPS High Accuracy (GPS Satelit Hardware) pada aplikasi mobile."
+  },
+  {
+    key: "feature.gps.showAccuracyToUser",
+    value: "true",
+    type: "boolean",
+    description: "Tampilkan indikator akurasi GPS real-time (meter) pada antarmuka layar presensi siswa/guru."
+  },
+  {
+    key: "feature.geofence.multiZone",
+    value: "true",
+    type: "boolean",
+    description: "Aktifkan validasi Multi-Zona Geofence (Gerbang Utama, Lapangan, Aula, Masjid, Ruang Kelas)."
   }
 ];
 

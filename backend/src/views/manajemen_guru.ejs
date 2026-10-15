@@ -119,6 +119,12 @@
                         🕊️ Tag Peran: Guru Bimbingan Konseling (BK)
                     </label>
                 </div>
+                <div class="bg-amber-50 border border-amber-200 p-3 rounded-xl flex items-center gap-3">
+                    <input type="checkbox" id="tIsKurikulum" class="w-4 h-4 text-amber-600 rounded focus:ring-amber-500">
+                    <label for="tIsKurikulum" class="text-xs font-bold text-amber-900 cursor-pointer">
+                        🏛️ Tag Peran: Tim Kurikulum (Approval Izin Guru, Laporan & Akademik)
+                    </label>
+                </div>
                 <div>
                     <label class="block text-sm font-semibold mb-1 text-gray-700">No. HP / WhatsApp</label>
                     <input type="text" id="tNoHp" class="w-full border p-2.5 rounded-xl text-xs" placeholder="Cth: 08123456789">
@@ -328,7 +334,12 @@
             let html = '';
             paginatedData.forEach(t => {
                 let tagsHtml = '';
-                const isBk = t.role === 'COUNSELOR' || (t.tags && t.tags.includes('BK')) || t.isBk;
+                const isBk = t.role === 'COUNSELOR' || (t.tags && t.tags.includes('BK')) || t.isBk || (t.tugasTambahan && t.tugasTambahan.includes('BK'));
+                const isKurikulum = t.role === 'KURIKULUM' || (t.tags && t.tags.includes('KURIKULUM')) || t.isKurikulum || (t.tugasTambahan && t.tugasTambahan.includes('KURIKULUM')) || (t.rolesTambahan && t.rolesTambahan.includes('kurikulum'));
+
+                if (isKurikulum) {
+                    tagsHtml += '<span class="inline-flex items-center gap-1 bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 rounded-full text-[11px] font-bold mr-1">🏛️ Kurikulum</span>';
+                }
                 if (isBk) {
                     tagsHtml += '<span class="inline-flex items-center gap-1 bg-teal-50 text-teal-800 border border-teal-200 px-2 py-0.5 rounded-full text-[11px] font-bold mr-1">🕊️ Guru BK</span>';
                 }
@@ -340,21 +351,26 @@
                     tagsHtml = '<span class="text-slate-400 text-[11px] italic">Guru Mapel</span>';
                 }
 
-                const mapel = t.mata_pelajaran 
-                    ? `<span class="bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded text-xs font-semibold border border-indigo-200">${t.mata_pelajaran}</span>` 
-                    : '-';
+                const rawMapel = t.mata_pelajaran || t.teachingSubject || '';
+                const mapel = (rawMapel && rawMapel !== '-') 
+                    ? `<span class="bg-indigo-50 text-indigo-700 px-2.5 py-1 rounded-lg text-xs font-bold border border-indigo-200">${rawMapel}</span>` 
+                    : '<span class="text-slate-400 text-xs italic">-</span>';
 
-                const kelasAjar = t.kelas_ajar || '-';
-                const noHp = t.no_hp || '-';
+                const rawKelas = t.kelas_ajar || t.teachingClasses || '';
+                const kelasAjar = (rawKelas && rawKelas !== '-')
+                    ? `<span class="font-semibold text-slate-700">${rawKelas}</span>`
+                    : '<span class="text-slate-400 text-xs italic">-</span>';
+
+                const noHp = t.no_hp || t.parentPhone || '-';
                 const alamat = t.alamat ? (t.alamat.length > 25 ? t.alamat.substring(0, 25) + '...' : t.alamat) : '-';
 
                 html += `
                     <tr class="hover:bg-blue-50/60 border-b transition-colors">
                         <td class="p-4 font-mono text-xs font-bold text-slate-700">${t.nip || '-'}</td>
                         <td class="p-4 font-extrabold text-slate-800">${t.nama || '-'}</td>
-                        <td class="p-4 whitespace-nowrap">${tagsHtml}</td>
                         <td class="p-4 text-xs font-semibold text-slate-700">${mapel}</td>
                         <td class="p-4 text-xs text-slate-600">${kelasAjar}</td>
+                        <td class="p-4 whitespace-nowrap">${tagsHtml}</td>
                         <td class="p-4 font-mono text-xs text-slate-600">${noHp}</td>
                         <td class="p-4 text-xs text-slate-500 truncate max-w-[150px]" title="${t.alamat || ''}">${alamat}</td>
                         <td class="p-4 space-x-1.5 whitespace-nowrap text-center">
@@ -403,6 +419,8 @@
             document.getElementById('modalTitle').innerText = 'Tambah Guru Baru';
             document.getElementById('teacherForm').reset();
             document.getElementById('tClassId').value = '';
+            document.getElementById('tIsBk').checked = false;
+            document.getElementById('tIsKurikulum').checked = false;
             document.getElementById('modalTeacher').classList.remove('hidden');
         }
 
@@ -413,11 +431,13 @@
             document.getElementById('modalTitle').innerText = 'Edit Guru';
             document.getElementById('tNama').value = t.nama || '';
             document.getElementById('tNip').value = t.nip || '';
-            document.getElementById('tMapel').value = t.mata_pelajaran || '';
-            document.getElementById('tKelasAjar').value = t.kelas_ajar || '';
-            document.getElementById('tNoHp').value = t.no_hp || '';
-            document.getElementById('tAlamat').value = t.alamat || '';
+            document.getElementById('tMapel').value = t.mata_pelajaran || t.teachingSubject || '';
+            document.getElementById('tKelasAjar').value = t.kelas_ajar || t.teachingClasses || '';
+            document.getElementById('tNoHp').value = t.no_hp || t.parentPhone || '';
+            document.getElementById('tAlamat').value = t.alamat || t.address || '';
             document.getElementById('tClassId').value = t.wali_kelas ? t.wali_kelas.id : '';
+            document.getElementById('tIsBk').checked = Boolean(t.role === 'COUNSELOR' || t.isBk || (t.tugasTambahan && t.tugasTambahan.includes('BK')));
+            document.getElementById('tIsKurikulum').checked = Boolean(t.role === 'KURIKULUM' || t.isKurikulum || (t.tugasTambahan && t.tugasTambahan.includes('KURIKULUM')) || (t.rolesTambahan && t.rolesTambahan.includes('kurikulum')));
             document.getElementById('modalTeacher').classList.remove('hidden');
         }
 
@@ -434,7 +454,9 @@
                 kelas_ajar: document.getElementById('tKelasAjar').value,
                 no_hp: document.getElementById('tNoHp').value,
                 alamat: document.getElementById('tAlamat').value,
-                classId: document.getElementById('tClassId').value || null
+                classId: document.getElementById('tClassId').value || null,
+                isBk: document.getElementById('tIsBk').checked,
+                isKurikulum: document.getElementById('tIsKurikulum').checked
             };
 
             const url = editId ? '/api/admin/teachers/' + editId : '/api/admin/teachers';

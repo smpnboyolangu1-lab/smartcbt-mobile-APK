@@ -167,24 +167,27 @@ export async function resolveHomeroomTeacher(className: string): Promise<{
         // Fallback to SQLite if Supabase unavailable
     }
 
-    // 2. Cek di SQLite lokal: Guru dengan className yang cocok
-    const localTeacher = await prisma.user.findFirst({
+    // 2. Cek di SQLite lokal: Prioritas 1 - Guru (TEACHER / COUNSELOR) yang ditugaskan sebagai WALI KELAS di rombel ini
+    const can = canonicalClassName(className);
+    const localWali = await prisma.user.findFirst({
         where: {
-            role: 'TEACHER',
+            role: { in: ['TEACHER', 'COUNSELOR'] },
+            isActive: true,
             OR: [
                 { className: { in: variations } },
-                { teachingClasses: { contains: canonicalClassName(className) } }
+                { tugasTambahan: { contains: `WALI_${can}` } },
+                { tugasTambahan: { contains: `WALI_KELAS` }, className: { in: variations } }
             ]
         },
         select: { id: true, name: true, username: true, parentPhone: true, tugasTambahan: true, className: true }
     });
 
-    if (localTeacher && (localTeacher.tugasTambahan?.includes('WALI') || localTeacher.className)) {
+    if (localWali) {
         return {
-            name: localTeacher.name,
-            nip: localTeacher.username || undefined,
-            phone: localTeacher.parentPhone || undefined,
-            teacherId: localTeacher.id
+            name: localWali.name,
+            nip: localWali.username || undefined,
+            phone: localWali.parentPhone || undefined,
+            teacherId: localWali.id
         };
     }
 
@@ -200,7 +203,7 @@ export async function resolveHomeroomTeacher(className: string): Promise<{
 
     if (sampleStudent?.homeroomTeacher && sampleStudent.homeroomTeacher !== 'null' && sampleStudent.homeroomTeacher.trim() !== '-') {
         const t = await prisma.user.findFirst({
-            where: { role: 'TEACHER', name: sampleStudent.homeroomTeacher },
+            where: { role: { in: ['TEACHER', 'COUNSELOR'] }, name: sampleStudent.homeroomTeacher },
             select: { id: true, name: true, username: true, parentPhone: true }
         });
         return {
@@ -213,3 +216,124 @@ export async function resolveHomeroomTeacher(className: string): Promise<{
 
     return null;
 }
+
+/**
+ * Mendapatkan Guru BK pendamping resmi untuk rombel/kelas siswa
+ */
+export async function resolveCounselorTeacher(className: string): Promise<{
+    name: string;
+    nip?: string;
+    phone?: string;
+    teacherId?: string;
+} | null> {
+    if (!className) return null;
+    const variations = normalizeClassVariations(className);
+    const can = canonicalClassName(className);
+
+    // 1. Cek dari Class model jika counselorName sudah diatur
+    const cls = await prisma.class.findFirst({
+        where: { name: { in: variations } }
+    });
+    if (cls?.counselorName && cls.counselorName.trim() !== '-' && cls.counselorName !== 'null') {
+        const u = await prisma.user.findFirst({
+            where: { name: cls.counselorName },
+            select: { id: true, name: true, username: true, parentPhone: true }
+        });
+        return {
+            name: cls.counselorName.trim(),
+            nip: u?.username || undefined,
+            phone: u?.parentPhone || undefined,
+            teacherId: u?.id || cls.counselorId || undefined
+        };
+    }
+
+    // 2. Cek dari tabel BkKelasPlot
+    try {
+        const plot = await prisma.bkKelasPlot.findFirst({
+            where: {
+                isActive: true,
+                kelas: { name: { in: variations } }
+            },
+            include: { guruBk: true }
+        });
+        if (plot?.guruBk?.name) {
+            return {
+                name: plot.guruBk.name.trim(),
+                nip: plot.guruBk.username || undefined,
+                phone: plot.guruBk.parentPhone || undefined,
+                teacherId: plot.guruBk.id
+            };
+        }
+    } catch (_) {}
+
+    // 3. Cek Guru BK yang mengampu kelas ini di teachingClasses
+    const bkTeacher = await prisma.user.findFirst({
+        where: {
+            OR: [
+                { role: 'COUNSELOR' },
+                { tugasTambahan: { contains: 'BK' } }
+            ],
+            isActive: true,
+            teachingClasses: { contains: can }
+        },
+        select: { id: true, name: true, username: true, parentPhone: true }
+    });
+    if (bkTeacher?.name) {
+        return {
+            name: bkTeacher.name.trim(),
+            nip: bkTeacher.username || undefined,
+            phone: bkTeacher.parentPhone || undefined,
+            teacherId: bkTeacher.id
+        };
+    }
+
+    // 4. Plotting cerdas berdasarkan Tingkat Kelas di SMPN 1 Boyolangu
+    const upper = can.toUpperCase();
+    let gradeBkName: string | null = null;
+    if (upper.startsWith('VII-') || upper.startsWith('7')) {
+        gradeBkName = 'Endah Tri Wahyuni';
+    } else if (upper.startsWith('VIII-') || upper.startsWith('8')) {
+        gradeBkName = 'Muyami';
+    } else if (upper.startsWith('IX-') || upper.startsWith('9')) {
+        gradeBkName = 'Nurfatmawati';
+    }
+
+    if (gradeBkName) {
+        const u = await prisma.user.findFirst({
+            where: { name: gradeBkName },
+            select: { id: true, name: true, username: true, parentPhone: true }
+        });
+        if (u) {
+            return {
+                name: u.name,
+                nip: u.username || undefined,
+                phone: u.parentPhone || undefined,
+                teacherId: u.id
+            };
+        }
+    }
+
+    // 5. Fallback ke guru BK aktif manapun
+    const anyBk = await prisma.user.findFirst({
+        where: {
+            OR: [
+                { role: 'COUNSELOR' },
+                { tugasTambahan: { contains: 'BK' } }
+            ],
+            isActive: true
+        },
+        select: { id: true, name: true, username: true, parentPhone: true }
+    });
+
+    if (anyBk) {
+        return {
+            name: anyBk.name,
+            nip: anyBk.username || undefined,
+            phone: anyBk.parentPhone || undefined,
+            teacherId: anyBk.id
+        };
+    }
+
+    return null;
+}
+

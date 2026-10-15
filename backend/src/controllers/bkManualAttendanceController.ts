@@ -18,16 +18,55 @@ export const submitBkManualAttendance = async (req: Request, res: Response) => {
 
         const attType = (type || 'GATE_IN').toUpperCase();
         const attStatus = (status || 'PRESENT').toUpperCase();
-        const noteDetail = `[Manual BK: ${user.name}] Alasan Tanpa HP: ${reasonNoPhone || 'HP Tertinggal di Rumah'}. ${notes || ''}`.trim();
 
-        const today = new Date();
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        const todayEnd = new Date();
+        todayEnd.setHours(23, 59, 59, 999);
+
+        const existingAtt = await prisma.attendance.findFirst({
+            where: {
+                userId: student.id,
+                type: attType,
+                scanTime: { gte: todayStart, lte: todayEnd }
+            }
+        });
+
+        if (existingAtt) {
+            const timeStr = new Date(existingAtt.scanTime).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+            return res.status(400).json({
+                success: false,
+                message: `⚠️ Siswa ${student.name} sudah tercatat ${attType === 'GATE_IN' ? 'Masuk' : 'Pulang'} hari ini pada pukul ${timeStr} WIB (${existingAtt.method || 'QR'}). Presensi tidak dapat diduplikasi.`
+            });
+        }
+
+        let scanTime = new Date();
+        if (req.body.clockTime) {
+            const parts = String(req.body.clockTime).split(':');
+            const h = parseInt(parts[0]);
+            const m = parseInt(parts[1] || '0');
+            if (!isNaN(h) && !isNaN(m)) {
+                scanTime.setHours(h, m, 0, 0);
+            }
+        }
+        let finalStatus = attStatus;
+        if (attType === 'GATE_IN' && finalStatus === 'PRESENT') {
+            const h = scanTime.getHours();
+            const m = scanTime.getMinutes();
+            if (h > 7 || (h === 7 && m > 0)) {
+                finalStatus = 'LATE';
+            }
+        }
+
+        const noteDetail = `[Manual BK: ${user.name}] Alasan: ${reasonNoPhone || 'Presensi Verifikasi Guru BK'}. Jam: ${scanTime.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB. ${notes || ''}`.trim();
+
         const attendance = await prisma.attendance.create({
             data: {
                 userId: student.id,
                 type: attType,
                 method: 'MANUAL_BK',
-                status: attStatus,
-                scanTime: today,
+                status: finalStatus,
+                scanTime: scanTime,
                 note: noteDetail
             }
         });
@@ -110,11 +149,55 @@ export const getPendingStudentLeavesForBk = async (req: Request, res: Response) 
             orderBy: { createdAt: 'desc' }
         });
 
-        const pendingCount = await (prisma as any).studentLeaveRequest.count({
-            where: { status: 'PENDING' }
+        // Juga sertakan pengajuan izin darurat/dispensasi siswa di sekolah (StudentLeave / Gatepass)
+        const inSchoolLeaves = await (prisma as any).studentLeave.findMany({
+            where: {
+                ...(className && className !== 'ALL' ? { student: { className: String(className).trim() } } : {})
+            },
+            include: {
+                student: {
+                    select: { id: true, name: true, className: true, nisn: true, profilePicUrl: true }
+                }
+            },
+            orderBy: { appliedAt: 'desc' },
+            take: 50
         });
 
-        res.json({ success: true, pendingCount, leaves });
+        const mappedInSchool = inSchoolLeaves.map((l: any) => ({
+            id: l.id,
+            studentId: l.studentId,
+            studentName: l.student?.name || 'Siswa',
+            className: l.student?.className || '-',
+            category: l.leaveType === 'SAKIT_PULANG' ? 'SAKIT (DI SEKOLAH)' : l.leaveType === 'DISPENSASI_LOMBA' ? 'DISPENSASI LOMBA' : 'IZIN PULANG MENDESAK',
+            reason: l.eventName ? `${l.reason} [Acara: ${l.eventName}] (Penjemput: ${l.pickupPerson || 'Mandiri'})` : `${l.reason} (Penjemput: ${l.pickupPerson || 'Mandiri'})`,
+            startDate: l.appliedAt,
+            endDate: l.appliedAt,
+            attachmentUrl: null,
+            status: l.status === 'submitted' ? 'PENDING' : l.status === 'approved_by_bk' ? 'APPROVED' : l.status.toUpperCase(),
+            verifiedBy: l.counselorNotes || null,
+            verifiedAt: l.approvedAt || null,
+            createdAt: l.appliedAt
+        })).filter((l: any) => {
+            if (status && status !== 'ALL') {
+                return l.status === String(status).toUpperCase();
+            }
+            return l.status === 'PENDING';
+        });
+
+        const allCombinedLeaves = [...mappedInSchool, ...leaves];
+
+        const pendingParentCount = await (prisma as any).studentLeaveRequest.count({
+            where: { status: 'PENDING' }
+        });
+        const pendingSchoolCount = await (prisma as any).studentLeave.count({
+            where: { status: 'submitted' }
+        });
+
+        res.json({
+            success: true,
+            pendingCount: pendingParentCount + pendingSchoolCount,
+            leaves: allCombinedLeaves
+        });
     } catch (error: any) {
         res.status(500).json({ success: false, message: 'Gagal memuat izin siswa: ' + error.message });
     }
@@ -278,5 +361,121 @@ export const getBkUnifiedAttendanceRecap = async (req: Request, res: Response) =
     } catch (error: any) {
         console.error('Error getBkUnifiedAttendanceRecap:', error);
         res.status(500).json({ success: false, message: 'Gagal memuat rekap presensi BK: ' + error.message });
+    }
+};
+
+// 5. Input Cepat Izin Siswa oleh Guru BK (Izin Sakit & Izin Keperluan Keluarga)
+export const submitBkQuickStudentLeave = async (req: Request, res: Response) => {
+    try {
+        const user = (req as any).user;
+        const { studentId, leaveType, startDate, endDate, reason, doctorNoteUrl } = req.body;
+
+        if (!studentId || !leaveType) {
+            return res.status(400).json({ success: false, message: 'Siswa dan jenis izin wajib dipilih.' });
+        }
+
+        const student = await prisma.user.findFirst({
+            where: {
+                OR: [
+                    { id: studentId },
+                    { nisn: studentId },
+                    { nis: studentId },
+                    { username: studentId }
+                ]
+            }
+        });
+
+        if (!student) {
+            return res.status(404).json({ success: false, message: 'Data siswa tidak ditemukan.' });
+        }
+
+        const isSakit = String(leaveType).toUpperCase().includes('SAKIT') || String(leaveType).toUpperCase() === 'SICK';
+        const finalCategory = isSakit ? 'SAKIT' : 'KEPERLUAN_KELUARGA';
+        const attStatus = isSakit ? 'SICK' : 'PERMISSION';
+
+        const todayStr = new Date().toISOString().substring(0, 10);
+        const effectiveStart = startDate || todayStr;
+        const effectiveEnd = endDate || effectiveStart;
+
+        // Catat di tabel StudentLeave
+        const leaveRecord = await (prisma as any).studentLeave.create({
+            data: {
+                studentId: student.id,
+                counselorId: user?.id || null,
+                leaveCategory: finalCategory,
+                reason: reason || (isSakit ? 'Izin Sakit (Dicatat Guru BK)' : 'Izin Keperluan Keluarga (Dicatat Guru BK)'),
+                startDate: new Date(effectiveStart + 'T00:00:00+07:00'),
+                endDate: new Date(effectiveEnd + 'T23:59:59+07:00'),
+                status: 'APPROVED',
+                approvedBy: user?.name || 'Guru BK',
+                approvedAt: new Date(),
+                attachmentUrl: doctorNoteUrl || null
+            }
+        });
+
+        // Buat/Update kehadiran di tabel Attendance untuk hari ini
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        const todayEnd = new Date();
+        todayEnd.setHours(23, 59, 59, 999);
+
+        const existingAtt = await prisma.attendance.findFirst({
+            where: {
+                userId: student.id,
+                scanTime: { gte: todayStart, lte: todayEnd }
+            }
+        });
+
+        const leaveNote = `[Izin BK: ${user?.name || 'Guru BK'}] ${finalCategory === 'SAKIT' ? 'Izin Sakit' : 'Izin Keperluan Keluarga'}: ${reason || '-'}`;
+
+        if (existingAtt) {
+            await prisma.attendance.update({
+                where: { id: existingAtt.id },
+                data: {
+                    status: attStatus,
+                    note: leaveNote
+                }
+            });
+        } else {
+            await prisma.attendance.create({
+                data: {
+                    userId: student.id,
+                    type: 'GATE_IN',
+                    method: 'MANUAL_BK',
+                    status: attStatus,
+                    scanTime: new Date(),
+                    note: leaveNote
+                }
+            });
+        }
+
+        // Notifikasi ke Orang Tua
+        try {
+            const notifTitle = isSakit
+                ? `🩺 Konfirmasi Izin Sakit: ${student.name}`
+                : `🏠 Konfirmasi Izin Keperluan Keluarga: ${student.name}`;
+            const notifMsg = `Pemberitahuan: Ananda ${student.name} (Kelas ${student.className || '-'}) telah dicatat resmi izin (${isSakit ? 'Sakit' : 'Keperluan Keluarga'}) oleh Guru BK (${user?.name || 'Guru BK'}). Keterangan: ${reason || '-'}.`;
+
+            await (prisma as any).notificationMessage.create({
+                data: {
+                    recipientRole: 'PARENT',
+                    studentId: student.id,
+                    studentName: student.name,
+                    className: student.className,
+                    title: notifTitle,
+                    message: notifMsg,
+                    category: 'ATTENDANCE'
+                }
+            });
+        } catch (nErr) {}
+
+        res.json({
+            success: true,
+            message: `✅ Izin ${finalCategory === 'SAKIT' ? 'Sakit' : 'Keperluan Keluarga'} ananda ${student.name} berhasil dicatat resmi. Notifikasi telah dikirim ke orang tua.`,
+            leave: leaveRecord
+        });
+    } catch (error: any) {
+        console.error('Error submitBkQuickStudentLeave:', error);
+        res.status(500).json({ success: false, message: 'Gagal mencatat izin siswa: ' + error.message });
     }
 };

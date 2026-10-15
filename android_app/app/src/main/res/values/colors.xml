@@ -1,41 +1,54 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Brand Primary -->
-    <color name="primary_blue">#0D47A1</color>
-    <color name="elegant_blue_dark">#0A2E5C</color>
-    <color name="elegant_blue">#1E40AF</color>
-    <color name="elegant_blue_light">#3B82F6</color>
-    <color name="elegant_blue_surface">#EFF6FF</color>
-    <color name="accent_blue">#0284C7</color>
-    <color name="sky_light">#E0F2FE</color>
+    <!-- Shared Base Colors -->
+    <color name="colorBackgroundLight">#FFFFFF</color>
+    <color name="colorBackgroundDark">#121212</color>
+    <color name="colorSurfaceLight">#F5F5F5</color>
+    <color name="colorSurfaceDark">#1E1E1E</color>
+    <color name="colorError">#B00020</color>
+    <color name="colorOnError">#FFFFFF</color>
+    <color name="colorOnBackgroundLight">#000000</color>
+    <color name="colorOnBackgroundDark">#FFFFFF</color>
 
-    <!-- Status Colors -->
-    <color name="emerald_green">#10B981</color>
-    <color name="emerald_green_bg">#ECFDF5</color>
-    <color name="amber_warning">#F59E0B</color>
-    <color name="amber_warning_bg">#FFFBEB</color>
-    <color name="red_danger">#EF4444</color>
-    <color name="red_danger_bg">#FEF2F2</color>
-    <color name="info_blue">#3B82F6</color>
-    <color name="info_blue_bg">#EFF6FF</color>
+    <!-- Role‑specific Accent Colors (Light) -->
+    <color name="colorPrimaryTeacher">#00695C</color>
+    <color name="colorSecondaryTeacher">#80CBC4</color>
+    <color name="colorOnPrimaryTeacher">#FFFFFF</color>
 
-    <!-- Roles Specific -->
-    <color name="teal_bk">#0D9488</color>
-    <color name="teal_bk_surface">#F0FDFA</color>
-    <color name="parent_green">#059669</color>
-    <color name="operator_indigo">#4F46E5</color>
+    <color name="colorPrimaryStudent">#E65100</color>
+    <color name="colorSecondaryStudent">#FFCC80</color>
+    <color name="colorOnPrimaryStudent">#FFFFFF</color>
 
-    <!-- Surfaces & Neutrals -->
-    <color name="gray_bg">#F8FAFC</color>
+    <color name="colorPrimaryParent">#5E35B1</color>
+    <color name="colorSecondaryParent">#D1C4E9</color>
+    <color name="colorOnPrimaryParent">#FFFFFF</color>
+
+    <color name="colorPrimaryAdmin">#1565C0</color>
+    <color name="colorSecondaryAdmin">#90CAF9</color>
+    <color name="colorOnPrimaryAdmin">#FFFFFF</color>
+
+    <!-- Brand & UI Palette -->
+    <color name="white">#FFFFFF</color>
+    <color name="primary_blue">#1E40AF</color>
     <color name="surface_card">#FFFFFF</color>
     <color name="border_light">#E2E8F0</color>
-    <color name="border_divider">#F1F5F9</color>
-    <color name="skeleton_shimmer">#E2E8F0</color>
-    <color name="skeleton_bg">#F1F5F9</color>
-
-    <!-- Typography -->
     <color name="text_dark">#0F172A</color>
     <color name="text_secondary">#475569</color>
     <color name="text_muted">#94A3B8</color>
-    <color name="white">#FFFFFF</color>
+    <color name="red_danger_bg">#FEE2E2</color>
+    <color name="amber_warning_bg">#FEF3C7</color>
+    <color name="emerald_green">#10B981</color>
+    <color name="elegant_blue">#1E40AF</color>
+    <color name="elegant_blue_dark">#1E3A8A</color>
+    <color name="elegant_blue_surface">#EFF6FF</color>
+    <color name="gray_bg">#F8FAFC</color>
+    <color name="sky_light">#E0F2FE</color>
+    <color name="teal_bk">#0D9488</color>
+    <color name="skeleton_bg">#E2E8F0</color>
+    <color name="skeleton_shimmer">#F1F5F9</color>
+    <color name="amber_warning">#F59E0B</color>
+    <color name="accent_blue">#3B82F6</color>
+
+    <!-- Role‑specific Accent Colors (Dark) – optional, can reuse same values or adjust for contrast -->
+    <!-- For simplicity we reuse the same hex values; Android will apply appropriate overlay -->
 </resources>
