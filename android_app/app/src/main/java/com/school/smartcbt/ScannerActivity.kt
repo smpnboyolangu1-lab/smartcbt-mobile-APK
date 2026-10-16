@@ -779,15 +779,17 @@ class ScannerActivity : AppCompatActivity() {
                 val data = response.body()
                 val timeNow = SimpleDateFormat("HH:mm:ss", Locale("id", "ID")).format(Date()) + " WIB"
                 if (response.isSuccessful && data != null && data.success == true) {
-                    val successTitle = if (isBerhalangan) "🌸 Presensi Uzur Syar'i Tercatat!" else "🕌 Presensi Sholat Berhasil!"
-                    val successSub = if (isBerhalangan) "Siswi Putri Berhalangan (Keputrian) • Mushola" else "Titik Presensi: Mushola SMPN 1 Boyolangu"
-                    val successMsg = data.message ?: if (isBerhalangan) "Presensi uzur syar'i siswi putri di mushola telah dicatat resmi." else "Alhamdulillah, presensi sholat berjamaah di mushola berhasil dicatat."
+                    val isDhuha = prayerType.contains("DHUHA", ignoreCase = true) || scannedCode.contains("DHUHA", ignoreCase = true)
+                    val successTitle = if (isBerhalangan) "🌸 Presensi Keputrian Tercatat!" else if (isDhuha) "🕌 Presensi Sholat Dhuha Berhasil!" else "🕌 Presensi Sholat Dhuhur Berhasil!"
+                    val successSub = if (isBerhalangan) "Siswi Putri Berhalangan (Keputrian) • Mushola" else if (isDhuha) "Sholat Dhuha Berjamaah • Mushola SMPN 1 Boyolangu" else "Sholat Dhuhur Berjamaah • Mushola SMPN 1 Boyolangu"
+                    val successMsg = data.message ?: if (isBerhalangan) "Presensi kegiatan keputrian siswi putri di mushola telah dicatat resmi." else if (isDhuha) "Alhamdulillah, presensi sholat dhuha di mushola berhasil dicatat." else "Alhamdulillah, presensi sholat dhuhur berjamaah di mushola berhasil dicatat."
+                    val resolvedGateType = if (isBerhalangan) "Keputrian (Haid)" else if (isDhuha) "Sholat Dhuha Mushola" else "Sholat Dhuhur Mushola"
                     showModernScanDialog(
                         isSuccess = true,
                         title = successTitle,
                         subtitle = successSub,
                         message = successMsg,
-                        gateType = if (isBerhalangan) "Berhalangan (Haid)" else "Sholat Mushola",
+                        gateType = resolvedGateType,
                         timeStr = timeNow,
                         lat = lat,
                         lng = lng
@@ -802,12 +804,13 @@ class ScannerActivity : AppCompatActivity() {
                     } else {
                         "$cleanMsg\n\n🌸 Catatan: Siswi perempuan yang berhalangan (haid) wajib melapor langsung ke Guru PAI kelas Anda untuk didata absen halangan resmi."
                     }
+                    val isReqClassroom = cleanMsg.contains("kelas terlebih dahulu", ignoreCase = true) || cleanMsg.contains("presensi masuk di ruang kelas", ignoreCase = true)
                     showModernScanDialog(
                         isSuccess = false,
-                        title = "⚠️ Presensi Sholat Ditolak",
-                        subtitle = "Jadwal Resmi Admin / Guru PAI (Bukan 24 Jam)",
+                        title = if (isReqClassroom) "⚠️ Wajib Presensi Kelas Terlebih Dahulu" else "⚠️ Presensi Sholat Ditolak",
+                        subtitle = if (isReqClassroom) "Lakukan Presensi di Kelas Pagi Hari Sebelum ke Mushola" else "Jadwal Resmi Admin / Guru PAI (Bukan 24 Jam)",
                         message = finalMsg,
-                        gateType = "Titik Mushola",
+                        gateType = if (isReqClassroom) "Wajib Masuk Kelas" else "Titik Mushola",
                         timeStr = timeNow,
                         lat = lat,
                         lng = lng
@@ -1656,8 +1659,17 @@ class ScannerActivity : AppCompatActivity() {
                 }
             }
 
-            if (isMushola) {
-                com.school.smartcbt.utils.TtsVoiceHelper.speakMushola(sName)
+            val isMusholaOrPrayer = isMushola || gateType.contains("mushola", ignoreCase = true) || gateType.contains("sholat", ignoreCase = true) || gateType.contains("keputrian", ignoreCase = true)
+            if (isMusholaOrPrayer) {
+                if (gateType.contains("DHUHA", ignoreCase = true) || message.contains("dhuha", ignoreCase = true)) {
+                    com.school.smartcbt.utils.TtsVoiceHelper.speakSholatDhuha(sName)
+                } else if (gateType.contains("KEPUTRIAN", ignoreCase = true) || gateType.contains("HAID", ignoreCase = true) || message.contains("keputrian", ignoreCase = true) || message.contains("uzur", ignoreCase = true)) {
+                    com.school.smartcbt.utils.TtsVoiceHelper.speakKeputrian(sName)
+                } else if (gateType.contains("DHUHUR", ignoreCase = true) || message.contains("dhuhur", ignoreCase = true)) {
+                    com.school.smartcbt.utils.TtsVoiceHelper.speakSholatDhuhur(sName)
+                } else {
+                    com.school.smartcbt.utils.TtsVoiceHelper.speakMushola(sName)
+                }
             } else if (isMatpel) {
                 com.school.smartcbt.utils.TtsVoiceHelper.speak("Presensi mata pelajaran berhasil, $sName.")
             } else if (isGateOut) {
@@ -1850,7 +1862,11 @@ class ScannerActivity : AppCompatActivity() {
                 layoutParentNotifBadge.visibility = View.GONE
 
                 val lowerMsg = (title + " " + subtitle + " " + message).lowercase()
-                if (gateType.contains("CHECKOUT", ignoreCase = true) || gateType.contains("RETURN", ignoreCase = true)) {
+                if (lowerMsg.contains("kelas terlebih dahulu") || lowerMsg.contains("presensi masuk di ruang kelas") || gateType.contains("Masuk Kelas", ignoreCase = true)) {
+                    com.school.smartcbt.utils.TtsVoiceHelper.speakBelumPresensiKelasDhuha(sName)
+                } else if ((lowerMsg.contains("jadwal sholat") || lowerMsg.contains("sholat dhuhur") || lowerMsg.contains("sholat jumat")) && (lowerMsg.contains("mushola") || lowerMsg.contains("pulang di kelas ditutup") || lowerMsg.contains("barcode pulang di kelas ditutup"))) {
+                    com.school.smartcbt.utils.TtsVoiceHelper.speakBarcodePulangKelasDitutupAdaSholat()
+                } else if (gateType.contains("CHECKOUT", ignoreCase = true) || gateType.contains("RETURN", ignoreCase = true)) {
                     com.school.smartcbt.utils.TtsVoiceHelper.speakSatpamDitolak()
                 } else if (lowerMsg.contains("kelas lain") || lowerMsg.contains("bukan kelas") || lowerMsg.contains("tidak cocok")) {
                     com.school.smartcbt.utils.TtsVoiceHelper.speakBedaKelas()

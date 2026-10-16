@@ -892,6 +892,10 @@ interface ApiService {
         @Query("guru_id") guruId: String? = null
     ): Call<com.school.smartcbt.data.model.KurikulumTeacherRecapResponse>
 
+    // Guru: Rekap 360 Kehadiran, Keterlambatan, Izin & Cuti Pribadi
+    @GET("/api/teacher/attendance/recap")
+    fun getTeacherPersonalAttendanceRecap(): Call<com.school.smartcbt.data.model.TeacherPersonalRecapResponse>
+
     // Wali Kelas: Kirim Laporan Bulanan ke Kurikulum & Kirim Catatan Siswa
     @POST("/api/v1/wali-kelas/monthly-report")
     fun submitWaliKelasMonthlyReport(@Body body: Map<String, @JvmSuppressWildcards Any?>): Call<BasicResponse>

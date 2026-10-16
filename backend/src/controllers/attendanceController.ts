@@ -1152,55 +1152,15 @@ export const scanClassGate = async (req: Request, res: Response) => {
                         : scheduledClasses.includes(student.className.trim().toUpperCase());
 
                     if (isClassScheduled) {
-                        // ATURAN 3 (Putra): Siswa putra dari kelas terjadwal WAJIB ke mushola (tidak boleh scan pulang di kelas)
-                        if (studentGender === 'L' && !isTestingMode) {
-                            return res.status(403).json({
-                                success: false,
-                                message: `🕌 Presensi Pulang di Kelas Ditolak! Rombel ${student.className} memiliki jadwal Sholat ${prayerSchedule.prayerType || 'Dhuhur'} Berjamaah di Mushola hari ini. Siswa putra WAJIB menuju ke mushola untuk sholat berjamaah dan melakukan Scan Out kepulangan di mushola.`
-                            });
-                        }
-
-                        // ATURAN 3 (Putri): Siswi putri yang berhalangan diizinkan scan pulang langsung di Kelas
-                        if (studentGender === 'P') {
-                            const isUzurParam = req.body.isBerhalangan === true || req.body.isBerhalangan === 'true' || 
-                                               req.body.isHaid === true || req.body.isHaid === 'true' || 
-                                               (typeof req.body.reason === 'string' && (req.body.reason.toLowerCase().includes('haid') || req.body.reason.toLowerCase().includes('halangan')));
-                            
-                            const todayYmdStr = new Date(now).toISOString().substring(0, 10);
-                            const pType = prayerSchedule.prayerType || (todayDay === 5 ? 'JUMAT' : 'DHUHUR');
-                            
-                            const existingPrayerRec = await (prisma as any).studentPrayerAttendance.findFirst({
-                                where: { studentId: student.id, date: todayYmdStr, prayerType: pType }
-                            });
-
-                            const isRecordedHaid = existingPrayerRec?.status === 'BERHALANGAN_HAID' || existingPrayerRec?.status === 'TIDAK_SHOLAT_UZUR';
-
-                            if (isUzurParam || isRecordedHaid) {
-                                if (!existingPrayerRec) {
-                                    await (prisma as any).studentPrayerAttendance.create({
-                                        data: {
-                                            studentId: student.id,
-                                            studentName: student.name,
-                                            className: student.className,
-                                            gender: 'P',
-                                            prayerType: pType,
-                                            date: todayYmdStr,
-                                            status: 'BERHALANGAN_HAID',
-                                            method: 'AUTO_GATE_OUT_UZUR',
-                                            recordedById: student.id,
-                                            recordedByName: student.name,
-                                            notes: 'Siswi berhalangan (Haid/Uzur), presensi kepulangan langsung di ruang kelas'
-                                        }
-                                    });
-                                }
-                            } else if (!isTestingMode) {
-                                return res.status(403).json({
-                                    success: false,
-                                    needsHaidConfirmation: true,
-                                    message: `🕌 Presensi Pulang di Kelas Ditolak! Rombel ${student.className} memiliki jadwal Sholat Berjamaah di Mushola hari ini. Siswi putri yang tidak berhalangan wajib sholat di mushola dan scan pulang di mushola. Jika Anda sedang berhalangan (haid/uzur), silakan konfirmasi Berhalangan Sholat untuk scan pulang langsung di kelas.`
-                                });
-                            }
-                        }
+                        // Sesuai Instruksi Resmi: Ketika ada jadwal sholat di mushola, QR Code pulang di kelas DITUTUP TOTAL!
+                        // Barcode kepulangan berada di Mushola. Seluruh siswa wajib menuju ke Mushola.
+                        // Siswi berhalangan (uzur/haid) melakukan presensi di Pos Bimbingan Keputrian Mushola.
+                        return res.status(403).json({
+                            success: false,
+                            isClassGateClosedDueToPrayer: true,
+                            prayerType: prayerSchedule.prayerType || 'DHUHUR',
+                            message: `🕌 Barcode Pulang di Kelas Ditutup! Rombel ${student.className} memiliki jadwal Sholat ${prayerSchedule.prayerType || 'Dhuhur'} Berjamaah di Mushola hari ini. Seluruh siswa wajib menuju ke Mushola untuk melaksanakan sholat dan memindai Barcode Kepulangan di Mushola (siswi yang berhalangan/haid memindai di pos bimbingan Keputrian Mushola).`
+                        });
                     }
                 }
             }
@@ -1287,12 +1247,13 @@ export const scanClassGate = async (req: Request, res: Response) => {
         }
 
         let finalMethod = method || 'BARCODE';
+        if (finalMethod === 'QR_STATIC') finalMethod = 'QR_KELAS_GEOMAPS';
         if (isBkGateIn) {
             finalMethod = 'QR_BK_TERLAMBAT';
         } else if (isDynamicOfficerQr) {
             finalMethod = 'QR_DYNAMIC_OFFICER';
         } else if (scanType === 'GATE_IN') {
-            finalMethod = method === 'GPS' ? 'GPS' : 'QR_KELAS_MANDIRI';
+            finalMethod = method === 'GPS' ? 'GPS' : 'QR_KELAS_GEOMAPS';
         }
 
         const attRecord = await prisma.attendance.create({
@@ -3691,13 +3652,13 @@ export const bulkSyncAttendance = async (req: Request, res: Response) => {
                     }
                 }
 
-                // QR Code statis tanpa validasi GPS ditutup
+                // Barcode kelas fisik wajib divalidasi dengan sinyal GPS sekolah (Geomaps)
                 const hasOfflineGps = item.lat !== undefined && item.lng !== undefined && item.lat !== null && item.lng !== null && Number(item.lat) !== 0 && Number(item.lng) !== 0;
-                if ((item.method === 'QR_STATIC' || !hasOfflineGps) && (item.barcodeCode && !item.barcodeCode.startsWith('DYNAMIC_CLASS_QR|') && !item.barcodeCode.includes('BK') && !item.barcodeCode.includes('SHOLAT'))) {
+                if (!hasOfflineGps && (item.barcodeCode && !item.barcodeCode.startsWith('DYNAMIC_CLASS_QR|') && !item.barcodeCode.includes('BK') && !item.barcodeCode.includes('SHOLAT'))) {
                     results.push({
                         clientLocalId: item.clientLocalId,
                         status: 'REJECTED',
-                        message: '⛔ Presensi Barcode Statis Kelas tanpa GPS (QR_STATIC) tidak diizinkan. Wajib menggunakan GPS di sekolah atau QR Dinamis Pengurus Kelas.'
+                        message: '⛔ Presensi Barcode Kelas wajib validasi Geomaps GPS aktif di sekolah. Jika HP terkendala GPS/login, gunakan QR Dinamis Pengurus Kelas atau scan Kartu Pelajar.'
                     });
                     failedCount++;
                     continue;
@@ -3707,13 +3668,14 @@ export const bulkSyncAttendance = async (req: Request, res: Response) => {
                 const hoursDrift = Math.round(Math.abs(Date.now() - scanDate.getTime()) / (1000 * 60 * 60));
                 const distText = distanceMeters !== null ? ` | GPS: ${distanceMeters}m (Valid)` : '';
                 const verifyPrefix = isMissingInBatch ? '[Pulang tanpa data masuk – perlu verifikasi] ' : '';
-                const note = `${verifyPrefix}[OFFLINE SYNC] Scan: ${scanTimeSec} WIB${hoursDrift > 0 ? ` (+${hoursDrift} jam sinkron)` : ''}${distText} | Method: ${item.method || 'QR_STATIC'}${item.note ? ' | ' + item.note : ''}`;
+                const resolvedMethod = (item.method && item.method !== 'QR_STATIC') ? item.method : 'QR_KELAS_GEOMAPS';
+                const note = `${verifyPrefix}[OFFLINE SYNC] Scan: ${scanTimeSec} WIB${hoursDrift > 0 ? ` (+${hoursDrift} jam sinkron)` : ''}${distText} | Method: ${resolvedMethod}${item.note ? ' | ' + item.note : ''}`;
 
                 await prisma.attendance.create({
                     data: {
                         userId: student.id,
                         type: itemType,
-                        method: item.method || 'QR_STATIC',
+                        method: resolvedMethod,
                         status: isLate ? 'LATE' : 'PRESENT',
                         scanTime: scanDate,
                         lat: item.lat ? Number(item.lat) : null,

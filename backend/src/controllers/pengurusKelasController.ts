@@ -290,19 +290,19 @@ export const submitAssistedScan = async (req: Request, res: Response) => {
         }
         const isTargetNoPhone = noPhoneIds.includes(targetStudent.id);
 
-        // Batasan Keamanan: Maksimal 5 Bantuan per Pengurus per Hari (Kecuali Siswa Terdaftar Tanpa HP)
+        // Batasan Keamanan: Kapasitas fleksibel hingga 50 siswa per hari untuk kendala HP/login/Geomaps
         const assistedCountToday = await prisma.attendance.count({
             where: {
-                method: { in: ['PENGURUS_ASSISTED', 'PENGURUS_ASSISTED_NO_PHONE'] },
+                method: { in: ['PENGURUS_ASSISTED', 'PENGURUS_ASSISTED_NO_PHONE', 'PENGURUS_ASSISTED_CARD'] },
                 scanTime: { gte: todayStart, lte: todayEnd },
                 note: { contains: pengurus.name }
             }
         });
 
-        if (!isTargetNoPhone && assistedCountToday >= 5) {
+        if (assistedCountToday >= 50) {
             return res.status(400).json({
                 success: false,
-                message: `Batas Maksimal Tercapai! Pengurus hanya dapat membantu maksimal 5 siswa reguler per hari. Untuk siswa tanpa HP, daftarkan ke Wali Kelas / BK.`
+                message: `Batas Maksimal Pengurus Tercapai (50 siswa)! Hubungi Guru Piket / BK untuk bantuan presensi tambahan.`
             });
         }
 

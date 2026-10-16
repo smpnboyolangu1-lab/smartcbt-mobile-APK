@@ -8374,6 +8374,8 @@ class StudentMainActivity : AppCompatActivity() {
                     layoutParams = lp
                 }
 
+                val isFriday = Calendar.getInstance().get(Calendar.DAY_OF_WEEK) == Calendar.FRIDAY
+
                 // Tanda khusus siswi putri saat jadwal sholat (Putra tidak ada sama sekali)
                 if (isFemale) {
                     val cardHaid = LinearLayout(this@StudentMainActivity).apply {
@@ -8393,12 +8395,30 @@ class StudentMainActivity : AppCompatActivity() {
                     }
 
                     val tvHaidTitle = TextView(this@StudentMainActivity).apply {
-                        text = "🌸 TANDA KHUSUS SISWI PUTRI (JADWAL SHOLAT AKTIF)"
+                        text = if (isFriday) {
+                            "🌸 PEMBINAAN KEPUTRIAN SISWI PUTRI (JUMAT 11:45-12:45 WIB)"
+                        } else {
+                            "🌸 TANDA KHUSUS SISWI PUTRI (JADWAL SHOLAT AKTIF)"
+                        }
                         setTextColor(Color.parseColor("#BE185D"))
                         textSize = 11.5f
                         setTypeface(null, Typeface.BOLD)
                     }
                     cardHaid.addView(tvHaidTitle)
+
+                    if (isFriday) {
+                        val tvFridayNotice = TextView(this@StudentMainActivity).apply {
+                            text = "Seluruh siswi putri muslimah (kondisi suci maupun sedang haid) wajib mengikuti kegiatan keputrian bersama GPAI Putri (B. Eny Astuti & B. Mavrik)."
+                            textSize = 10.5f
+                            setTextColor(Color.parseColor("#9D174D"))
+                            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                                topMargin = (2 * density).toInt()
+                                bottomMargin = (4 * density).toInt()
+                            }
+                            layoutParams = lp
+                        }
+                        cardHaid.addView(tvFridayNotice)
+                    }
 
                     val rgHaid = RadioGroup(this@StudentMainActivity).apply {
                         orientation = RadioGroup.VERTICAL
@@ -8406,13 +8426,21 @@ class StudentMainActivity : AppCompatActivity() {
                     }
 
                     val rbSolat = RadioButton(this@StudentMainActivity).apply {
-                        text = "🟢 Melaksanakan Sholat Berjamaah di Mushola"
+                        text = if (isFriday) {
+                            "🌸 Hadir Keputrian (Kondisi Suci & Sholat Dhuhur)"
+                        } else {
+                            "🟢 Melaksanakan Sholat Berjamaah di Mushola"
+                        }
                         textSize = 12f
-                        setTextColor(Color.parseColor("#1E293B"))
+                        setTextColor(if (isFriday) Color.parseColor("#BE185D") else Color.parseColor("#1E293B"))
                         isChecked = true
                     }
                     val rbBerhalangan = RadioButton(this@StudentMainActivity).apply {
-                        text = "🌸 Sedang Berhalangan (Haid / Uzur Syar'i)"
+                        text = if (isFriday) {
+                            "🩸 Hadir Keputrian (Sedang Berhalangan / Haid)"
+                        } else {
+                            "🌸 Sedang Berhalangan (Haid / Uzur Syar'i)"
+                        }
                         textSize = 12f
                         setTextColor(Color.parseColor("#BE185D"))
                         setTypeface(null, Typeface.BOLD)
@@ -8422,26 +8450,42 @@ class StudentMainActivity : AppCompatActivity() {
                     rgHaid.addView(rbBerhalangan)
                     cardHaid.addView(rgHaid)
 
+                    if (isFriday) {
+                        btnScan.text = "🌸 SCAN QR KEPUTRIAN RESMI"
+                        btnScan.background = android.graphics.drawable.GradientDrawable(
+                            android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT,
+                            intArrayOf(Color.parseColor("#DB2777"), Color.parseColor("#BE185D"))
+                        ).apply { cornerRadius = 10 * density }
+                    }
+
                     rgHaid.setOnCheckedChangeListener { _, checkedId ->
                         isBerhalanganSelected = (checkedId == rbBerhalangan.id)
-                        if (isBerhalanganSelected) {
-                            btnScan.text = "🌸 SCAN QR MUSHOLA (STATUS: BERHALANGAN)"
+                        if (isFriday) {
+                            btnScan.text = if (isBerhalanganSelected) "🩸 SCAN QR KEPUTRIAN (BERHALANGAN)" else "🌸 SCAN QR KEPUTRIAN RESMI"
                             btnScan.background = android.graphics.drawable.GradientDrawable(
                                 android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT,
                                 intArrayOf(Color.parseColor("#DB2777"), Color.parseColor("#BE185D"))
                             ).apply { cornerRadius = 10 * density }
                         } else {
-                            btnScan.text = "📷 BUKA SCAN QR MUSHOLA"
-                            btnScan.background = android.graphics.drawable.GradientDrawable(
-                                android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT,
-                                intArrayOf(Color.parseColor("#047857"), Color.parseColor("#059669"))
-                            ).apply { cornerRadius = 10 * density }
+                            if (isBerhalanganSelected) {
+                                btnScan.text = "🌸 SCAN QR MUSHOLA (STATUS: BERHALANGAN)"
+                                btnScan.background = android.graphics.drawable.GradientDrawable(
+                                    android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT,
+                                    intArrayOf(Color.parseColor("#DB2777"), Color.parseColor("#BE185D"))
+                                ).apply { cornerRadius = 10 * density }
+                            } else {
+                                btnScan.text = "📷 BUKA SCAN QR MUSHOLA"
+                                btnScan.background = android.graphics.drawable.GradientDrawable(
+                                    android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT,
+                                    intArrayOf(Color.parseColor("#047857"), Color.parseColor("#059669"))
+                                ).apply { cornerRadius = 10 * density }
+                            }
                         }
                     }
 
-                    // Tombol Khusus 1-Tap Lapor Uzur Tanpa Scan Barcode
+                    // Tombol Khusus 1-Tap Lapor Uzur / Keputrian Tanpa Scan Barcode
                     val btnReportUzurDirect = Button(this@StudentMainActivity).apply {
-                        text = "🌸 1-TAP LAPOR BERHALANGAN (TANPA SCAN)"
+                        text = if (isFriday) "🌸 1-TAP KONFIRMASI KEPUTRIAN (TANPA SCAN)" else "🌸 1-TAP LAPOR BERHALANGAN (TANPA SCAN)"
                         textSize = 11.5f
                         setTypeface(null, Typeface.BOLD)
                         setTextColor(Color.WHITE)
@@ -8461,7 +8505,11 @@ class StudentMainActivity : AppCompatActivity() {
                                 setPadding(p, p, p, p)
                             }
                             val tvNotice = TextView(this@StudentMainActivity).apply {
-                                text = "Laporan berhalangan sholat (uzur syar'i/haid) wajib diverifikasi dengan 2 centang kejujuran berikut:"
+                                text = if (isFriday) {
+                                    "Konfirmasi kehadiran kegiatan keputrian Jumat wajib diverifikasi dengan 2 centang kejujuran berikut:"
+                                } else {
+                                    "Laporan berhalangan sholat (uzur syar'i/haid) wajib diverifikasi dengan 2 centang kejujuran berikut:"
+                                }
                                 textSize = 12.5f
                                 setTextColor(Color.parseColor("#334155"))
                                 val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
@@ -8472,7 +8520,12 @@ class StudentMainActivity : AppCompatActivity() {
                             dialogUzurView.addView(tvNotice)
 
                             val cb1 = CheckBox(this@StudentMainActivity).apply {
-                                text = "Saya menyatakan dengan sungguh-sungguh bahwa saya sedang berhalangan syar'i (haid) hari ini."
+                                text = if (isFriday) {
+                                    if (isBerhalanganSelected) "Saya menyatakan sedang berhalangan syar'i (haid) dan hadir mengikuti pembinaan keputrian."
+                                    else "Saya menyatakan dalam kondisi suci dan hadir mengikuti kegiatan pembinaan keputrian."
+                                } else {
+                                    "Saya menyatakan dengan sungguh-sungguh bahwa saya sedang berhalangan syar'i (haid) hari ini."
+                                }
                                 textSize = 12f
                                 setTextColor(Color.parseColor("#1E293B"))
                                 val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
@@ -8492,10 +8545,16 @@ class StudentMainActivity : AppCompatActivity() {
                             dialogUzurView.addView(cb1)
                             dialogUzurView.addView(cb2)
 
+                            val confirmTitle = if (isFriday) {
+                                if (isBerhalanganSelected) "🩸 Lapor Keputrian (Sedang Haid)" else "🌸 Konfirmasi Hadir Keputrian"
+                            } else {
+                                "🌸 Verifikasi 2 Centang: Lapor Berhalangan"
+                            }
+
                             val confirmDialog = AlertDialog.Builder(this@StudentMainActivity)
-                                .setTitle("🌸 Verifikasi 2 Centang: Lapor Berhalangan")
+                                .setTitle(confirmTitle)
                                 .setView(dialogUzurView)
-                                .setPositiveButton("Kirim Laporan Berhalangan", null)
+                                .setPositiveButton(if (isFriday) "Kirim Konfirmasi Keputrian" else "Kirim Laporan Berhalangan", null)
                                 .setNegativeButton("Batal", null)
                                 .create()
 
@@ -8520,22 +8579,35 @@ class StudentMainActivity : AppCompatActivity() {
                                     confirmDialog.dismiss()
 
                                     val progress = android.app.ProgressDialog(this@StudentMainActivity).apply {
-                                        setMessage("Mengirim laporan berhalangan...")
+                                        setMessage("Mengirim konfirmasi...")
                                         setCancelable(false)
                                         show()
                                     }
-                                    ApiClient.getClient(this@StudentMainActivity).studentReportUzur(mapOf("notes" to "Berhalangan Haid / Uzur Syar'i (Terverifikasi 2 Centang Siswi)")).enqueue(object : Callback<com.school.smartcbt.data.model.BasicResponse> {
+
+                                    val statusPayload = if (isFriday) {
+                                        if (isBerhalanganSelected) "BERHALANGAN_HAID" else "HADIR_KEPUTRIAN"
+                                    } else {
+                                        "BERHALANGAN_HAID"
+                                    }
+
+                                    val notePayload = if (isFriday) {
+                                        if (isBerhalanganSelected) "Berhalangan Haid dalam Kegiatan Keputrian (2 Centang)" else "Hadir Kegiatan Keputrian Siswi Muslimah (2 Centang)"
+                                    } else {
+                                        "Berhalangan Haid / Uzur Syar'i (Terverifikasi 2 Centang Siswi)"
+                                    }
+
+                                    ApiClient.getClient(this@StudentMainActivity).studentReportUzur(mapOf("status" to statusPayload, "notes" to notePayload)).enqueue(object : Callback<com.school.smartcbt.data.model.BasicResponse> {
                                         override fun onResponse(call: Call<com.school.smartcbt.data.model.BasicResponse>, resp: Response<com.school.smartcbt.data.model.BasicResponse>) {
                                             progress.dismiss()
                                             if (resp.isSuccessful) {
                                                 dialog.dismiss()
                                                 AlertDialog.Builder(this@StudentMainActivity)
-                                                    .setTitle("✅ Laporan Berhasil Dicatat")
-                                                    .setMessage(resp.body()?.message ?: "Status berhalangan sholat hari ini telah tersimpan di rekap Guru PAI dan notifikasi telah dikirim ke orang tua.")
+                                                    .setTitle("✅ Berhasil Dicatat")
+                                                    .setMessage(resp.body()?.message ?: "Status keputrian hari ini telah tersimpan di rekap Guru PAI dan notifikasi telah dikirim ke orang tua.")
                                                     .setPositiveButton("Tutup", null)
                                                     .show()
                                             } else {
-                                                val errMsg = resp.errorBody()?.string() ?: "Gagal melaporkan status berhalangan"
+                                                val errMsg = resp.errorBody()?.string() ?: "Gagal mengirim status"
                                                 Toast.makeText(this@StudentMainActivity, errMsg, Toast.LENGTH_LONG).show()
                                             }
                                         }
@@ -8562,11 +8634,20 @@ class StudentMainActivity : AppCompatActivity() {
                     dialog.dismiss()
                     val intent = Intent(this@StudentMainActivity, ScannerActivity::class.java).apply {
                         putExtra(ScannerActivity.EXTRA_SCAN_MODE, ScannerActivity.MODE_PRAYER)
-                        putExtra(ScannerActivity.EXTRA_PRAYER_TYPE, prayerType)
-                        if (isBerhalanganSelected) {
-                            putExtra(ScannerActivity.EXTRA_PRAYER_STATUS, "BERHALANGAN_HAID")
+                        if (isFriday && isFemale) {
+                            putExtra(ScannerActivity.EXTRA_PRAYER_TYPE, "KEPUTRIAN")
+                            if (isBerhalanganSelected) {
+                                putExtra(ScannerActivity.EXTRA_PRAYER_STATUS, "BERHALANGAN_HAID")
+                            } else {
+                                putExtra(ScannerActivity.EXTRA_PRAYER_STATUS, "HADIR_KEPUTRIAN")
+                            }
                         } else {
-                            putExtra(ScannerActivity.EXTRA_PRAYER_STATUS, "HADIR")
+                            putExtra(ScannerActivity.EXTRA_PRAYER_TYPE, prayerType)
+                            if (isBerhalanganSelected) {
+                                putExtra(ScannerActivity.EXTRA_PRAYER_STATUS, "BERHALANGAN_HAID")
+                            } else {
+                                putExtra(ScannerActivity.EXTRA_PRAYER_STATUS, "HADIR")
+                            }
                         }
                     }
                     startActivity(intent)

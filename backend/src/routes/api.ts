@@ -887,6 +887,7 @@ import {
     rejectIzinGuru,
     getIzinGuruRiwayat,
     getRekapPresensiGuru,
+    getMyTeacherAttendanceRecap,
     getRekapPresensiSiswa,
     getMonitoringKelasKosong,
     getMonitoringKelasKosongHistory,
@@ -910,6 +911,8 @@ router.post('/kurikulum/izin-guru/:id/approve', authenticateJWT, checkKurikulumA
 router.post('/kurikulum/izin-guru/:id/reject', authenticateJWT, checkKurikulumAccess, rejectIzinGuru);
 
 // 3. Rekap Presensi (Guru & Siswa)
+router.get('/teacher/my-recap', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR', 'KURIKULUM']), getMyTeacherAttendanceRecap);
+router.get('/teacher/attendance/recap', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR', 'KURIKULUM']), getMyTeacherAttendanceRecap);
 router.get('/kurikulum/rekap/presensi-guru', authenticateJWT, checkKurikulumAccess, getRekapPresensiGuru);
 router.get('/kurikulum/rekap/presensi-siswa', authenticateJWT, checkKurikulumAccess, getRekapPresensiSiswa);
 
@@ -937,7 +940,8 @@ import {
     studentReportUzur,
     paiScanStudentCard,
     triggerPrayerH1Reminder,
-    deletePrayerClassSchedule
+    deletePrayerClassSchedule,
+    notifyAbsentPrayerStudentsApi
 } from '../controllers/prayerAttendanceController';
 
 router.get('/prayer/today-schedule', authenticateJWT, getTodayPrayerSchedule);
@@ -951,6 +955,7 @@ router.post('/prayer/student/report-uzur', authenticateJWT, studentReportUzur);
 router.post('/prayer/pai-mark', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR']), paiMarkStudentPrayer);
 router.post('/prayer/batch-mark', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR']), batchPaiMarkStudentPrayer);
 router.post('/prayer/pai-scan-student-card', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR']), paiScanStudentCard);
+router.post('/prayer/notify-absent', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR', 'COUNSELOR']), notifyAbsentPrayerStudentsApi);
 router.get('/prayer/monitoring-by-class', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR', 'COUNSELOR']), getPaiMonitoringByClass);
 router.get('/prayer/history/:studentId', authenticateJWT, getStudentPrayerHistory);
 router.get('/prayer/export-pdf', authenticateJWT, exportPrayerAttendancePdf);

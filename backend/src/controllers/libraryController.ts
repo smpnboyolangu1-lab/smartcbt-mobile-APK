@@ -581,16 +581,29 @@ export const updateBookCover = async (req: Request, res: Response) => {
 
 export const borrowBook = async (req: Request, res: Response) => {
     try {
-        const { bookId, copyBarcode } = req.body;
+        const { bookId, copyBarcode, durationDays } = req.body;
         const studentId = (req as any).user?.id;
+        if (!studentId) {
+            return res.status(401).json({ success: false, message: 'Autentikasi diperlukan untuk meminjam buku' });
+        }
+
+        const student = await prisma.user.findUnique({
+            where: { id: studentId }
+        });
+        if (!student) {
+            return res.status(404).json({ success: false, message: 'Data siswa peminjam tidak ditemukan' });
+        }
+
         let copy = null;
         if (copyBarcode) {
-            copy = await (prisma as any).bookCopy.findUnique({
-                where: { barcodeCode: String(copyBarcode).trim().toUpperCase() }
+            copy = await prisma.bookCopy.findUnique({
+                where: { barcodeCode: String(copyBarcode).trim().toUpperCase() },
+                include: { book: true }
             });
         } else if (bookId) {
-            copy = await (prisma as any).bookCopy.findFirst({
-                where: { bookId: String(bookId), status: 'AVAILABLE' }
+            copy = await prisma.bookCopy.findFirst({
+                where: { bookId: String(bookId), status: 'AVAILABLE' },
+                include: { book: true }
             });
         }
 
@@ -598,12 +611,69 @@ export const borrowBook = async (req: Request, res: Response) => {
             return res.status(404).json({ success: false, message: 'Tidak ada eksemplar buku yang tersedia untuk dipinjam' });
         }
 
-        const updated = await (prisma as any).bookCopy.update({
+        if (copy.status === 'BORROWED') {
+            return res.status(400).json({
+                success: false,
+                message: `Buku ini sedang dipinjam oleh ${copy.currentBorrowerName || 'siswa lain'}.`
+            });
+        }
+
+        // 1. Validasi Kategori: Buku Referensi Hanya Baca di Tempat
+        const bookCat = (copy.book?.category || '').toUpperCase();
+        if (bookCat === 'REFERENSI' || bookCat === 'KAMUS' || bookCat === 'ENSIKLOPEDIA') {
+            return res.status(400).json({
+                success: false,
+                message: `Buku kategori "${copy.book?.category}" hanya dapat dibaca di tempat (ruang perpustakaan) dan tidak dapat dipinjam bawa pulang.`
+            });
+        }
+
+        // 2. Batas Pinjam Maksimal 3 Buku Umum per Siswa
+        if (bookCat !== 'BUKU_PAKET') {
+            const activeLoansCount = await prisma.bookCopy.count({
+                where: {
+                    currentBorrowerId: student.id,
+                    status: 'BORROWED',
+                    book: { category: { not: 'BUKU_PAKET' } }
+                }
+            });
+            if (activeLoansCount >= 3) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Batas peminjaman buku umum telah mencapai kuota maksimum (3 buku). Harap kembalikan buku sebelumnya terlebih dahulu.'
+                });
+            }
+        }
+
+        const now = new Date();
+        const days = parseInt(durationDays) || 7;
+        const due = new Date();
+        due.setDate(now.getDate() + days);
+        due.setUTCHours(8, 0, 0, 0); // 15:00 WIB
+
+        const updated = await prisma.bookCopy.update({
             where: { id: copy.id },
             data: {
                 status: 'BORROWED',
-                borrowerId: studentId,
-                borrowedAt: new Date()
+                currentBorrowerId: student.id,
+                currentBorrowerName: student.name,
+                currentBorrowerClass: student.className || 'VII',
+                currentBorrowerNisn: student.nisn || student.username,
+                borrowedAt: now,
+                dueDate: due
+            },
+            include: { book: true }
+        });
+
+        await prisma.libraryBorrowing.create({
+            data: {
+                userId: student.id,
+                bookId: copy.bookId,
+                bookCopyId: copy.id,
+                barcodeCode: copy.barcodeCode,
+                borrowDate: now,
+                dueDate: due,
+                status: 'BORROWED',
+                notes: `Dipinjam mandiri via Smart CBT APK oleh ${student.name}`
             }
         });
 

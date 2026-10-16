@@ -1,8 +1,6 @@
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import prisma from '../utils/db';
 import { getWibDayBounds } from '../utils/dateUtils';
-
-const prisma = new PrismaClient();
 
 /**
  * Formula Haversine untuk kalkulasi jarak radius meter secara akurat

@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import prisma from '../utils/db';
 import { sendFcmToUser } from '../services/fcmService';
 import { sendSingleWhatsApp } from '../services/whatsappBlastService';
+import { getWibDayBounds } from '../utils/dateUtils';
 
 // =========================================================================
 // 1. SISWA AJUKAN LAYANAN UKS (DARI APK SISWA)
@@ -71,12 +72,11 @@ export const studentRequestUks = async (req: Request, res: Response) => {
 
 export const getUksQueueAndActivePatients = async (req: Request, res: Response) => {
     try {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
+        const { startOfDay } = getWibDayBounds(new Date());
 
         const visits = await prisma.uksVisit.findMany({
             where: {
-                checkInTime: { gte: today },
+                checkInTime: { gte: startOfDay },
                 visitStatus: { notIn: ['FINISHED', 'BACK_TO_CLASS', 'PICKED_UP'] }
             },
             include: {
@@ -258,9 +258,7 @@ export const processUksPatientStatus = async (req: Request, res: Response) => {
         // 5. INTEGRASI SISTEM ABSENSI KELAS
         // Jika sedang di UKS, tandai di catatan absensi siswa hari ini
         try {
-            const todayStr = new Date().toISOString().slice(0, 10);
-            const startOfDay = new Date(`${todayStr}T00:00:00.000Z`);
-            const endOfDay = new Date(`${todayStr}T23:59:59.999Z`);
+            const { startOfDay, endOfDay } = getWibDayBounds(new Date());
 
             const todayAttendance = await prisma.attendance.findFirst({
                 where: {
@@ -536,17 +534,20 @@ export const getComprehensiveUksReport = async (req: Request, res: Response) => 
     try {
         const { startDate, endDate, period = 'MONTHLY' } = req.query;
 
-        let start = new Date();
+        let start: Date;
         if (startDate && typeof startDate === 'string') {
-            start = new Date(`${startDate}T00:00:00.000Z`);
+            start = new Date(`${startDate}T00:00:00.000+07:00`);
         } else {
-            start.setDate(1); // awal bulan ini
-            start.setHours(0, 0, 0, 0);
+            const { ymd } = getWibDayBounds(new Date());
+            const [year, month] = ymd.split('-');
+            start = new Date(`${year}-${month}-01T00:00:00.000+07:00`);
         }
 
-        let end = new Date();
+        let end: Date;
         if (endDate && typeof endDate === 'string') {
-            end = new Date(`${endDate}T23:59:59.999Z`);
+            end = new Date(`${endDate}T23:59:59.999+07:00`);
+        } else {
+            end = getWibDayBounds(new Date()).endOfDay;
         }
 
         const visits = await prisma.uksVisit.findMany({

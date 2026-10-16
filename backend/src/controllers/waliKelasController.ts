@@ -693,13 +693,47 @@ export const getWaliKelasRekap = async (req: Request, res: Response) => {
         }
 
         const studentIds = students.map(s => s.id);
-        const logs = await prisma.attendance.findMany({
-            where: {
-                userId: { in: studentIds },
-                scanTime: { gte: startDate, lte: endDate }
-            },
-            orderBy: { scanTime: 'asc' }
-        });
+        const [logs, classApprovedLeaves, schoolHolidays] = await Promise.all([
+            prisma.attendance.findMany({
+                where: {
+                    userId: { in: studentIds },
+                    scanTime: { gte: startDate, lte: endDate }
+                },
+                orderBy: { scanTime: 'asc' }
+            }),
+            (prisma as any).studentLeaveRequest.findMany({
+                where: {
+                    studentId: { in: studentIds },
+                    status: 'APPROVED',
+                    startDate: { lte: endDate },
+                    endDate: { gte: startDate }
+                }
+            }).catch(() => []),
+            (prisma as any).schoolHoliday.findMany({
+                where: {
+                    date: { gte: startDate, lte: endDate }
+                }
+            }).catch(() => [])
+        ]);
+
+        const holidayDates = new Set(schoolHolidays.map((h: any) => new Date(h.date).toISOString().split('T')[0]));
+        const now = new Date();
+        const cutoffDate = now < endDate ? now : endDate;
+        const effectiveSchoolDates: string[] = [];
+
+        if (mode === 'DAILY') {
+            effectiveSchoolDates.push(startDate.toISOString().split('T')[0]);
+        } else {
+            const cur = new Date(startDate);
+            while (cur <= cutoffDate) {
+                const ymd = cur.toISOString().split('T')[0];
+                const dayOfWeek = cur.getDay(); // 0 = Minggu
+                if (dayOfWeek !== 0 && !holidayDates.has(ymd)) {
+                    effectiveSchoolDates.push(ymd);
+                }
+                cur.setDate(cur.getDate() + 1);
+            }
+        }
 
         // Gate Settings untuk deteksi lupa scan pulang
         const gateSetting = await (prisma as any).gateSetting.findFirst() || {
@@ -724,9 +758,28 @@ export const getWaliKelasRekap = async (req: Request, res: Response) => {
                 dateMap.get(dateKey)!.push(log);
             }
 
-            dateMap.forEach((dayLogs) => {
-                const inRecord = dayLogs.find(l => l.type === 'GATE_IN');
-                const outRecord = dayLogs.find(l => l.type === 'GATE_OUT');
+            // Gabungkan izin resmi BK
+            const studentLeaves = (classApprovedLeaves as any[]).filter(lv => lv.studentId === s.id);
+            studentLeaves.forEach(lv => {
+                const sYmd = lv.startDate ? new Date(lv.startDate).toISOString().split('T')[0] : '';
+                const eYmd = lv.endDate ? new Date(lv.endDate).toISOString().split('T')[0] : sYmd;
+                const leaveStatus = (lv.type === 'SAKIT' || lv.type === 'SICK' || lv.category === 'SAKIT' || lv.category === 'SICK') ? 'SAKIT' : 'IZIN';
+                if (sYmd && !dateMap.has(sYmd)) {
+                    dateMap.set(sYmd, [{ status: leaveStatus, type: 'LEAVE', note: lv.reason || 'Izin Disetujui BK' }]);
+                }
+            });
+
+            // Evaluasi setiap hari sekolah yang berlaku
+            for (const dateKey of effectiveSchoolDates) {
+                const dayLogs = dateMap.get(dateKey);
+                if (!dayLogs || dayLogs.length === 0) {
+                    // Siswa tidak hadir sama sekali pada hari efektif ini
+                    countA++;
+                    continue;
+                }
+
+                const inRecord = dayLogs.find(l => l.type === 'GATE_IN' || l.type === 'CLASS_IN');
+                const outRecord = dayLogs.find(l => l.type === 'GATE_OUT' || l.type === 'CLASS_OUT');
 
                 const hasSick = dayLogs.some(l => l.status === 'SICK' || l.status === 'SAKIT' || (l.note && /sakit/i.test(l.note)));
                 const hasPerm = dayLogs.some(l => l.status === 'PERMISSION' || l.status === 'IZIN' || (l.note && /izin/i.test(l.note)));
@@ -750,12 +803,14 @@ export const getWaliKelasRekap = async (req: Request, res: Response) => {
                     countH++;
                 } else if (hasAbsent) {
                     countA++;
+                } else {
+                    countA++;
                 }
-            });
+            }
 
             const totalHadirFisik = countH + countT + countQuestion;
-            const totalRecordedDays = dateMap.size;
-            const rate = totalRecordedDays > 0 ? Number(((totalHadirFisik / totalRecordedDays) * 100).toFixed(1)) : 100;
+            const totalRecordedDays = effectiveSchoolDates.length;
+            const rate = totalRecordedDays > 0 ? Number(((totalHadirFisik / totalRecordedDays) * 100).toFixed(1)) : 0;
 
             return {
                 no: idx + 1,
@@ -1473,7 +1528,7 @@ export const exportWaliKelasPdf = async (req: Request, res: Response) => {
             endDate = new Date(year, month, 0, 23, 59, 59);
         }
 
-        const [logs, classApprovedLeaves] = await Promise.all([
+        const [logs, classApprovedLeaves, schoolHolidays] = await Promise.all([
             prisma.attendance.findMany({
                 where: {
                     userId: { in: students.map(s => s.id) },
@@ -1487,8 +1542,32 @@ export const exportWaliKelasPdf = async (req: Request, res: Response) => {
                     startDate: { lte: endDate },
                     endDate: { gte: startDate }
                 }
+            }).catch(() => []),
+            (prisma as any).schoolHoliday.findMany({
+                where: {
+                    date: { gte: startDate, lte: endDate }
+                }
             }).catch(() => [])
         ]);
+
+        const holidayDates = new Set(schoolHolidays.map((h: any) => new Date(h.date).toISOString().split('T')[0]));
+        const now = new Date();
+        const cutoffDate = now < endDate ? now : endDate;
+        const effectiveSchoolDates: string[] = [];
+
+        if (type === 'class_daily') {
+            effectiveSchoolDates.push(startDate.toISOString().split('T')[0]);
+        } else {
+            const cur = new Date(startDate);
+            while (cur <= cutoffDate) {
+                const ymd = cur.toISOString().split('T')[0];
+                const dayOfWeek = cur.getDay(); // 0 = Minggu
+                if (dayOfWeek !== 0 && !holidayDates.has(ymd)) {
+                    effectiveSchoolDates.push(ymd);
+                }
+                cur.setDate(cur.getDate() + 1);
+            }
+        }
 
         let tableRows = '';
         let totH = 0, totT = 0, totQ = 0, totS = 0, totI = 0, totA = 0;
@@ -1507,14 +1586,20 @@ export const exportWaliKelasPdf = async (req: Request, res: Response) => {
             studentLeaves.forEach(lv => {
                 const sYmd = lv.startDate ? new Date(lv.startDate).toISOString().split('T')[0] : '';
                 const eYmd = lv.endDate ? new Date(lv.endDate).toISOString().split('T')[0] : sYmd;
-                const leaveStatus = (lv.type === 'SAKIT' || lv.type === 'SICK') ? 'SAKIT' : 'IZIN';
+                const leaveStatus = (lv.type === 'SAKIT' || lv.type === 'SICK' || lv.category === 'SAKIT' || lv.category === 'SICK') ? 'SAKIT' : 'IZIN';
                 if (sYmd && !dateMap.has(sYmd)) {
                     dateMap.set(sYmd, [{ status: leaveStatus, type: 'LEAVE', note: lv.reason || 'Izin Disetujui BK' }]);
                 }
             });
 
             let h = 0, t = 0, q = 0, sSick = 0, i = 0, a = 0;
-            dateMap.forEach(dayLogs => {
+            for (const dateKey of effectiveSchoolDates) {
+                const dayLogs = dateMap.get(dateKey);
+                if (!dayLogs || dayLogs.length === 0) {
+                    a++;
+                    continue;
+                }
+
                 const inR = dayLogs.find(l => l.type === 'GATE_IN' || l.type === 'CLASS_IN');
                 const outR = dayLogs.find(l => l.type === 'GATE_OUT' || l.type === 'CLASS_OUT');
                 const hasSick = dayLogs.some(l => l.status === 'SICK' || l.status === 'SAKIT');
@@ -1528,12 +1613,13 @@ export const exportWaliKelasPdf = async (req: Request, res: Response) => {
                 else if (inR && !outR) q++;
                 else if (outR || inR || dayLogs.some(l => l.status === 'PRESENT' || l.status === 'HADIR')) h++;
                 else if (hasAbsent) a++;
-            });
+                else a++;
+            }
 
             totH += h; totT += t; totQ += q; totS += sSick; totI += i; totA += a;
             const hadirFisik = h + t + q;
-            const recorded = dateMap.size;
-            const rate = recorded > 0 ? ((hadirFisik / recorded) * 100).toFixed(1) : '100';
+            const totalEffectiveDays = effectiveSchoolDates.length;
+            const rate = totalEffectiveDays > 0 ? ((hadirFisik / totalEffectiveDays) * 100).toFixed(1) : '0.0';
 
             tableRows += `
                 <tr>
@@ -1551,6 +1637,9 @@ export const exportWaliKelasPdf = async (req: Request, res: Response) => {
                 </tr>
             `;
         });
+
+        const totalDaysAssessed = students.length * effectiveSchoolDates.length;
+        const classAttendanceRate = totalDaysAssessed > 0 ? (((totH + totT + totQ) / totalDaysAssessed) * 100).toFixed(1) + '%' : '0.0%';
 
         const html = `
 <!DOCTYPE html>
@@ -1634,7 +1723,7 @@ export const exportWaliKelasPdf = async (req: Request, res: Response) => {
                 <td class="text-center" style="color:#1d4ed8;">${totS}</td>
                 <td class="text-center" style="color:#7e22ce;">${totI}</td>
                 <td class="text-center" style="color:#b91c1c;">${totA}</td>
-                <td class="text-center">-</td>
+                <td class="text-center font-bold" style="color:#0f172a;">${classAttendanceRate}</td>
             </tr>
         </tbody>
     </table>

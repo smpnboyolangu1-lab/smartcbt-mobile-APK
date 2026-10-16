@@ -1,10 +1,8 @@
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import prisma from '../utils/db';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { extractWebToken } from '../middlewares/authMiddleware';
-
-const prisma = new PrismaClient();
 const getJwtSecret = () => process.env.JWT_SECRET || 'cbt_prod_secret_f9a83b27c64e10d592a8174fec01849a62bc38102d7e481b9201948271039841';
 
 const DYNAMIC_QR_SECRET_SALT = process.env.GATEPASS_QR_SECRET || 'SMARTCBT_BK_GATEPASS_HMAC_SECRET_2026';

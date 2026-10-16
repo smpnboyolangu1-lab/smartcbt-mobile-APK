@@ -1,7 +1,5 @@
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import prisma from '../utils/db';
 
 // ========================================================
 // 1. DASHBOARD & SIRKULASI OPERATOR (MODUL 3-A)

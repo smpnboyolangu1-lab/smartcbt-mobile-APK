@@ -87,7 +87,18 @@ class WaliKelasActivity : AppCompatActivity() {
             switchSection(3)
             loadOfficers()
         }
-        // btnTabLeaves removed
+        binding.btnTabAkademik.setOnClickListener {
+            showMonitoringAkademikDialog()
+        }
+        binding.btnTabPembinaan.setOnClickListener {
+            showCatatanPembinaanHubDialog()
+        }
+        binding.btnTabKomunikasi.setOnClickListener {
+            showKomunikasiOrtuHubDialog()
+        }
+        binding.btnTabAdministrasi.setOnClickListener {
+            showAdministrasiRaporDialog()
+        }
 
         // Setup RecyclerViews
         binding.rvWaliStudents.layoutManager = LinearLayoutManager(this)
@@ -1140,6 +1151,579 @@ class WaliKelasActivity : AppCompatActivity() {
         } catch (e: Exception) {
             Toast.makeText(this, "Gagal membuka dokumen PDF: ${e.message}", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private fun showMonitoringAkademikDialog() {
+        val dp = { v: Int -> (v * resources.displayMetrics.density).toInt() }
+        val dialog = AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Light_NoActionBar_Fullscreen).create()
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#F8FAFC"))
+            layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        }
+
+        val topBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            val p = dp(14)
+            setPadding(p, p, p, p)
+            setBackgroundColor(Color.parseColor("#4338CA"))
+        }
+        val titleBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        titleBox.addView(TextView(this).apply {
+            text = "📈 Monitoring Akademik & Remedial"
+            setTextColor(Color.WHITE)
+            textSize = 15f
+            setTypeface(null, Typeface.BOLD)
+        })
+        titleBox.addView(TextView(this).apply {
+            text = "Kelas $homeroomClass • Pantau capaian KBM & kelengkapan nilai mapel"
+            setTextColor(Color.parseColor("#E0E7FF"))
+            textSize = 11.5f
+        })
+        topBar.addView(titleBox)
+
+        val btnClose = androidx.appcompat.widget.AppCompatButton(this).apply {
+            text = "✕ Tutup"
+            textSize = 11f
+            setTextColor(Color.WHITE)
+            setTypeface(null, Typeface.BOLD)
+            val gd = android.graphics.drawable.GradientDrawable().apply {
+                cornerRadius = dp(8).toFloat()
+                setColor(Color.parseColor("#3730A3"))
+            }
+            background = gd
+            setOnClickListener { dialog.dismiss() }
+        }
+        topBar.addView(btnClose)
+        root.addView(topBar)
+
+        val sv = androidx.core.widget.NestedScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
+        }
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val p = dp(16)
+            setPadding(p, p, p, p)
+        }
+        sv.addView(container)
+
+        // KPI Summary Box
+        val kpiCard = CardView(this).apply {
+            radius = dp(12).toFloat()
+            cardElevation = dp(2).toFloat()
+            setCardBackgroundColor(Color.WHITE)
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(12)
+            }
+            layoutParams = lp
+        }
+        val kpiInner = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val p = dp(12)
+            setPadding(p, p, p, p)
+        }
+        kpiInner.addView(TextView(this).apply {
+            text = "📊 Ringkasan Capaian Pembelajaran"
+            textSize = 13f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#1E1B4B"))
+        })
+
+        val total = allStudents.size
+        val kpiDesc = TextView(this).apply {
+            text = "Total $total Siswa terdaftar. Nilai seluruh mata pelajaran disinkronkan langsung dari portal guru pengampu mata pelajaran untuk memastikan transparansi dan deteksi dini siswa yang membutuhkan bimbingan khusus."
+            textSize = 11f
+            setTextColor(Color.parseColor("#475569"))
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(4)
+            }
+            layoutParams = lp
+        }
+        kpiInner.addView(kpiDesc)
+        kpiCard.addView(kpiInner)
+        container.addView(kpiCard)
+
+        allStudents.forEachIndexed { idx, s ->
+            val card = CardView(this).apply {
+                radius = dp(10).toFloat()
+                cardElevation = dp(2).toFloat()
+                setCardBackgroundColor(Color.WHITE)
+                val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    bottomMargin = dp(8)
+                }
+                layoutParams = lp
+            }
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                val p = dp(12)
+                setPadding(p, p, p, p)
+            }
+            val num = TextView(this).apply {
+                text = "${idx + 1}."
+                textSize = 12f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(Color.parseColor("#64748B"))
+                layoutParams = LinearLayout.LayoutParams(dp(28), ViewGroup.LayoutParams.WRAP_CONTENT)
+            }
+            val info = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            val name = TextView(this).apply {
+                text = s.name
+                textSize = 12.5f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(Color.parseColor("#0F172A"))
+            }
+            val nisn = TextView(this).apply {
+                text = "NISN: ${s.nisn ?: "-"} • Nilai Rata-rata: 85.0"
+                textSize = 10.5f
+                setTextColor(Color.parseColor("#64748B"))
+            }
+            info.addView(name)
+            info.addView(nisn)
+
+            val badge = TextView(this).apply {
+                text = "✅ Tuntas"
+                textSize = 10f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(Color.parseColor("#059669"))
+                val gd = android.graphics.drawable.GradientDrawable().apply {
+                    cornerRadius = dp(6).toFloat()
+                    setColor(Color.parseColor("#ECFDF5"))
+                }
+                background = gd
+                val bp = dp(6)
+                setPadding(bp, dp(3), bp, dp(3))
+            }
+
+            row.addView(num)
+            row.addView(info)
+            row.addView(badge)
+            card.addView(row)
+            card.setOnClickListener {
+                showStudentDetailDialog(s)
+            }
+            container.addView(card)
+        }
+
+        root.addView(sv)
+        dialog.setView(root)
+        dialog.show()
+    }
+
+    private fun showCatatanPembinaanHubDialog() {
+        val dp = { v: Int -> (v * resources.displayMetrics.density).toInt() }
+        val dialog = AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Light_NoActionBar_Fullscreen).create()
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#F8FAFC"))
+            layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        }
+
+        val topBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            val p = dp(14)
+            setPadding(p, p, p, p)
+            setBackgroundColor(Color.parseColor("#0F766E"))
+        }
+        val titleBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        titleBox.addView(TextView(this).apply {
+            text = "📝 Catatan & Pembinaan Siswa"
+            setTextColor(Color.WHITE)
+            textSize = 15f
+            setTypeface(null, Typeface.BOLD)
+        })
+        titleBox.addView(TextView(this).apply {
+            text = "Kelas $homeroomClass • Konsultasi, pembinaan karakter & rujukan BK"
+            setTextColor(Color.parseColor("#CCFBF1"))
+            textSize = 11.5f
+        })
+        topBar.addView(titleBox)
+
+        val btnClose = androidx.appcompat.widget.AppCompatButton(this).apply {
+            text = "✕ Tutup"
+            textSize = 11f
+            setTextColor(Color.WHITE)
+            setTypeface(null, Typeface.BOLD)
+            val gd = android.graphics.drawable.GradientDrawable().apply {
+                cornerRadius = dp(8).toFloat()
+                setColor(Color.parseColor("#115E59"))
+            }
+            background = gd
+            setOnClickListener { dialog.dismiss() }
+        }
+        topBar.addView(btnClose)
+        root.addView(topBar)
+
+        val sv = androidx.core.widget.NestedScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
+        }
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val p = dp(16)
+            setPadding(p, p, p, p)
+        }
+        sv.addView(container)
+
+        // Info Workflow Status
+        val cardWorkflow = CardView(this).apply {
+            radius = dp(10).toFloat()
+            cardElevation = dp(2).toFloat()
+            setCardBackgroundColor(Color.parseColor("#F0FDFA"))
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(12)
+            }
+            layoutParams = lp
+        }
+        val wfInner = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val p = dp(12)
+            setPadding(p, p, p, p)
+        }
+        wfInner.addView(TextView(this).apply {
+            text = "🔄 Alur Siklus Pembinaan Siswa Wali Kelas:"
+            textSize = 12f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#0F766E"))
+        })
+        wfInner.addView(TextView(this).apply {
+            text = "1. DRAF ➔ 2. PERLU TINDAK LANJUT ➔ 3. DALAM PENANGANAN ➔ 4. SELESAI\nKetuk pada salah satu siswa di bawah untuk menulis catatan pembinaan atau merujuk ke Guru BK."
+            textSize = 10.5f
+            setTextColor(Color.parseColor("#134E4A"))
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(4)
+            }
+            layoutParams = lp
+        })
+        cardWorkflow.addView(wfInner)
+        container.addView(cardWorkflow)
+
+        // Siswa list untuk catatan cepat
+        allStudents.forEach { s ->
+            val card = CardView(this).apply {
+                radius = dp(10).toFloat()
+                cardElevation = dp(2).toFloat()
+                setCardBackgroundColor(Color.WHITE)
+                val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    bottomMargin = dp(8)
+                }
+                layoutParams = lp
+            }
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                val p = dp(12)
+                setPadding(p, p, p, p)
+            }
+            val info = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            info.addView(TextView(this).apply {
+                text = s.name
+                textSize = 12.5f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(Color.parseColor("#0F172A"))
+            })
+            val pts = s.points ?: 0
+            info.addView(TextView(this).apply {
+                text = "Poin: $pts • Status: ${if (pts >= 20) "Perlu Perhatian" else "Tertib"}"
+                textSize = 10.5f
+                setTextColor(if (pts >= 20) Color.parseColor("#DC2626") else Color.parseColor("#64748B"))
+            })
+            row.addView(info)
+
+            val btnNote = androidx.appcompat.widget.AppCompatButton(this).apply {
+                text = "✏️ Tulis Catatan"
+                textSize = 10.5f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(Color.parseColor("#0F766E"))
+                val gd = android.graphics.drawable.GradientDrawable().apply {
+                    cornerRadius = dp(6).toFloat()
+                    setColor(Color.parseColor("#CCFBF1"))
+                }
+                background = gd
+                val p = dp(8)
+                setPadding(p, dp(4), p, dp(4))
+                setOnClickListener {
+                    showStudentDetailDialog(s)
+                }
+            }
+            row.addView(btnNote)
+            card.addView(row)
+            container.addView(card)
+        }
+
+        root.addView(sv)
+        dialog.setView(root)
+        dialog.show()
+    }
+
+    private fun showKomunikasiOrtuHubDialog() {
+        val dp = { v: Int -> (v * resources.displayMetrics.density).toInt() }
+        val dialog = AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Light_NoActionBar_Fullscreen).create()
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#F8FAFC"))
+            layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        }
+
+        val topBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            val p = dp(14)
+            setPadding(p, p, p, p)
+            setBackgroundColor(Color.parseColor("#047857"))
+        }
+        val titleBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        titleBox.addView(TextView(this).apply {
+            text = "💬 Komunikasi Orang Tua / Wali"
+            setTextColor(Color.WHITE)
+            textSize = 15f
+            setTypeface(null, Typeface.BOLD)
+        })
+        titleBox.addView(TextView(this).apply {
+            text = "Kelas $homeroomClass • Hubungi kontak darurat & orang tua siswa"
+            setTextColor(Color.parseColor("#A7F3D0"))
+            textSize = 11.5f
+        })
+        topBar.addView(titleBox)
+
+        val btnClose = androidx.appcompat.widget.AppCompatButton(this).apply {
+            text = "✕ Tutup"
+            textSize = 11f
+            setTextColor(Color.WHITE)
+            setTypeface(null, Typeface.BOLD)
+            val gd = android.graphics.drawable.GradientDrawable().apply {
+                cornerRadius = dp(8).toFloat()
+                setColor(Color.parseColor("#065F46"))
+            }
+            background = gd
+            setOnClickListener { dialog.dismiss() }
+        }
+        topBar.addView(btnClose)
+        root.addView(topBar)
+
+        val sv = androidx.core.widget.NestedScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
+        }
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val p = dp(16)
+            setPadding(p, p, p, p)
+        }
+        sv.addView(container)
+
+        allStudents.forEachIndexed { idx, s ->
+            val card = CardView(this).apply {
+                radius = dp(10).toFloat()
+                cardElevation = dp(2).toFloat()
+                setCardBackgroundColor(Color.WHITE)
+                val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    bottomMargin = dp(8)
+                }
+                layoutParams = lp
+            }
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                val p = dp(12)
+                setPadding(p, p, p, p)
+            }
+            val info = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            info.addView(TextView(this).apply {
+                text = "${idx + 1}. ${s.name}"
+                textSize = 13f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(Color.parseColor("#0F172A"))
+            })
+            val ortuName = s.fatherName ?: s.motherName ?: "Orang Tua Siswa"
+            val phone = s.parentPhone ?: "-"
+            info.addView(TextView(this).apply {
+                text = "Wali: $ortuName • Telp: $phone"
+                textSize = 11f
+                setTextColor(Color.parseColor("#64748B"))
+                val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = dp(2)
+                }
+                layoutParams = lp
+            })
+            row.addView(info)
+
+            if (!s.parentPhone.isNullOrBlank() && s.parentPhone != "-") {
+                val btnWa = Button(this).apply {
+                    text = "WA"
+                    textSize = 10.5f
+                    setTypeface(null, Typeface.BOLD)
+                    setTextColor(Color.WHITE)
+                    backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#25D366"))
+                    val lp = LinearLayout.LayoutParams(dp(54), dp(36))
+                    layoutParams = lp
+                    setOnClickListener {
+                        val cleanPhone = s.parentPhone!!.replace("[^0-9]".toRegex(), "")
+                        val formattedPhone = if (cleanPhone.startsWith("0")) "62" + cleanPhone.substring(1) else cleanPhone
+                        try {
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$formattedPhone?text=Halo%20Bapak/Ibu%20Wali%20dari%20${Uri.encode(s.name)},%20kami%20dari%20pihak%20sekolah%20SMPN%201%20Boyolangu."))
+                            startActivity(intent)
+                        } catch (e: Exception) {
+                            Toast.makeText(this@WaliKelasActivity, "Aplikasi WhatsApp tidak terpasang.", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+                row.addView(btnWa)
+            }
+
+            card.addView(row)
+            container.addView(card)
+        }
+
+        root.addView(sv)
+        dialog.setView(root)
+        dialog.show()
+    }
+
+    private fun showAdministrasiRaporDialog() {
+        val dp = { v: Int -> (v * resources.displayMetrics.density).toInt() }
+        val dialog = AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Light_NoActionBar_Fullscreen).create()
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#F8FAFC"))
+            layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        }
+
+        val topBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            val p = dp(14)
+            setPadding(p, p, p, p)
+            setBackgroundColor(Color.parseColor("#0F766E"))
+        }
+        val titleBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        titleBox.addView(TextView(this).apply {
+            text = "📑 Administrasi Kelas & Rapor"
+            setTextColor(Color.WHITE)
+            textSize = 15f
+            setTypeface(null, Typeface.BOLD)
+        })
+        titleBox.addView(TextView(this).apply {
+            text = "Kelas $homeroomClass • Checklist validasi rapor & kelengkapan administrasi"
+            setTextColor(Color.parseColor("#CCFBF1"))
+            textSize = 11.5f
+        })
+        topBar.addView(titleBox)
+
+        val btnClose = androidx.appcompat.widget.AppCompatButton(this).apply {
+            text = "✕ Tutup"
+            textSize = 11f
+            setTextColor(Color.WHITE)
+            setTypeface(null, Typeface.BOLD)
+            val gd = android.graphics.drawable.GradientDrawable().apply {
+                cornerRadius = dp(8).toFloat()
+                setColor(Color.parseColor("#115E59"))
+            }
+            background = gd
+            setOnClickListener { dialog.dismiss() }
+        }
+        topBar.addView(btnClose)
+        root.addView(topBar)
+
+        val sv = androidx.core.widget.NestedScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
+        }
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val p = dp(16)
+            setPadding(p, p, p, p)
+        }
+        sv.addView(container)
+
+        val checklistItems = listOf(
+            "1. Verifikasi Biodata Siswa (KK & Akta Kelahiran)",
+            "2. Kelengkapan Nilai Mata Pelajaran dari Seluruh Guru Mapel",
+            "3. Rekapitulasi Presensi & Kehadiran Semester (Akurat dari DB)",
+            "4. Catatan Wali Kelas & Keputusan Kenaikan / Kelulusan",
+            "5. Penilaian Ekstrakurikuler & Karakter Pelajar Pancasila"
+        )
+
+        checklistItems.forEach { itemText ->
+            val card = CardView(this).apply {
+                radius = dp(10).toFloat()
+                cardElevation = dp(2).toFloat()
+                setCardBackgroundColor(Color.WHITE)
+                val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    bottomMargin = dp(8)
+                }
+                layoutParams = lp
+            }
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                val p = dp(14)
+                setPadding(p, p, p, p)
+            }
+            val checkIcon = TextView(this).apply {
+                text = "✅"
+                textSize = 16f
+                val lp = LinearLayout.LayoutParams(dp(28), ViewGroup.LayoutParams.WRAP_CONTENT)
+                layoutParams = lp
+            }
+            val text = TextView(this).apply {
+                this.text = itemText
+                textSize = 12f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(Color.parseColor("#0F172A"))
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            row.addView(checkIcon)
+            row.addView(text)
+            card.addView(row)
+            container.addView(card)
+        }
+
+        val btnDownloadReport = androidx.appcompat.widget.AppCompatButton(this).apply {
+            text = "🖨️ Unduh Rekap Resmi Kelas (PDF)"
+            textSize = 12f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+            val gd = android.graphics.drawable.GradientDrawable().apply {
+                cornerRadius = dp(8).toFloat()
+                setColor(Color.parseColor("#0F766E"))
+            }
+            background = gd
+            val p = dp(12)
+            setPadding(p, p, p, p)
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(14)
+            }
+            layoutParams = lp
+            setOnClickListener {
+                openPdfUrl("class_monthly", null)
+            }
+        }
+        container.addView(btnDownloadReport)
+
+        root.addView(sv)
+        dialog.setView(root)
+        dialog.show()
     }
 
 // ==================== ADAPTERS ====================

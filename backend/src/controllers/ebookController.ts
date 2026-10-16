@@ -1,9 +1,7 @@
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import prisma from '../utils/db';
 import fs from 'fs';
 import path from 'path';
-
-const prisma = new PrismaClient();
 
 // ========================================================
 // 1. MANAJEMEN CRUD E-BOOK MULTI-PLATFORM (MODUL PERPUSTAKAAN)

@@ -1,9 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
-import { PrismaClient } from '@prisma/client';
+import prisma from '../utils/db';
 import fs from 'fs';
 import path from 'path';
-
-const prisma = new PrismaClient();
 
 // Ensure upload folders exist
 const biodataUploadDir = path.join(__dirname, '../../uploads/biodata');

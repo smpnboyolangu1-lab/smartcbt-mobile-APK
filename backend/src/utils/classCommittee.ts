@@ -1,7 +1,5 @@
-import { PrismaClient } from '@prisma/client';
+import prisma from './db';
 import { normalizeClassVariations } from './classHelper';
-
-const prisma = new PrismaClient();
 
 export interface ClassCommitteeInfo {
   leaderName: string;

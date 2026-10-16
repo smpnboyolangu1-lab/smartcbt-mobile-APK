@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { PrismaClient } from '@prisma/client';
+import prisma from '../utils/db';
 import * as XLSX from 'xlsx';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -7,8 +7,6 @@ import * as crypto from 'crypto';
 const archiver = require('archiver');
 import { PdfService } from '../services/pdfService';
 import { syncParentAccountForStudent } from '../utils/parentAccountHelper';
-
-const prisma = new PrismaClient();
 
 /**
  * Helper: Deteksi field biodata yang masih kosong untuk panduan orang tua & TU

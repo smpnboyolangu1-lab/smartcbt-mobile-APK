@@ -1,9 +1,7 @@
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import prisma from '../utils/db';
 import { sendFcmToUser } from '../services/fcmService';
 import { sendSingleWhatsApp } from '../services/whatsappBlastService';
-
-const prisma = new PrismaClient();
 
 // ========================================================
 // 1. DATA KESEHATAN DIGITAL SISWA (MODUL 2-A & 2-F)

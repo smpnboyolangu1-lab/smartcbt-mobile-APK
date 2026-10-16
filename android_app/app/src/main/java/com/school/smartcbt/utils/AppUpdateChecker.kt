@@ -682,39 +682,17 @@ object AppUpdateChecker {
             }
             root.addView(tvBrowser)
 
-            // Fitur Lanjutkan Dahulu (hanya jika bukan force update)
-            if (!update.isForceUpdate) {
-                val btnContinue = android.widget.Button(context).apply {
-                    text = "⏩ Lanjutkan Dahulu"
-                    textSize = 12.5f
-                    setTypeface(null, android.graphics.Typeface.BOLD)
-                    setTextColor(android.graphics.Color.parseColor("#475569"))
-                    setBackgroundColor(android.graphics.Color.parseColor("#F1F5F9"))
-                    val lp = android.widget.LinearLayout.LayoutParams(
-                        android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
-                        (42 * density).toInt()
-                    ).apply {
-                        topMargin = (6 * density).toInt()
-                        bottomMargin = (4 * density).toInt()
-                    }
-                    layoutParams = lp
-                    setOnClickListener {
-                        dialog?.dismiss()
-                    }
-                }
-                root.addView(btnContinue)
-            }
+            // Fitur Tunda / Lanjutkan Dahulu Ditiadakan Sesuai Kebijakan Wajib Update
+            // Seluruh pengguna diwajibkan melakukan pembaruan ke versi terbaru sekarang juga
 
             dialog = AlertDialog.Builder(context)
                 .setView(cardView)
-                .setCancelable(!update.isForceUpdate)
+                .setCancelable(false)
                 .create()
 
-            if (update.isForceUpdate) {
-                dialog.setCanceledOnTouchOutside(false)
-                dialog.setOnKeyListener { _, keyCode, _ ->
-                    keyCode == android.view.KeyEvent.KEYCODE_BACK
-                }
+            dialog.setCanceledOnTouchOutside(false)
+            dialog.setOnKeyListener { _, keyCode, _ ->
+                keyCode == android.view.KeyEvent.KEYCODE_BACK
             }
 
             dialog.setOnDismissListener {
@@ -760,7 +738,7 @@ object AppUpdateChecker {
             try {
                 val downloadUrl = resolveDownloadUrl(context, update.downloadUrl, preferredBaseUrl)
                 val client = OkHttpClient.Builder()
-                    .connectTimeout(45, TimeUnit.SECONDS)
+                    .connectTimeout(15, TimeUnit.SECONDS)
                     .readTimeout(180, TimeUnit.SECONDS)
                     .writeTimeout(180, TimeUnit.SECONDS)
                     .retryOnConnectionFailure(true)
@@ -768,25 +746,30 @@ object AppUpdateChecker {
 
                 val cleanVer = update.versionName.trim().removePrefix("v")
                 val githubTagUrl = "https://github.com/smpnboyolangu1-lab/smartcbt-mobile-APK/releases/download/v$cleanVer/SmartCBT_v$cleanVer.apk"
-                val githubLatestUrl = "https://github.com/smpnboyolangu1-lab/smartcbt-mobile-APK/releases/latest/download/SmartCBT_latest.apk"
 
                 val targetUrls = mutableListOf<String>()
 
-                // 1. Prioritaskan URL GitHub Releases CDN (Kecepatan Penuh & Tanpa Beban Server Sekolah)
-                if (downloadUrl.contains("github.com", ignoreCase = true)) {
-                    targetUrls.add(downloadUrl)
-                    if (downloadUrl != githubTagUrl) targetUrls.add(githubTagUrl)
-                    if (downloadUrl != githubLatestUrl) targetUrls.add(githubLatestUrl)
-                } else {
-                    targetUrls.add(githubTagUrl)
-                    targetUrls.add(githubLatestUrl)
+                // 1. PRIORITAS UTAMA: Unduh langsung dari server lokal / portal sekolah sesuai downloadUrl
+                if (downloadUrl.isNotBlank()) {
                     targetUrls.add(downloadUrl)
                 }
 
-                // 2. Fallback darurat ke server sekolah jika GitHub tidak terjangkau
-                val serverFallback = "https://cbt.smpn1boyolangu.my.id/uploads/smartcbt-latest.apk"
-                if (!targetUrls.contains(serverFallback)) {
-                    targetUrls.add(serverFallback)
+                // 2. Fallback endpoint resmi server lokal sekolah
+                val currentBase = preferredBaseUrl.ifBlank { ApiClient.getBaseServerUrl(context) }.trimEnd('/')
+                val directServerApk = "$currentBase/uploads/smartcbt-latest.apk"
+                if (!targetUrls.contains(directServerApk)) {
+                    targetUrls.add(directServerApk)
+                }
+
+                val publicServerFallback = "https://cbt.smpn1boyolangu.my.id/uploads/smartcbt-latest.apk"
+                if (!targetUrls.contains(publicServerFallback)) {
+                    targetUrls.add(publicServerFallback)
+                }
+
+                // 3. Fallback terakhir ke GitHub Releases HANYA spesifik tag versi rilis ini
+                // JANGAN pernah mengunduh 'SmartCBT_latest.apk' dari GitHub releases/latest karena dapat mengarah ke build lama yang memicu downgrade loop!
+                if (githubTagUrl.isNotBlank() && !targetUrls.contains(githubTagUrl)) {
+                    targetUrls.add(githubTagUrl)
                 }
 
                 var response: okhttp3.Response? = null
@@ -919,8 +902,8 @@ object AppUpdateChecker {
 
     private fun launchPackageInstaller(context: Context, apkFile: File, fallbackUrl: String = "") {
         try {
-            if (!apkFile.exists() || apkFile.length() < 15 * 1024 * 1024) {
-                Toast.makeText(context, "Berkas installer tidak lengkap atau rusak (${apkFile.length() / (1024 * 1024)} MB dari 18.5 MB). Harap unduh ulang.", Toast.LENGTH_LONG).show()
+            if (!apkFile.exists() || apkFile.length() < 5 * 1024 * 1024) {
+                Toast.makeText(context, "Berkas installer tidak lengkap atau rusak (${apkFile.length() / (1024 * 1024)} MB). Harap unduh ulang.", Toast.LENGTH_LONG).show()
                 apkFile.delete()
                 return
             }

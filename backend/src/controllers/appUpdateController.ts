@@ -22,41 +22,41 @@ export const getAppVersion = async (req: Request, res: Response) => {
 
         let config = await prisma.appVersionConfig.findUnique({ where: { id: 'latest' } });
         
-        const releaseNotes296 = '⚠️ PEMBARUAN SISTEM RESMI: Smart CBT v2.9.6 (Build 176)\n' +
-            '1. Alur Rantai Cuti Guru 360°: Rekap komprehensif kehadiran, keterlambatan (kali & menit), alfa, izin/sakit, dan cuti disetujui kurikulum lengkap dengan rincian hari & disposisi guru piket.\n' +
-            '2. Izin Darurat Siswa (Gatepass BK): Tiket QR Gatepass otomatis muncul langsung di layar siswa setelah persetujuan Guru BK tanpa pemindaian ulang di meja BK, siap dipindai Satpam di gerbang.\n' +
-            '3. Tahfiz Juz 30 Real-Time: Setoran menunggu nilai otomatis muncul di riwayat penyerahan dengan status ustadz penilai; pemutakhiran guru PAI aktif (Munawir, Brian, Eny Astuti).\n' +
-            '4. Integrasi Menu & Navigasi Rapi: Tab "Tugas & Ujian" memadukan tugas harian, PR, dan ulangan harian secara elegan dengan kontrol penuh di portal web kurikulum.';
+        const releaseNotes297 = '⚡ PEMBARUAN SISTEM RESMI: Smart CBT v2.9.7 (Build 177)\n' +
+            '1. Optimalisasi Kontak Darurat Terpadu: Nomor darurat (Puskesmas Boyolangu, PSC 119, Satpam Sekolah, Polsek) tersinkronisasi dinamis dari portal sekolah ke seluruh APK.\n' +
+            '2. Pembaruan Humanis Perpustakaan: Peniadaan denda keterlambatan dan jaminan ijazah/rapor tidak tertahan; penambahan kartu anggota digital dengan barcode.\n' +
+            '3. Presensi & Monitoring KBM Akurat: Perbaikan sinkronisasi zona waktu WIB pada layanan UKS dan penugasan guru piket.\n' +
+            '4. Peningkatan Keamanan & Kecepatan Unduhan: Unduhan update otomatis langsung dari server sekolah lokal dengan verifikasi checksum SHA-256.';
 
-        const targetGithubUrl = `${GITHUB_RELEASE_BASE}/download/v2.9.6/SmartCBT_v2.9.6.apk`;
+        const defaultDownloadUrl = '/uploads/smartcbt-latest.apk';
 
-        if (!config || config.versionCode < 176 || !config.isForceUpdate || config.downloadUrl?.includes('adiprayitno')) {
+        if (!config || config.versionCode < 177 || config.downloadUrl?.includes('adiprayitno')) {
             config = await prisma.appVersionConfig.upsert({
                 where: { id: 'latest' },
                 update: {
-                    versionCode: 176,
-                    versionName: '2.9.6',
-                    downloadUrl: targetGithubUrl,
-                    fileSizeMb: 18.5,
-                    releaseNotes: releaseNotes296,
-                    isForceUpdate: true
+                    versionCode: 177,
+                    versionName: '2.9.7',
+                    downloadUrl: defaultDownloadUrl,
+                    fileSizeMb: 18.2,
+                    releaseNotes: releaseNotes297,
+                    isForceUpdate: false
                 },
                 create: {
                     id: 'latest',
-                    versionCode: 176,
-                    versionName: '2.9.6',
-                    downloadUrl: targetGithubUrl,
-                    fileSizeMb: 18.5,
-                    releaseNotes: releaseNotes296,
-                    isForceUpdate: true
+                    versionCode: 177,
+                    versionName: '2.9.7',
+                    downloadUrl: defaultDownloadUrl,
+                    fileSizeMb: 18.2,
+                    releaseNotes: releaseNotes297,
+                    isForceUpdate: false
                 }
             });
         }
 
-        // Pastikan URL download mengarah ke GitHub Releases CDN resmi sekolah atau server lokal
+        // Pastikan URL download mengarah ke server lokal jika belum diatur atau kosong
         let resolvedDownloadUrl = config.downloadUrl;
         if (!resolvedDownloadUrl || resolvedDownloadUrl.includes('adiprayitno')) {
-            resolvedDownloadUrl = `${GITHUB_RELEASE_BASE}/download/v${config.versionName}/SmartCBT_v${config.versionName}.apk`;
+            resolvedDownloadUrl = '/uploads/smartcbt-latest.apk';
         }
 
         const payload = {
@@ -121,10 +121,15 @@ export const checkVersionV1 = async (req: Request, res: Response) => {
         const latestVersion = config?.versionName || '2.9.4';
         const minSupportedVersion = '2.9.4';
 
-        const rawUrl = config?.downloadUrl;
-        let fullDownloadUrl = rawUrl && rawUrl.startsWith('http') && !rawUrl.includes('adiprayitno')
-            ? rawUrl
-            : `${GITHUB_RELEASE_BASE}/download/v${latestVersion}/SmartCBT_v${latestVersion}.apk`;
+        const rawUrl = config?.downloadUrl || '';
+        let fullDownloadUrl = '/uploads/smartcbt-latest.apk';
+        if (rawUrl && rawUrl.startsWith('http') && !rawUrl.includes('adiprayitno')) {
+            fullDownloadUrl = rawUrl;
+        } else if (rawUrl && rawUrl.startsWith('/')) {
+            fullDownloadUrl = `https://cbt.smpn1boyolangu.my.id${rawUrl}`;
+        } else {
+            fullDownloadUrl = `https://cbt.smpn1boyolangu.my.id/uploads/smartcbt-latest.apk`;
+        }
 
         res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
         res.set('Pragma', 'no-cache');
@@ -137,8 +142,8 @@ export const checkVersionV1 = async (req: Request, res: Response) => {
                 latest_version: latestVersion,
                 min_supported_version: minSupportedVersion,
                 download_url: fullDownloadUrl,
-                changelog: config?.releaseNotes || "⚠️ Pembaruan Wajib: Seluruh versi di bawah 2.9.4 ditutup demi keamanan sistem.",
-                is_force_update: true
+                changelog: config?.releaseNotes || "Pembaruan sistem resmi Smart CBT.",
+                is_force_update: config?.isForceUpdate ?? false
             }
         });
     } catch (error) {

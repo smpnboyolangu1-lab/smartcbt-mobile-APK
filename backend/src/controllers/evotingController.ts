@@ -1,8 +1,6 @@
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import prisma from '../utils/db';
 import crypto from 'crypto';
-
-const prisma = new PrismaClient();
 
 // Helper untuk membaca pengaturan dari model Settings
 async function getEvotingSettings() {

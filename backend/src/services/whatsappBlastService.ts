@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import prisma from '../utils/db';
 import makeWASocket, {
   DisconnectReason,
   useMultiFileAuthState,
@@ -9,8 +9,6 @@ import pino from 'pino';
 import QRCode from 'qrcode';
 import fs from 'fs';
 import path from 'path';
-
-const prisma = new PrismaClient();
 
 export interface WaBlastRecipient {
   studentId: string;

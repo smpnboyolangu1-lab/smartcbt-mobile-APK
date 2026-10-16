@@ -5,7 +5,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import path from "path";
 import fs from "fs";
-import { PrismaClient } from "@prisma/client";
+import prisma from "./utils/db";
 import { classifyFolder } from "./utils/folderClassifier";
 import { initMasterSchedulers } from "./services/systemScheduler";
 import { initKurikulumScheduler } from "./services/kurikulumScheduler";
@@ -27,7 +27,6 @@ io.on("connection", (socket) => {
   });
 });
 
-const prisma = new PrismaClient();
 const PORT = process.env.PORT || 3000;
 
 
@@ -69,7 +68,6 @@ app.get([
   '/smartschool.apk'
 ], (req, res) => {
   const candidateApkPaths = [
-    path.join(process.cwd(), "uploads/SmartCBT_v2.8.88.apk"),
     path.join(process.cwd(), "uploads/smartcbt-latest.apk"),
     path.join(process.cwd(), "public/uploads/smartcbt-latest.apk"),
     path.join(process.cwd(), "public/smartcbt-latest.apk"),
@@ -683,8 +681,8 @@ async function ensureDefaultSecurityAndDisciplineData() {
 import { initTahfizTables } from './utils/tahfizDbInit';
 import { initKesiswaanDriveTables } from './utils/kesiswaanDbInit';
 
-const server = httpServer.listen(Number(PORT), '0.0.0.0', () => {
-  console.log(`[Server] Running on port ${PORT} (0.0.0.0 IPv4 listener)`);
+const server = httpServer.listen({ port: Number(PORT), host: '::', ipv6Only: false }, () => {
+  console.log(`[Server] Running on port ${PORT} (Dual-stack IPv4 0.0.0.0 & IPv6 [::])`);
   ensureDefaultSecurityAndDisciplineData();
   initTahfizTables().catch(e => console.warn('[TahfizInit]', e));
   initKesiswaanDriveTables().catch(e => console.warn('[KesiswaanInit]', e));

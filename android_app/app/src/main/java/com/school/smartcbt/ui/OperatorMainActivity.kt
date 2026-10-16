@@ -1067,7 +1067,14 @@ class OperatorMainActivity : AppCompatActivity() {
             return
         }
 
-        val prayerType = if (day.equals("JUMAT", ignoreCase = true) || classes == "ALL_MALE") "JUMAT" else "DHUHUR"
+        val cleanDayUpper = day.uppercase()
+        val prayerType = if (cleanDayUpper == "JUMAT" && classes == "ALL_MALE") {
+            "JUMAT"
+        } else if ((cleanDayUpper == "JUMAT" && !classes.contains("ALL_MALE")) || (cleanDayUpper == "SABTU" && classes.contains("IX-K"))) {
+            "DHUHA"
+        } else {
+            "DHUHUR"
+        }
         val body = mapOf(
             "dayOfWeek" to day,
             "classes" to classes,

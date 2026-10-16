@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import prisma from '../utils/db';
 import bcrypt from 'bcrypt';
 import path from 'path';
 import fs from 'fs';
@@ -7,8 +7,6 @@ import { checkStudentCommitteeRole, getClassCommittee } from '../utils/classComm
 import { normalizeClassVariations, resolveHomeroomTeacher, resolveCounselorTeacher, canonicalClassName } from '../utils/classHelper';
 import { supabase } from '../utils/supabaseClient';
 import { formatTimeWibWithSuffix } from '../utils/dateUtils';
-
-const prisma = new PrismaClient();
 
 // 1. Get Complete Student / User Profile
 export const getStudentProfile = async (req: Request, res: Response): Promise<void> => {

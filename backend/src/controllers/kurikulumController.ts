@@ -925,6 +925,124 @@ export const getRekapPresensiGuru = async (req: AuthRequest, res: Response) => {
 };
 
 /**
+ * REKAP 360° PRESENSI & CUTI PRIBADI GURU
+ * GET /api/teacher/attendance/recap
+ * Dapat diakses oleh setiap guru terautentikasi untuk melihat rekap diri sendiri
+ */
+export const getMyTeacherAttendanceRecap = async (req: AuthRequest, res: Response) => {
+    try {
+        const user = req.user;
+        if (!user) return res.status(401).json({ success: false, message: 'Sesi login tidak sah.' });
+
+        const guruId = user.id;
+        const now = new Date();
+        // Default: Bulan berjalan (1 s/d akhir bulan)
+        const startPeriod = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0);
+        const endPeriod = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+
+        const [myGeo, myTeachingSessions, myLeaves] = await Promise.all([
+            (prisma as any).teacherGeofenceAttendance.findMany({
+                where: {
+                    guruId,
+                    waktuTabMasukServer: { gte: startPeriod, lte: endPeriod }
+                }
+            }).catch(() => []),
+            (prisma as any).teachingSession.findMany({
+                where: {
+                    teacherId: guruId,
+                    checkInTime: { gte: startPeriod, lte: endPeriod }
+                },
+                orderBy: { checkInTime: 'desc' }
+            }).catch(() => []),
+            (prisma as any).teacherLeaveRequest.findMany({
+                where: {
+                    teacherId: guruId
+                },
+                orderBy: { createdAt: 'desc' }
+            }).catch(() => [])
+        ]);
+
+        let tepatWaktu = myTeachingSessions.length;
+        let terlambat = 0;
+        let terlambatMenitTotal = 0;
+        let izin = 0;
+        let sakit = 0;
+        let alfa = 0;
+        let cutiCount = 0;
+        let cutiHariTotal = 0;
+        const cutiApprovedList: any[] = [];
+
+        myGeo.forEach((g: any) => {
+            const st = (g.status || '').toUpperCase();
+            if (st === 'TERLAMBAT') {
+                terlambat++;
+                terlambatMenitTotal += (g.lateMinutes || 15);
+            } else if (st === 'IZIN') izin++;
+            else if (st === 'SAKIT') sakit++;
+            else if (st === 'TIDAK_HADIR' || st === 'ALFA') alfa++;
+            else if (st === 'HADIR') tepatWaktu++;
+        });
+
+        myLeaves.forEach((l: any) => {
+            const cat = (l.category || '').toUpperCase();
+            const startD = new Date(l.startDate);
+            const endD = new Date(l.endDate);
+            const days = Math.max(1, Math.round((endD.getTime() - startD.getTime()) / (24 * 3600 * 1000)) + 1);
+
+            if (l.status === 'APPROVED' && cat.includes('CUTI')) {
+                cutiCount++;
+                cutiHariTotal += days;
+                cutiApprovedList.push({
+                    id: l.id,
+                    kategori: l.category,
+                    startDate: startD.toISOString().split('T')[0],
+                    endDate: endD.toISOString().split('T')[0],
+                    durasiHari: days,
+                    alasan: l.reason,
+                    approvedBy: l.approvedBy || 'Kurikulum',
+                    approvalNotes: l.approvalNotes || l.catatanKurikulum || 'Disetujui',
+                    dispositionToPiket: Boolean(l.dispositionToPiket)
+                });
+            } else if (l.status === 'APPROVED' && cat.includes('SAKIT')) {
+                sakit += days;
+            } else if (l.status === 'APPROVED' && (cat.includes('IZIN') || cat.includes('DINAS'))) {
+                izin += days;
+            }
+        });
+
+        const hadirTotal = tepatWaktu + terlambat;
+        const tidakMasukCount = izin + sakit + alfa + cutiHariTotal;
+        const totalHariKerja = hadirTotal + tidakMasukCount || 1;
+        const persentase = Number(((hadirTotal / totalHariKerja) * 100).toFixed(1));
+
+        res.json({
+            success: true,
+            bulanIni: now.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' }),
+            rekap: {
+                guruId,
+                nama: user.name,
+                tepatWaktu,
+                terlambat,
+                terlambatMenitTotal,
+                tidakMasukCount,
+                izin,
+                sakit,
+                alfa,
+                cutiCount,
+                cutiHariTotal,
+                cutiApprovedList,
+                hadirTotal,
+                persentaseKehadiran: persentase
+            },
+            myLeaves
+        });
+    } catch (error: any) {
+        console.error('Error getMyTeacherAttendanceRecap:', error);
+        res.status(500).json({ success: false, message: 'Gagal memuat rekap kehadiran guru: ' + error.message });
+    }
+};
+
+/**
  * 9. REKAP PRESENSI SISWA
  * GET /api/kurikulum/rekap/presensi-siswa?periode=&kelas_id=&siswa_id=
  */

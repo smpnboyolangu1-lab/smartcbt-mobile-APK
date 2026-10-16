@@ -687,6 +687,50 @@
                 </div>
             </div>
 
+            <!-- 360° Rekap Kehadiran, Keterlambatan, Izin & Cuti Guru -->
+            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3" id="kpiPersonalRecap">
+                <div class="bg-white border border-emerald-200 rounded-2xl p-4 shadow-sm">
+                    <div class="flex items-center justify-between text-emerald-600 mb-1">
+                        <span class="text-xs font-bold uppercase tracking-wider">Tepat Waktu</span>
+                        <span class="text-lg">🕒</span>
+                    </div>
+                    <div class="text-2xl font-black text-slate-800" id="kpiTeacherTepatWaktu">-</div>
+                    <div class="text-[11px] text-slate-400 mt-0.5">Sesi KBM Hadir Normal</div>
+                </div>
+                <div class="bg-white border border-amber-200 rounded-2xl p-4 shadow-sm">
+                    <div class="flex items-center justify-between text-amber-600 mb-1">
+                        <span class="text-xs font-bold uppercase tracking-wider">Terlambat</span>
+                        <span class="text-lg">⚠️</span>
+                    </div>
+                    <div class="text-2xl font-black text-amber-600" id="kpiTeacherTerlambat">-</div>
+                    <div class="text-[11px] text-slate-400 mt-0.5" id="kpiTeacherTerlambatMenit">0 Menit Akumulasi</div>
+                </div>
+                <div class="bg-white border border-rose-200 rounded-2xl p-4 shadow-sm">
+                    <div class="flex items-center justify-between text-rose-600 mb-1">
+                        <span class="text-xs font-bold uppercase tracking-wider">Tidak Masuk (A)</span>
+                        <span class="text-lg">❌</span>
+                    </div>
+                    <div class="text-2xl font-black text-rose-600" id="kpiTeacherAlfa">-</div>
+                    <div class="text-[11px] text-slate-400 mt-0.5">Tanpa Keterangan / Alfa</div>
+                </div>
+                <div class="bg-white border border-blue-200 rounded-2xl p-4 shadow-sm">
+                    <div class="flex items-center justify-between text-blue-600 mb-1">
+                        <span class="text-xs font-bold uppercase tracking-wider">Izin & Sakit</span>
+                        <span class="text-lg">📩</span>
+                    </div>
+                    <div class="text-2xl font-black text-blue-600" id="kpiTeacherIzinSakit">-</div>
+                    <div class="text-[11px] text-slate-400 mt-0.5" id="kpiTeacherIzinDetail">Izin: 0 • Sakit: 0</div>
+                </div>
+                <div class="bg-white border border-purple-200 rounded-2xl p-4 shadow-sm col-span-2 sm:col-span-1">
+                    <div class="flex items-center justify-between text-purple-600 mb-1">
+                        <span class="text-xs font-bold uppercase tracking-wider">Cuti Disetujui</span>
+                        <span class="text-lg">🏖️</span>
+                    </div>
+                    <div class="text-2xl font-black text-purple-600" id="kpiTeacherCuti">-</div>
+                    <div class="text-[11px] text-slate-400 mt-0.5" id="kpiTeacherCutiHari">0 Hari Kerja Diizinkan</div>
+                </div>
+            </div>
+
             <!-- Two Columns: Form & Riwayat -->
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <!-- Kolom Kiri: Form Pengajuan Izin -->
@@ -4587,7 +4631,7 @@
             const availablePrayers = data.availablePrayers || [];
             const switcherPills = document.getElementById('paiPrayerSwitcherPills');
             if (switcherPills) {
-                if (availablePrayers.length > 1) {
+                if (availablePrayers.length > 0) {
                     switcherPills.innerHTML = availablePrayers.map(ap => {
                         const isCur = ap.prayerType === sched?.prayerType;
                         const label = ap.prayerType === 'DHUHA' ? '🌅 Sesi Dhuha' : (ap.prayerType === 'JUMAT' ? '🕌 Sholat Jumat' : '☀️ Sesi Dhuhur');
@@ -4602,35 +4646,48 @@
             }
 
             const typeLabel = document.getElementById('paiPrayerTypeLabel');
-            if (typeLabel && sched) {
+            const schedClasses = document.getElementById('paiScheduledClasses');
+            const timesEl = document.getElementById('paiPrayerTimes');
+            const notesEl = document.getElementById('paiPrayerNotes');
+            const barCodeEl = document.getElementById('paiActiveBarcodeCode');
+
+            if (!sched) {
+                if (typeLabel) typeLabel.innerText = 'TIDAK ADA JADWAL SESI INI';
+                if (schedClasses) schedClasses.innerText = `Rombel Terjadwal: Tidak ada rombel terjadwal`;
+                if (timesEl) {
+                    const avSess = (data.availablePrayers || []).map(a => a.prayerType).join(' & ');
+                    timesEl.innerText = `ℹ️ Catatan GPAI: Hari ${dayName} terjadwal untuk ${avSess || 'Sholat Dhuhur'}. Sholat Dhuha terjadwal pada hari Jumat & Sabtu pagi (07:00-07:45 WIB).`;
+                }
+                if (notesEl) notesEl.innerText = 'Silakan pilih sesi aktif di atas untuk memantau presensi rombel.';
+                if (barCodeEl) barCodeEl.innerText = '-';
+                return;
+            }
+
+            if (typeLabel) {
                 typeLabel.innerText = sched.prayerType === 'JUMAT' 
                     ? 'SHOLAT JUMAT BERJAMAAH & KEPUTRIAN' 
                     : (sched.prayerType === 'DHUHA' ? 'SHOLAT DHUHA BERJAMAAH (PAGI)' : 'SHOLAT DHUHUR BERJAMAAH');
             }
 
-            const schedClasses = document.getElementById('paiScheduledClasses');
-            if (schedClasses && sched) {
+            if (schedClasses) {
                 schedClasses.innerText = `Rombel Terjadwal: ${sched.classNames || 'Seluruh Siswa'}`;
             }
 
-            const timesEl = document.getElementById('paiPrayerTimes');
-            if (timesEl && sched) {
+            if (timesEl) {
                 timesEl.innerText = `💧 Mulai Wudhu: ${sched.wudhuTime || (sched.prayerType === 'DHUHA' ? '06:45' : '11:45')} WIB • 📷 Scan Presensi: ${sched.scanStartTime || (sched.prayerType === 'DHUHA' ? '07:00' : '12:00')} - ${sched.scanEndTime || (sched.prayerType === 'DHUHA' ? '07:45' : '12:30')} WIB`;
             }
 
-            const notesEl = document.getElementById('paiPrayerNotes');
-            if (notesEl && sched) {
+            if (notesEl) {
                 notesEl.innerText = sched.notes || 'Siswa wajib hadir dan memindai barcode statik di masjid sekolah.';
             }
 
-            const barCodeEl = document.getElementById('paiActiveBarcodeCode');
-            if (barCodeEl && sched) {
+            if (barCodeEl) {
                 barCodeEl.innerText = sched.barcodeKey || (sched.prayerType === 'DHUHA' ? 'BARCODE_SHOLAT_DHUHA_MASJID' : 'BARCODE_SHOLAT_DHUHUR_MASJID');
             }
 
             // Sync monitoring prayer type selector
             const monTypeSelect = document.getElementById('selectPaiMonitoringPrayerType');
-            if (monTypeSelect && sched) {
+            if (monTypeSelect) {
                 monTypeSelect.value = sched.prayerType;
             }
 
@@ -4648,7 +4705,7 @@
             try {
                 const res = await authFetch(`/api/prayer/today-schedule?prayerType=${prayerType}`);
                 const data = await res.json();
-                if (data.success && data.schedule) {
+                if (data.success) {
                     currentPaiPrayerSchedule = data.schedule;
                     renderPrayerScheduleInfo(data);
                     loadPaiClassMonitoring();
@@ -4841,8 +4898,10 @@
                 let statusBadge = '<span class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">⚠️ Belum Sholat</span>';
                 if (st === 'SHOLAT_BERJAMAAH') {
                     statusBadge = '<span class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">🕌 Sudah Sholat</span>';
+                } else if (st === 'HADIR_KEPUTRIAN') {
+                    statusBadge = '<span class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-pink-100 text-pink-800 border border-pink-200">🌸 Hadir Keputrian</span>';
                 } else if (st === 'BERHALANGAN_HAID') {
-                    statusBadge = '<span class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200">🌸 Berhalangan (Haid)</span>';
+                    statusBadge = '<span class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200">🩸 Berhalangan (Haid)</span>';
                 }
 
                 let timeStr = '-';
@@ -4852,9 +4911,11 @@
                     } catch(e) {}
                 }
 
-                const methodStr = s.method === 'STATIC_BARCODE' 
-                    ? '<span class="text-emerald-700 font-bold">📲 Scan Mandiri</span>' 
-                    : (s.method === 'MANUAL_PAI' ? '<span class="text-indigo-700 font-bold">✍️ Guru PAI</span>' : '<span class="text-slate-400">-</span>');
+                const methodStr = s.method === 'BARCODE_KEPUTRIAN'
+                    ? '<span class="text-pink-700 font-bold">🌸 Barcode Keputrian</span>'
+                    : (s.method === 'STATIC_BARCODE' 
+                        ? '<span class="text-emerald-700 font-bold">📲 Scan Mandiri</span>' 
+                        : (s.method === 'MANUAL_PAI' ? '<span class="text-indigo-700 font-bold">✍️ Guru PAI</span>' : '<span class="text-slate-400">-</span>'));
 
                 let geoCell = '<span class="text-slate-400 text-[11px]">-</span>';
                 if (s.gps || (s.lat && s.lng)) {
@@ -4872,9 +4933,12 @@
                     }
                 }
 
-                const haidBtn = isFemale ? `
-                    <button onclick="handlePaiMarkStudent('${s.id}', 'BERHALANGAN_HAID', 'Keputrian')" class="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg font-bold text-[10px] transition-colors" title="Izin Berhalangan Syar'i / Keputrian">
-                        🌸 Haid
+                const femaleBtns = isFemale ? `
+                    <button onclick="handlePaiMarkStudent('${s.id}', 'HADIR_KEPUTRIAN', 'Hadir Keputrian')" class="px-2 py-1 bg-pink-600 hover:bg-pink-700 text-white rounded-lg font-bold text-[10px] shadow transition-colors cursor-pointer" title="Tandai Hadir Kegiatan Keputrian">
+                        🌸 Keputrian
+                    </button>
+                    <button onclick="handlePaiMarkStudent('${s.id}', 'BERHALANGAN_HAID', 'Keputrian Haid')" class="px-2 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-bold text-[10px] shadow transition-colors cursor-pointer" title="Izin Berhalangan Syar'i (Haid)">
+                        🩸 Haid
                     </button>
                 ` : '';
 
@@ -4898,10 +4962,10 @@
                         <td class="p-3.5 text-center">${geoCell}</td>
                         <td class="p-3.5 text-right">
                             <div class="flex items-center justify-end gap-1.5">
-                                <button onclick="handlePaiMarkStudent('${s.id}', 'SHOLAT_BERJAMAAH', 'Hadir Sholat')" class="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-[10px] shadow transition-colors" title="Tandai Sudah Sholat Berjamaah">
+                                <button onclick="handlePaiMarkStudent('${s.id}', 'SHOLAT_BERJAMAAH', 'Hadir Sholat')" class="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-[10px] shadow transition-colors cursor-pointer" title="Tandai Sudah Sholat Berjamaah">
                                     ✅ Sholat
                                 </button>
-                                ${haidBtn}
+                                ${femaleBtns}
                             </div>
                         </td>
                     </tr>
@@ -6292,6 +6356,34 @@
         // FITUR IZIN GURU (KE KURIKULUM & PIKET)
         // ==========================================
         async function loadMyTeacherLeaves() {
+            // Ambil Rekap Kehadiran, Keterlambatan & Cuti 360° Guru
+            try {
+                const recapRes = await authFetch('/api/teacher/attendance/recap');
+                const recapData = await recapRes.json();
+                if (recapData.success && recapData.rekap) {
+                    const r = recapData.rekap;
+                    const elTepat = document.getElementById('kpiTeacherTepatWaktu');
+                    const elTerlambat = document.getElementById('kpiTeacherTerlambat');
+                    const elTerlambatMenit = document.getElementById('kpiTeacherTerlambatMenit');
+                    const elAlfa = document.getElementById('kpiTeacherAlfa');
+                    const elIzinSakit = document.getElementById('kpiTeacherIzinSakit');
+                    const elIzinDetail = document.getElementById('kpiTeacherIzinDetail');
+                    const elCuti = document.getElementById('kpiTeacherCuti');
+                    const elCutiHari = document.getElementById('kpiTeacherCutiHari');
+
+                    if (elTepat) elTepat.textContent = `${r.tepatWaktu || 0}x`;
+                    if (elTerlambat) elTerlambat.textContent = `${r.terlambat || 0}x`;
+                    if (elTerlambatMenit) elTerlambatMenit.textContent = `${r.terlambatMenitTotal || 0} Menit Akumulasi`;
+                    if (elAlfa) elAlfa.textContent = `${r.alfa || 0}x`;
+                    if (elIzinSakit) elIzinSakit.textContent = `${(r.izin || 0) + (r.sakit || 0)}x`;
+                    if (elIzinDetail) elIzinDetail.textContent = `Izin: ${r.izin || 0} • Sakit: ${r.sakit || 0}`;
+                    if (elCuti) elCuti.textContent = `${r.cutiCount || 0}x`;
+                    if (elCutiHari) elCutiHari.textContent = `${r.cutiHariTotal || 0} Hari Disetujui Kurikulum`;
+                }
+            } catch (errRecap) {
+                console.error('Error loadTeacherRecap in Portal:', errRecap);
+            }
+
             const tbody = document.getElementById('tableMyLeavesBody');
             if (!tbody) return;
             tbody.innerHTML = '<tr><td colspan="7" class="p-6 text-center text-slate-400">Memuat riwayat permohonan izin Anda...</td></tr>';

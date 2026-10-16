@@ -1,8 +1,6 @@
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import prisma from '../utils/db';
 import { formatTimeWib } from '../utils/dateUtils';
-
-const prisma = new PrismaClient();
 
 // ========================================================
 // MODUL ESTAFET SESI MENGAJAR GURU (ROOM HANDOVER VIA NFC/QR)

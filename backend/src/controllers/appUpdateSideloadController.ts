@@ -1,10 +1,8 @@
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import prisma from '../utils/db';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
-
-const prisma = new PrismaClient();
 
 // ========================================================
 // 1. CEK VERSI APLIKASI & STAGED ROLLOUT (MODUL 4-A & 13-C)

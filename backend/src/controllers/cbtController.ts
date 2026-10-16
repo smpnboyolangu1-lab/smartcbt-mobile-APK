@@ -236,15 +236,21 @@ export function generateClassTokenPrefix(className: string): string {
 }
 
 export function getClassExamToken(examId: string, className: string, defaultExamToken?: string): string {
-    if (!className || className === 'ALL' || className === 'Semua Kelas') {
-        if (defaultExamToken && defaultExamToken.length === 5) return defaultExamToken.toUpperCase();
-        return (defaultExamToken || 'CBT26').substring(0, 5).toUpperCase();
+    const cleanDefault = defaultExamToken ? defaultExamToken.trim().toUpperCase() : '';
+    if (!className || className === 'ALL' || className === 'Semua Kelas' || className === 'Semua Kelas Diawasi') {
+        if (cleanDefault && cleanDefault !== 'OFF') return cleanDefault;
+        return 'CBT26';
     }
     const tokens = loadClassTokens();
     const cleanClass = className.trim().toUpperCase();
     const key = `${examId}_${cleanClass}`;
-    if (tokens[key] && tokens[key].length === 5) {
-        return tokens[key].toUpperCase();
+    if (tokens[key] && tokens[key].trim().length >= 4) {
+        return tokens[key].trim().toUpperCase();
+    }
+    if (cleanDefault && cleanDefault !== 'OFF') {
+        tokens[key] = cleanDefault;
+        saveClassTokens(tokens);
+        return cleanDefault;
     }
     const newToken = generate5CharToken();
     tokens[key] = newToken;
@@ -256,7 +262,7 @@ export function setClassExamToken(examId: string, className: string, customToken
     const tokens = loadClassTokens();
     const cleanClass = className.trim().toUpperCase();
     const key = `${examId}_${cleanClass}`;
-    const newToken = (customToken && customToken.trim().length === 5) ? customToken.trim().toUpperCase() : generate5CharToken();
+    const newToken = (customToken && customToken.trim().length >= 4) ? customToken.trim().toUpperCase() : generate5CharToken();
     tokens[key] = newToken;
     saveClassTokens(tokens);
     return newToken;
@@ -2071,20 +2077,11 @@ export const getProctorCbtTokens = async (req: Request, res: Response) => {
 export const regenerateExamToken = async (req: Request, res: Response) => {
     let { examId, className } = req.body;
     const user = (req as any).user;
-    const isStaffAdmin = ['ADMIN', 'OPERATOR'].includes(user?.role || '');
+    const isStaffAdmin = ['ADMIN', 'OPERATOR', 'KURIKULUM'].includes(user?.role || '');
 
     try {
         const exam = await prisma.exam.findUnique({ where: { id: examId } });
         if (!exam) return res.status(404).json({ success: false, message: 'Ujian tidak ditemukan' });
-
-        // Cek apakah token sudah saatnya dirilis
-        const releaseInfo = isExamTokenReleased(exam);
-        if (!releaseInfo.isReleased && !isStaffAdmin) {
-            return res.status(403).json({
-                success: false,
-                message: releaseInfo.reason || 'Token ujian ini belum dapat diacak karena baru dirilis 1 jam sebelum ujian.'
-            });
-        }
 
         // Resolusi className otomatis jika tidak dikirim dari proctor
         if (!className || className === 'ALL' || className === 'Semua Kelas' || className === 'Semua Kelas Diawasi') {
@@ -2102,55 +2099,44 @@ export const regenerateExamToken = async (req: Request, res: Response) => {
             }
         }
 
-        if (className && className !== 'ALL' && className !== 'Semua Kelas') {
-            const newToken = setClassExamToken(examId, className);
-            resetExamTokenTimer(examId);
-            broadcastMonitoringEvent({
-                type: 'TOKEN_UPDATED',
-                examId,
-                className,
-                token: newToken,
-                isActive: true,
-                remainingSeconds: 900,
-                tokenLifetimeSeconds: 900,
-                proctorName: user?.name || 'Pengawas Ruang'
-            });
-            return res.json({
-                success: true,
-                message: `Token baru 5 digit untuk ruang ${className} berhasil dirilis: ${newToken}`,
-                token: newToken,
-                className,
-                remainingSeconds: 900,
-                tokenLifetimeSeconds: 900
-            });
-        }
-
         const newToken = generate5CharToken();
+
+        // Selalu update token utama ujian di database agar tersinkronisasi 100% dengan Portal
         const updatedExam = await prisma.exam.update({
             where: { id: examId },
             data: { token: newToken, isTokenActive: true }
         });
+
+        if (className && className !== 'ALL' && className !== 'Semua Kelas') {
+            setClassExamToken(examId, className, newToken);
+        }
+
         resetExamTokenTimer(examId);
         broadcastMonitoringEvent({
             type: 'TOKEN_UPDATED',
             examId,
-            token: updatedExam.token,
-            isActive: updatedExam.isTokenActive,
+            className: className || 'ALL',
+            token: newToken,
+            isActive: true,
             remainingSeconds: 900,
             tokenLifetimeSeconds: 900,
-            proctorName: user?.name || 'Administrator'
+            proctorName: user?.name || 'Pengawas Ruang'
         });
-        res.json({
+
+        await logAudit(req, 'REGENERATE_CBT_TOKEN', `ExamId: ${examId}, Class: ${className || 'ALL'}`, { token: newToken });
+
+        return res.json({
             success: true,
-            message: 'Token baru 5 digit berhasil dirilis',
+            message: `Token CBT resmi dari server berhasil diperbarui: ${newToken}`,
             token: newToken,
+            className: className || 'ALL',
             exam: updatedExam,
             remainingSeconds: 900,
             tokenLifetimeSeconds: 900
         });
-    } catch (error) {
+    } catch (error: any) {
         console.error('Error in regenerateExamToken:', error);
-        res.status(500).json({ success: false, message: 'Gagal merilis token baru' });
+        res.status(500).json({ success: false, message: 'Gagal merilis token baru: ' + error.message });
     }
 };
 

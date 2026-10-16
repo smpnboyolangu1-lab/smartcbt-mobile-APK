@@ -1,11 +1,9 @@
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import prisma from '../utils/db';
 import os from 'os';
 import fs from 'fs';
 import path from 'path';
 import { getCpuTelemetry } from '../utils/systemTelemetry';
-
-const prisma = new PrismaClient();
 
 // ========================================================
 // 1. DASHBOARD METRIK REAL-TIME SERVER (MODUL 11-A)

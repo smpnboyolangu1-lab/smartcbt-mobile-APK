@@ -1,8 +1,6 @@
 import { Request, Response } from "express";
-import { PrismaClient } from "@prisma/client";
+import prisma from "../utils/db";
 import { DEFAULT_FEATURE_SETTINGS } from "../scripts/seedFeatureFlags";
-
-const prisma = new PrismaClient();
 
 // Helper untuk mengambil setting bertipe string atau default
 async function getSettingValue(key: string, defaultValue: string = ""): Promise<string> {

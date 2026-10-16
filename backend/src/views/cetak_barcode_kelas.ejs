@@ -85,6 +85,7 @@
                     <button type="button" onclick="quickFilter('ALL')" id="btnFilterAll" class="px-2.5 py-1 rounded-lg font-bold bg-blue-600 text-white">Semua</button>
                     <button type="button" onclick="quickFilter('BK')" id="btnFilterBk" class="px-2.5 py-1 rounded-lg font-bold text-slate-300 hover:text-white">🏢 Ruang BK</button>
                     <button type="button" onclick="quickFilter('MUSHOLA')" id="btnFilterMushola" class="px-2.5 py-1 rounded-lg font-bold text-slate-300 hover:text-white">🕌 Mushola</button>
+                    <button type="button" onclick="quickFilter('KEPUTRIAN')" id="btnFilterKeputrian" class="px-2.5 py-1 rounded-lg font-bold text-slate-300 hover:text-white">🌸 Keputrian</button>
                     <button type="button" onclick="quickFilter('CLASSES')" id="btnFilterClasses" class="px-2.5 py-1 rounded-lg font-bold text-slate-300 hover:text-white">📋 Kelas</button>
                 </div>
 
@@ -93,6 +94,7 @@
                     <optgroup label="⭐ Titik Khusus Sekolah">
                         <option value="BK">🏢 Ruang BK (Siswa Terlambat &amp; Izin Pulang)</option>
                         <option value="MUSHOLA">🕌 Masjid / Mushola (Sholat Dhuhur &amp; Jumat)</option>
+                        <option value="KEPUTRIAN">🌸 Pos Keputrian (Seluruh Siswi Putri Hari Jumat)</option>
                     </optgroup>
                     <optgroup label="📋 Ruang Kelas" id="optgroupClasses">
                         <!-- Populated dynamically -->
@@ -207,6 +209,48 @@
                     'Bagi siswi yang sedang berhalangan (Haid), presensi dicatat khusus oleh Guru PAI pada dashboard pembinaan keputrian.',
                     'Hasil presensi otomatis tercatat pada Rekapitulasi Guru PAI, Guru BK, dan Notifikasi Orang Tua.'
                 ]
+            },
+            {
+                id: 'STATION_KEPUTRIAN',
+                specialType: 'KEPUTRIAN',
+                name: 'Ruang Pembinaan Keputrian Siswi Muslimah (Jumat)',
+                badgeText: 'POS PEMBINAAN KEPUTRIAN',
+                badgeSub: 'Laminating & Tempel di Pintu Masuk Ruang Keputrian / Aula',
+                bannerSubtitle: 'TITIK PRESENSI RESMI KEGIATAN KEPUTRIAN SELURUH SISWI PUTRI',
+                bannerTitle: 'POS KEPUTRIAN SMP NEGERI 1 BOYOLANGU',
+                bannerGradient: 'from-pink-900 via-rose-900 to-slate-900',
+                locationInfo: '📍 Lokasi: Ruang Keputrian / Aula Terbuka • Khusus Seluruh Siswi Putri Muslimah (Kelas VII, VIII, IX)',
+                gateInLabel: '1. PRESENSI MASUK KEPUTRIAN JUMAT',
+                gateInSub: 'Scan saat tiba di ruang keputrian (seluruh siswi suci maupun berhalangan)',
+                gateInBarcode: 'BARCODE_KEPUTRIAN_MASUK',
+                gateInFooter: 'Jumat (11.45 - 12.45 WIB) • Pembina: B. Eny Astuti & B. Mavrik',
+                gateInColor: '#db2777',
+                gateInTheme: {
+                    border: 'border-pink-500',
+                    bg: 'bg-pink-50/50',
+                    badge: 'bg-pink-600',
+                    text: 'text-pink-950',
+                    badgeSub: 'text-pink-800'
+                },
+                gateOutLabel: '2. PRESENSI KEPULANGAN KEPUTRIAN',
+                gateOutSub: 'Scan saat kegiatan pembinaan keputrian selesai & bersiap pulang',
+                gateOutBarcode: 'BARCODE_KEPUTRIAN_PULANG',
+                gateOutFooter: 'Jumat pukul 12.45 WIB • Siswi diizinkan pulang setelah tuntas',
+                gateOutColor: '#be185d',
+                gateOutTheme: {
+                    border: 'border-rose-500',
+                    bg: 'bg-rose-50/50',
+                    badge: 'bg-rose-700',
+                    text: 'text-rose-950',
+                    badgeSub: 'text-rose-800'
+                },
+                instructions: [
+                    'Seluruh siswi putri muslimah (kondisi suci maupun sedang berhalangan/haid) <strong>WAJIB mengikuti kegiatan keputrian</strong> pada hari Jumat pukul 11.45 - 12.45 WIB bersamaan dengan pelaksanaan Sholat Jumat siswa putra di masjid.',
+                    'Siswi yang dalam kondisi suci akan mengikuti pembinaan materi fiqih wanita dan melaksanakan Sholat Dhuhur berjamaah di pos keputrian bersama Guru Pembina GPAI Putri (B. Eny Astuti & B. Mavrik).',
+                    'Siswi yang berhalangan haid tetap wajib hadir dan menyimak materi kajian keputrian tanpa melaksanakan sholat.',
+                    'Pindai barcode <strong>BARCODE_KEPUTRIAN_MASUK</strong> pada aplikasi Smart School CBT Siswa saat memasuki ruang kegiatan.',
+                    'Pindai barcode <strong>BARCODE_KEPUTRIAN_PULANG</strong> saat sesi pembinaan telah selesai pada pukul 12.45 WIB untuk notifikasi kepulangan ke Orang Tua.'
+                ]
             }
         ];
 
@@ -254,6 +298,8 @@
 
                 if (filterParam.includes('BK')) {
                     quickFilter('BK');
+                } else if (filterParam.includes('KEPUTRIAN')) {
+                    quickFilter('KEPUTRIAN');
                 } else if (filterParam.includes('MUSHOLA') || filterParam.includes('SHOLAT') || filterParam.includes('MASJID')) {
                     quickFilter('MUSHOLA');
                 } else if (filterParam && filterParam !== 'ALL') {
@@ -273,11 +319,12 @@
             const btnAll = document.getElementById('btnFilterAll');
             const btnBk = document.getElementById('btnFilterBk');
             const btnMushola = document.getElementById('btnFilterMushola');
+            const btnKeputrian = document.getElementById('btnFilterKeputrian');
             const btnClasses = document.getElementById('btnFilterClasses');
             const selectEl = document.getElementById('filterClassSelect');
 
-            [btnAll, btnBk, btnMushola, btnClasses].forEach(b => {
-                b.className = 'px-2.5 py-1 rounded-lg font-bold text-slate-300 hover:text-white';
+            [btnAll, btnBk, btnMushola, btnKeputrian, btnClasses].forEach(b => {
+                if (b) b.className = 'px-2.5 py-1 rounded-lg font-bold text-slate-300 hover:text-white';
             });
 
             if (type === 'ALL') {
@@ -292,6 +339,10 @@
                 btnMushola.className = 'px-2.5 py-1 rounded-lg font-bold bg-emerald-600 text-white';
                 selectEl.value = 'MUSHOLA';
                 renderSheets(allItems.filter(x => x.specialType === 'MUSHOLA'));
+            } else if (type === 'KEPUTRIAN') {
+                btnKeputrian.className = 'px-2.5 py-1 rounded-lg font-bold bg-pink-600 text-white';
+                selectEl.value = 'KEPUTRIAN';
+                renderSheets(allItems.filter(x => x.specialType === 'KEPUTRIAN'));
             } else if (type === 'CLASSES') {
                 btnClasses.className = 'px-2.5 py-1 rounded-lg font-bold bg-indigo-600 text-white';
                 selectEl.value = 'CLASSES_ONLY';
@@ -307,6 +358,8 @@
                 quickFilter('BK');
             } else if (val === 'MUSHOLA') {
                 quickFilter('MUSHOLA');
+            } else if (val === 'KEPUTRIAN') {
+                quickFilter('KEPUTRIAN');
             } else if (val === 'CLASSES_ONLY') {
                 quickFilter('CLASSES');
             } else {

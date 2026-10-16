@@ -1,8 +1,6 @@
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import prisma from '../utils/db';
 import { verifyGatepassByBkScan } from './gatepassController';
-
-const prisma = new PrismaClient();
 
 // ========================================================
 // SISTEM IZIN KELUAR / SAKIT / DISPENSASI SISWA VIA BK

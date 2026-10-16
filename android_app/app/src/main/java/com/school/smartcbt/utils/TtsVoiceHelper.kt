@@ -121,6 +121,31 @@ object TtsVoiceHelper {
         speak("Jazakallahu khairan, $cleanName. Presensi sholat berjamaah telah tercatat.")
     }
 
+    fun speakSholatDhuha(name: String) {
+        val cleanName = cleanStudentName(name)
+        speak("Alhamdulillah $cleanName, presensi sholat dhuha di mushola berhasil dicatat. Selamat menunaikan ibadah sholat dhuha.")
+    }
+
+    fun speakSholatDhuhur(name: String) {
+        val cleanName = cleanStudentName(name)
+        speak("Alhamdulillah $cleanName, presensi sholat dhuhur berjamaah di mushola berhasil dicatat. Selamat menunaikan sholat dhuhur.")
+    }
+
+    fun speakKeputrian(name: String) {
+        val cleanName = cleanStudentName(name)
+        speak("Presensi kegiatan keputrian berhasil dicatat untuk $cleanName. Selamat mengikuti bimbingan keputrian.")
+    }
+
+    fun speakBelumPresensiKelasDhuha(name: String = "") {
+        val cleanName = if (name.isNotBlank()) cleanStudentName(name) else ""
+        val prefix = if (cleanName.isNotBlank()) "$cleanName, " else ""
+        speak("Peringatan. ${prefix}Anda harus melakukan presensi masuk di ruang kelas terlebih dahulu sebelum presensi sholat dhuha di mushola.")
+    }
+
+    fun speakBarcodePulangKelasDitutupAdaSholat() {
+        speak("Peringatan. Barcode pulang di ruang kelas ditutup karena kelas Anda memiliki jadwal sholat di mushola. Silakan sholat dan pindai barcode kepulangan di mushola.")
+    }
+
     // ================= KASIR E-KANTIN =================
     fun speakPaymentSuccess(name: String, amount: Long) {
         val cleanName = cleanStudentName(name)

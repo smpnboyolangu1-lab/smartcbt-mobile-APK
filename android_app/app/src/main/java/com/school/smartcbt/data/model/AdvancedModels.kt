@@ -1495,3 +1495,25 @@ data class BkCounselorSummaryDto(
     val totalClasses: Int = 0,
     val totalStudents: Int = 0
 )
+
+data class TeacherPersonalRecapResponse(
+    val success: Boolean = true,
+    val bulanIni: String? = null,
+    val rekap: TeacherPersonalRecapDto? = null
+)
+
+data class TeacherPersonalRecapDto(
+    val guruId: String? = null,
+    val nama: String? = null,
+    val tepatWaktu: Int = 0,
+    val terlambat: Int = 0,
+    val terlambatMenitTotal: Int = 0,
+    val tidakMasukCount: Int = 0,
+    val izin: Int = 0,
+    val sakit: Int = 0,
+    val alfa: Int = 0,
+    val cutiCount: Int = 0,
+    val cutiHariTotal: Int = 0,
+    val hadirTotal: Int = 0,
+    val persentaseKehadiran: Double = 0.0
+)

@@ -1,8 +1,6 @@
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import prisma from '../utils/db';
 import { formatTimeWib } from '../utils/dateUtils';
-
-const prisma = new PrismaClient();
 
 // Helper untuk token acak 6 karakter
 function generateUhToken(): string {
@@ -270,7 +268,7 @@ export const getDaftarUhGuru = async (req: Request, res: Response) => {
           select: {
             id: true,
             status: true,
-            nilaiTotal: true
+            nilai: true
           }
         }
       },

@@ -1,7 +1,5 @@
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import prisma from '../utils/db';
 
 // ========================================================
 // 1. COMMAND CENTER DASHBOARD (MODUL 8-A)

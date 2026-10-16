@@ -139,6 +139,7 @@ class TeacherMainActivity : AppCompatActivity() {
         loadProctorTokenBanner()
         loadTeacherDailyAttendanceStatus()
         loadCurrentTeachingSession()
+        loadTeacherPersonalRecap()
     }
 
     private fun applyTeacherRoleMenuVisibility() {
@@ -147,12 +148,15 @@ class TeacherMainActivity : AppCompatActivity() {
         val tugasTambahan = sessionManager.getTugasTambahan().uppercase().trim()
         val availableRoles = sessionManager.getAvailableRoles().map { it.uppercase().trim() }
         val homeroomClass = sessionManager.getClassName().trim()
+        val teacherName = sessionManager.getName().uppercase().trim()
 
-        // 1. Guru PAI: Akses menu sholat PAI dan pembinaan
-        val isGuruPai = subject.contains("PAI") || subject.contains("AGAMA ISLAM") || subject.contains("PENDIDIKAN AGAMA ISLAM") ||
-                tugasTambahan.contains("PAI") ||
-                availableRoles.any { it.contains("PAI") }
-        binding.gridTeacherPrayer.visibility = View.VISIBLE
+        // 1. Guru PAI: Akses menu sholat PAI dan pembinaan (Munawir, Brian, Eny Astuti; Maurik tidak ada)
+        val isGuruPai = (!teacherName.contains("MAURIK")) && (
+                subject.contains("PAI") || subject.contains("AGAMA") || subject.contains("ISLAM") ||
+                tugasTambahan.contains("PAI") || availableRoles.any { it.contains("PAI") } || role.contains("PAI") ||
+                teacherName.contains("MUNAWIR") || teacherName.contains("BRIAN") || teacherName.contains("ENY ASTUTI")
+        )
+        binding.gridTeacherPrayer.visibility = if (isGuruPai) View.VISIBLE else View.GONE
 
         // 2. Guru BK: HANYA untuk role guru BK / Konselor
         val isGuruBk = role.contains("BK") || role.contains("COUNSELOR") ||
@@ -169,7 +173,7 @@ class TeacherMainActivity : AppCompatActivity() {
         // 4. Wali Kelas: HANYA untuk guru yang memiliki kelas binaan aktif
         val isWaliKelas = (homeroomClass.isNotEmpty() && homeroomClass != "-" && homeroomClass != "null") ||
                 tugasTambahan.contains("WALI") || availableRoles.any { it.contains("WALI") }
-        binding.gridTeacherWaliKelas.visibility = if (isWaliKelas) View.VISIBLE else View.INVISIBLE
+        binding.gridTeacherWaliKelas.visibility = if (isWaliKelas) View.VISIBLE else View.GONE
         if (!isWaliKelas) {
             binding.cardHomeroom.visibility = View.GONE
             binding.tabTeacherHomeroom.visibility = View.GONE
@@ -187,16 +191,13 @@ class TeacherMainActivity : AppCompatActivity() {
         binding.gridTeacherPiket.visibility = View.VISIBLE
 
         // 6. Tim Kurikulum: Muncul dinamis jika memiliki peran/tugas tambahan Kurikulum
-        val teacherName = sessionManager.getName().uppercase()
         val isKurikulum = role.contains("KURIKULUM") ||
                 tugasTambahan.contains("KURIKULUM") || availableRoles.any { it.contains("KURIKULUM") } || subject.contains("KURIKULUM") ||
                 teacherName.contains("SIDIK") || teacherName.contains("SUJATMIKO")
         binding.gridTeacherKurikulum.visibility = if (isKurikulum) View.VISIBLE else View.GONE
 
-        // Kontrol keterlihatan baris peran khusus (Kurikulum, Piket, Operator) agar sejajar dan imbang
-        val activeSpecialCount = (if (isKurikulum) 1 else 0) + (if (isGuruPiket) 1 else 0) + (if (isOperator) 1 else 0)
-        binding.rowTeacherSpecialRoles.visibility = if (activeSpecialCount > 0) View.VISIBLE else View.GONE
-        binding.rowTeacherSpecialRoles.weightSum = 3f
+        // Baris peran khusus 4x4 selalu aktif
+        binding.rowTeacherSpecialRoles.visibility = View.VISIBLE
 
         // Header role badge
         if (isGuruBk) {
@@ -214,6 +215,37 @@ class TeacherMainActivity : AppCompatActivity() {
         } else {
             binding.tvRoleBadgeHeader.text = "👨‍🏫 Guru Pengampu"
         }
+    }
+
+    private fun loadTeacherPersonalRecap() {
+        binding.cardTeacherPersonalRecap.setOnClickListener {
+            showTeacherLeaveMenuDialog()
+        }
+        ApiClient.getClient(this).getTeacherPersonalAttendanceRecap().enqueue(object : Callback<com.school.smartcbt.data.model.TeacherPersonalRecapResponse> {
+            override fun onResponse(
+                call: Call<com.school.smartcbt.data.model.TeacherPersonalRecapResponse>,
+                response: Response<com.school.smartcbt.data.model.TeacherPersonalRecapResponse>
+            ) {
+                if (response.isSuccessful && response.body()?.success == true) {
+                    val r = response.body()?.rekap
+                    if (r != null) {
+                        binding.tvTeacherRecapTepatWaktu.text = "${r.tepatWaktu}x"
+                        binding.tvTeacherRecapTerlambat.text = if (r.terlambatMenitTotal > 0) "${r.terlambat}x (${r.terlambatMenitTotal}m)" else "${r.terlambat}x"
+                        binding.tvTeacherRecapAlfa.text = "${r.alfa}x"
+                        binding.tvTeacherRecapIzinSakit.text = "${r.izin + r.sakit}x"
+                        binding.tvTeacherRecapCuti.text = "🏖️ Cuti Disetujui: ${r.cutiCount}x (${r.cutiHariTotal} hari)"
+                        binding.tvTeacherRecapPersentase.text = "${r.persentaseKehadiran}% Hadir"
+                    }
+                }
+            }
+
+            override fun onFailure(
+                call: Call<com.school.smartcbt.data.model.TeacherPersonalRecapResponse>,
+                t: Throwable
+            ) {
+                // Silent fallback
+            }
+        })
     }
 
     private var selectedTeacherTabIndex: Int = 0
@@ -12741,14 +12773,18 @@ class TeacherMainActivity : AppCompatActivity() {
         val subject = sessionManager.getTeachingSubject().uppercase().trim()
         val teacherName = sessionManager.getName().uppercase()
 
-        val isGuruPai = subject.contains("PAI") || subject.contains("AGAMA ISLAM") || subject.contains("PENDIDIKAN AGAMA ISLAM") ||
-                tugasTambahan.contains("PAI") || availableRoles.any { it.contains("PAI") } || role.contains("PAI")
+        val isGuruPai = (!teacherName.contains("MAURIK")) && (
+                subject.contains("PAI") || subject.contains("AGAMA") || subject.contains("ISLAM") ||
+                tugasTambahan.contains("PAI") || availableRoles.any { it.contains("PAI") } || role.contains("PAI") ||
+                teacherName.contains("MUNAWIR") || teacherName.contains("BRIAN") || teacherName.contains("ENY ASTUTI")
+        )
 
         val isWaliKelas = (homeroomClass.isNotEmpty() && homeroomClass != "-" && homeroomClass != "null") ||
                 tugasTambahan.contains("WALI") || availableRoles.any { it.contains("WALI") }
 
         val isKurikulum = role.contains("KURIKULUM") ||
-                tugasTambahan.contains("KURIKULUM") || availableRoles.any { it.contains("KURIKULUM") } || subject.contains("KURIKULUM")
+                tugasTambahan.contains("KURIKULUM") || availableRoles.any { it.contains("KURIKULUM") } || subject.contains("KURIKULUM") ||
+                teacherName.contains("SIDIK") || teacherName.contains("SUJATMIKO")
 
         data class MgmtItem(
             val title: String,
@@ -12785,23 +12821,6 @@ class TeacherMainActivity : AppCompatActivity() {
         )
         items.add(
             MgmtItem(
-                title = if (isWaliKelas) "Wali Kelas ($homeroomClass)" else "Rombel Binaan",
-                desc = if (isWaliKelas) "Presensi harian rombel, susunan pengurus kelas, & rekap" else "Data siswa rombel binaan & rekap kehadiran",
-                iconEmoji = "⭐",
-                tagBadge = if (isWaliKelas) "Wali Kelas" else "Rombel Siswa",
-                badgeColor = "#0D9488",
-                iconBgColor = "#CCFBF1",
-                action = {
-                    if (isWaliKelas) {
-                        startActivity(Intent(this, WaliKelasActivity::class.java))
-                    } else {
-                        showTeacherSubjectAttendanceDialog()
-                    }
-                }
-            )
-        )
-        items.add(
-            MgmtItem(
                 title = "Bank Soal & Asesmen",
                 desc = "Penyusunan naskah asesmen, kisi-kisi, & analisis hasil CBT",
                 iconEmoji = "🧠",
@@ -12811,28 +12830,30 @@ class TeacherMainActivity : AppCompatActivity() {
                 action = { showTugasPenilaianDialog() }
             )
         )
-        items.add(
-            MgmtItem(
-                title = "Pembina Sholat & PAI",
-                desc = "Jadwal sholat berjamaah, presensi mushola, & scan kartu",
-                iconEmoji = "🕌",
-                tagBadge = "PAI & Mushola",
-                badgeColor = "#059669",
-                iconBgColor = "#D1FAE5",
-                action = { showPaiPrayerControlDialog() }
+        if (isGuruPai) {
+            items.add(
+                MgmtItem(
+                    title = "Pembina Sholat & PAI",
+                    desc = "Jadwal sholat berjamaah, presensi mushola, & scan kartu",
+                    iconEmoji = "🕌",
+                    tagBadge = "PAI & Mushola",
+                    badgeColor = "#059669",
+                    iconBgColor = "#D1FAE5",
+                    action = { showPaiPrayerControlDialog() }
+                )
             )
-        )
-        items.add(
-            MgmtItem(
-                title = "Tahfiz & Murojaah Juz 30",
-                desc = "Target surat, setoran hafalan, rubrik 5 aspek & evaluasi murojaah",
-                iconEmoji = "📖",
-                tagBadge = "Tahfiz PAI",
-                badgeColor = "#0D9488",
-                iconBgColor = "#CCFBF1",
-                action = { showTahfizPaiControlDialog() }
+            items.add(
+                MgmtItem(
+                    title = "Tahfiz & Murojaah Juz 30",
+                    desc = "Target surat, setoran hafalan, rubrik 5 aspek & evaluasi murojaah",
+                    iconEmoji = "📖",
+                    tagBadge = "Tahfiz PAI",
+                    badgeColor = "#0D9488",
+                    iconBgColor = "#CCFBF1",
+                    action = { showTahfizPaiControlDialog() }
+                )
             )
-        )
+        }
         items.add(
             MgmtItem(
                 title = "Posko Guru Piket",
@@ -13649,6 +13670,91 @@ class TeacherMainActivity : AppCompatActivity() {
         cardAction.addView(actionInner)
         container.addView(cardAction)
 
+        // 1.5 Rekap 360 Kehadiran & Cuti Pribadi
+        val cardRecap = CardView(this).apply {
+            radius = 14f * density
+            cardElevation = 2f * density
+            setCardBackgroundColor(Color.WHITE)
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = (14 * density).toInt()
+            }
+            layoutParams = lp
+        }
+        val recapInner = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val p = (14 * density).toInt()
+            setPadding(p, p, p, p)
+        }
+        val tvRecapTitle = TextView(this).apply {
+            text = "📊 Rekap Presensi & Cuti Anda Bulan Ini"
+            textSize = 12.5f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#0F172A"))
+        }
+        recapInner.addView(tvRecapTitle)
+
+        val recapRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            weightSum = 4f
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = (8 * density).toInt()
+            }
+            layoutParams = lp
+        }
+
+        fun createMetricBox(title: String, value: String, colorHex: String, bgHex: String): LinearLayout {
+            return LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = android.view.Gravity.CENTER
+                setBackgroundColor(Color.parseColor(bgHex))
+                val p = (6 * density).toInt()
+                setPadding(p, p, p, p)
+                val lp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    marginEnd = (3 * density).toInt()
+                }
+                layoutParams = lp
+                addView(TextView(this@TeacherMainActivity).apply {
+                    text = title
+                    textSize = 9f
+                    setTypeface(null, Typeface.BOLD)
+                    setTextColor(Color.parseColor(colorHex))
+                })
+                addView(TextView(this@TeacherMainActivity).apply {
+                    text = value
+                    textSize = 13f
+                    setTypeface(null, Typeface.BOLD)
+                    setTextColor(Color.parseColor(colorHex))
+                    val lpT = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                        topMargin = (2 * density).toInt()
+                    }
+                    layoutParams = lpT
+                })
+            }
+        }
+
+        val boxTepat = createMetricBox("Tepat Waktu", binding.tvTeacherRecapTepatWaktu.text.toString(), "#16A34A", "#F0FDF4")
+        val boxTerlambat = createMetricBox("Terlambat", binding.tvTeacherRecapTerlambat.text.toString(), "#D97706", "#FFFBEB")
+        val boxAlfa = createMetricBox("Alfa", binding.tvTeacherRecapAlfa.text.toString(), "#DC2626", "#FEF2F2")
+        val boxIzin = createMetricBox("Izin/Sakit", binding.tvTeacherRecapIzinSakit.text.toString(), "#2563EB", "#EFF6FF")
+        recapRow.addView(boxTepat)
+        recapRow.addView(boxTerlambat)
+        recapRow.addView(boxAlfa)
+        recapRow.addView(boxIzin)
+        recapInner.addView(recapRow)
+
+        val tvCutiDesc = TextView(this).apply {
+            text = binding.tvTeacherRecapCuti.text.toString()
+            textSize = 10.5f
+            setTextColor(Color.parseColor("#475569"))
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = (8 * density).toInt()
+            }
+            layoutParams = lp
+        }
+        recapInner.addView(tvCutiDesc)
+        cardRecap.addView(recapInner)
+        container.addView(cardRecap)
+
         // 2. Info Workflow Card
         val cardInfo = CardView(this).apply {
             radius = 14f * density
@@ -14357,7 +14463,7 @@ class TeacherMainActivity : AppCompatActivity() {
         rowControls.addView(spClass)
         container.addView(rowControls)
 
-        // Toggle Jenis Ibadah: Sholat Dhuhur vs Sholat Jumat
+        // Toggle Jenis Ibadah: Sholat Dhuha, Dhuhur & Sholat Jumat
         val rowPrayerType = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, (38 * density).toInt()).apply {
@@ -14366,39 +14472,51 @@ class TeacherMainActivity : AppCompatActivity() {
             layoutParams = lp
         }
 
-        val btnDhuhur = Button(this).apply {
-            text = "Sholat Dhuhur"
+        val btnDhuha = Button(this).apply {
+            text = "🌅 Dhuha"
             textSize = 11f
             setTypeface(null, Typeface.BOLD)
             val lp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f).apply {
-                marginEnd = (4 * density).toInt()
+                marginEnd = (3 * density).toInt()
+            }
+            layoutParams = lp
+        }
+        val btnDhuhur = Button(this).apply {
+            text = "☀️ Dhuhur"
+            textSize = 11f
+            setTypeface(null, Typeface.BOLD)
+            val lp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f).apply {
+                marginEnd = (3 * density).toInt()
+                marginStart = (3 * density).toInt()
             }
             layoutParams = lp
         }
         val btnJumat = Button(this).apply {
-            text = "Sholat Jumat"
+            text = "🕌 Jumat"
             textSize = 11f
             setTypeface(null, Typeface.BOLD)
             val lp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f).apply {
-                marginStart = (4 * density).toInt()
+                marginStart = (3 * density).toInt()
             }
             layoutParams = lp
         }
 
         fun updatePrayerTypeButtons() {
-            if (currentPrayerType == "DHUHUR") {
-                btnDhuhur.setBackgroundColor(Color.parseColor("#059669"))
-                btnDhuhur.setTextColor(Color.WHITE)
-                btnJumat.setBackgroundColor(Color.parseColor("#E2E8F0"))
-                btnJumat.setTextColor(Color.parseColor("#475569"))
-            } else {
-                btnJumat.setBackgroundColor(Color.parseColor("#059669"))
-                btnJumat.setTextColor(Color.WHITE)
-                btnDhuhur.setBackgroundColor(Color.parseColor("#E2E8F0"))
-                btnDhuhur.setTextColor(Color.parseColor("#475569"))
-            }
+            val activeColor = Color.parseColor("#059669")
+            val inactiveBg = Color.parseColor("#E2E8F0")
+            val inactiveText = Color.parseColor("#475569")
+
+            btnDhuha.setBackgroundColor(if (currentPrayerType == "DHUHA") activeColor else inactiveBg)
+            btnDhuha.setTextColor(if (currentPrayerType == "DHUHA") Color.WHITE else inactiveText)
+
+            btnDhuhur.setBackgroundColor(if (currentPrayerType == "DHUHUR") activeColor else inactiveBg)
+            btnDhuhur.setTextColor(if (currentPrayerType == "DHUHUR") Color.WHITE else inactiveText)
+
+            btnJumat.setBackgroundColor(if (currentPrayerType == "JUMAT") activeColor else inactiveBg)
+            btnJumat.setTextColor(if (currentPrayerType == "JUMAT") Color.WHITE else inactiveText)
         }
         updatePrayerTypeButtons()
+        rowPrayerType.addView(btnDhuha)
         rowPrayerType.addView(btnDhuhur)
         rowPrayerType.addView(btnJumat)
         container.addView(rowPrayerType)
@@ -14680,7 +14798,12 @@ class TeacherMainActivity : AppCompatActivity() {
             })
         }
 
-        // Action Listener for Dhuhur & Jumat Toggle
+        // Action Listener for Dhuha, Dhuhur & Jumat Toggle
+        btnDhuha.setOnClickListener {
+            currentPrayerType = "DHUHA"
+            updatePrayerTypeButtons()
+            loadMonitoring(selectedClass)
+        }
         btnDhuhur.setOnClickListener {
             currentPrayerType = "DHUHUR"
             updatePrayerTypeButtons()
@@ -14808,10 +14931,10 @@ class TeacherMainActivity : AppCompatActivity() {
         }
         formContainer.addView(tvDayLabel)
 
-        val dayOptions = listOf("Senin (Hari ke-1)", "Selasa (Hari ke-2)", "Rabu (Hari ke-3)", "Kamis (Hari ke-4)", "Jumat (Hari ke-5)")
+        val dayOptions = listOf("Senin (Hari ke-1)", "Selasa (Hari ke-2)", "Rabu (Hari ke-3)", "Kamis (Hari ke-4)", "Jumat (Hari ke-5)", "Sabtu (Hari ke-6)")
         val spDay = Spinner(this).apply {
             adapter = ArrayAdapter(this@TeacherMainActivity, android.R.layout.simple_spinner_dropdown_item, dayOptions)
-            val selDay = Math.max(1, Math.min(5, current.dayOfWeek)) - 1
+            val selDay = Math.max(1, Math.min(6, current.dayOfWeek)) - 1
             setSelection(selDay)
             val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
                 bottomMargin = dp(12)
@@ -15209,7 +15332,7 @@ class TeacherMainActivity : AppCompatActivity() {
                     return@setOnClickListener
                 }
 
-                val dayNames = listOf("SENIN", "SELASA", "RABU", "KAMIS", "JUMAT")
+                val dayNames = listOf("SENIN", "SELASA", "RABU", "KAMIS", "JUMAT", "SABTU")
                 val dayName = dayNames.getOrElse(dayIndex - 1) { "HARI" }
 
                 val body = mapOf(

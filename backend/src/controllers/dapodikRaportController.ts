@@ -1,9 +1,7 @@
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import prisma from '../utils/db';
 import * as XLSX from 'xlsx';
 import bcrypt from 'bcrypt';
-
-const prisma = new PrismaClient();
 
 const OPERATOR_NOTICE_TEXT = 
   "⚠️ PEMBERITAHUAN RESMI OPERATOR DAPODIK: Data ini adalah data resmi hasil import Dapodik Kemendikbudristek & Buku Induk Raport. " +

@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import prisma from '../utils/db';
 import {
   dispatchLateStudentsBlastToday,
   dispatchAbsentStudentsBlastToday,
@@ -130,9 +131,6 @@ export const restartWhatsAppSessionEndpoint = async (req: Request, res: Response
     res.status(500).json({ success: false, message: 'Gagal me-restart WhatsApp: ' + err.message });
   }
 };
-
-import { PrismaClient } from '@prisma/client';
-const prisma = new PrismaClient();
 
 export function normalizeIndonesianPhone(raw: string | null | undefined): string | null {
   if (!raw) return null;
