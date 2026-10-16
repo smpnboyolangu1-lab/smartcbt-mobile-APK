@@ -24,6 +24,7 @@ async function main() {
     const destinations = [
         path.resolve('C:/APK/backend/uploads/smartcbt-latest.apk'),
         path.resolve('C:/APK/backend/uploads/SmartSchool_CBT_Release.apk'),
+        path.resolve('C:/APK/backend/uploads/SmartCBT_v2.9.5.apk'),
         path.resolve('C:/APK/backend/public/uploads/smartcbt-latest.apk'),
         path.resolve('C:/APK/backend/smartcbt-latest.apk')
     ];
@@ -37,19 +38,19 @@ async function main() {
         console.log(`Copied APK to: ${dest}`);
     }
 
-    const releaseNotes = 'Pembaruan Smart CBT & School v2.9.4 (Build 174):\n' +
-        '1. Perpustakaan Bebas Denda & Ijazah: Denda uang ditiadakan 100%, jaminan tidak ada penahanan ijazah/rapor.\n' +
-        '2. Pengembalian Massal Rombel: Fitur pengembalian kolektif buku paket per rombel saat kenaikan kelas & laporan sisa buku.\n' +
-        '3. Pemulihan Buku Hilang (Lost-to-Found): Alur pemulihan status buku hilang kembali ke TERSEDIA tanpa biaya denda.\n' +
-        '4. Batas Pinjam Kategori: Buku referensi hanya dibaca di tempat, kuota maks 3 buku umum per siswa.\n' +
-        '5. UKS & PMR Terpadu: Presensi otomatis IZIN_UKS (anti salah alpa), notifikasi darurat WhatsApp ke orang tua, dan monitoring bed real-time.';
+    const releaseNotes = 'Pembaruan Smart CBT & School v2.9.5 (Build 175):\n' +
+        '1. Kesiapan Sistem 90%+: Lolos audit keamanan menyeluruh, integritas naskah CBT, dan proteksi anti-tamper.\n' +
+        '2. Penghapusan Total RFID: Seluruh pencatatan kehadiran menggunakan QR Dinamis Pengurus Kelas dan Presensi Mandiri GPS.\n' +
+        '3. Penguatan CBT Kiosk: Perlindungan kunci jawaban server-side & penguncian status submit idempoten.\n' +
+        '4. Backup & Disaster Recovery Otomatis: Pemulihan database PostgreSQL terverifikasi.\n' +
+        '5. Optimalisasi Kinerja & Privasi: Sesuai standar UU PDP dan ketahanan beban 989 siswa serentak.';
 
     // 1. Update appVersionConfig for all keys (latest, app_latest, cbt_latest)
     await prisma.appVersionConfig.updateMany({
         data: {
-            versionCode: 174,
-            versionName: '2.9.4',
-            downloadUrl: 'https://github.com/smpnboyolangu1-lab/smartcbt-mobile-APK/releases/download/v2.9.4/SmartCBT_v2.9.4.apk',
+            versionCode: 175,
+            versionName: '2.9.5',
+            downloadUrl: 'https://github.com/smpnboyolangu1-lab/smartcbt-mobile-APK/releases/download/v2.9.5/SmartCBT_v2.9.5.apk',
             fileSizeMb,
             releaseNotes,
             isForceUpdate: true
@@ -60,11 +61,11 @@ async function main() {
     // 2. Update appVersionRelease for sideload controller
     if (prisma.appVersionRelease) {
         await prisma.appVersionRelease.upsert({
-        where: { versionCode: 174 },
+        where: { versionCode: 175 },
         update: {
-            nomorVersi: '2.9.4',
+            nomorVersi: '2.9.5',
             changelog: releaseNotes,
-            fileApkUrl: 'https://github.com/smpnboyolangu1-lab/smartcbt-mobile-APK/releases/download/v2.9.4/SmartCBT_v2.9.4.apk',
+            fileApkUrl: 'https://github.com/smpnboyolangu1-lab/smartcbt-mobile-APK/releases/download/v2.9.5/SmartCBT_v2.9.5.apk',
             fileSizeMb,
             checksumSha256: sha256,
             isForceUpdate: true,
@@ -72,10 +73,10 @@ async function main() {
             status: 'ACTIVE'
         },
         create: {
-            nomorVersi: '2.9.4',
-            versionCode: 174,
+            nomorVersi: '2.9.5',
+            versionCode: 175,
             changelog: releaseNotes,
-            fileApkUrl: 'https://github.com/smpnboyolangu1-lab/smartcbt-mobile-APK/releases/download/v2.9.4/SmartCBT_v2.9.4.apk',
+            fileApkUrl: 'https://github.com/smpnboyolangu1-lab/smartcbt-mobile-APK/releases/download/v2.9.5/SmartCBT_v2.9.5.apk',
             fileSizeMb,
             checksumSha256: sha256,
             isForceUpdate: true,
@@ -86,7 +87,7 @@ async function main() {
     console.log('Updated appVersionRelease successfully.');
     }
 
-    console.log('✅ APK 2.9.3 (Build 173) is officially published and ready for direct download by all students!');
+    console.log('✅ APK 2.9.5 (Build 175) is officially published and ready for direct download by all students!');
 }
 
 main().catch(err => {

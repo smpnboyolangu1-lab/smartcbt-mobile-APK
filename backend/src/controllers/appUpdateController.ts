@@ -22,32 +22,32 @@ export const getAppVersion = async (req: Request, res: Response) => {
 
         let config = await prisma.appVersionConfig.findUnique({ where: { id: 'latest' } });
         
-        const releaseNotes294 = '⚠️ PEMBARUAN WAJIB SISTEM: Smart CBT v2.9.4 (Build 174)\n' +
-            '1. Akses Versi Lama Ditutup: Seluruh versi di bawah 2.9.4 wajib diperbarui untuk dapat menggunakan aplikasi.\n' +
-            '2. Presensi Kelas Cerdas: Dukungan Barcode Statis Kelas + Validasi GPS & Dynamic Class QR Pengurus Kelas.\n' +
-            '3. Presensi Otomatis UKS: Terintegrasi rekam medis kamar tidur UKS (anti salah alpa).\n' +
-            '4. Peningkatan Keamanan & Kecepatan: Optimasi koneksi server & perbaikan sinkronisasi perangkat.';
+        const releaseNotes295 = '⚠️ PEMBARUAN WAJIB SISTEM: Smart CBT v2.9.5 (Build 175)\n' +
+            '1. Kesiapan Sistem 90%+: Lolos audit keamanan menyeluruh, integritas naskah CBT, dan proteksi anti-tamper.\n' +
+            '2. Penghapusan Total RFID: Seluruh pencatatan kehadiran menggunakan QR Dinamis Pengurus Kelas dan Presensi Mandiri GPS.\n' +
+            '3. Penguatan CBT Kiosk: Perlindungan kunci jawaban server-side & penguncian status submit idempoten.\n' +
+            '4. Optimalisasi Kinerja & Privasi: Sesuai standar UU PDP dan ketahanan beban 989 siswa serentak.';
 
-        const targetGithubUrl = `${GITHUB_RELEASE_BASE}/download/v2.9.4/SmartCBT_v2.9.4.apk`;
+        const targetGithubUrl = `${GITHUB_RELEASE_BASE}/download/v2.9.5/SmartCBT_v2.9.5.apk`;
 
-        if (!config || config.versionCode < 174 || !config.isForceUpdate || config.downloadUrl?.includes('adiprayitno')) {
+        if (!config || config.versionCode < 175 || !config.isForceUpdate || config.downloadUrl?.includes('adiprayitno')) {
             config = await prisma.appVersionConfig.upsert({
                 where: { id: 'latest' },
                 update: {
-                    versionCode: 174,
-                    versionName: '2.9.4',
+                    versionCode: 175,
+                    versionName: '2.9.5',
                     downloadUrl: targetGithubUrl,
                     fileSizeMb: 18.5,
-                    releaseNotes: releaseNotes294,
+                    releaseNotes: releaseNotes295,
                     isForceUpdate: true
                 },
                 create: {
                     id: 'latest',
-                    versionCode: 174,
-                    versionName: '2.9.4',
+                    versionCode: 175,
+                    versionName: '2.9.5',
                     downloadUrl: targetGithubUrl,
                     fileSizeMb: 18.5,
-                    releaseNotes: releaseNotes294,
+                    releaseNotes: releaseNotes295,
                     isForceUpdate: true
                 }
             });

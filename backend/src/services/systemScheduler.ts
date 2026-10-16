@@ -4,6 +4,7 @@ import { broadcastMonitoringEvent, resetExamTokenTimer, setClassExamToken } from
 import { autoNotifyUnscannedGateOutStudents } from '../controllers/attendanceController';
 import { sendFcmToUser } from './fcmService';
 import { sendSingleWhatsApp } from './whatsappBlastService';
+import { runDatabaseBackup } from './backupService';
 
 let schedulerInterval: NodeJS.Timeout | null = null;
 let lastRotateMinute = -1;
@@ -52,10 +53,13 @@ export function initMasterSchedulers() {
             // 8. NOTIFIKASI OTOMATIS SISWA BELUM SCAN PULANG KE ORANG TUA (Setiap Hari Sekolah Pukul 16:15 WIB)
             await processGateOutUnscannedNotification(now);
 
-            // 8. PEMELIHARAAN LOG & ANOMALI BERKALA (Setiap Hari Pukul 02:00 WIB)
+            // 8. PEMELIHARAAN LOG & BACKUP DATABASE BERKALA (Setiap Hari Pukul 02:00 & 02:30 WIB)
             if (now.getHours() === 2 && currentMinute === 0) {
                 await processLogRetentionCleanup();
                 await processRefreshTokenPrune();
+            }
+            if (now.getHours() === 2 && currentMinute === 30) {
+                await runDatabaseBackup();
             }
 
             // 9. AUTO-RESET KEPULANGAN DARURAT / PULANG LEBIH AWAL 1X (PERGANTIAN HARI)

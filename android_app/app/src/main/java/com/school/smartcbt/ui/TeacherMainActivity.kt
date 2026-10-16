@@ -1380,7 +1380,7 @@ class TeacherMainActivity : AppCompatActivity() {
                 if (currentSession == null) {
                     AlertDialog.Builder(this@TeacherMainActivity)
                         .setTitle("⚠️ Presensi Masuk KBM Diperlukan")
-                        .setMessage("Anda belum melakukan Presensi Masuk KBM di kelas $className.\n\nSesuai prosedur sekolah, guru wajib melakukan presensi masuk di ruangan kelas (Tap NFC / Masuk Kelas) sebelum dapat melakukan absensi kehadiran siswa.")
+                        .setMessage("Anda belum melakukan Presensi Masuk KBM di kelas $className.\n\nSesuai prosedur sekolah, guru wajib melakukan presensi masuk di ruangan kelas (Masuk Kelas / Scan QR Ruangan) sebelum dapat melakukan absensi kehadiran siswa.")
                         .setPositiveButton("Mulai Masuk Kelas") { _, _ ->
                             promptRoomCheckInMethod()
                         }
@@ -15063,53 +15063,15 @@ class TeacherMainActivity : AppCompatActivity() {
     // ========================================================
 
     private fun enableNfcForegroundDispatch() {
-        try {
-            if (nfcAdapter?.isEnabled == true) {
-                val intent = Intent(this, javaClass).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                val flags = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-                    android.app.PendingIntent.FLAG_MUTABLE
-                } else {
-                    0
-                }
-                val pendingIntent = android.app.PendingIntent.getActivity(this, 0, intent, flags)
-                val filters = arrayOf(
-                    android.content.IntentFilter(android.nfc.NfcAdapter.ACTION_TAG_DISCOVERED),
-                    android.content.IntentFilter(android.nfc.NfcAdapter.ACTION_TECH_DISCOVERED),
-                    android.content.IntentFilter(android.nfc.NfcAdapter.ACTION_NDEF_DISCOVERED)
-                )
-                nfcAdapter?.enableForegroundDispatch(this, pendingIntent, filters, null)
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        // Decommissioned: RFID/NFC telah dinonaktifkan total sesuai audit sistem
     }
 
     private fun disableNfcForegroundDispatch() {
-        try {
-            nfcAdapter?.disableForegroundDispatch(this)
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        // Decommissioned: RFID/NFC telah dinonaktifkan total sesuai audit sistem
     }
 
     private fun handleNfcIntent(intent: Intent) {
-        val action = intent.action
-        if (android.nfc.NfcAdapter.ACTION_TAG_DISCOVERED == action ||
-            android.nfc.NfcAdapter.ACTION_TECH_DISCOVERED == action ||
-            android.nfc.NfcAdapter.ACTION_NDEF_DISCOVERED == action) {
-            val tag = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-                intent.getParcelableExtra(android.nfc.NfcAdapter.EXTRA_TAG, android.nfc.Tag::class.java)
-            } else {
-                @Suppress("DEPRECATION")
-                intent.getParcelableExtra(android.nfc.NfcAdapter.EXTRA_TAG)
-            }
-            if (tag != null) {
-                val tagId = tag.id
-                val nfcUid = tagId.joinToString("") { "%02X".format(it) }
-                Toast.makeText(this, "📱 NFC Terdeteksi: $nfcUid. Memproses...", Toast.LENGTH_SHORT).show()
-                handleTeacherRoomCheckIn(nfcTagUid = nfcUid)
-            }
-        }
+        // Decommissioned: RFID/NFC telah dinonaktifkan total sesuai audit sistem
     }
 
     private fun loadCurrentTeachingSession() {

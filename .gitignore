@@ -51,5 +51,7 @@ backend/storage/
 backend/uploads/biodata/
 backend/uploads/cbt/
 backend/uploads/siswa/
+deploy_*.js
+deploy_*.ps1
 
 

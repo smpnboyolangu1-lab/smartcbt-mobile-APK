@@ -1655,7 +1655,7 @@ export const paiScanStudentCard = async (req: Request, res: Response) => {
         }
 
         const cleanCode = String(barcode).trim();
-        // Cari siswa berdasarkan nisn, nis, rfidChipUid, username, atau id
+        // Cari siswa berdasarkan nisn, nis, username, atau id
         const student = await prisma.user.findFirst({
             where: {
                 role: 'STUDENT',

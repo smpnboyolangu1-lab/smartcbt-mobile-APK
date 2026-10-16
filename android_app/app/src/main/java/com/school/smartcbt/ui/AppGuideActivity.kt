@@ -469,13 +469,13 @@ class AppGuideActivity : AppCompatActivity() {
                 title = "Presensi Guru & Estafet Ruangan (1-Tap)",
                 icon = "🏷️",
                 badge = "KEHADIRAN MENGAJAR",
-                summary = "Mencatat kehadiran guru dan serah terima kelas secara akurat menggunakan NFC atau QR.",
+                summary = "Mencatat kehadiran guru dan serah terima kelas secara akurat menggunakan QR atau Masuk Kelas.",
                 steps = listOf(
-                    "Tempelkan HP yang mendukung NFC pada tag NFC di meja guru dalam ruang kelas, ATAU tekan 'Scan QR Ruangan'.",
+                    "Pilih ruangan kelas pada jadwal Anda atau tekan 'Scan QR Ruangan / Masuk Kelas'.",
                     "Sistem mencatat jam kedatangan guru di kelas tersebut untuk jam pelajaran aktif.",
                     "Sesi mengajar langsung siap diaktifkan untuk presensi siswa."
                 ),
-                tips = "Pastikan fitur NFC pada pengaturan HP sudah aktif sebelum melakukan penempelan pada tag meja kelas."
+                tips = "Pastikan Anda telah berada di dalam lingkungan sekolah saat mengonfirmasi sesi KBM."
             ),
             GuideItem(
                 title = "Mengaktifkan Presensi Siswa di Kelas",
