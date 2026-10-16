@@ -5,7 +5,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$repoOwner = "adiprayitno160-glitch"
+$repoOwner = "smpnboyolangu1-lab"
 $repoName = "smartcbt-mobile-APK"
 $tagName = "v2.9.3"
 $releaseTitle = "Smart CBT v2.9.3 (Build 173) - Rilis Pembaruan Stabilitas & Notifikasi"
