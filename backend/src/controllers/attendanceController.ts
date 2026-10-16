@@ -6,7 +6,7 @@ import { validateGpsAttendance } from '../services/gpsValidationService';
 import { compareClassNames, sortStudentsByGradeAndName } from '../utils/classSort';
 import { sendFcmToUser, sendFcmToRole } from '../services/fcmService';
 import { sendSingleWhatsApp } from '../services/whatsappBlastService';
-import { formatTimeWib, formatTimeWibWithSuffix } from '../utils/dateUtils';
+import { formatTimeWib, formatTimeWibWithSuffix, getWibDayBounds, getWibTimeColon, getWibDayOfWeek } from '../utils/dateUtils';
 
 export const DYNAMIC_QR_SALT = 'SmartCBT_Boyolangu_DynQR_Salt_2026';
 
@@ -115,8 +115,8 @@ export function getEffectiveGateSettings(settings: any, date: Date = new Date())
     const { dayOfWeek, timeStr, timeWithSecStr, dateStr, dayName } = getWibDate(date);
 
     const rootInStart = settings?.gateInStartTime || '06:00';
-    const rootInEnd = settings?.gateInEndTime || '07:15';
-    const rootInMax = settings?.gateInMaxTime || '12:00';
+    const rootInEnd = settings?.gateInEndTime || '07:00';
+    const rootInMax = settings?.gateInMaxTime || '08:00';
     const rootOutStart = settings?.gateOutStartTime || '14:00';
     const rootOutEnd = settings?.gateOutEndTime || '18:00';
 
@@ -125,8 +125,8 @@ export function getEffectiveGateSettings(settings: any, date: Date = new Date())
         { day: 2, dayName: 'Selasa', isActive: true, gateInStart: rootInStart, gateInEnd: rootInEnd, gateInMax: rootInMax, gateOutStart: rootOutStart, gateOutEnd: rootOutEnd },
         { day: 3, dayName: 'Rabu', isActive: true, gateInStart: rootInStart, gateInEnd: rootInEnd, gateInMax: rootInMax, gateOutStart: rootOutStart, gateOutEnd: rootOutEnd },
         { day: 4, dayName: 'Kamis', isActive: true, gateInStart: rootInStart, gateInEnd: rootInEnd, gateInMax: rootInMax, gateOutStart: rootOutStart, gateOutEnd: rootOutEnd },
-        { day: 5, dayName: 'Jumat', isActive: true, gateInStart: rootInStart, gateInEnd: rootInEnd, gateInMax: '10:30', gateOutStart: '10:30', gateOutEnd: '16:00' },
-        { day: 6, dayName: 'Sabtu', isActive: true, gateInStart: rootInStart, gateInEnd: rootInEnd, gateInMax: '12:00', gateOutStart: '11:30', gateOutEnd: '15:30' },
+        { day: 5, dayName: 'Jumat', isActive: true, gateInStart: rootInStart, gateInEnd: rootInEnd, gateInMax: rootInMax, gateOutStart: '10:30', gateOutEnd: '16:00' },
+        { day: 6, dayName: 'Sabtu', isActive: true, gateInStart: rootInStart, gateInEnd: rootInEnd, gateInMax: rootInMax, gateOutStart: '11:30', gateOutEnd: '15:30' },
         { day: 0, dayName: 'Minggu', isActive: false, gateInStart: rootInStart, gateInEnd: rootInEnd, gateInMax: rootInMax, gateOutStart: rootOutStart, gateOutEnd: rootOutEnd }
     ];
 
@@ -270,8 +270,8 @@ async function broadcastEarlyDismissalNotifications(reason?: string) {
     try {
         const cleanReason = reason || 'Kegiatan Rapat Dinas / Acara Khusus Sekolah';
         const now = new Date();
-        const timeStr = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false });
-        const dateStr = now.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+        const timeStr = getWibTimeColon(now);
+        const dateStr = now.toLocaleDateString('id-ID', { timeZone: 'Asia/Jakarta', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
         const students = await prisma.user.findMany({
             where: { role: 'STUDENT', isActive: true },
@@ -655,19 +655,12 @@ export const scanClassGate = async (req: Request, res: Response) => {
             }
         }
 
-        const scanTimeHms = effectiveScanTime.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
-        const compareTimeSec = scanTimeHms.replace(/\./g, ':').padStart(8, '0');
+        const scanTimeHms = getWibTimeColon(effectiveScanTime, true);
+        const compareTimeSec = scanTimeHms.padStart(8, '0');
         const currentTimeStr = effective.currentTimeStr;
 
-        // Hitung batas awal dan akhir hari ini (WIB)
-        const nowUtc = now.getTime();
-        const wibOffset = 7 * 60 * 60 * 1000;
-        const nowWib = new Date(nowUtc + wibOffset);
-        const y = nowWib.getUTCFullYear();
-        const m = nowWib.getUTCMonth();
-        const d = nowWib.getUTCDate();
-        const startOfDay = new Date(Date.UTC(y, m, d, 0, 0, 0, 0) - wibOffset);
-        const endOfDay = new Date(Date.UTC(y, m, d, 23, 59, 59, 999) - wibOffset);
+        // Hitung batas awal dan akhir hari ini (WIB) secara deterministik
+        const { startOfDay, endOfDay } = getWibDayBounds(now);
 
         const todayInRecord = await prisma.attendance.findFirst({
             where: {
@@ -985,35 +978,45 @@ export const scanClassGate = async (req: Request, res: Response) => {
                 });
             }
 
-            const gateInStartSec = (effective.gateInStartTime || '06:00') + ':00';
-            const gateInEndSec = (effective.gateInEndTime || '07:00') + ':00';
-            const gateInMaxSec = (effective.gateInMaxTime || '12:00') + ':59';
+            const gateInStartSec = '06:00:00';
+            const classCloseSec = '07:05:00';
+            const allScanCloseSec = '08:00:00';
 
-            // Lock jika sebelum jam buka gerbang masuk (dilewati jika mode uji coba)
+            // 1. Lock jika sebelum jam buka gerbang masuk (06:00:00 WIB)
             if (compareTimeSec < gateInStartSec && !isTestingMode && !settings.isEmergencyGateOut) {
                 return res.status(400).json({
-                    message: `⚠️ Gerbang Masuk Belum Dibuka! Presensi masuk dibuka mulai pukul ${effective.gateInStartTime} WIB.`
+                    success: false,
+                    message: `⚠️ Gerbang Masuk Belum Dibuka! Presensi masuk dibuka mulai pukul 06:00 WIB.`
                 });
             }
 
-            // KONDISI KHUSUS JAM BERAKHIR TEPAT WAKTU & TOLERANSI KELAS (07:30:00 WIB):
-            // Siswa tetap dapat scan langsung di kelas sampai dengan pukul 07:30:00 WIB dengan status TERLAMBAT (bukan via BK)
-            const classLateMaxSec = '07:30:00';
+            // 2. Lock jika setelah pukul 08:00:00 WIB: seluruh scan QR (kelas maupun BK) ditutup total
+            if (compareTimeSec > allScanCloseSec && !isTestingMode && !settings.isEmergencyGateOut) {
+                return res.status(400).json({
+                    success: false,
+                    isGateInClosedAll: true,
+                    message: `⛔ Seluruh Jalur Presensi Masuk (Scan Kelas & BK) Telah Ditutup Pukul 08:00 WIB! Anda memindai pukul ${compareTimeSec} WIB. Siswa yang hadir setelah pukul 08:00 WIB wajib melapor ke Ruang BK untuk dicatat secara manual oleh Guru BK.`
+                });
+            }
+
+            // 3. Aturan QR Ruang BK vs QR Kelas (06:00 - 08:00 WIB)
             if (isBkGateIn) {
-                if (compareTimeSec <= gateInEndSec && !isTestingMode) {
+                // QR Ruang BK hanya aktif pukul 07:05:01 s/d 08:00:00 WIB
+                if (compareTimeSec <= classCloseSec && !isTestingMode) {
                     return res.status(400).json({
-                        message: `⚠️ QR Ruang BK Belum Dibuka! Sebelum pukul ${effective.gateInEndTime}:00 WIB, silakan lakukan presensi tepat waktu di ruang kelas Anda (${student.className}). QR Ruang BK aktif mulai pukul ${effective.gateInEndTime}:01 WIB khusus bagi siswa yang terlambat.`
+                        success: false,
+                        message: `⚠️ QR Ruang BK Belum Dibuka! Sebelum pukul 07:05 WIB, silakan lakukan presensi di ruang kelas Anda (${student.className}). QR Ruang BK dibuka mulai pukul 07:05:01 s/d 08:00:00 WIB khusus bagi siswa yang terlambat.`
                     });
                 }
             } else {
-                if (compareTimeSec > classLateMaxSec && !isTestingMode && !settings.isEmergencyGateOut) {
-                    const [endH, endM] = (effective.gateInEndTime || '07:00').split(':').map(Number);
+                // QR Ruang Kelas (Statis / Dinamis Pengurus) DITUTUP TOTAL pukul 07:05:00 WIB
+                if (compareTimeSec > classCloseSec && !isTestingMode && !settings.isEmergencyGateOut) {
                     const [currH, currM] = currentTimeStr.split(':').map(Number);
-                    const overLateMin = Math.max(1, (currH * 60 + currM) - (endH * 60 + endM));
+                    const overLateMin = Math.max(1, (currH * 60 + currM) - (7 * 60));
                     return res.status(400).json({
                         success: false,
                         isClassGateClosedToBk: true,
-                        message: `⛔ Gerbang Kelas Ditutup Pukul 07:30 WIB! Batas toleransi presensi di ruang kelas telah berakhir. Anda memindai pukul ${compareTimeSec} WIB (Terlambat ${overLateMin} menit). Segera menuju ke Ruang BK untuk pendataan Guru BK.`
+                        message: `⛔ Presensi di Ruang Kelas Ditutup Pukul 07:05 WIB! Batas waktu presensi di ruang kelas telah berakhir. Anda memindai pukul ${compareTimeSec} WIB (Terlambat ${overLateMin} menit). Segera menuju ke Ruang BK untuk memindai Barcode Terlambat di Ruang BK (aktif hingga pukul 08:00 WIB).`
                     });
                 }
             }
@@ -1038,7 +1041,7 @@ export const scanClassGate = async (req: Request, res: Response) => {
                                 name: student.name,
                                 className: student.className,
                                 reason: 'Scan kepulangan tanpa data masuk pagi',
-                                time: new Date().toLocaleTimeString('id-ID')
+                                time: getWibTimeColon(new Date(), true)
                             }]
                         });
                     } catch (e) {}
@@ -1265,11 +1268,20 @@ export const scanClassGate = async (req: Request, res: Response) => {
             note += ` • Jarak GPS: ${distanceMeters}m (Valid)`;
         }
 
+        let finalMethod = method || 'BARCODE';
+        if (isBkGateIn) {
+            finalMethod = 'QR_BK_TERLAMBAT';
+        } else if (isDynamicOfficerQr) {
+            finalMethod = 'QR_DYNAMIC_OFFICER';
+        } else if (scanType === 'GATE_IN') {
+            finalMethod = method === 'GPS' ? 'GPS' : 'QR_KELAS_MANDIRI';
+        }
+
         const attRecord = await prisma.attendance.create({
             data: {
                 userId: student.id,
                 type: scanType,
-                method: isDynamicOfficerQr ? 'QR_DYNAMIC_OFFICER' : (method || 'BARCODE'),
+                method: finalMethod,
                 status,
                 scanTime: effectiveScanTime,
                 lat: lat ? Number(lat) : null,
@@ -1304,11 +1316,8 @@ export const scanClassGate = async (req: Request, res: Response) => {
         // ============================================================
         // INTEGRASI NOTIFIKASI OTOMATIS KE ORANG TUA (TEPAT 1X MASUK & 1X PULANG PER HARI)
         // ============================================================
-        const timeWithSec = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ' WIB';
-        const notifStartDay = new Date(now);
-        notifStartDay.setHours(0, 0, 0, 0);
-        const notifEndDay = new Date(now);
-        notifEndDay.setHours(23, 59, 59, 999);
+        const timeWithSec = formatTimeWibWithSuffix(now, true);
+        const { startOfDay: notifStartDay, endOfDay: notifEndDay } = getWibDayBounds(now);
 
         // Cek apakah orang tua sudah pernah menerima notifikasi untuk scan masuk atau pulang hari ini
         const existingParentNotif = await prisma.notificationMessage.findFirst({
@@ -1424,17 +1433,26 @@ export const scanClassGate = async (req: Request, res: Response) => {
                     studentId: student.id
                 }).catch(e => console.warn('[FCM Attendance Student]', e.message));
 
-                // Sesuai instruksi: Notifikasi terlambat X menit dikirimkan langsung ke WhatsApp orang tua
+                // Sesuai instruksi D13: Notifikasi WhatsApp HANYA untuk siswa terlambat dan hanya ke nomor orang tua yang terinput
                 if (status === 'LATE' && lateMinutes > 0 && student.parentPhone) {
+                    const waTrack = isBkGateIn 
+                        ? 'Scan QR Terlambat di Ruang BK' 
+                        : (isDynamicOfficerQr ? `Scan Barcode Dinamis Pengurus Kelas (${student.className || '-'})` : `Scan Presensi Mandiri di Ruang Kelas (${student.className || '-'})`);
+                    const waLocation = isBkGateIn ? 'Ruang Bimbingan & Konseling (BK)' : `Ruang Kelas ${student.className || '-'}`;
+                    const waFollowUp = isBkGateIn
+                        ? 'Telah melapor ke Guru BK untuk pembinaan kedisiplinan sebelum memasuki kelas.'
+                        : 'Diarahkan oleh Tim Ketertiban / Pengurus Kelas sebelum pembelajaran dimulai.';
+
                     const waLateNotice = `*PEMBERITAHUAN KETERLAMBATAN SISWA*\n` +
                         `*SMP NEGERI 1 BOYOLANGU*\n\n` +
                         `Yth. Bapak/Ibu Orang Tua / Wali Murid dari ananda *${student.name}* (Kelas ${student.className || '-'}),\n\n` +
                         `Kami menginformasikan bahwa ananda telah tiba di sekolah dengan status *TERLAMBAT*:\n` +
                         `• *Waktu Tiba*: ${timeWithSec}\n` +
-                        `• *Keterlambatan*: *${lateMinutes} Menit* (Batas Masuk: ${effective.gateInEndTime || '07:00'} WIB)\n` +
-                        `• *Metode Presensi*: ${methodLabel}\n` +
-                        `• *Lokasi*: Ruang Kelas ${student.className || '-'}\n\n` +
-                        `Laporan kedisiplinan ini dikirimkan secara otomatis oleh Sistem Presensi Cerdas SMPN 1 Boyolangu. Mohon bantuan Bapak/Ibu untuk membimbing ananda agar dapat berangkat lebih awal. Terima kasih atas kerja samanya.`;
+                        `• *Keterlambatan*: *${lateMinutes} Menit* (Batas Tepat Waktu: 07:00 WIB)\n` +
+                        `• *Jalur Presensi*: ${waTrack}\n` +
+                        `• *Lokasi*: ${waLocation}\n` +
+                        `• *Tindak Lanjut*: ${waFollowUp}\n\n` +
+                        `Laporan kedisiplinan ini dikirimkan secara otomatis oleh Sistem Presensi Cerdas SMPN 1 Boyolangu. Mohon bantuan Bapak/Ibu untuk membimbing ananda agar dapat berangkat lebih awal demi kelancaran proses pembelajaran. Terima kasih atas kerja samanya.`;
 
                     sendSingleWhatsApp(student.parentPhone, waLateNotice).catch(waErr => {
                         console.warn(`[WA Late Alert] Gagal mengirim pesan ke ${student.parentPhone}:`, waErr.message);
@@ -1912,8 +1930,8 @@ export const recordManualAttendance = async (req: Request, res: Response) => {
             return res.status(400).json({ message: 'User ID dan Status wajib diisi' });
         }
 
-        const scanTime = scanDate ? new Date(scanDate + 'T07:00:00') : new Date();
-        const nowStr = (scanDate ? new Date() : scanTime).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+        const scanTime = scanDate ? new Date(scanDate + 'T07:00:00+07:00') : new Date();
+        const nowStr = getWibTimeColon(scanDate ? new Date() : scanTime);
         let finalNote = note ? String(note).trim() : '';
         if (!finalNote) {
             if (status === 'LATE') {
@@ -2045,17 +2063,15 @@ export const getAttendanceRekap = async (req: Request, res: Response) => {
 
         if (date) {
             targetDateStr = String(date).split('T')[0];
-            const [y, m, d] = targetDateStr.split('-').map(Number);
-            startOfDay = new Date(y, m - 1, d, 0, 0, 0, 0);
-            endOfDay = new Date(y, m - 1, d, 23, 59, 59, 999);
+            const refDate = new Date(`${targetDateStr}T12:00:00+07:00`);
+            const bounds = getWibDayBounds(refDate);
+            startOfDay = bounds.startOfDay;
+            endOfDay = bounds.endOfDay;
         } else {
-            const cur = new Date();
-            const y = cur.getFullYear();
-            const m = String(cur.getMonth() + 1).padStart(2, '0');
-            const d = String(cur.getDate()).padStart(2, '0');
-            targetDateStr = `${y}-${m}-${d}`;
-            startOfDay = new Date(cur.getFullYear(), cur.getMonth(), cur.getDate(), 0, 0, 0, 0);
-            endOfDay = new Date(cur.getFullYear(), cur.getMonth(), cur.getDate(), 23, 59, 59, 999);
+            const bounds = getWibDayBounds(new Date());
+            targetDateStr = bounds.ymd;
+            startOfDay = bounds.startOfDay;
+            endOfDay = bounds.endOfDay;
         }
 
         const studentWhere: any = { role: 'STUDENT', isActive: true };
@@ -2127,12 +2143,10 @@ export const getAttendanceRekap = async (req: Request, res: Response) => {
         const holidayTitle = dbHoliday ? dbHoliday.name : (isSunday ? 'Hari Minggu (Libur Akhir Pekan)' : '');
         const holidayDesc = dbHoliday?.description || (isSunday ? 'Hari libur akhir pekan resmi sekolah' : '');
 
-        const curYear = now.getFullYear();
-        const curMonth = String(now.getMonth() + 1).padStart(2, '0');
-        const curDay = String(now.getDate()).padStart(2, '0');
-        const nowDateStr = `${curYear}-${curMonth}-${curDay}`;
+        const boundsNow = getWibDayBounds(now);
+        const nowDateStr = boundsNow.ymd;
         const isPastDate = targetDateStr < nowDateStr;
-        const currTimeStr = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false });
+        const currTimeStr = getWibTimeColon(now);
         const isPastGateOutEnd = currTimeStr > settings.gateOutEndTime;
 
         const formatPreciseTime = (dt: Date | string | null | undefined, fallbackNote?: string | null) => {
@@ -2425,12 +2439,8 @@ export const checkAndNotifyUnscannedStudents = async (req: Request, res: Respons
     try {
         const settings = await getOrCreateGateSettings();
         const now = new Date();
-        const startOfDay = new Date(now);
-        startOfDay.setHours(0, 0, 0, 0);
-        const endOfDay = new Date(now);
-        endOfDay.setHours(23, 59, 59, 999);
-
-        const currentTimeStr = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false });
+        const { startOfDay, endOfDay } = getWibDayBounds(now);
+        const currentTimeStr = getWibTimeColon(now);
 
         // Ambil seluruh siswa aktif
         const students = await prisma.user.findMany({
@@ -2656,19 +2666,17 @@ export async function autoMarkUnscannedStudentsAsAlpa(): Promise<number> {
     try {
         const settings = await getOrCreateGateSettings();
         const now = new Date();
-        const dayOfWeek = now.getDay();
+        const bounds = getWibDayBounds(now);
+        const dayOfWeek = bounds.dayOfWeek;
         if (dayOfWeek === 0) return 0; // Libur hari Minggu
 
-        const currentTimeStr = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false });
+        const currentTimeStr = getWibTimeColon(now);
         const cutoffTime = settings.gateInMaxTime || '08:00';
         if (currentTimeStr < cutoffTime && currentTimeStr < '08:00') {
             return 0; // Belum melewati batas jam masuk
         }
 
-        const startOfDay = new Date(now);
-        startOfDay.setHours(0, 0, 0, 0);
-        const endOfDay = new Date(now);
-        endOfDay.setHours(23, 59, 59, 999);
+        const { startOfDay, endOfDay } = bounds;
 
         const students = await prisma.user.findMany({
             where: { role: 'STUDENT', isActive: true }
@@ -2756,19 +2764,16 @@ async function getAttendanceDataForExport(params: {
     let isRange = false;
 
     if (params.startDate && params.endDate) {
-        startOfDay = new Date(params.startDate);
-        startOfDay.setHours(0, 0, 0, 0);
-        endOfDay = new Date(params.endDate);
-        endOfDay.setHours(23, 59, 59, 999);
+        startOfDay = getWibDayBounds(new Date(`${params.startDate}T12:00:00+07:00`)).startOfDay;
+        endOfDay = getWibDayBounds(new Date(`${params.endDate}T12:00:00+07:00`)).endOfDay;
         isRange = true;
         targetDateStr = `${params.startDate} s/d ${params.endDate}`;
     } else {
-        const d = params.date ? new Date(String(params.date)) : new Date();
-        startOfDay = new Date(d);
-        startOfDay.setHours(0, 0, 0, 0);
-        endOfDay = new Date(d);
-        endOfDay.setHours(23, 59, 59, 999);
-        targetDateStr = startOfDay.toISOString().split('T')[0];
+        const d = params.date ? new Date(`${String(params.date).split('T')[0]}T12:00:00+07:00`) : new Date();
+        const bounds = getWibDayBounds(d);
+        startOfDay = bounds.startOfDay;
+        endOfDay = bounds.endOfDay;
+        targetDateStr = bounds.ymd;
     }
 
     const studentWhere: any = { role: 'STUDENT', isActive: true };
@@ -2834,9 +2839,10 @@ async function getAttendanceDataForExport(params: {
 
     const settings = await getOrCreateGateSettings();
     const now = new Date();
-    const nowDateStr = now.toISOString().split('T')[0];
+    const boundsNow = getWibDayBounds(now);
+    const nowDateStr = boundsNow.ymd;
     const isPastDate = (!isRange && targetDateStr < nowDateStr) || (isRange && (params.endDate || '') < nowDateStr);
-    const currTimeStr = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false });
+    const currTimeStr = getWibTimeColon(now);
     const isPastGateOutEnd = currTimeStr > settings.gateOutEndTime;
 
     const formatTime = (dt: any) => {
@@ -4724,11 +4730,30 @@ export const getClassOfficerDynamicQr = async (req: Request, res: Response) => {
             return res.status(400).json({ success: false, message: 'Identitas kelas tidak ditemukan.' });
         }
 
-        const now = Date.now();
-        const step = Math.floor(now / 10000); // 10 Detik per Step
+        const now = new Date();
+        const { timeWithSecStr } = getWibDate(now);
+
+        // Batas waktu: Barcode dinamis pengurus kelas hanya aktif pukul 06:00:00 - 07:05:00 WIB
+        if (timeWithSecStr < '06:00:00') {
+            return res.status(400).json({
+                success: false,
+                message: 'Barcode dinamis pengurus kelas belum dibuka. Presensi dibuka mulai pukul 06:00 WIB.'
+            });
+        }
+
+        if (timeWithSecStr > '07:05:00') {
+            return res.status(400).json({
+                success: false,
+                isClosed: true,
+                message: 'Barcode dinamis pengurus kelas ditutup pukul 07:05 WIB. Siswa yang terlambat wajib scan di Ruang BK (07:05 - 08:00 WIB).'
+            });
+        }
+
+        const nowMs = Date.now();
+        const step = Math.floor(nowMs / 10000); // 10 Detik per Step
         const hash = crypto.createHash('sha256').update(`${className}|${step}|${DYNAMIC_QR_SALT}`).digest('hex').substring(0, 12);
         const payload = `DYNAMIC_CLASS_QR|${className}|${step}|${hash}`;
-        const secondsRemaining = 10 - Math.floor((now % 10000) / 1000);
+        const secondsRemaining = 10 - Math.floor((nowMs % 10000) / 1000);
 
         return res.json({
             success: true,
@@ -4736,7 +4761,7 @@ export const getClassOfficerDynamicQr = async (req: Request, res: Response) => {
             payload,
             step,
             expiresInSeconds: secondsRemaining,
-            serverTimestamp: now
+            serverTimestamp: nowMs
         });
     } catch (err: any) {
         console.error('Error getClassOfficerDynamicQr:', err);

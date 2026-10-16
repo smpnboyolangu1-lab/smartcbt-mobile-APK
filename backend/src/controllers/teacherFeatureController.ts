@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import prisma from '../utils/db';
 import crypto from 'crypto';
 import { sendFcmToUser } from '../services/fcmService';
-import { formatTimeWibWithSuffix } from '../utils/dateUtils';
+import { formatTimeWibWithSuffix, getWibDayBounds, getWibTimeColon } from '../utils/dateUtils';
 
 export const getTeacherTodaySchedule = async (req: Request, res: Response) => {
     try {
@@ -1430,12 +1430,19 @@ export const teacherGeolocationAttendance = async (req: Request, res: Response) 
             }
         }
 
-        // Ambil rentang waktu hari ini (00:00 - 23:59 WIB)
+        // Ambil rentang waktu hari ini (00:00 - 23:59 WIB) secara deterministik
         const now = new Date();
-        const startOfDay = new Date(now);
-        startOfDay.setHours(0, 0, 0, 0);
-        const endOfDay = new Date(now);
-        endOfDay.setHours(23, 59, 59, 999);
+        const { startOfDay, endOfDay } = getWibDayBounds(now);
+
+        // Ambil konfigurasi gerbang sekolah
+        const settings = await prisma.gateSetting.findFirst() || {
+            gateInStartTime: '06:00',
+            gateInEndTime: '07:00',
+            gateInMaxTime: '07:15',
+            gateOutStartTime: '14:00',
+            isEmergencyGateOut: false,
+            isEarlyDismissal: false
+        };
 
         // Cari presensi guru hari ini
         const todayAttendances = await prisma.attendance.findMany({
@@ -1452,33 +1459,57 @@ export const teacherGeolocationAttendance = async (req: Request, res: Response) 
         const hasIn = todayAttendances.find(a => a.type === 'GATE_IN');
         const hasOut = todayAttendances.find(a => a.type === 'GATE_OUT');
 
-        const timeStr = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WIB';
+        const timeStr = formatTimeWibWithSuffix(now);
+        const currentHms = getWibTimeColon(now);
 
         if (!hasIn) {
+            // Evaluasi keterlambatan berdasarkan jam batas masuk sekolah
+            const isLate = currentHms > (settings.gateInEndTime || '07:00');
+            const status = isLate ? 'LATE' : 'PRESENT';
+            const note = isLate 
+                ? `Presensi Datang Guru (Terlambat) • ${timeStr}`
+                : `Presensi Datang Guru (Tepat Waktu) • ${timeStr}`;
+
             // Catat Presensi DATANG
             const newAtt = await prisma.attendance.create({
                 data: {
                     userId: user.id,
                     type: 'GATE_IN',
                     method: 'GPS',
-                    status: 'PRESENT',
+                    status,
                     scanTime: now,
                     lat: lat ? Number(lat) : schoolLat,
                     lng: lng ? Number(lng) : schoolLng,
                     isFakeGps: Boolean(isFakeGps),
-                    note: `Presensi Datang Guru (1-Tap Geolocation) • ${timeStr}`
+                    note
                 }
             });
 
             return res.json({
                 success: true,
                 type: 'GATE_IN',
-                message: `✔ Presensi DATANG Berhasil! Tercatat pada ${timeStr} via Geolocation GPS.`,
+                message: `✔ Presensi DATANG Berhasil (${isLate ? 'Terlambat' : 'Tepat Waktu'})! Tercatat pada ${timeStr} via Geolocation GPS.`,
                 timeStr,
                 attendance: newAtt
             });
         } else if (!hasOut) {
+            // Proteksi 1: Cegah double tap instan (Cooldown minimal 15 menit setelah tap masuk)
+            const elapsedMs = now.getTime() - new Date(hasIn.scanTime).getTime();
+            const minCooldownMs = 15 * 60 * 1000;
+            if (elapsedMs < minCooldownMs) {
+                const inFormatted = formatTimeWibWithSuffix(hasIn.scanTime);
+                return res.status(400).json({
+                    success: false,
+                    message: `⚠️ Anda baru saja melakukan presensi DATANG pada ${inFormatted}. Presensi PULANG belum dapat dilakukan dalam 15 menit pertama kedatangan.`
+                });
+            }
+
             // Catat Presensi PULANG
+            const isEarly = currentHms < (settings.gateOutStartTime || '14:00') && !settings.isEmergencyGateOut && !settings.isEarlyDismissal;
+            const note = isEarly
+                ? `Presensi Pulang Guru (Mendahului Jam Normal) • ${timeStr}`
+                : `Presensi Pulang Guru (Normal) • ${timeStr}`;
+
             const newAtt = await prisma.attendance.create({
                 data: {
                     userId: user.id,
@@ -1489,7 +1520,7 @@ export const teacherGeolocationAttendance = async (req: Request, res: Response) 
                     lat: lat ? Number(lat) : schoolLat,
                     lng: lng ? Number(lng) : schoolLng,
                     isFakeGps: Boolean(isFakeGps),
-                    note: `Presensi Pulang Guru (1-Tap Geolocation) • ${timeStr}`
+                    note
                 }
             });
 
@@ -1520,10 +1551,7 @@ export const getTeacherTodayAttendance = async (req: Request, res: Response) => 
     try {
         const user = (req as any).user;
         const now = new Date();
-        const startOfDay = new Date(now);
-        startOfDay.setHours(0, 0, 0, 0);
-        const endOfDay = new Date(now);
-        endOfDay.setHours(23, 59, 59, 999);
+        const { startOfDay, endOfDay } = getWibDayBounds(now);
 
         const todayAttendances = await prisma.attendance.findMany({
             where: {

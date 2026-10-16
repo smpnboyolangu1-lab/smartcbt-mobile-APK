@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/db';
+import { getWibDayBounds } from '../utils/dateUtils';
 
 const BUILTIN_NATIONAL_HOLIDAYS: Record<string, string> = {
     '2026-01-01': 'Tahun Baru 2026 Masehi',
@@ -700,10 +701,10 @@ export const getPortalAttendanceAnalyticsDashboard = async (req: Request, res: R
         const className = req.query.className ? String(req.query.className) : undefined;
         const days = Math.min(90, Math.max(7, Number(req.query.days || 30)));
 
-        const endDate = new Date();
-        const startDate = new Date();
-        startDate.setDate(endDate.getDate() - days);
-        startDate.setHours(0, 0, 0, 0);
+        const endDate = getWibDayBounds(new Date()).endOfDay;
+        const pastDate = new Date();
+        pastDate.setDate(pastDate.getDate() - days);
+        const startDate = getWibDayBounds(pastDate).startOfDay;
 
         const whereUser: any = { role: 'STUDENT' };
         if (className && className !== 'ALL') {

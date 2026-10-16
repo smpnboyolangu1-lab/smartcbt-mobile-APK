@@ -2,20 +2,19 @@ import { Request, Response } from 'express';
 import prisma from '../utils/db';
 import { getSchoolSignatures } from '../utils/schoolSignatures';
 import { sendFcmToUser } from '../services/fcmService';
-import { formatTimeWib, formatTimeWibWithSuffix } from '../utils/dateUtils';
+import { formatTimeWib, formatTimeWibWithSuffix, getWibDayBounds, getWibDayOfWeek, getWibTimeColon } from '../utils/dateUtils';
 import { sendPrayerH1NotificationForDate } from '../services/systemScheduler';
 
 // 1. Ambil Jadwal Rombel Sholat Hari Ini (Dinamis: Mendukung Sholat Dhuha, Dhuhur, Jumat)
 export const getTodayPrayerSchedule = async (req: Request, res: Response) => {
     try {
-        const todayDay = new Date().getDay(); // 0 = Minggu, 1 = Senin, dst.
+        const todayDay = getWibDayOfWeek(); // 0 = Minggu, 1 = Senin, dst (WIB)
         const dayNames = ['MINGGU', 'SENIN', 'SELASA', 'RABU', 'KAMIS', 'JUMAT', 'SABTU'];
         const currentDayName = dayNames[todayDay];
         const requestedType = (req.query.prayerType as string)?.toUpperCase();
 
         // Deteksi jendela waktu otomatis menggunakan zona waktu resmi WIB (Asia/Jakarta)
-        const nowWIB = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Jakarta' }));
-        const currentHourWIB = nowWIB.getHours(); // 0 - 23 WIB
+        const { hour: currentHourWIB } = getWibDayBounds(new Date());
         const isMorningDhuhaWindow = currentHourWIB < 10; // Sebelum jam 10 pagi WIB adalah sesi Sholat Dhuha
 
         let whereCondition: any = {
@@ -375,9 +374,9 @@ export const studentScanStaticBarcode = async (req: Request, res: Response) => {
 
         const isKeputrianScan = cleanBar.includes('KEPUTRIAN');
 
-        const todayDay = new Date().getDay();
-        const nowWIB = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Jakarta' }));
-        const currentHourWIB = nowWIB.getHours();
+        const todayDay = getWibDayOfWeek();
+        const now = new Date();
+        const { startOfDay, endOfDay, ymd: todayStr, hour: currentHourWIB } = getWibDayBounds(now);
         const isMorningDhuhaWindow = currentHourWIB < 10 || cleanBar.includes('DHUHA');
 
         let pType = String(prayerType || '').toUpperCase();
@@ -400,9 +399,8 @@ export const studentScanStaticBarcode = async (req: Request, res: Response) => {
             where: { dayOfWeek: todayDay, prayerType: pType, isActive: true }
         });
 
-        const now = new Date();
-        const currentHourMinute = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false }).replace('.', ':');
-        const timeWithSec = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).replace(/\./g, ':');
+        const currentHourMinute = getWibTimeColon(now);
+        const timeWithSec = getWibTimeColon(now, true);
 
         const defaultStartTime = pType === 'DHUHA' ? '06:45' : (todayDay === 5 ? '11:15' : '11:30');
         const defaultEndTime = pType === 'DHUHA' ? '09:00' : '14:30';
@@ -418,8 +416,6 @@ export const studentScanStaticBarcode = async (req: Request, res: Response) => {
                 message: '❌ Barcode mushola non-aktif! Sesi scan sholat telah dinonaktifkan oleh Guru PAI / Pengurus Mushola.'
             });
         }
-
-        const todayStr = new Date().toISOString().substring(0, 10);
 
         const student = await prisma.user.findUnique({ where: { id: user.id } });
         if (!student) {
@@ -441,8 +437,8 @@ export const studentScanStaticBarcode = async (req: Request, res: Response) => {
                     userId: student.id,
                     type: 'GATE_OUT',
                     scanTime: {
-                        gte: new Date(new Date().setHours(0, 0, 0, 0)),
-                        lte: new Date(new Date().setHours(23, 59, 59, 999))
+                        gte: startOfDay,
+                        lte: endOfDay
                     }
                 }
             });
@@ -573,10 +569,7 @@ export const studentScanStaticBarcode = async (req: Request, res: Response) => {
         // Simpan koordinat GPS ke rekaman Attendance utama jika tersedia
         if (lat && lng && Number(lat) !== 0 && Number(lng) !== 0) {
             try {
-                const startOfDay = new Date();
-                startOfDay.setHours(0, 0, 0, 0);
-                const endOfDay = new Date();
-                endOfDay.setHours(23, 59, 59, 999);
+                const { startOfDay, endOfDay } = getWibDayBounds(now);
 
                 const existingAtt = await prisma.attendance.findFirst({
                     where: {
@@ -694,8 +687,8 @@ export const paiMarkStudentPrayer = async (req: Request, res: Response) => {
             });
         }
 
-        const todayStr = new Date().toISOString().substring(0, 10);
-        const pType = prayerType || (new Date().getDay() === 5 ? 'JUMAT' : 'DHUHUR');
+        const todayStr = getWibDayBounds(new Date()).ymd;
+        const pType = prayerType || (getWibDayOfWeek() === 5 ? 'JUMAT' : 'DHUHUR');
 
         const existing = await (prisma as any).studentPrayerAttendance.findFirst({
             where: {
@@ -775,8 +768,8 @@ export const batchPaiMarkStudentPrayer = async (req: Request, res: Response) => 
             return res.status(400).json({ success: false, message: 'Kelas wajib ditentukan.' });
         }
 
-        const todayStr = new Date().toISOString().substring(0, 10);
-        const pType = prayerType || (new Date().getDay() === 5 ? 'JUMAT' : 'DHUHUR');
+        const todayStr = getWibDayBounds(new Date()).ymd;
+        const pType = prayerType || (getWibDayOfWeek() === 5 ? 'JUMAT' : 'DHUHUR');
 
         let students: any[] = [];
         if (Array.isArray(studentIds) && studentIds.length > 0) {
@@ -873,8 +866,8 @@ export const studentReportUzur = async (req: Request, res: Response) => {
             });
         }
 
-        const todayStr = new Date().toISOString().substring(0, 10);
-        const pType = new Date().getDay() === 5 ? 'JUMAT' : 'DHUHUR';
+        const todayStr = getWibDayBounds(new Date()).ymd;
+        const pType = getWibDayOfWeek() === 5 ? 'JUMAT' : 'DHUHUR';
 
         const existing = await (prisma as any).studentPrayerAttendance.findFirst({
             where: {
@@ -1766,8 +1759,8 @@ export const paiScanStudentCard = async (req: Request, res: Response) => {
         }
 
         const today = new Date();
-        const todayStr = today.toISOString().split('T')[0];
-        const nowTimeStr = today.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+        const { startOfDay, endOfDay, ymd: todayStr, hour: hourNow, minute: minuteNow } = getWibDayBounds(today);
+        const nowTimeStr = getWibTimeColon(today);
         const pType = prayerType || 'DHUHUR';
         const pStatus = status || 'SHOLAT_BERJAMAAH';
 
@@ -1776,8 +1769,8 @@ export const paiScanStudentCard = async (req: Request, res: Response) => {
             where: {
                 userId: student.id,
                 date: {
-                    gte: new Date(`${todayStr}T00:00:00.000Z`),
-                    lte: new Date(`${todayStr}T23:59:59.999Z`)
+                    gte: startOfDay,
+                    lte: endOfDay
                 },
                 prayerType: pType
             }
@@ -1815,8 +1808,8 @@ export const paiScanStudentCard = async (req: Request, res: Response) => {
                 userId: student.id,
                 type: 'GATE_IN',
                 scanTime: {
-                    gte: new Date(`${todayStr}T00:00:00.000Z`),
-                    lte: new Date(`${todayStr}T23:59:59.999Z`)
+                    gte: startOfDay,
+                    lte: endOfDay
                 }
             }
         });
@@ -1837,19 +1830,17 @@ export const paiScanStudentCard = async (req: Request, res: Response) => {
         }
 
         let gateOutRecorded = false;
-        const hourNow = today.getHours();
-        const minuteNow = today.getMinutes();
         const totalMinutes = hourNow * 60 + minuteNow;
 
-        // Jika jam 12:00 ke atas (720 menit)
+        // Jika jam 12:00 ke atas (720 menit WIB)
         if (totalMinutes >= 720) {
             const existingGateOut = await prisma.attendance.findFirst({
                 where: {
                     userId: student.id,
                     type: 'GATE_OUT',
                     scanTime: {
-                        gte: new Date(`${todayStr}T00:00:00.000Z`),
-                        lte: new Date(`${todayStr}T23:59:59.999Z`)
+                        gte: startOfDay,
+                        lte: endOfDay
                     }
                 }
             });

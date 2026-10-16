@@ -95,3 +95,41 @@ export function formatDateWibShort(dateInput: Date | string | null | undefined):
         return '-';
     }
 }
+
+/**
+ * Mendapatkan batas awal hari (00:00:00.000) dan akhir hari (23:59:59.999) dalam zona waktu WIB (UTC+7)
+ * Secara matematis deterministik dan bebas dari perbedaan timezone lokal server.
+ */
+export function getWibDayBounds(d: Date = new Date()): { startOfDay: Date; endOfDay: Date; ymd: string; hour: number; minute: number; dayOfWeek: number } {
+    const nowUtc = d.getTime();
+    const wibOffset = 7 * 60 * 60 * 1000;
+    const nowWib = new Date(nowUtc + wibOffset);
+    const y = nowWib.getUTCFullYear();
+    const m = nowWib.getUTCMonth();
+    const dateNum = nowWib.getUTCDate();
+    const hour = nowWib.getUTCHours();
+    const minute = nowWib.getUTCMinutes();
+    const dayOfWeek = nowWib.getUTCDay();
+    const startOfDay = new Date(Date.UTC(y, m, dateNum, 0, 0, 0, 0) - wibOffset);
+    const endOfDay = new Date(Date.UTC(y, m, dateNum, 23, 59, 59, 999) - wibOffset);
+    const ymd = `${y}-${String(m + 1).padStart(2, '0')}-${String(dateNum).padStart(2, '0')}`;
+    return { startOfDay, endOfDay, ymd, hour, minute, dayOfWeek };
+}
+
+/**
+ * Mengembalikan indeks hari WIB (0: Minggu, 1: Senin, ..., 6: Sabtu)
+ */
+export function getWibDayOfWeek(d: Date = new Date()): number {
+    const nowUtc = d.getTime();
+    const wibOffset = 7 * 60 * 60 * 1000;
+    const nowWib = new Date(nowUtc + wibOffset);
+    return nowWib.getUTCDay();
+}
+
+/**
+ * Mengembalikan string waktu WIB format "HH:mm" atau "HH:mm:ss" dengan separator titik dua (:)
+ */
+export function getWibTimeColon(d: Date = new Date(), includeSeconds: boolean = false): string {
+    const formatted = formatTimeWib(d, includeSeconds);
+    return formatted.replace(/\./g, ':');
+}

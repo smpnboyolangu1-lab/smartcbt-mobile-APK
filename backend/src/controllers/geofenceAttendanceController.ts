@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
+import { getWibDayBounds } from '../utils/dateUtils';
 
 const prisma = new PrismaClient();
 
@@ -147,9 +148,10 @@ export const teacherTabAttendance = async (req: Request, res: Response) => {
             });
         }
 
-        // 5. Validasi Geofencing & Jendela Waktu Server
+        // 5. Validasi Geofencing & Jendela Waktu Server (WIB)
         const nowServer = new Date();
-        const serverMinutes = nowServer.getHours() * 60 + nowServer.getMinutes();
+        const { hour: wibHour, minute: wibMinute } = getWibDayBounds(nowServer);
+        const serverMinutes = wibHour * 60 + wibMinute;
         const startMinutes = timeToMinutes(schedule.jamMulai);
         const endMinutes = timeToMinutes(schedule.jamSelesai);
 
@@ -332,21 +334,31 @@ export const studentTabAttendance = async (req: Request, res: Response) => {
             });
         }
 
-        // Cek apakah siswa berstatus IZIN / SAKIT dari BK
-        const todayDate = new Date();
-        const startOfDay = new Date(todayDate.getFullYear(), todayDate.getMonth(), todayDate.getDate());
-        const studentLeave = await prisma.studentLeavePermit.findFirst({
-            where: {
-                siswaId,
-                tanggal: { gte: startOfDay },
-                status: 'APPROVED'
-            }
-        });
+        // Cek apakah siswa berstatus IZIN / SAKIT dari BK (Pemeriksaan Ganda: StudentLeavePermit & StudentLeaveRequest)
+        const { startOfDay, endOfDay } = getWibDayBounds(new Date());
+        const [studentLeave, studentLeaveReq] = await Promise.all([
+            prisma.studentLeavePermit.findFirst({
+                where: {
+                    siswaId,
+                    tanggal: { gte: startOfDay, lte: endOfDay },
+                    status: 'APPROVED'
+                }
+            }),
+            prisma.studentLeaveRequest.findFirst({
+                where: {
+                    studentId: siswaId,
+                    status: 'APPROVED',
+                    startDate: { lte: endOfDay },
+                    endDate: { gte: startOfDay }
+                }
+            })
+        ]);
 
-        if (studentLeave) {
+        if (studentLeave || studentLeaveReq) {
+            const izinType = studentLeave?.kategoriIzin || (studentLeaveReq?.category === 'SICK' ? 'SAKIT' : 'IZIN');
             return res.status(403).json({
                 success: false,
-                message: `Anda tercatat ${studentLeave.kategoriIzin} pada hari ini oleh Guru BK.`
+                message: `Anda tercatat ${izinType} pada hari ini oleh Guru BK.`
             });
         }
 
@@ -571,8 +583,8 @@ export const getKurikulumRecap = async (req: Request, res: Response) => {
         if (guruId) whereClause.guruId = String(guruId);
         if (startDate || endDate) {
             whereClause.waktuTabMasukServer = {};
-            if (startDate) whereClause.waktuTabMasukServer.gte = new Date(String(startDate));
-            if (endDate) whereClause.waktuTabMasukServer.lte = new Date(String(endDate));
+            if (startDate) whereClause.waktuTabMasukServer.gte = getWibDayBounds(new Date(String(startDate) + 'T12:00:00+07:00')).startOfDay;
+            if (endDate) whereClause.waktuTabMasukServer.lte = getWibDayBounds(new Date(String(endDate) + 'T12:00:00+07:00')).endOfDay;
         }
 
         const records = await prisma.teacherGeofenceAttendance.findMany({

@@ -1,5 +1,8 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/db';
+import { formatTimeWib, getWibDayBounds, getWibTimeColon } from '../utils/dateUtils';
+import { sendSingleWhatsApp } from '../services/whatsappBlastService';
+import { sendFcmToUser } from '../services/fcmService';
 
 // 1. Presensi Manual Siswa Tanpa HP oleh Guru BK
 export const submitBkManualAttendance = async (req: Request, res: Response) => {
@@ -19,10 +22,7 @@ export const submitBkManualAttendance = async (req: Request, res: Response) => {
         const attType = (type || 'GATE_IN').toUpperCase();
         const attStatus = (status || 'PRESENT').toUpperCase();
 
-        const todayStart = new Date();
-        todayStart.setHours(0, 0, 0, 0);
-        const todayEnd = new Date();
-        todayEnd.setHours(23, 59, 59, 999);
+        const { startOfDay: todayStart, endOfDay: todayEnd } = getWibDayBounds(new Date());
 
         const existingAtt = await prisma.attendance.findFirst({
             where: {
@@ -33,7 +33,7 @@ export const submitBkManualAttendance = async (req: Request, res: Response) => {
         });
 
         if (existingAtt) {
-            const timeStr = new Date(existingAtt.scanTime).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+            const timeStr = formatTimeWib(existingAtt.scanTime, false);
             return res.status(400).json({
                 success: false,
                 message: `⚠️ Siswa ${student.name} sudah tercatat ${attType === 'GATE_IN' ? 'Masuk' : 'Pulang'} hari ini pada pukul ${timeStr} WIB (${existingAtt.method || 'QR'}). Presensi tidak dapat diduplikasi.`
@@ -46,19 +46,31 @@ export const submitBkManualAttendance = async (req: Request, res: Response) => {
             const h = parseInt(parts[0]);
             const m = parseInt(parts[1] || '0');
             if (!isNaN(h) && !isNaN(m)) {
-                scanTime.setHours(h, m, 0, 0);
+                const b = getWibDayBounds(new Date());
+                scanTime = new Date(b.ymd + `T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00+07:00`);
             }
         }
         let finalStatus = attStatus;
-        if (attType === 'GATE_IN' && finalStatus === 'PRESENT') {
-            const h = scanTime.getHours();
-            const m = scanTime.getMinutes();
-            if (h > 7 || (h === 7 && m > 0)) {
+        let computedLateMinutes = 0;
+        const { hour: h, minute: m } = getWibDayBounds(scanTime);
+        const scanTimeMinutes = h * 60 + m;
+
+        if (attType === 'GATE_IN') {
+            if (scanTimeMinutes > 7 * 60) {
                 finalStatus = 'LATE';
+                computedLateMinutes = scanTimeMinutes - (7 * 60);
+            }
+            // Sesuai aturan: jika kedatangan setelah pukul 08:00 WIB, ALASAN KETERLAMBATAN WAJIB DIISI
+            const effectiveReason = (reasonNoPhone || notes || req.body.reason || '').trim();
+            if (scanTimeMinutes >= 8 * 60 && !effectiveReason) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Keterlambatan masuk setelah pukul 08:00 WIB wajib menyertakan alasan keterlambatan.'
+                });
             }
         }
 
-        const noteDetail = `[Manual BK: ${user.name}] Alasan: ${reasonNoPhone || 'Presensi Verifikasi Guru BK'}. Jam: ${scanTime.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB. ${notes || ''}`.trim();
+        const noteDetail = `[Manual BK: ${user.name}] Alasan: ${reasonNoPhone || 'Presensi Verifikasi Guru BK'}. Jam: ${getWibTimeColon(scanTime)} WIB. ${notes || ''}`.trim();
 
         const attendance = await prisma.attendance.create({
             data: {
@@ -73,17 +85,67 @@ export const submitBkManualAttendance = async (req: Request, res: Response) => {
 
         // Kirim notifikasi realtime ke akun Orang Tua
         try {
+            const notifTitle = finalStatus === 'LATE' 
+                ? `⏰ [SIBOY KEDISIPLINAN] Siswa Tiba Terlambat (Manual BK)` 
+                : `📱 Presensi Khusus (Tanpa HP): ${student.name}`;
+            const notifMsg = `Ananda ${student.name} (${student.className || '-'}) telah dicatat kehadirannya secara resmi oleh Guru BK (${user.name}) dengan keterangan: ${reasonNoPhone || 'Presensi Guru BK'}. Status: ${finalStatus === 'PRESENT' ? 'Hadir Tepat Waktu' : (finalStatus === 'LATE' ? `Terlambat ${computedLateMinutes} menit` : finalStatus)}.`;
+
             await (prisma as any).notificationMessage.create({
                 data: {
                     recipientRole: 'PARENT',
                     studentId: student.id,
                     studentName: student.name,
                     className: student.className,
-                    title: `📱 Presensi Khusus (Tanpa HP): ${student.name}`,
-                    message: `Ananda ${student.name} telah dicatat kehadirannya secara resmi oleh Guru BK (${user.name}) dengan keterangan: ${reasonNoPhone || 'Tidak membawa HP'}. Status: ${attStatus === 'PRESENT' ? 'Hadir' : attStatus}.`,
+                    title: notifTitle,
+                    message: notifMsg,
                     category: 'ATTENDANCE'
                 }
             });
+
+            // Kirim FCM ke aplikasi Orang Tua
+            const cleanNisn = (student.nisn || student.username || '').replace(/^[Pp]/, '').trim();
+            const parentUsers = await prisma.user.findMany({
+                where: {
+                    role: 'PARENT',
+                    OR: [
+                        { username: `P${cleanNisn}` },
+                        { username: `p${cleanNisn}` },
+                        { username: cleanNisn },
+                        { nisn: cleanNisn },
+                        ...(student.parentPhone ? [{ username: student.parentPhone }] : [])
+                    ]
+                }
+            });
+
+            for (const p of parentUsers) {
+                await sendFcmToUser(p.id, notifTitle, notifMsg, {
+                    type: 'ATTENDANCE',
+                    scanType: attType,
+                    studentId: student.id,
+                    status: finalStatus
+                }).catch(() => {});
+            }
+
+            // Sesuai D13: Notifikasi WhatsApp HANYA untuk siswa terlambat dan hanya ke nomor orang tua yang terinput
+            if (finalStatus === 'LATE' && computedLateMinutes > 0 && student.parentPhone) {
+                const timeStrWib = getWibTimeColon(scanTime);
+                const waReason = (reasonNoPhone || notes || req.body.reason || 'Keterlambatan ditangani Guru BK').trim();
+                const waLateNotice = `*PEMBERITAHUAN KETERLAMBATAN SISWA*\n` +
+                    `*SMP NEGERI 1 BOYOLANGU*\n\n` +
+                    `Yth. Bapak/Ibu Orang Tua / Wali Murid dari ananda *${student.name}* (Kelas ${student.className || '-'}),\n\n` +
+                    `Kami menginformasikan bahwa ananda telah tiba di sekolah dengan status *TERLAMBAT*:\n` +
+                    `• *Waktu Tiba*: ${timeStrWib} WIB\n` +
+                    `• *Keterlambatan*: *${computedLateMinutes} Menit* (Batas Tepat Waktu: 07:00 WIB)\n` +
+                    `• *Jalur Presensi*: Input Manual oleh Guru BK\n` +
+                    `• *Dicatat Oleh*: ${user.name || 'Guru BK'}\n` +
+                    `• *Alasan*: ${waReason}\n` +
+                    `• *Tindak Lanjut*: Telah melapor ke Ruang BK untuk pendataan dan pembinaan sebelum memasuki kelas.\n\n` +
+                    `Laporan kedisiplinan ini dikirimkan secara otomatis oleh Sistem Presensi Cerdas SMPN 1 Boyolangu. Mohon bantuan Bapak/Ibu untuk membimbing ananda agar dapat berangkat lebih awal demi kelancaran proses pembelajaran. Terima kasih atas kerja samanya.`;
+
+                sendSingleWhatsApp(student.parentPhone, waLateNotice).catch(waErr => {
+                    console.warn(`[WA BK Manual Late Alert] Gagal kirim WA ke ${student.parentPhone}:`, waErr.message);
+                });
+            }
         } catch (nErr) {}
 
         res.json({
@@ -100,13 +162,12 @@ export const submitBkManualAttendance = async (req: Request, res: Response) => {
 // 2. Riwayat Presensi Manual Guru BK Hari Ini
 export const getBkManualTodayLog = async (req: Request, res: Response) => {
     try {
-        const todayStart = new Date();
-        todayStart.setHours(0, 0, 0, 0);
+        const { startOfDay: todayStart, endOfDay: todayEnd } = getWibDayBounds(new Date());
 
         const logs = await prisma.attendance.findMany({
             where: {
                 method: 'MANUAL_BK',
-                scanTime: { gte: todayStart }
+                scanTime: { gte: todayStart, lte: todayEnd }
             },
             include: {
                 user: {
@@ -206,11 +267,9 @@ export const getPendingStudentLeavesForBk = async (req: Request, res: Response) 
 // 4. Rekap Presensi 360 Derajat untuk Halaman BK & Portal (Gerbang, Mapel, & Sholat)
 export const getBkUnifiedAttendanceRecap = async (req: Request, res: Response) => {
     try {
-        const { className, date } = req.query;
-        const targetDateStr = String(date || new Date().toISOString().substring(0, 10));
-
-        const startOfDay = new Date(`${targetDateStr}T00:00:00.000Z`);
-        const endOfDay = new Date(`${targetDateStr}T23:59:59.999Z`);
+        const { date, className } = req.query as { date?: string; className?: string };
+        const targetDateStr = String(date || getWibDayBounds(new Date()).ymd);
+        const { startOfDay, endOfDay } = getWibDayBounds(new Date(`${targetDateStr}T12:00:00+07:00`));
 
         let studentFilter: any = { role: 'STUDENT' };
         if (className && className !== 'ALL') {
@@ -393,7 +452,7 @@ export const submitBkQuickStudentLeave = async (req: Request, res: Response) => 
         const finalCategory = isSakit ? 'SAKIT' : 'KEPERLUAN_KELUARGA';
         const attStatus = isSakit ? 'SICK' : 'PERMISSION';
 
-        const todayStr = new Date().toISOString().substring(0, 10);
+        const { startOfDay: todayStart, endOfDay: todayEnd, ymd: todayStr } = getWibDayBounds(new Date());
         const effectiveStart = startDate || todayStr;
         const effectiveEnd = endDate || effectiveStart;
 
@@ -413,11 +472,28 @@ export const submitBkQuickStudentLeave = async (req: Request, res: Response) => 
             }
         });
 
-        // Buat/Update kehadiran di tabel Attendance untuk hari ini
-        const todayStart = new Date();
-        todayStart.setHours(0, 0, 0, 0);
-        const todayEnd = new Date();
-        todayEnd.setHours(23, 59, 59, 999);
+        // Sinkronisasi ke StudentLeaveRequest agar terdeteksi di rekap gerbang, portal wali murid & siswa
+        try {
+            await (prisma as any).studentLeaveRequest.create({
+                data: {
+                    studentId: student.id,
+                    studentName: student.name,
+                    className: student.className || '-',
+                    parentName: 'Verifikasi Guru BK',
+                    parentPhone: student.parentPhone || null,
+                    category: isSakit ? 'SICK' : 'PERMISSION',
+                    startDate: new Date(effectiveStart + 'T00:00:00+07:00'),
+                    endDate: new Date(effectiveEnd + 'T23:59:59+07:00'),
+                    reason: reason || (isSakit ? 'Izin Sakit (Dicatat Guru BK)' : 'Izin Keperluan Keluarga (Dicatat Guru BK)'),
+                    attachmentUrl: doctorNoteUrl || null,
+                    status: 'APPROVED',
+                    verifiedBy: user?.name || 'Guru BK',
+                    verifiedAt: new Date()
+                }
+            });
+        } catch (slrErr) {
+            console.warn('Sync studentLeaveRequest error:', slrErr);
+        }
 
         const existingAtt = await prisma.attendance.findFirst({
             where: {
