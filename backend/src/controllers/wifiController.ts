@@ -99,6 +99,30 @@ async function callMikrotikAddBinding(mac: string, studentName: string, config: 
         } else {
             const errText = await response.text();
             console.warn(`[MIKROTIK-WARN] Status ${response.status} saat membuat ${bindingType} binding: ${errText}`);
+            // Jika binding sudah ada di router (idempotent), cari ID-nya dan perbarui tipe/komentarnya
+            if (response.status === 400 || response.status === 409 || errText.toLowerCase().includes('already') || errText.toLowerCase().includes('exist')) {
+                try {
+                    const findUrl = `${protocol}://${config.mikrotikHost}:${config.mikrotikPort}/rest/ip/hotspot/ip-binding?mac-address=${encodeURIComponent(mac)}`;
+                    const findResp = await fetch(findUrl, {
+                        headers: { 'Authorization': `Basic ${auth}`, 'Accept': 'application/json' }
+                    });
+                    if (findResp.ok) {
+                        const items: any[] = await findResp.json().catch(() => []);
+                        if (Array.isArray(items) && items.length > 0 && items[0]['.id']) {
+                            const existingId = items[0]['.id'];
+                            await fetch(`${url}/${existingId}`, {
+                                method: 'PATCH',
+                                headers: { 'Authorization': `Basic ${auth}`, 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ type: bindingType, comment })
+                            }).catch(() => {});
+                            console.log(`[MIKROTIK-RECOVERED] Binding ${mac} sudah ada di router, berhasil diperbarui dengan ID: ${existingId}`);
+                            return existingId;
+                        }
+                    }
+                } catch (recErr: any) {
+                    console.warn(`[MIKROTIK-RECOVER-FAIL] ${recErr.message}`);
+                }
+            }
             return null;
         }
     } catch (err: any) {

@@ -66,7 +66,7 @@ object AppUpdateChecker {
     }
 
     private var lastUpdateCheckMillis: Long = 0L
-    private const val UPDATE_CHECK_COOLDOWN_MS = 25000L
+    private const val UPDATE_CHECK_COOLDOWN_MS = 10000L
 
     fun checkForUpdates(context: Context, showToastIfLatest: Boolean = false) {
         if (showToastIfLatest) {
@@ -206,22 +206,22 @@ object AppUpdateChecker {
         val cleanRemoteName = remote.versionName.trim().removePrefix("v").trim()
         val cleanCurrentName = currentName.trim().removePrefix("v").trim()
 
-        // 1. Jika nama versi sama persis (misal sama-sama "2.9.3"), PASTI bukan update baru!
+        // 1. Prioritaskan versionCode jika keduanya valid (> 0)
+        if (remote.versionCode > 0 && currentCode > 0) {
+            if (remote.versionCode > currentCode) {
+                return true
+            }
+            if (remote.versionCode < currentCode) {
+                return false
+            }
+            // Jika versionCode sama persis, periksa apakah semver versionName lebih baru
+            return isVersionNameNewer(cleanRemoteName, cleanCurrentName)
+        }
+
+        // 2. Fallback ke semver versionName jika versionCode tidak tersedia
         if (cleanRemoteName.equals(cleanCurrentName, ignoreCase = true)) {
             return false
         }
-
-        // 2. Jika versionCode lokal sudah sama atau lebih tinggi dari remote, aplikasi sudah mutakhir
-        if (remote.versionCode > 0 && currentCode > 0 && currentCode >= remote.versionCode) {
-            return false
-        }
-
-        // 3. Jika versionCode remote lebih tinggi dari versi lokal yang terpasang
-        if (remote.versionCode > 0 && currentCode > 0 && remote.versionCode > currentCode) {
-            return true
-        }
-
-        // 4. Bandingkan nomor versi semver jika versionCode tidak definitif
         return isVersionNameNewer(cleanRemoteName, cleanCurrentName)
     }
 
