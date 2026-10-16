@@ -614,7 +614,7 @@
                                         android:id="@+id/tvHomeHwPendingCount"
                                         android:layout_width="wrap_content"
                                         android:layout_height="wrap_content"
-                                        android:text="Memuat status tugas..."
+                                        android:text="Tidak ada tugas aktif"
                                         android:textColor="#64748B"
                                         android:textSize="11sp" />
                                 </LinearLayout>

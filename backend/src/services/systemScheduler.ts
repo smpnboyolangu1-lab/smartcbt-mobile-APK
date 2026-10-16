@@ -1,6 +1,8 @@
 import prisma from '../utils/db';
 import { broadcastMonitoringEvent, resetExamTokenTimer, setClassExamToken } from '../controllers/cbtController';
 import { autoNotifyUnscannedGateOutStudents } from '../controllers/attendanceController';
+import { sendFcmToUser } from './fcmService';
+import { sendSingleWhatsApp } from './whatsappBlastService';
 
 let schedulerInterval: NodeJS.Timeout | null = null;
 let lastRotateMinute = -1;
@@ -365,97 +367,236 @@ let lastPrayerH1Date = '';
 let lastPrayerDayOfDate = '';
 let lastPrayerMissedDate = '';
 
+/**
+ * Fungsi core pengiriman notifikasi pengingat sholat H-1 (Pukul 19:00 WIB)
+ * Mengirim notifikasi In-App Database, Push Notification FCM (Siswa & Orang Tua), dan WhatsApp Resmi ke Wali Murid
+ */
+export async function sendPrayerH1NotificationForDate(targetTomorrowWib: Date, force: boolean = false): Promise<{ sentStudents: number; sentParents: number; sentWa: number; schedulesCount: number; targetDayName: string; targetDateStr: string }> {
+    const tomorrowDay = targetTomorrowWib.getDay();
+    const tomorrowYmd = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(targetTomorrowWib);
+    const dayNames = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+    const tomorrowDayName = dayNames[tomorrowDay];
+
+    if (tomorrowDay === 0 && !force) {
+        console.log(`🕌 [Prayer Scheduler] Besok hari Minggu (libur sekolah). Tidak ada jadwal sholat berjamaah.`);
+        return { sentStudents: 0, sentParents: 0, sentWa: 0, schedulesCount: 0, targetDayName: tomorrowDayName, targetDateStr: tomorrowYmd };
+    }
+
+    const holiday = await prisma.schoolHoliday.findUnique({ where: { date: tomorrowYmd } });
+    if (holiday && !force) {
+        console.log(`🕌 [Prayer Scheduler] Besok hari libur (${holiday.name}). Notifikasi sholat dilewati.`);
+        return { sentStudents: 0, sentParents: 0, sentWa: 0, schedulesCount: 0, targetDayName: tomorrowDayName, targetDateStr: tomorrowYmd };
+    }
+
+    // Cegah duplikasi pengiriman di hari yang sama kecuali dipicu manual (force=true)
+    if (!force) {
+        const alreadyLogged = await prisma.auditLog.findFirst({
+            where: {
+                action: 'AUTO_PRAYER_H1_REMINDER',
+                details: { contains: tomorrowYmd }
+            }
+        });
+        if (alreadyLogged) {
+            console.log(`🕌 [Prayer Scheduler] Pengingat Sholat H-1 untuk tanggal ${tomorrowYmd} sudah pernah dikirim.`);
+            return { sentStudents: 0, sentParents: 0, sentWa: 0, schedulesCount: 0, targetDayName: tomorrowDayName, targetDateStr: tomorrowYmd };
+        }
+    }
+
+    // Ambil seluruh jadwal sholat aktif untuk besok (Mendukung multi-sholat: Dhuha, Dhuhur, Jumat)
+    let schedules = await (prisma as any).prayerClassSchedule.findMany({
+        where: { dayOfWeek: tomorrowDay, isActive: true },
+        orderBy: { scanStartTime: 'asc' }
+    });
+
+    // Fallback jadwal default GPAI resmi jika database kosong
+    if (schedules.length === 0) {
+        let defaultClasses = "VII-F,VII-G,VIII-A,IX-A,IX-B";
+        let defaultType = "DHUHUR";
+        let defaultStartTime = "12:00";
+        let defaultNotes = "Jadwal Sholat Dhuhur Berjamaah";
+
+        if (tomorrowDay === 2) {
+            defaultClasses = "VII-B,VII-C,VIII-B,VIII-C,IX-C,IX-D";
+        } else if (tomorrowDay === 3) {
+            defaultClasses = "VII-D,VII-E,VII-H,IX-E,IX-H";
+        } else if (tomorrowDay === 4) {
+            defaultClasses = "VII-A,VIII-F,VIII-G,IX-I";
+        } else if (tomorrowDay === 5) {
+            defaultClasses = "VII-I,VIII-H,VIII-I,IX-F,IX-J";
+            defaultType = "DHUHA";
+            defaultStartTime = "07:00";
+            defaultNotes = "Jadwal Sholat Dhuha Berjamaah";
+        } else if (tomorrowDay === 6) {
+            defaultClasses = "VII-J,VII-K,VIII-J,VIII-K,IX-G";
+        }
+
+        schedules = [{
+            dayOfWeek: tomorrowDay,
+            dayName: tomorrowDayName.toUpperCase(),
+            prayerType: defaultType,
+            classNames: defaultClasses,
+            scanStartTime: defaultStartTime,
+            notes: defaultNotes,
+            isActive: true
+        }];
+    }
+
+    let totalStudentsNotified = 0;
+    let totalParentsNotified = 0;
+    let totalWaNotified = 0;
+
+    for (const schedule of schedules) {
+        const pType = schedule.prayerType || 'DHUHUR';
+        const scanStartTime = schedule.scanStartTime || (pType === 'DHUHA' ? '07:00' : '12:00');
+        const targetClasses = (schedule.classNames || '').split(',').map((c: string) => c.trim()).filter(Boolean);
+
+        const studentQuery: any = {
+            role: 'STUDENT',
+            isActive: true,
+            OR: [
+                { religion: { in: ['Islam', 'ISLAM'] } },
+                { religion: null },
+                { religion: '' }
+            ]
+        };
+
+        if (schedule.classNames === 'ALL_MALE') {
+            studentQuery.gender = { in: ['L', 'LAKI-LAKI', 'Laki-laki', 'MALE', 'Male'] };
+        } else if (!targetClasses.includes('ALL') && !targetClasses.includes('SEMUA')) {
+            studentQuery.className = { in: targetClasses };
+        }
+
+        const students = await prisma.user.findMany({
+            where: studentQuery,
+            select: { id: true, name: true, className: true, gender: true, parentPhone: true }
+        });
+
+        for (const st of students) {
+            totalStudentsNotified++;
+            const titleSiswa = `🕌 Pengingat: Besok (${tomorrowDayName}) Jadwal Sholat ${pType} Berjamaah`;
+            const msgSiswa = `Hai ${st.name}, besok kelas ${st.className || '-'} terjadwal Sholat ${pType} Berjamaah (Pukul ${scanStartTime} WIB) di Mushola Sekolah. Harap membawa perlengkapan sholat pribadi (mukena / sarung / sajadah).`;
+
+            // 1. In-App Notification Siswa
+            await (prisma as any).notificationMessage.create({
+                data: {
+                    recipientId: st.id,
+                    recipientRole: 'STUDENT',
+                    studentId: st.id,
+                    studentName: st.name,
+                    className: st.className,
+                    title: titleSiswa,
+                    message: msgSiswa,
+                    category: 'ATTENDANCE'
+                }
+            }).catch(() => {});
+
+            // 2. FCM Push Notification ke Perangkat Siswa
+            sendFcmToUser(st.id, titleSiswa, msgSiswa, {
+                type: 'PRAYER_H1_REMINDER',
+                prayerType: pType,
+                targetDate: tomorrowYmd
+            }).catch(() => {});
+
+            // 3. In-App Notification & FCM Orang Tua
+            const titleOrtu = `🕌 Jadwal Sholat Berjamaah Besok: ${st.name} (Kelas ${st.className || '-'})`;
+            const msgOrtu = `Bapak/Ibu Orang Tua/Wali, besok (${tomorrowDayName}, ${tomorrowYmd}) ananda ${st.name} memiliki jadwal Sholat ${pType} Berjamaah di Mushola SMPN 1 Boyolangu pukul ${scanStartTime} WIB. Mohon memastikan ananda membawa perlengkapan sholat dari rumah.`;
+
+            await (prisma as any).notificationMessage.create({
+                data: {
+                    recipientRole: 'PARENT',
+                    studentId: st.id,
+                    studentName: st.name,
+                    className: st.className,
+                    title: titleOrtu,
+                    message: msgOrtu,
+                    category: 'ATTENDANCE'
+                }
+            }).catch(() => {});
+
+            // Cari akun orang tua terhubung untuk kirim FCM Push ke wali murid
+            const parentLinks = await (prisma as any).parentStudentLink.findMany({
+                where: { siswaId: st.id },
+                include: { orangTua: true }
+            }).catch(() => []);
+
+            if (Array.isArray(parentLinks) && parentLinks.length > 0) {
+                for (const link of parentLinks) {
+                    if (link.orangTua?.userId) {
+                        totalParentsNotified++;
+                        sendFcmToUser(link.orangTua.userId, titleOrtu, msgOrtu, {
+                            type: 'PRAYER_H1_REMINDER',
+                            studentId: st.id,
+                            prayerType: pType
+                        }).catch(() => {});
+                    }
+                }
+            } else {
+                totalParentsNotified++;
+            }
+
+            // 4. WhatsApp Blast Otomatis ke Nomor Orang Tua
+            const rawPhone = (st.parentPhone || '').trim().replace(/[^0-9]/g, '');
+            if (rawPhone.length >= 9) {
+                totalWaNotified++;
+                const waText = `*PENGINGAT JADWAL SHOLAT BERJAMAAH SMPN 1 BOYOLANGU*\n\n` +
+                    `Assalamu'alaikum Wr. Wb.\n` +
+                    `Yth. Bapak/Ibu Orang Tua/Wali Murid dari:\n` +
+                    `• *Nama Siswa:* ${st.name}\n` +
+                    `• *Kelas:* ${st.className || '-'}\n\n` +
+                    `Diberitahukan bahwa besok hari *${tomorrowDayName}, ${tomorrowYmd}*, ananda memiliki agenda ibadah:\n` +
+                    `🕌 *Sholat ${pType} Berjamaah*\n` +
+                    `⏰ *Waktu:* Pukul ${scanStartTime} WIB\n` +
+                    `📍 *Tempat:* Mushola / Masjid SMP Negeri 1 Boyolangu\n\n` +
+                    `Mohon bantuan Bapak/Ibu di rumah untuk:\n` +
+                    `1. Memastikan ananda membawa perlengkapan sholat pribadi (mukena bagi siswi putri / sarung atau sajadah bagi siswa putra).\n` +
+                    `2. Mengingatkan ananda untuk melakukan presensi sholat menggunakan scan barcode di mushola sekolah.\n\n` +
+                    `Terima kasih atas perhatian dan kerja sama Bapak/Ibu.\nWassalamu'alaikum Wr. Wb.\n\n` +
+                    `_Sistem Informasi Presensi Ibadah SMPN 1 Boyolangu_`;
+
+                sendSingleWhatsApp(rawPhone, waText).catch((e: any) => {
+                    console.warn(`[WA Prayer Reminder] Gagal kirim WA ke ${rawPhone}:`, e.message);
+                });
+            }
+        }
+    }
+
+    // Simpan riwayat pengiriman ke AuditLog untuk mencegah duplikasi
+    await prisma.auditLog.create({
+        data: {
+            action: 'AUTO_PRAYER_H1_REMINDER',
+            details: JSON.stringify({
+                targetDate: tomorrowYmd,
+                targetDayName: tomorrowDayName,
+                schedulesCount: schedules.length,
+                sentStudents: totalStudentsNotified,
+                sentParents: totalParentsNotified,
+                sentWa: totalWaNotified,
+                executedAt: new Date()
+            }),
+            ipAddress: '127.0.0.1 (Scheduler Daemon)'
+        }
+    }).catch(() => {});
+
+    console.log(`🕌 [Prayer Scheduler] Pengingat Sholat H-1 Pukul 19:00 WIB sukses diproses. Jadwal: ${schedules.length}, Siswa: ${totalStudentsNotified}, Ortu: ${totalParentsNotified}, WA: ${totalWaNotified}.`);
+    return { sentStudents: totalStudentsNotified, sentParents: totalParentsNotified, sentWa: totalWaNotified, schedulesCount: schedules.length, targetDayName: tomorrowDayName, targetDateStr: tomorrowYmd };
+}
+
 export async function processPrayerReminders(now: Date = new Date()) {
     try {
-        const hour = now.getHours();
-        const minute = now.getMinutes();
+        // Gunakan zona waktu resmi WIB (Asia/Jakarta)
+        const nowWibStr = now.toLocaleString('en-US', { timeZone: 'Asia/Jakarta' });
+        const nowWIB = new Date(nowWibStr);
+        const hour = nowWIB.getHours();
+        const minute = nowWIB.getMinutes();
         const currentTotalMinutes = hour * 60 + minute;
-        const todayYmd = now.toISOString().substring(0, 10);
-        const todayDay = now.getDay();
+        const todayYmd = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(now);
+        const todayDay = nowWIB.getDay();
 
-        // 1. PENGINGAT H-1 (Pukul 19:00 WIB)
-        if (hour === 19 && minute === 0 && lastPrayerH1Date !== todayYmd) {
+        // 1. PENGINGAT H-1 (Setiap Hari Pukul 19:00 WIB, dengan toleransi window 19:00 - 19:30)
+        if (hour === 19 && minute >= 0 && minute <= 30 && lastPrayerH1Date !== todayYmd) {
             lastPrayerH1Date = todayYmd;
-
-            const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-            const tomorrowDay = tomorrow.getDay();
-            const tomorrowYmd = tomorrow.toISOString().substring(0, 10);
-
-            // Cek apakah besok Minggu atau Libur
-            if (tomorrowDay !== 0) {
-                const holiday = await prisma.schoolHoliday.findUnique({ where: { date: tomorrowYmd } });
-                if (!holiday) {
-                    const schedule = await (prisma as any).prayerClassSchedule.findFirst({
-                        where: { dayOfWeek: tomorrowDay, isActive: true }
-                    });
-
-                    let targetClasses: string[] = [];
-                    const pType = tomorrowDay === 5 ? 'JUMAT' : (schedule?.prayerType || 'DHUHUR');
-
-                    if (schedule && schedule.classNames) {
-                        targetClasses = schedule.classNames.split(',').map((c: string) => c.trim()).filter(Boolean);
-                    } else {
-                        // Fallback default rombel harian
-                        if (tomorrowDay === 1) targetClasses = ["VII-A", "VII-B", "VII-C", "VII-D", "VII-E", "VII-F", "VII-G", "VII-H", "VII-I", "VII-J", "VII-K"];
-                        else if (tomorrowDay === 2) targetClasses = ["VIII-A", "VIII-B", "VIII-C", "VIII-D", "VIII-E", "VIII-F", "VIII-G", "VIII-H", "VIII-I", "VIII-J", "VIII-K"];
-                        else if (tomorrowDay === 3) targetClasses = ["IX-A", "IX-B", "IX-C", "IX-D", "IX-E", "IX-F", "IX-G", "IX-H", "IX-I", "IX-J", "IX-K"];
-                        else if (tomorrowDay === 4) targetClasses = ["VII-F", "VII-G", "VIII-F", "VIII-G", "IX-F", "IX-G"];
-                        else if (tomorrowDay === 5) targetClasses = ["ALL"];
-                        else if (tomorrowDay === 6) targetClasses = ["ALL"];
-                    }
-
-                    const dayNames = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
-                    const tomorrowDayName = dayNames[tomorrowDay];
-
-                    const studentQuery: any = { 
-                        role: 'STUDENT', 
-                        isActive: true,
-                        OR: [
-                            { religion: { in: ['Islam', 'ISLAM'] } },
-                            { religion: null },
-                            { religion: '' }
-                        ]
-                    };
-                    if (!targetClasses.includes('ALL') && !targetClasses.includes('ALL_MALE') && !targetClasses.includes('SEMUA')) {
-                        studentQuery.className = { in: targetClasses };
-                    }
-
-                    const students = await prisma.user.findMany({
-                        where: studentQuery,
-                        select: { id: true, name: true, className: true, gender: true }
-                    });
-
-                    for (const st of students) {
-                        // Notifikasi ke Siswa
-                        await (prisma as any).notificationMessage.create({
-                            data: {
-                                recipientId: st.id,
-                                recipientRole: 'STUDENT',
-                                studentId: st.id,
-                                studentName: st.name,
-                                className: st.className,
-                                title: `🕌 Pengingat: Besok (${tomorrowDayName}) Jadwal Sholat Berjamaah`,
-                                message: `Hai ${st.name}, besok kelas ${st.className || '-'} terjadwal Sholat ${pType} Berjamaah di Mushola Sekolah. Harap membawa perlengkapan sholat pribadi (mukena / sarung / sajadah).`,
-                                category: 'ATTENDANCE'
-                            }
-                        }).catch(() => {});
-
-                        // Notifikasi ke Orang Tua
-                        await (prisma as any).notificationMessage.create({
-                            data: {
-                                recipientRole: 'PARENT',
-                                studentId: st.id,
-                                studentName: st.name,
-                                className: st.className,
-                                title: `🕌 Pengingat Sholat Berjamaah: ${st.name}`,
-                                message: `Bapak/Ibu Orang Tua/Wali, besok (${tomorrowDayName}) ananda ${st.name} (Kelas ${st.className || '-'}) memiliki jadwal Sholat ${pType} Berjamaah di Mushola SMPN 1 Boyolangu. Mohon memastikan ananda membawa perlengkapan sholat dari rumah.`,
-                                category: 'ATTENDANCE'
-                            }
-                        }).catch(() => {});
-                    }
-                    console.log(`🕌 [Scheduler] Pengingat Sholat H-1 Pukul 19:00 WIB terkirim untuk ${students.length} siswa.`);
-                }
-            }
+            const tomorrowWIB = new Date(nowWIB.getTime() + 24 * 60 * 60 * 1000);
+            await sendPrayerH1NotificationForDate(tomorrowWIB, false);
         }
 
         // 2. PENGINGAT HARI H 1 JAM SEBELUM PELAKSANAAN SHOLAT

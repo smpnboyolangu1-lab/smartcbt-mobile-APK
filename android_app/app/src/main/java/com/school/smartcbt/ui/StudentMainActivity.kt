@@ -4330,14 +4330,17 @@ class StudentMainActivity : AppCompatActivity() {
                     val rawList = response.body()!!
                     val now = java.util.Date()
                     val isoFmt = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.getDefault())
+                    val isoFmtMs = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS", java.util.Locale.getDefault())
                     val simpleFmt = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
 
                     // Hilangkan otomatis tugas & PR yang sudah terlewat batas tenggat agar tidak menumpuk
                     allHomeworkList = rawList.filter { hw ->
                         if (hw.isSubmitted == true) return@filter true
                         val dDate = try {
-                            if (hw.deadline.contains("T")) isoFmt.parse(hw.deadline)
-                            else simpleFmt.parse(hw.deadline)
+                            val clean = hw.deadline.replace("Z", "")
+                            if (clean.contains(".")) isoFmtMs.parse(clean)
+                            else if (clean.contains("T")) isoFmt.parse(clean)
+                            else simpleFmt.parse(clean)
                         } catch (e: Exception) { null }
                         dDate == null || !now.after(dDate)
                     }
@@ -4349,7 +4352,11 @@ class StudentMainActivity : AppCompatActivity() {
                     binding.btnTabHwPending.text = "⏳ Belum ($pendingCount)"
                     binding.btnTabHwSubmitted.text = "✅ Kumpul ($submittedCount)"
                     binding.btnTabHwGraded.text = "⭐ Dinilai ($gradedCount)"
-                    binding.tvTugasSummary.text = "Terdapat ${allHomeworkList.size} tugas & ulangan aktif • Ketuk Buka Inbox"
+                    if (allHomeworkList.isEmpty()) {
+                        binding.tvTugasSummary.text = "Tidak ada tugas atau PR aktif saat ini"
+                    } else {
+                        binding.tvTugasSummary.text = "Terdapat ${allHomeworkList.size} tugas kelas • Ketuk Buka Inbox"
+                    }
                     binding.tvTugasSummary.setOnClickListener { showUnifiedInboxDialog() }
                     updateHomeHomeworkWidget(allHomeworkList)
                     applyHomeworkFilter()
@@ -4362,7 +4369,9 @@ class StudentMainActivity : AppCompatActivity() {
                     )
                 } else {
                     binding.tvEmptyHomework.visibility = View.VISIBLE
-                    binding.tvEmptyHomework.text = "Belum dapat memuat tugas dari server"
+                    binding.tvEmptyHomework.text = "Belum ada tugas atau PR aktif"
+                    binding.tvHomeHwPendingCount.text = "Tidak ada tugas aktif"
+                    binding.tvTugasSummary.text = "Tidak ada tugas atau PR aktif saat ini"
                     com.school.smartcbt.utils.ClientLogger.logHomework(
                         context = this@StudentMainActivity,
                         action = "LIST_HOMEWORKS",
@@ -4378,6 +4387,8 @@ class StudentMainActivity : AppCompatActivity() {
                 binding.tvEmptyHomework.visibility = View.VISIBLE
                 val netErr = sanitizeNetworkErrorMessage(t.message)
                 binding.tvEmptyHomework.text = netErr
+                binding.tvHomeHwPendingCount.text = "Tidak ada tugas aktif"
+                binding.tvTugasSummary.text = "Tidak ada tugas atau PR aktif saat ini"
                 com.school.smartcbt.utils.ClientLogger.logHomework(
                     context = this@StudentMainActivity,
                     action = "LIST_HOMEWORKS",
@@ -4388,10 +4399,14 @@ class StudentMainActivity : AppCompatActivity() {
         })
     }
 
-        private fun updateHomeHomeworkWidget(homeworks: List<HomeworkDto>) {
+    private fun updateHomeHomeworkWidget(homeworks: List<HomeworkDto>) {
         binding.cardHomeHomeworkOverview.visibility = View.GONE
         val pending = homeworks.filter { it.isSubmitted != true }
-        if (pending.isEmpty()) {
+        if (homeworks.isEmpty()) {
+            binding.tvHomeHwPendingCount.text = "Tidak ada tugas aktif"
+            binding.tvHomeHwPendingCount.setTextColor(Color.parseColor("#64748B"))
+            binding.containerHomeHwPreview.visibility = View.GONE
+        } else if (pending.isEmpty()) {
             binding.tvHomeHwPendingCount.text = "✅ Semua tugas kelas sudah dikerjakan!"
             binding.tvHomeHwPendingCount.setTextColor(Color.parseColor("#059669"))
             binding.containerHomeHwPreview.visibility = View.GONE
@@ -9376,11 +9391,16 @@ class StudentMainActivity : AppCompatActivity() {
 
             if (currentList.isEmpty()) {
                 val tvEmpty = TextView(this).apply {
-                    text = "Tidak ada tugas atau ulangan pada tab ini."
-                    textSize = 12f
-                    setTextColor(Color.parseColor("#94A3B8"))
+                    text = when (selectedInboxTab) {
+                        1 -> "⏳ Belum ada tugas atau ulangan terjadwal mendatang."
+                        2 -> "📁 Belum ada riwayat tugas atau ulangan selesai."
+                        else -> "🎉 Tidak ada tugas atau ulangan aktif saat ini.\nSemua tugas kelas sudah selesai dikerjakan!"
+                    }
+                    textSize = 13f
+                    setTextColor(Color.parseColor("#64748B"))
                     gravity = Gravity.CENTER
-                    setPadding(0, dp(40), 0, 0)
+                    setPadding(dp(20), dp(48), dp(20), dp(24))
+                    setLineSpacing(dp(4).toFloat(), 1.0f)
                 }
                 listContainer.addView(tvEmpty)
                 return
@@ -9510,6 +9530,7 @@ class StudentMainActivity : AppCompatActivity() {
         fun loadInboxData() {
             ApiClient.getClient(this).getSiswaUnifiedInbox().enqueue(object : Callback<Map<String, Any>> {
                 override fun onResponse(call: Call<Map<String, Any>>, response: Response<Map<String, Any>>) {
+                    listContainer.removeAllViews()
                     if (response.isSuccessful && response.body()?.get("success") == true) {
                         val body = response.body()
                         val data = body?.get("data") as? Map<*, *>
@@ -9576,11 +9597,37 @@ class StudentMainActivity : AppCompatActivity() {
 
                         updateTabStyles()
                         renderCards()
+                    } else {
+                        btnTabAktif.text = "📝 Aktif (0)"
+                        btnTabMendatang.text = "⏳ Mendatang (0)"
+                        btnTabSelesai.text = "✅ Selesai (0)"
+                        bannerOngoing.visibility = View.GONE
+                        updateTabStyles()
+                        renderCards()
                     }
                 }
 
                 override fun onFailure(call: Call<Map<String, Any>>, t: Throwable) {
-                    Toast.makeText(this@StudentMainActivity, "Gagal memuat inbox: ${t.message}", Toast.LENGTH_SHORT).show()
+                    listContainer.removeAllViews()
+                    btnTabAktif.text = "📝 Aktif (0)"
+                    btnTabMendatang.text = "⏳ Mendatang (0)"
+                    btnTabSelesai.text = "✅ Selesai (0)"
+                    bannerOngoing.visibility = View.GONE
+                    val tvError = TextView(this@StudentMainActivity).apply {
+                        text = "Tidak dapat terhubung ke server inbox tugas.\nKetuk di sini untuk mencoba lagi."
+                        textSize = 12.5f
+                        setTextColor(Color.parseColor("#EF4444"))
+                        gravity = Gravity.CENTER
+                        setPadding(0, dp(40), 0, 0)
+                        isClickable = true
+                        setOnClickListener {
+                            listContainer.removeAllViews()
+                            listContainer.addView(pbLoadingInbox)
+                            listContainer.addView(tvLoadingInbox)
+                            loadInboxData()
+                        }
+                    }
+                    listContainer.addView(tvError)
                 }
             })
         }

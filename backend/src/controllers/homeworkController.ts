@@ -14,14 +14,36 @@ export const getHomeworks = async (req: Request, res: Response) => {
                 { teacherId: null }
             ];
         } else if (user && user.role === 'STUDENT') {
-            const studentClass = user.className;
+            const studentClass = (user.className || '').trim();
+            const studentClassId = user.classId;
+            const targetClassIds: string[] = [];
+            const targetClassNames: string[] = [];
+            if (studentClassId) targetClassIds.push(studentClassId);
+            if (studentClass) targetClassNames.push(studentClass);
+
             if (studentClass) {
-                const cls = await prisma.class.findFirst({ where: { name: studentClass } });
-                const classIds = cls ? [cls.id] : [];
+                const cls = await prisma.class.findFirst({
+                    where: {
+                        OR: [
+                            { name: studentClass },
+                            { name: { equals: studentClass, mode: 'insensitive' } },
+                            { id: studentClass }
+                        ]
+                    }
+                });
+                if (cls) {
+                    if (!targetClassIds.includes(cls.id)) targetClassIds.push(cls.id);
+                    if (!targetClassNames.includes(cls.name)) targetClassNames.push(cls.name);
+                }
+            }
+
+            if (targetClassIds.length > 0 || targetClassNames.length > 0) {
                 whereClause.OR = [
-                    { classId: { in: classIds } },
-                    { class: { name: studentClass } }
+                    ...(targetClassIds.length > 0 ? [{ classId: { in: targetClassIds } }] : []),
+                    ...(targetClassNames.length > 0 ? [{ class: { name: { in: targetClassNames } } }] : [])
                 ];
+            } else {
+                whereClause.id = '__NONE__';
             }
         }
 

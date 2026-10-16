@@ -3,6 +3,7 @@ import prisma from '../utils/db';
 import { getSchoolSignatures } from '../utils/schoolSignatures';
 import { sendFcmToUser } from '../services/fcmService';
 import { formatTimeWib, formatTimeWibWithSuffix } from '../utils/dateUtils';
+import { sendPrayerH1NotificationForDate } from '../services/systemScheduler';
 
 // 1. Ambil Jadwal Rombel Sholat Hari Ini (Dinamis: Mendukung Sholat Dhuha, Dhuhur, Jumat)
 export const getTodayPrayerSchedule = async (req: Request, res: Response) => {
@@ -47,14 +48,14 @@ export const getTodayPrayerSchedule = async (req: Request, res: Response) => {
 
         // Default schedules jika belum diatur di database
         if (!schedule) {
-            let defaultClasses = "VII-A,VII-B,VII-C,VII-D,VII-E";
-            if (todayDay === 2) defaultClasses = "VIII-A,VIII-B,VIII-C,VIII-D,VIII-E";
-            else if (todayDay === 3) defaultClasses = "IX-A,IX-B,IX-C,IX-D,IX-E";
-            else if (todayDay === 4) defaultClasses = "VII-F,VII-G,VIII-F,VIII-G";
-            else if (todayDay === 5) defaultClasses = "ALL_MALE"; // Sholat Jumat
-            else if (todayDay === 6) defaultClasses = "ALL"; // Sholat Dhuhur Sabtu
-            
             const isDhuhaReq = requestedType === 'DHUHA' || (isMorningDhuhaWindow && requestedType !== 'DHUHUR' && requestedType !== 'JUMAT');
+            let defaultClasses = "VII-F,VII-G,VIII-A,IX-A,IX-B";
+            if (todayDay === 2) defaultClasses = "VII-B,VII-C,VIII-B,VIII-C,IX-C,IX-D";
+            else if (todayDay === 3) defaultClasses = "VII-D,VII-E,VII-H,IX-E,IX-H";
+            else if (todayDay === 4) defaultClasses = "VII-A,VIII-F,VIII-G,IX-I";
+            else if (todayDay === 5) defaultClasses = isDhuhaReq ? "VII-I,VIII-H,VIII-I,IX-F,IX-J" : "ALL_MALE";
+            else if (todayDay === 6) defaultClasses = isDhuhaReq ? "IX-K" : "VII-J,VII-K,VIII-J,VIII-K,IX-G";
+            
             schedule = {
                 id: `default-${todayDay}-${isDhuhaReq ? 'dhuha' : 'dhuhur'}`,
                 dayOfWeek: todayDay,
@@ -110,26 +111,117 @@ export const getAllPrayerSchedules = async (req: Request, res: Response) => {
                     });
                 });
             } else {
-                let defaultClasses = "VII-A,VII-B,VII-C,VII-D,VII-E";
-                if (d === 2) defaultClasses = "VIII-A,VIII-B,VIII-C,VIII-D,VIII-E";
-                else if (d === 3) defaultClasses = "IX-A,IX-B,IX-C,IX-D,IX-E";
-                else if (d === 4) defaultClasses = "VII-F,VII-G,VIII-F,VIII-G";
-                else if (d === 5) defaultClasses = "ALL_MALE";
-                else if (d === 6) defaultClasses = "ALL";
-
-                fullWeekSchedules.push({
-                    id: `default-${d}`,
-                    dayOfWeek: d,
-                    dayName: dayNames[d],
-                    prayerType: d === 5 ? 'JUMAT' : 'DHUHUR',
-                    classNames: defaultClasses,
-                    barcodeKey: d === 5 ? 'BARCODE_SHOLAT_JUMAT_MASJID' : 'BARCODE_SHOLAT_DHUHUR_MASJID',
-                    wudhuTime: '11:45',
-                    scanStartTime: '12:00',
-                    scanEndTime: '12:30',
-                    notes: `Jadwal Sholat ${d === 5 ? 'Jumat' : 'Dhuhur'} Berjamaah di Masjid Sekolah`,
-                    isActive: true
-                });
+                if (d === 1) {
+                    fullWeekSchedules.push({
+                        id: `default-${d}-dhuhur`,
+                        dayOfWeek: d,
+                        dayName: dayNames[d],
+                        prayerType: 'DHUHUR',
+                        classNames: 'VII-F,VII-G,VIII-A,IX-A,IX-B',
+                        barcodeKey: 'BARCODE_SHOLAT_DHUHUR_MASJID',
+                        wudhuTime: '11:45',
+                        scanStartTime: '12:00',
+                        scanEndTime: '12:30',
+                        notes: 'Jadwal Sholat Dhuhur Berjamaah di Masjid Sekolah',
+                        isActive: true
+                    });
+                } else if (d === 2) {
+                    fullWeekSchedules.push({
+                        id: `default-${d}-dhuhur`,
+                        dayOfWeek: d,
+                        dayName: dayNames[d],
+                        prayerType: 'DHUHUR',
+                        classNames: 'VII-B,VII-C,VIII-B,VIII-C,IX-C,IX-D',
+                        barcodeKey: 'BARCODE_SHOLAT_DHUHUR_MASJID',
+                        wudhuTime: '11:45',
+                        scanStartTime: '12:00',
+                        scanEndTime: '12:30',
+                        notes: 'Jadwal Sholat Dhuhur Berjamaah di Masjid Sekolah',
+                        isActive: true
+                    });
+                } else if (d === 3) {
+                    fullWeekSchedules.push({
+                        id: `default-${d}-dhuhur`,
+                        dayOfWeek: d,
+                        dayName: dayNames[d],
+                        prayerType: 'DHUHUR',
+                        classNames: 'VII-D,VII-E,VII-H,IX-E,IX-H',
+                        barcodeKey: 'BARCODE_SHOLAT_DHUHUR_MASJID',
+                        wudhuTime: '11:45',
+                        scanStartTime: '12:00',
+                        scanEndTime: '12:30',
+                        notes: 'Jadwal Sholat Dhuhur Berjamaah di Masjid Sekolah',
+                        isActive: true
+                    });
+                } else if (d === 4) {
+                    fullWeekSchedules.push({
+                        id: `default-${d}-dhuhur`,
+                        dayOfWeek: d,
+                        dayName: dayNames[d],
+                        prayerType: 'DHUHUR',
+                        classNames: 'VII-A,VIII-F,VIII-G,IX-I',
+                        barcodeKey: 'BARCODE_SHOLAT_DHUHUR_MASJID',
+                        wudhuTime: '11:45',
+                        scanStartTime: '12:00',
+                        scanEndTime: '12:30',
+                        notes: 'Jadwal Sholat Dhuhur Berjamaah di Masjid Sekolah',
+                        isActive: true
+                    });
+                } else if (d === 5) {
+                    fullWeekSchedules.push({
+                        id: `default-${d}-dhuha`,
+                        dayOfWeek: d,
+                        dayName: dayNames[d],
+                        prayerType: 'DHUHA',
+                        classNames: 'VII-I,VIII-H,VIII-I,IX-F,IX-J',
+                        barcodeKey: 'BARCODE_SHOLAT_DHUHA_MASJID',
+                        wudhuTime: '06:45',
+                        scanStartTime: '07:00',
+                        scanEndTime: '07:45',
+                        notes: 'Jadwal Sholat Dhuha Berjamaah di Masjid Sekolah',
+                        isActive: true
+                    });
+                    fullWeekSchedules.push({
+                        id: `default-${d}-jumat`,
+                        dayOfWeek: d,
+                        dayName: dayNames[d],
+                        prayerType: 'JUMAT',
+                        classNames: 'ALL_MALE',
+                        barcodeKey: 'BARCODE_SHOLAT_JUMAT_MASJID',
+                        wudhuTime: '11:30',
+                        scanStartTime: '11:45',
+                        scanEndTime: '12:45',
+                        notes: 'Jadwal Sholat Jumat Berjamaah di Masjid Sekolah',
+                        isActive: true
+                    });
+                } else if (d === 6) {
+                    fullWeekSchedules.push({
+                        id: `default-${d}-dhuha`,
+                        dayOfWeek: d,
+                        dayName: dayNames[d],
+                        prayerType: 'DHUHA',
+                        classNames: 'IX-K',
+                        barcodeKey: 'BARCODE_SHOLAT_DHUHA_MASJID',
+                        wudhuTime: '06:45',
+                        scanStartTime: '07:00',
+                        scanEndTime: '07:45',
+                        notes: 'Jadwal Sholat Dhuha Berjamaah di Masjid Sekolah',
+                        isActive: true
+                    });
+                    fullWeekSchedules.push({
+                        id: `default-${d}-dhuhur`,
+                        dayOfWeek: d,
+                        dayName: dayNames[d],
+                        prayerType: 'DHUHUR',
+                        classNames: 'VII-J,VII-K,VIII-J,VIII-K,IX-G',
+                        barcodeKey: 'BARCODE_SHOLAT_DHUHUR_MASJID',
+                        wudhuTime: '11:45',
+                        scanStartTime: '12:00',
+                        scanEndTime: '12:30',
+                        notes: 'Jadwal Sholat Dhuhur Berjamaah di Masjid Sekolah',
+                        isActive: true
+                    });
+                }
             }
         }
 
@@ -145,7 +237,7 @@ export const getAllPrayerSchedules = async (req: Request, res: Response) => {
 // 2. Simpan / Perbarui Jadwal Rombel Sholat (Operator & Guru PAI)
 export const setPrayerClassSchedule = async (req: Request, res: Response) => {
     try {
-        const { dayOfWeek, dayName, prayerType, classNames, barcodeKey, notes, wudhuTime, scanStartTime, scanEndTime } = req.body;
+        const { id, dayOfWeek, dayName, prayerType, classNames, barcodeKey, notes, wudhuTime, scanStartTime, scanEndTime } = req.body;
         if (dayOfWeek === undefined || !classNames) {
             return res.status(400).json({ success: false, message: 'Hari dan daftar kelas wajib diisi.' });
         }
@@ -153,20 +245,33 @@ export const setPrayerClassSchedule = async (req: Request, res: Response) => {
         const cleanDay = Number(dayOfWeek);
         const dayNames = ['MINGGU', 'SENIN', 'SELASA', 'RABU', 'KAMIS', 'JUMAT', 'SABTU'];
         const resolvedDayName = dayName || dayNames[cleanDay] || 'HARI';
-        const pType = prayerType || (cleanDay === 5 ? 'JUMAT' : 'DHUHUR');
+        const pType = String(prayerType || (cleanDay === 5 ? 'JUMAT' : 'DHUHUR')).toUpperCase();
 
-        const existing = await (prisma as any).prayerClassSchedule.findFirst({
-            where: { dayOfWeek: cleanDay, prayerType: pType }
-        });
+        const defaultBarcodeKey = pType === 'DHUHA'
+            ? 'BARCODE_SHOLAT_DHUHA_MASJID'
+            : (pType === 'JUMAT' ? 'BARCODE_SHOLAT_JUMAT_MASJID' : 'BARCODE_SHOLAT_DHUHUR_MASJID');
+        const defaultWudhuTime = pType === 'DHUHA' ? '06:45' : (pType === 'JUMAT' ? '11:30' : '11:45');
+        const defaultScanStart = pType === 'DHUHA' ? '07:00' : (pType === 'JUMAT' ? '11:45' : '12:00');
+        const defaultScanEnd = pType === 'DHUHA' ? '07:45' : (pType === 'JUMAT' ? '12:45' : '12:30');
+
+        let existing: any = null;
+        if (id) {
+            existing = await (prisma as any).prayerClassSchedule.findUnique({ where: { id } });
+        }
+        if (!existing) {
+            existing = await (prisma as any).prayerClassSchedule.findFirst({
+                where: { dayOfWeek: cleanDay, prayerType: pType }
+            });
+        }
 
         const dataPayload = {
             dayName: resolvedDayName,
             prayerType: pType,
             classNames: typeof classNames === 'object' ? classNames.join(',') : String(classNames).trim(),
-            barcodeKey: barcodeKey || (pType === 'JUMAT' ? 'BARCODE_SHOLAT_JUMAT_MASJID' : 'BARCODE_SHOLAT_DHUHUR_MASJID'),
-            wudhuTime: wudhuTime || '11:45',
-            scanStartTime: scanStartTime || '12:00',
-            scanEndTime: scanEndTime || '12:30',
+            barcodeKey: barcodeKey || defaultBarcodeKey,
+            wudhuTime: wudhuTime || defaultWudhuTime,
+            scanStartTime: scanStartTime || defaultScanStart,
+            scanEndTime: scanEndTime || defaultScanEnd,
             notes: notes ? String(notes).trim() : null,
             isActive: true
         };
@@ -186,9 +291,33 @@ export const setPrayerClassSchedule = async (req: Request, res: Response) => {
             });
         }
 
-        res.json({ success: true, message: 'Jadwal sholat berhasil disimpan dan disinkronkan ke seluruh sistem', schedule: saved });
+        res.json({ success: true, message: `Jadwal Sholat ${pType} hari ${resolvedDayName} berhasil disimpan dan disinkronkan ke seluruh sistem.`, schedule: saved });
     } catch (error: any) {
         res.status(500).json({ success: false, message: 'Gagal menyimpan jadwal sholat: ' + error.message });
+    }
+};
+
+// 2b. Hapus Jadwal Sholat Tertentu (Operator & Guru PAI)
+export const deletePrayerClassSchedule = async (req: Request, res: Response) => {
+    try {
+        const { id, dayOfWeek, prayerType } = req.body;
+        let existing: any = null;
+        if (id) {
+            existing = await (prisma as any).prayerClassSchedule.findUnique({ where: { id } });
+        } else if (dayOfWeek !== undefined && prayerType) {
+            existing = await (prisma as any).prayerClassSchedule.findFirst({
+                where: { dayOfWeek: Number(dayOfWeek), prayerType: String(prayerType).toUpperCase() }
+            });
+        }
+
+        if (!existing) {
+            return res.status(404).json({ success: false, message: 'Jadwal sholat tidak ditemukan.' });
+        }
+
+        await (prisma as any).prayerClassSchedule.delete({ where: { id: existing.id } });
+        res.json({ success: true, message: `Jadwal Sholat ${existing.prayerType} hari ${existing.dayName} berhasil dihapus.` });
+    } catch (error: any) {
+        res.status(500).json({ success: false, message: 'Gagal menghapus jadwal sholat: ' + error.message });
     }
 };
 
@@ -200,14 +329,19 @@ export const studentScanStaticBarcode = async (req: Request, res: Response) => {
         const { prayerType, lat, lng, isFakeGps } = req.body;
         const cleanBar = String(rawBar || '').trim().toUpperCase();
 
-        // Validasi Barcode Statik Masjid & Keputrian
+        // Validasi Barcode Statik Masjid, Dhuha & Keputrian
         const validStaticBarcodes = [
+            'BARCODE_SHOLAT_DHUHA_MASJID',
             'BARCODE_SHOLAT_DHUHUR_MASJID',
             'BARCODE_SHOLAT_JUMAT_MASJID',
             'BARCODE_SHOLAT_PULANG_MASJID',
+            'MASJID_DHUHA_S1BOY',
             'MASJID_DHUHUR_S1BOY',
             'MASJID_JUMAT_S1BOY',
             'MASJID_PULANG_S1BOY',
+            'SHOLAT_DHUHA',
+            'SHOLAT_DHUHA_MASJID',
+            'DHUHA_MASJID',
             'PULANG_MUSHOLA',
             'SHOLAT_PULANG',
             'SHOLAT_MASJID_SMPN1',
@@ -223,6 +357,7 @@ export const studentScanStaticBarcode = async (req: Request, res: Response) => {
             cleanBar.includes('MASJID') || 
             cleanBar.includes('SHOLAT') || 
             cleanBar.includes('MUSHOLA') || 
+            cleanBar.includes('DHUHA') || 
             cleanBar.includes('KEPUTRIAN');
 
         if (!isMatch) {
@@ -241,7 +376,24 @@ export const studentScanStaticBarcode = async (req: Request, res: Response) => {
         const isKeputrianScan = cleanBar.includes('KEPUTRIAN');
 
         const todayDay = new Date().getDay();
-        const pType = prayerType || (todayDay === 5 ? 'JUMAT' : 'DHUHUR');
+        const nowWIB = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Jakarta' }));
+        const currentHourWIB = nowWIB.getHours();
+        const isMorningDhuhaWindow = currentHourWIB < 10 || cleanBar.includes('DHUHA');
+
+        let pType = String(prayerType || '').toUpperCase();
+        if (!pType) {
+            if (isMorningDhuhaWindow) {
+                const dhuhaSched = await (prisma as any).prayerClassSchedule.findFirst({
+                    where: { dayOfWeek: todayDay, prayerType: 'DHUHA', isActive: true }
+                });
+                if (dhuhaSched || cleanBar.includes('DHUHA')) {
+                    pType = 'DHUHA';
+                }
+            }
+            if (!pType) {
+                pType = todayDay === 5 ? 'JUMAT' : 'DHUHUR';
+            }
+        }
 
         // Cek Jadwal & Status Keaktifan Barcode Mushola Hari Ini
         const sched = await (prisma as any).prayerClassSchedule.findFirst({
@@ -252,9 +404,13 @@ export const studentScanStaticBarcode = async (req: Request, res: Response) => {
         const currentHourMinute = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false }).replace('.', ':');
         const timeWithSec = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).replace(/\./g, ':');
 
-        const startTime = sched?.scanStartTime || '11:30';
-        const endTime = sched?.scanEndTime || '14:30'; // Longgarkan toleransi agar mencakup jam kepulangan mushola
-        const wudhuTime = sched?.wudhuTime || '11:45';
+        const defaultStartTime = pType === 'DHUHA' ? '06:45' : (todayDay === 5 ? '11:15' : '11:30');
+        const defaultEndTime = pType === 'DHUHA' ? '09:00' : '14:30';
+        const defaultWudhu = pType === 'DHUHA' ? '06:45' : (todayDay === 5 ? '11:30' : '11:45');
+
+        const startTime = sched?.scanStartTime || defaultStartTime;
+        const endTime = sched?.scanEndTime || defaultEndTime;
+        const wudhuTime = sched?.wudhuTime || defaultWudhu;
 
         if (sched && sched.isScanActive === false) {
             return res.status(400).json({
@@ -792,12 +948,27 @@ export const getPaiMonitoringByClass = async (req: Request, res: Response) => {
         const targetDate = String(date || new Date().toISOString().substring(0, 10));
         const targetDateObj = new Date(targetDate + 'T12:00:00+07:00');
         const dayOfWeek = targetDateObj.getDay();
-        const pType = String(prayerType || (dayOfWeek === 5 ? 'JUMAT' : 'DHUHUR')).toUpperCase();
 
-        // Ambil info jadwal kelas hari ini jika ada
-        const schedule = await (prisma as any).prayerClassSchedule.findFirst({
-            where: { dayOfWeek, isActive: true }
+        // Ambil seluruh jadwal aktif untuk hari tersebut (misal Dhuha & Dhuhur)
+        const allTodaySchedules = await (prisma as any).prayerClassSchedule.findMany({
+            where: { dayOfWeek, isActive: true },
+            orderBy: { scanStartTime: 'asc' }
         });
+
+        let pType = String(prayerType || '').toUpperCase();
+        if (!pType) {
+            const nowWIB = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Jakarta' }));
+            const isMorning = nowWIB.getHours() < 10;
+            const hasDhuha = allTodaySchedules.some((s: any) => s.prayerType === 'DHUHA');
+            if (isMorning && hasDhuha) {
+                pType = 'DHUHA';
+            } else {
+                pType = dayOfWeek === 5 ? 'JUMAT' : 'DHUHUR';
+            }
+        }
+
+        // Ambil info jadwal yang sesuai dengan jenis sholat yang dipilih
+        const schedule = allTodaySchedules.find((s: any) => s.prayerType === pType) || allTodaySchedules[0] || null;
 
         let targetClass = String(className || '').trim();
         if (!targetClass) {
@@ -872,11 +1043,12 @@ export const getPaiMonitoringByClass = async (req: Request, res: Response) => {
             className: targetClass,
             date: targetDate,
             prayerType: pType,
+            availablePrayers: allTodaySchedules,
             schedule: schedule ? {
                 ...schedule,
-                wudhuTime: schedule.wudhuTime || '11:45',
-                scanStartTime: schedule.scanStartTime || '12:00',
-                scanEndTime: schedule.scanEndTime || '12:30'
+                wudhuTime: schedule.wudhuTime || (pType === 'DHUHA' ? '06:45' : (pType === 'JUMAT' ? '11:30' : '11:45')),
+                scanStartTime: schedule.scanStartTime || (pType === 'DHUHA' ? '07:00' : (pType === 'JUMAT' ? '11:45' : '12:00')),
+                scanEndTime: schedule.scanEndTime || (pType === 'DHUHA' ? '07:45' : (pType === 'JUMAT' ? '12:45' : '12:30'))
             } : null,
             summary: {
                 totalStudents,
@@ -925,14 +1097,18 @@ export const exportPrayerAttendancePdf = async (req: Request, res: Response) => 
 
         const sigs = await getSchoolSignatures();
 
-        // Ambil jadwal sholat hari itu
+        // Ambil jadwal sholat hari itu sesuai jenis sholat yang diekspor
         const schedule = await (prisma as any).prayerClassSchedule.findFirst({
-            where: { dayOfWeek, isActive: true }
+            where: { dayOfWeek, prayerType: pType, isActive: true }
         });
 
-        const wudhuTime = schedule?.wudhuTime || '11:45';
-        const scanStartTime = schedule?.scanStartTime || '12:00';
-        const scanEndTime = schedule?.scanEndTime || '12:30';
+        const defaultWudhu = pType === 'DHUHA' ? '06:45' : (pType === 'JUMAT' ? '11:30' : '11:45');
+        const defaultStart = pType === 'DHUHA' ? '07:00' : (pType === 'JUMAT' ? '11:45' : '12:00');
+        const defaultEnd = pType === 'DHUHA' ? '07:45' : (pType === 'JUMAT' ? '12:45' : '12:30');
+
+        const wudhuTime = schedule?.wudhuTime || defaultWudhu;
+        const scanStartTime = schedule?.scanStartTime || defaultStart;
+        const scanEndTime = schedule?.scanEndTime || defaultEnd;
 
         const formattedDate = targetDateObj.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
 
@@ -1152,7 +1328,7 @@ export const exportPrayerAttendancePdf = async (req: Request, res: Response) => 
         </tr>
     </table>
 
-    <div class="doc-title">REKAPITULASI PRESENSI SHOLAT ${pType} BERJAMAAH &amp; KEPUTRIAN</div>
+    <div class="doc-title">REKAPITULASI PRESENSI SHOLAT ${pType} BERJAMAAH ${pType === 'JUMAT' ? '&amp; KEPUTRIAN' : ''}</div>
     <div class="doc-subtitle">SELURUH ROMBEL KELAS • TAHUN AJARAN 2025/2026 • MASJID ${sigs.schoolName.toUpperCase()}</div>
 
     <table class="meta-table">
@@ -1164,7 +1340,7 @@ export const exportPrayerAttendancePdf = async (req: Request, res: Response) => 
         </tr>
         <tr>
             <td style="font-weight: bold;">Jenis Ibadah</td>
-            <td>: Sholat ${pType === 'JUMAT' ? 'Jumat Berjamaah (Putra) / Keputrian (Putri)' : 'Dhuhur Berjamaah'}</td>
+            <td>: Sholat ${pType === 'JUMAT' ? 'Jumat Berjamaah (Putra) / Keputrian (Putri)' : (pType === 'DHUHA' ? 'Dhuha Berjamaah (Pagi)' : 'Dhuhur Berjamaah')}</td>
             <td style="font-weight: bold;">Jadwal Ibadah</td>
             <td>: Wudhu: <b>${wudhuTime} WIB</b> • Scan: <b>${scanStartTime} - ${scanEndTime} WIB</b></td>
         </tr>
@@ -1468,7 +1644,7 @@ export const exportPrayerAttendancePdf = async (req: Request, res: Response) => 
         </tr>
     </table>
 
-    <div class="doc-title">REKAPITULASI PRESENSI SHOLAT ${pType} BERJAMAAH &amp; KEPUTRIAN</div>
+    <div class="doc-title">REKAPITULASI PRESENSI SHOLAT ${pType} BERJAMAAH ${pType === 'JUMAT' ? '&amp; KEPUTRIAN' : ''}</div>
     <div class="doc-subtitle">${periodSubtitle} • TAHUN AJARAN 2025/2026 • MASJID ${sigs.schoolName.toUpperCase()}</div>
 
     <table class="meta-table">
@@ -1480,7 +1656,7 @@ export const exportPrayerAttendancePdf = async (req: Request, res: Response) => 
         </tr>
         <tr>
             <td style="font-weight: bold;">Jenis Ibadah</td>
-            <td>: Sholat ${pType === 'JUMAT' ? 'Jumat Berjamaah (Putra) / Keputrian (Putri)' : 'Dhuhur Berjamaah'}</td>
+            <td>: Sholat ${pType === 'JUMAT' ? 'Jumat Berjamaah (Putra) / Keputrian (Putri)' : (pType === 'DHUHA' ? 'Dhuha Berjamaah (Pagi)' : 'Dhuhur Berjamaah')}</td>
             <td style="font-weight: bold;">Jadwal Ibadah</td>
             <td>: Wudhu: <b>${wudhuTime} WIB</b> • Scan: <b>${scanStartTime} - ${scanEndTime} WIB</b></td>
         </tr>
@@ -1719,6 +1895,33 @@ export const paiScanStudentCard = async (req: Request, res: Response) => {
     } catch (error: any) {
         console.error('Error in paiScanStudentCard:', error);
         return res.status(500).json({ success: false, message: 'Gagal memproses scan kartu: ' + error.message });
+    }
+};
+
+/**
+ * 14. Trigger Manual / Test Notifikasi Pengingat Sholat H-1 (Pukul 19:00 WIB)
+ * Dapat dipanggil oleh Admin / Operator / Guru PAI untuk verifikasi notifikasi siswa & orang tua
+ */
+export const triggerPrayerH1Reminder = async (req: Request, res: Response) => {
+    try {
+        const { targetDate, force = true } = req.body;
+        // Hitung target date besok jika tidak diberikan
+        const nowWibStr = new Date().toLocaleString('en-US', { timeZone: 'Asia/Jakarta' });
+        const nowWIB = new Date(nowWibStr);
+        const targetWib = targetDate ? new Date(targetDate) : new Date(nowWIB.getTime() + 24 * 3600 * 1000);
+        
+        const result = await sendPrayerH1NotificationForDate(targetWib, Boolean(force));
+        return res.json({
+            success: true,
+            message: `Pengingat Sholat H-1 berhasil diproses untuk hari ${result.targetDayName} (${(result as any).targetDateStr || ''})`,
+            data: result
+        });
+    } catch (error: any) {
+        console.error('Error in triggerPrayerH1Reminder:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Gagal memproses pengingat sholat H-1: ' + error.message
+        });
     }
 };
 

@@ -565,38 +565,22 @@ class ScannerActivity : AppCompatActivity() {
 
         // 2. Deteksi Khusus Barcode Ruang BK (GATE_IN_BK / GATE_OUT_BK)
         val isBkCode = scannedCode.contains("GATE_IN_BK", ignoreCase = true) || scannedCode.contains("GATE_OUT_BK", ignoreCase = true)
-        if (!isBkCode) {
-            // Sesuai instruksi: QR Code statis (QR_STATIC / stiker barcode kelas) dinonaktifkan total!
-            val timeNow = SimpleDateFormat("HH:mm:ss", Locale("id", "ID")).format(Date()) + " WIB"
-            val voiceMsg = "QR Code statis telah dinonaktifkan. Silakan pindai QR Dinamis pada HP Pengurus Kelas Anda."
-            com.school.smartcbt.utils.TtsVoiceHelper.speak(voiceMsg)
-            showModernScanDialog(
-                isSuccess = false,
-                title = "⛔ QR Statis Dinonaktifkan",
-                subtitle = "Wajib Gunakan QR Dinamis Pengurus Kelas",
-                message = "Penggunaan barcode stiker kelas statis (QR_STATIC) telah dinonaktifkan total demi menjamin kehadiran siswa di dalam ruang kelas.\n\nSilakan minta Pengurus Kelas untuk membuka menu QR Dinamis (kode otomatis berganti tiap 10 detik) lalu pindai langsung dari layar HP Pengurus Kelas Anda.",
-                gateType = "Wajib QR Pengurus",
-                timeStr = timeNow,
-                lat = null,
-                lng = null
-            )
-            return
-        }
 
-        // Khusus Ruang BK (Izin Cepat / Keterlambatan BK):
+        // 3. Validasi Barcode Statis Kelas Fisik:
+        // WAJIB divalidasi dengan sinyal GPS nyata di lingkungan sekolah SMP Negeri 1 Boyolangu!
         val isGpsEnabled = locationManager?.isProviderEnabled(LocationManager.GPS_PROVIDER) ?: false
         val (lat, lng, isMock, accuracy) = getCurrentLocation()
 
         if (!isGpsEnabled || lat == null) {
             val timeNow = SimpleDateFormat("HH:mm:ss", Locale("id", "ID")).format(Date()) + " WIB"
-            val voiceMsg = "Presensi BK memerlukan sinyal GPS aktif di sekolah."
+            val voiceMsg = "Presensi barcode stiker kelas memerlukan GPS aktif di sekolah, atau pindai QR Dinamis Pengurus Kelas."
             com.school.smartcbt.utils.TtsVoiceHelper.speak(voiceMsg)
             showModernScanDialog(
                 isSuccess = false,
                 title = "📍 GPS Tidak Terkunci",
-                subtitle = "Aktifkan GPS di Area Sekolah",
-                message = "Presensi Ruang BK memerlukan sinyal GPS aktif di lingkungan sekolah SMPN 1 Boyolangu.",
-                gateType = "Presensi BK",
+                subtitle = "Barcode Statis Kelas Wajib GPS Aktif",
+                message = "Presensi barcode stiker kelas fisik WAJIB divalidasi dengan sinyal GPS di lingkungan sekolah SMPN 1 Boyolangu.\n\n📌 Solusi:\n1. Pastikan fitur Lokasi / GPS pada HP Anda telah aktif dan memiliki izin lokasi.\n2. Jika sinyal GPS sulit di dalam ruangan, minta Pengurus Kelas untuk membuka menu 'QR Dinamis Kelas' (presensi sah tanpa GPS).",
+                gateType = if (isBkCode) "Presensi BK" else "Barcode Statis Kelas",
                 timeStr = timeNow,
                 lat = null,
                 lng = null
@@ -619,7 +603,7 @@ class ScannerActivity : AppCompatActivity() {
             return
         }
 
-        // Jika GPS valid untuk Ruang BK:
+        // Barcode statis kelas dikirim dengan method = "GPS"
         val method = if (accuracy <= zoneDegradedThreshold) "GPS" else "QR_FALLBACK"
         submitAttendance(scannedCode, lat, lng, isMock, method = method, accuracy = accuracy)
     }

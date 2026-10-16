@@ -1252,6 +1252,9 @@
                             <span class="text-xs font-black text-emerald-700 uppercase tracking-wider" id="paiPrayerTypeLabel">SHOLAT DHUHUR BERJAMAAH</span>
                             <span class="text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full font-bold">Masjid SMPN 1 Boyolangu</span>
                         </div>
+                        <div id="paiPrayerSwitcherPills" class="flex flex-wrap items-center gap-1.5 mt-1.5">
+                            <!-- Populated dynamically: Dhuha / Dhuhur / Jumat -->
+                        </div>
                         <p class="text-sm font-black text-slate-800 mt-1" id="paiScheduledClasses">Rombel Terjadwal: Memuat jadwal...</p>
                         <p class="text-xs text-emerald-700 font-bold mt-0.5" id="paiPrayerTimes">💧 Mulai Wudhu: 11:45 WIB • 📷 Scan Presensi: 12:00 - 12:30 WIB</p>
                         <p class="text-xs text-slate-500 mt-0.5" id="paiPrayerNotes">Siswa wajib hadir dan scan barcode statik masjid atau diabsen oleh Guru PAI.</p>
@@ -1306,24 +1309,25 @@
                     <button type="button" onclick="togglePrayerScheduleForm()" class="text-slate-400 hover:text-white text-lg font-bold">&times;</button>
                 </div>
                 <form id="formPaiSchedule" onsubmit="handleSavePrayerScheduleWeb(event)" class="space-y-4">
+                    <input type="hidden" id="inputPaiScheduleId" value="">
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div>
                             <label class="text-xs text-slate-300 font-bold block mb-1.5">Pilih Hari:</label>
-                            <select id="selectPaiDayOfWeek" onchange="onPrayerDayOfWeekChanged()" class="w-full bg-slate-800 border border-slate-600 rounded-xl px-3 py-2 text-xs font-bold text-white focus:outline-none">
+                            <select id="selectPaiDayOfWeek" onchange="onPrayerScheduleTypeOrDayChanged()" class="w-full bg-slate-800 border border-slate-600 rounded-xl px-3 py-2 text-xs font-bold text-white focus:outline-none">
                                 <option value="1">SENIN</option>
                                 <option value="2">SELASA</option>
                                 <option value="3">RABU</option>
                                 <option value="4">KAMIS</option>
-                                <option value="5">JUMAT (Sholat Jumat / Keputrian)</option>
-                                <option value="6">SABTU</option>
+                                <option value="5">JUMAT (Sholat Jumat / Keputrian / Dhuha)</option>
+                                <option value="6">SABTU (Dhuha / Dhuhur)</option>
                             </select>
                         </div>
                         <div>
                             <label class="text-xs text-slate-300 font-bold block mb-1.5">Jenis Ibadah:</label>
-                            <select id="selectPaiPrayerType" class="w-full bg-slate-800 border border-slate-600 rounded-xl px-3 py-2 text-xs font-bold text-white focus:outline-none">
-                                <option value="DHUHUR">Sholat Dhuhur Berjamaah (Siang)</option>
-                                <option value="DHUHA">Sholat Dhuha Berjamaah (Pagi)</option>
-                                <option value="JUMAT">Sholat Jumat Berjamaah (Putra)</option>
+                            <select id="selectPaiPrayerType" onchange="onPrayerScheduleTypeOrDayChanged()" class="w-full bg-slate-800 border border-slate-600 rounded-xl px-3 py-2 text-xs font-bold text-white focus:outline-none">
+                                <option value="DHUHUR">☀️ Sholat Dhuhur Berjamaah (Siang)</option>
+                                <option value="DHUHA">🌅 Sholat Dhuha Berjamaah (Pagi)</option>
+                                <option value="JUMAT">🕌 Sholat Jumat Berjamaah (Putra)</option>
                             </select>
                         </div>
                         <div>
@@ -1425,6 +1429,11 @@
                     </div>
                     <!-- Filter Controls -->
                     <div class="flex flex-wrap items-center gap-2.5">
+                        <select id="selectPaiMonitoringPrayerType" onchange="loadPaiClassMonitoring()" class="bg-amber-50 border border-amber-300 text-amber-900 rounded-xl px-3 py-2 text-xs font-bold focus:outline-none">
+                            <option value="DHUHUR">☀️ Sholat Dhuhur</option>
+                            <option value="DHUHA">🌅 Sholat Dhuha</option>
+                            <option value="JUMAT">🕌 Sholat Jumat</option>
+                        </select>
                         <select id="selectPaiClassFilter" onchange="loadPaiClassMonitoring()" class="bg-slate-50 border border-slate-300 text-slate-800 rounded-xl px-3 py-2 text-xs font-bold focus:outline-none">
                             <!-- Populated dynamically: VII-A s/d IX-K -->
                         </select>
@@ -4370,7 +4379,9 @@
                 const dName = s.dayName || dayNames[s.dayOfWeek] || `HARI ${s.dayOfWeek}`;
                 const pTypeBadge = s.prayerType === 'JUMAT'
                     ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-700">Sholat Jumat (Putra)</span>'
-                    : '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700">Sholat Dhuhur</span>';
+                    : (s.prayerType === 'DHUHA'
+                        ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800">Sholat Dhuha (Pagi)</span>'
+                        : '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700">Sholat Dhuhur</span>');
                 
                 const classBadges = (s.classNames === 'ALL_MALE')
                     ? '<span class="px-2.5 py-0.5 rounded-lg text-xs font-mono font-bold bg-amber-100 text-amber-800">🕌 ALL_MALE (Seluruh Siswa Putra)</span>'
@@ -4393,9 +4404,14 @@
                         <td class="p-3 text-[11px] font-medium text-slate-600 whitespace-nowrap">${timeStr}</td>
                         <td class="p-3 text-[11px] text-slate-500">${s.notes || '-'}</td>
                         <td class="p-3 text-right">
-                            <button onclick="openPrayerScheduleFormForDay(${s.dayOfWeek})" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-900 text-white font-bold text-[11px] shadow-sm transition-all cursor-pointer">
-                                ✏️ Edit
-                            </button>
+                            <div class="flex items-center justify-end gap-1.5">
+                                <button onclick="openPrayerScheduleFormForDay(${s.dayOfWeek}, '${s.prayerType}')" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-900 text-white font-bold text-[11px] shadow-sm transition-all cursor-pointer">
+                                    ✏️ Edit
+                                </button>
+                                <button onclick="handleDeletePrayerSchedule('${s.id}', ${s.dayOfWeek}, '${s.prayerType}')" class="px-2 py-1 rounded-lg bg-rose-800 hover:bg-rose-900 text-white font-bold text-[11px] shadow-sm transition-all cursor-pointer" title="Hapus Jadwal Sholat">
+                                    🗑️
+                                </button>
+                            </div>
                         </td>
                     </tr>
                 `;
@@ -4481,18 +4497,27 @@
             syncPaiChipSelection();
         }
 
-        function onPrayerDayOfWeekChanged() {
+        function onPrayerScheduleTypeOrDayChanged() {
             const dayOfWeek = Number(document.getElementById('selectPaiDayOfWeek')?.value || 1);
-            populatePrayerFormForDay(dayOfWeek);
+            const prayerType = document.getElementById('selectPaiPrayerType')?.value || 'DHUHUR';
+            populatePrayerFormForDay(dayOfWeek, prayerType);
         }
 
-        function populatePrayerFormForDay(dayOfWeek) {
-            const sched = weeklyPrayerSchedules.find(s => s.dayOfWeek === dayOfWeek) || (currentPaiPrayerSchedule?.dayOfWeek === dayOfWeek ? currentPaiPrayerSchedule : null);
-            
+        function populatePrayerFormForDay(dayOfWeek, prayerType = null) {
             const daySelect = document.getElementById('selectPaiDayOfWeek');
             if (daySelect) daySelect.value = String(dayOfWeek);
 
             const typeSelect = document.getElementById('selectPaiPrayerType');
+            let targetType = prayerType;
+            if (!targetType) {
+                const daySchedules = weeklyPrayerSchedules.filter(s => s.dayOfWeek === dayOfWeek);
+                targetType = daySchedules.length > 0 ? daySchedules[0].prayerType : (dayOfWeek === 5 ? 'JUMAT' : 'DHUHUR');
+            }
+            if (typeSelect) typeSelect.value = targetType;
+
+            const sched = weeklyPrayerSchedules.find(s => s.dayOfWeek === dayOfWeek && s.prayerType === targetType) || null;
+
+            const idInput = document.getElementById('inputPaiScheduleId');
             const barcodeSelect = document.getElementById('selectPaiBarcodeKey');
             const classInput = document.getElementById('inputPaiClassNames');
             const wudhuInput = document.getElementById('inputPaiWudhuTime');
@@ -4500,31 +4525,38 @@
             const endInput = document.getElementById('inputPaiScanEndTime');
             const notesInput = document.getElementById('inputPaiScheduleNotes');
 
+            if (idInput) idInput.value = sched ? sched.id : '';
+
+            const defaultBarcode = targetType === 'DHUHA'
+                ? 'BARCODE_SHOLAT_DHUHA_MASJID'
+                : (targetType === 'JUMAT' ? 'BARCODE_SHOLAT_JUMAT_MASJID' : 'BARCODE_SHOLAT_DHUHUR_MASJID');
+            const defaultWudhu = targetType === 'DHUHA' ? '06:45' : (targetType === 'JUMAT' ? '11:30' : '11:45');
+            const defaultStart = targetType === 'DHUHA' ? '07:00' : (targetType === 'JUMAT' ? '11:45' : '12:00');
+            const defaultEnd = targetType === 'DHUHA' ? '07:45' : (targetType === 'JUMAT' ? '12:45' : '12:30');
+
             if (sched) {
-                if (typeSelect) typeSelect.value = sched.prayerType || (dayOfWeek === 5 ? 'JUMAT' : 'DHUHUR');
-                if (barcodeSelect) barcodeSelect.value = sched.barcodeKey || (dayOfWeek === 5 ? 'BARCODE_SHOLAT_JUMAT_MASJID' : 'BARCODE_SHOLAT_DHUHUR_MASJID');
-                if (classInput) classInput.value = sched.classNames || (dayOfWeek === 5 ? 'ALL_MALE' : '');
-                if (wudhuInput) wudhuInput.value = sched.wudhuTime || (dayOfWeek === 5 ? '11:30' : '11:45');
-                if (startInput) startInput.value = sched.scanStartTime || (dayOfWeek === 5 ? '11:45' : '12:00');
-                if (endInput) endInput.value = sched.scanEndTime || (dayOfWeek === 5 ? '12:45' : '12:30');
+                if (barcodeSelect) barcodeSelect.value = sched.barcodeKey || defaultBarcode;
+                if (classInput) classInput.value = sched.classNames || (targetType === 'JUMAT' ? 'ALL_MALE' : '');
+                if (wudhuInput) wudhuInput.value = sched.wudhuTime || defaultWudhu;
+                if (startInput) startInput.value = sched.scanStartTime || defaultStart;
+                if (endInput) endInput.value = sched.scanEndTime || defaultEnd;
                 if (notesInput) notesInput.value = sched.notes || '';
             } else {
-                if (typeSelect) typeSelect.value = dayOfWeek === 5 ? 'JUMAT' : 'DHUHUR';
-                if (barcodeSelect) barcodeSelect.value = dayOfWeek === 5 ? 'BARCODE_SHOLAT_JUMAT_MASJID' : 'BARCODE_SHOLAT_DHUHUR_MASJID';
-                if (classInput) classInput.value = dayOfWeek === 5 ? 'ALL_MALE' : '';
-                if (wudhuInput) wudhuInput.value = dayOfWeek === 5 ? '11:30' : '11:45';
-                if (startInput) startInput.value = dayOfWeek === 5 ? '11:45' : '12:00';
-                if (endInput) endInput.value = dayOfWeek === 5 ? '12:45' : '12:30';
+                if (barcodeSelect) barcodeSelect.value = defaultBarcode;
+                if (classInput) classInput.value = targetType === 'JUMAT' ? 'ALL_MALE' : '';
+                if (wudhuInput) wudhuInput.value = defaultWudhu;
+                if (startInput) startInput.value = defaultStart;
+                if (endInput) endInput.value = defaultEnd;
                 if (notesInput) notesInput.value = '';
             }
             syncPaiChipSelection();
         }
 
-        function openPrayerScheduleFormForDay(dayOfWeek) {
+        function openPrayerScheduleFormForDay(dayOfWeek, prayerType = null) {
             const form = document.getElementById('panelPrayerScheduleForm');
             if (!form) return;
             form.classList.remove('hidden');
-            populatePrayerFormForDay(dayOfWeek);
+            populatePrayerFormForDay(dayOfWeek, prayerType);
             form.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
 
@@ -4534,40 +4566,77 @@
             const dayBadge = document.getElementById('paiCurrentDayBadge');
             if (dayBadge) dayBadge.innerText = dayName;
 
+            const availablePrayers = data.availablePrayers || [];
+            const switcherPills = document.getElementById('paiPrayerSwitcherPills');
+            if (switcherPills) {
+                if (availablePrayers.length > 1) {
+                    switcherPills.innerHTML = availablePrayers.map(ap => {
+                        const isCur = ap.prayerType === sched?.prayerType;
+                        const label = ap.prayerType === 'DHUHA' ? '🌅 Sesi Dhuha' : (ap.prayerType === 'JUMAT' ? '🕌 Sholat Jumat' : '☀️ Sesi Dhuhur');
+                        const cls = isCur
+                            ? 'px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-700 text-white shadow-sm'
+                            : 'px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 hover:bg-emerald-200 cursor-pointer transition-colors';
+                        return `<button type="button" onclick="switchTodayPrayerSession('${ap.prayerType}')" class="${cls}">${label}</button>`;
+                    }).join('');
+                } else {
+                    switcherPills.innerHTML = '';
+                }
+            }
+
             const typeLabel = document.getElementById('paiPrayerTypeLabel');
-            if (typeLabel) {
+            if (typeLabel && sched) {
                 typeLabel.innerText = sched.prayerType === 'JUMAT' 
                     ? 'SHOLAT JUMAT BERJAMAAH & KEPUTRIAN' 
-                    : 'SHOLAT DHUHUR BERJAMAAH';
+                    : (sched.prayerType === 'DHUHA' ? 'SHOLAT DHUHA BERJAMAAH (PAGI)' : 'SHOLAT DHUHUR BERJAMAAH');
             }
 
             const schedClasses = document.getElementById('paiScheduledClasses');
-            if (schedClasses) {
+            if (schedClasses && sched) {
                 schedClasses.innerText = `Rombel Terjadwal: ${sched.classNames || 'Seluruh Siswa'}`;
             }
 
             const timesEl = document.getElementById('paiPrayerTimes');
-            if (timesEl) {
-                timesEl.innerText = `💧 Mulai Wudhu: ${sched.wudhuTime || '11:45'} WIB • 📷 Scan Presensi: ${sched.scanStartTime || '12:00'} - ${sched.scanEndTime || '12:30'} WIB`;
+            if (timesEl && sched) {
+                timesEl.innerText = `💧 Mulai Wudhu: ${sched.wudhuTime || (sched.prayerType === 'DHUHA' ? '06:45' : '11:45')} WIB • 📷 Scan Presensi: ${sched.scanStartTime || (sched.prayerType === 'DHUHA' ? '07:00' : '12:00')} - ${sched.scanEndTime || (sched.prayerType === 'DHUHA' ? '07:45' : '12:30')} WIB`;
             }
 
             const notesEl = document.getElementById('paiPrayerNotes');
-            if (notesEl) {
+            if (notesEl && sched) {
                 notesEl.innerText = sched.notes || 'Siswa wajib hadir dan memindai barcode statik di masjid sekolah.';
             }
 
             const barCodeEl = document.getElementById('paiActiveBarcodeCode');
-            if (barCodeEl) {
-                barCodeEl.innerText = sched.barcodeKey || 'BARCODE_SHOLAT_DHUHUR_MASJID';
+            if (barCodeEl && sched) {
+                barCodeEl.innerText = sched.barcodeKey || (sched.prayerType === 'DHUHA' ? 'BARCODE_SHOLAT_DHUHA_MASJID' : 'BARCODE_SHOLAT_DHUHUR_MASJID');
+            }
+
+            // Sync monitoring prayer type selector
+            const monTypeSelect = document.getElementById('selectPaiMonitoringPrayerType');
+            if (monTypeSelect && sched) {
+                monTypeSelect.value = sched.prayerType;
             }
 
             // Pilih otomatis kelas pertama dari jadwal jika belum diubah
             const selectClass = document.getElementById('selectPaiClassFilter');
-            if (selectClass && sched.classNames && sched.classNames !== 'ALL_MALE') {
+            if (selectClass && sched?.classNames && sched.classNames !== 'ALL_MALE') {
                 const firstClass = sched.classNames.split(',')[0].trim();
                 if (firstClass && Array.from(selectClass.options).some(o => o.value === firstClass)) {
                     selectClass.value = firstClass;
                 }
+            }
+        }
+
+        async function switchTodayPrayerSession(prayerType) {
+            try {
+                const res = await authFetch(`/api/prayer/today-schedule?prayerType=${prayerType}`);
+                const data = await res.json();
+                if (data.success && data.schedule) {
+                    currentPaiPrayerSchedule = data.schedule;
+                    renderPrayerScheduleInfo(data);
+                    loadPaiClassMonitoring();
+                }
+            } catch (e) {
+                console.error('Error switchTodayPrayerSession:', e);
             }
         }
 
@@ -4577,19 +4646,20 @@
             form.classList.toggle('hidden');
             if (!form.classList.contains('hidden')) {
                 const dayToSelect = currentPaiPrayerSchedule ? currentPaiPrayerSchedule.dayOfWeek : (new Date().getDay() || 1);
-                populatePrayerFormForDay(dayToSelect);
+                populatePrayerFormForDay(dayToSelect, currentPaiPrayerSchedule?.prayerType);
             }
         }
 
         async function handleSavePrayerScheduleWeb(e) {
             e.preventDefault();
+            const id = document.getElementById('inputPaiScheduleId')?.value || undefined;
             const dayOfWeek = Number(document.getElementById('selectPaiDayOfWeek')?.value || 1);
             const prayerType = document.getElementById('selectPaiPrayerType')?.value || 'DHUHUR';
             const barcodeKey = document.getElementById('selectPaiBarcodeKey')?.value || 'BARCODE_SHOLAT_DHUHUR_MASJID';
             const classNames = document.getElementById('inputPaiClassNames')?.value?.trim();
-            const wudhuTime = document.getElementById('inputPaiWudhuTime')?.value || '11:45';
-            const scanStartTime = document.getElementById('inputPaiScanStartTime')?.value || '12:00';
-            const scanEndTime = document.getElementById('inputPaiScanEndTime')?.value || '12:30';
+            const wudhuTime = document.getElementById('inputPaiWudhuTime')?.value || (prayerType === 'DHUHA' ? '06:45' : '11:45');
+            const scanStartTime = document.getElementById('inputPaiScanStartTime')?.value || (prayerType === 'DHUHA' ? '07:00' : '12:00');
+            const scanEndTime = document.getElementById('inputPaiScanEndTime')?.value || (prayerType === 'DHUHA' ? '07:45' : '12:30');
             const notes = document.getElementById('inputPaiScheduleNotes')?.value?.trim();
 
             if (!classNames) {
@@ -4604,6 +4674,7 @@
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
+                        id,
                         dayOfWeek,
                         dayName: dayNames[dayOfWeek] || 'HARI',
                         prayerType,
@@ -4617,7 +4688,7 @@
                 });
                 const result = await res.json();
                 if (result.success) {
-                    alert('✅ Jadwal rombel sholat masjid berhasil disimpan!');
+                    alert('✅ ' + result.message);
                     togglePrayerScheduleForm();
                     loadPaiPrayerWeb();
                 } else {
@@ -4628,18 +4699,38 @@
             }
         }
 
+        async function handleDeletePrayerSchedule(id, dayOfWeek, prayerType) {
+            if (!confirm(`Hapus jadwal Sholat ${prayerType} untuk hari ini?`)) return;
+            try {
+                const res = await authFetch('/api/prayer/delete-schedule', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id, dayOfWeek, prayerType })
+                });
+                const result = await res.json();
+                if (result.success) {
+                    alert('✅ ' + result.message);
+                    loadPaiPrayerWeb();
+                } else {
+                    alert('Gagal menghapus: ' + result.message);
+                }
+            } catch (err) {
+                alert('Koneksi terputus: ' + err.message);
+            }
+        }
+
         function downloadPaiPdf() {
             const selectClass = document.getElementById('selectPaiClassFilter')?.value || 'VII-A';
             const dateVal = document.getElementById('inputPaiDateFilter')?.value || new Date().toISOString().substring(0, 10);
-            const pType = currentPaiPrayerSchedule?.prayerType || 'DHUHUR';
+            const pType = document.getElementById('selectPaiMonitoringPrayerType')?.value || currentPaiPrayerSchedule?.prayerType || 'DHUHUR';
             const url = `/api/prayer/export-pdf?className=${encodeURIComponent(selectClass)}&date=${dateVal}&prayerType=${pType}&token=${encodeURIComponent(token)}`;
             window.open(url, '_blank');
         }
 
         async function batchMarkAllPaiPrayer() {
             const selectClass = document.getElementById('selectPaiClassFilter')?.value || 'VII-A';
-            const pType = currentPaiPrayerSchedule?.prayerType || 'DHUHUR';
-            if (!confirm(`Tandai seluruh siswa kelas ${selectClass} hadir sholat berjamaah? (Siswi yang berhalangan haid tidak akan ditimpa).`)) return;
+            const pType = document.getElementById('selectPaiMonitoringPrayerType')?.value || currentPaiPrayerSchedule?.prayerType || 'DHUHUR';
+            if (!confirm(`Tandai seluruh siswa kelas ${selectClass} hadir Sholat ${pType} berjamaah? (Siswi yang berhalangan haid tidak akan ditimpa).`)) return;
             try {
                 const res = await authFetch('/api/prayer/batch-mark', {
                     method: 'POST',
@@ -4666,16 +4757,18 @@
             initPaiClassesDropdown();
             const selectClass = document.getElementById('selectPaiClassFilter');
             const dateInput = document.getElementById('inputPaiDateFilter');
+            const monTypeSelect = document.getElementById('selectPaiMonitoringPrayerType');
             const className = selectClass?.value || 'VII-A';
             const targetDate = dateInput?.value || new Date().toISOString().substring(0, 10);
+            const prayerType = monTypeSelect?.value || currentPaiPrayerSchedule?.prayerType || 'DHUHUR';
 
             const tbody = document.getElementById('paiStudentsTableBody');
             if (tbody) {
-                tbody.innerHTML = `<tr><td colspan="10" class="p-8 text-center text-slate-500 font-medium">⏳ Memuat presensi sholat Kelas ${className}...</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="10" class="p-8 text-center text-slate-500 font-medium">⏳ Memuat presensi Sholat ${prayerType} Kelas ${className}...</td></tr>`;
             }
 
             try {
-                const res = await authFetch(`/api/prayer/monitoring-by-class?className=${encodeURIComponent(className)}&date=${targetDate}`);
+                const res = await authFetch(`/api/prayer/monitoring-by-class?className=${encodeURIComponent(className)}&date=${targetDate}&prayerType=${encodeURIComponent(prayerType)}`);
                 const data = await res.json();
                 if (data.success) {
                     currentPaiPrayerStudents = data.students || [];
@@ -4821,7 +4914,8 @@
         async function handlePaiMarkStudent(studentId, status, note) {
             const selectClass = document.getElementById('selectPaiClassFilter');
             const className = selectClass?.value || 'VII-A';
-            const prayerType = (currentPaiPrayerSchedule && currentPaiPrayerSchedule.prayerType) ? currentPaiPrayerSchedule.prayerType : 'DHUHUR';
+            const monTypeSelect = document.getElementById('selectPaiMonitoringPrayerType');
+            const prayerType = monTypeSelect?.value || currentPaiPrayerSchedule?.prayerType || 'DHUHUR';
 
             try {
                 const res = await authFetch('/api/prayer/pai-mark', {
@@ -4894,7 +4988,7 @@
             const typeSel = document.getElementById('modalPdfPrayerType');
             if (typeSel) {
                 const day = new Date().getDay();
-                typeSel.value = (day === 5) ? 'JUMAT' : 'DHUHUR';
+                typeSel.value = document.getElementById('selectPaiMonitoringPrayerType')?.value || ((day === 5) ? 'JUMAT' : 'DHUHUR');
             }
 
             modal.classList.remove('hidden');
@@ -6368,6 +6462,7 @@
                         <label class="block font-bold text-slate-700 mb-1.5">🕌 Jenis Sholat</label>
                         <select id="modalPdfPrayerType" class="w-full border-2 border-slate-200 rounded-xl px-3 py-2 font-bold text-slate-800 bg-slate-50 focus:border-purple-600 focus:bg-white focus:outline-none">
                             <option value="DHUHUR">Dhuhur Berjamaah</option>
+                            <option value="DHUHA">Dhuha Berjamaah</option>
                             <option value="JUMAT">Jumat / Keputrian</option>
                         </select>
                     </div>

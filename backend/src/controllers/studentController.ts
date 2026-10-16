@@ -6,6 +6,7 @@ import fs from 'fs';
 import { checkStudentCommitteeRole, getClassCommittee } from '../utils/classCommittee';
 import { normalizeClassVariations, resolveHomeroomTeacher, resolveCounselorTeacher, canonicalClassName } from '../utils/classHelper';
 import { supabase } from '../utils/supabaseClient';
+import { formatTimeWibWithSuffix } from '../utils/dateUtils';
 
 const prisma = new PrismaClient();
 
@@ -394,16 +395,8 @@ export const getDetailedAttendance = async (req: Request, res: Response): Promis
       const inRecord = records.find(r => r.type === 'GATE_IN' || r.type === 'IN');
       const outRecord = records.find(r => r.type === 'GATE_OUT' || r.type === 'OUT');
 
-      const formatTime = (d: Date | string | null | undefined) => {
-        if (!d) return '-';
-        try {
-          const dt = new Date(d);
-          const hh = String(dt.getHours()).padStart(2, '0');
-          const mm = String(dt.getMinutes()).padStart(2, '0');
-          return `${hh}:${mm} WIB`;
-        } catch {
-          return '-';
-        }
+      const formatTime = (d: Date | string | null | undefined, fallbackNote?: string | null) => {
+        return formatTimeWibWithSuffix(d, false, fallbackNote);
       };
 
       const now = new Date();
@@ -446,7 +439,7 @@ export const getDetailedAttendance = async (req: Request, res: Response): Promis
           finalStatus = 'HADIR (TIDAK SCAN PULANG)';
           isMissingGateOut = true;
           hadirCount++;
-          const inTimeOnly = formatTime(inRecord.scanTime);
+          const inTimeOnly = formatTime(inRecord.scanTime, inRecord.note);
           gateLocation = `Masuk pukul ${inTimeOnly} (Tidak scan kepulangan)`;
         } else {
           finalStatus = 'HADIR';
@@ -464,8 +457,8 @@ export const getDetailedAttendance = async (req: Request, res: Response): Promis
 
       const isNonScanStatus = finalStatus === 'ALPA' || finalStatus === 'SAKIT' || finalStatus === 'IZIN';
       const actualInRec = inRecord || records.find(r => r.type !== 'GATE_OUT' && r.method !== 'SYSTEM_AUTO') || records[0];
-      const gateInTime = (!isNonScanStatus && actualInRec && actualInRec.method !== 'SYSTEM_AUTO') ? formatTime(actualInRec.scanTime) : (inRecord ? formatTime(inRecord.scanTime) : '-');
-      const gateOutTime = (!isNonScanStatus && outRecord && outRecord.method !== 'SYSTEM_AUTO') ? formatTime(outRecord.scanTime) : '-';
+      const gateInTime = (!isNonScanStatus && actualInRec && actualInRec.method !== 'SYSTEM_AUTO') ? formatTime(actualInRec.scanTime, actualInRec.note) : (inRecord ? formatTime(inRecord.scanTime, inRecord.note) : '-');
+      const gateOutTime = (!isNonScanStatus && outRecord && outRecord.method !== 'SYSTEM_AUTO') ? formatTime(outRecord.scanTime, outRecord.note) : '-';
       const isLate = finalStatus === 'TERLAMBAT';
 
       allHistory.push({

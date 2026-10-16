@@ -931,12 +931,17 @@ import {
     getStudentPrayerHistory,
     exportPrayerAttendancePdf,
     studentReportUzur,
-    paiScanStudentCard
+    paiScanStudentCard,
+    triggerPrayerH1Reminder,
+    deletePrayerClassSchedule
 } from '../controllers/prayerAttendanceController';
 
 router.get('/prayer/today-schedule', authenticateJWT, getTodayPrayerSchedule);
 router.get('/prayer/all-schedules', authenticateJWT, getAllPrayerSchedules);
 router.post('/prayer/set-schedule', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR']), setPrayerClassSchedule);
+router.post('/prayer/delete-schedule', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR']), deletePrayerClassSchedule);
+router.delete('/prayer/schedule/:id', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR']), deletePrayerClassSchedule);
+router.post('/prayer/trigger-reminder-1900', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR']), triggerPrayerH1Reminder);
 router.post('/prayer/scan-barcode', authenticateJWT, studentScanStaticBarcode);
 router.post('/prayer/student/report-uzur', authenticateJWT, studentReportUzur);
 router.post('/prayer/pai-mark', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR']), paiMarkStudentPrayer);

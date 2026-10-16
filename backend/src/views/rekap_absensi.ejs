@@ -1201,10 +1201,12 @@
                         try {
                             const d = new Date(st);
                             if (isNaN(d.getTime())) return String(st);
-                            const hh = String(d.getUTCHours()).padStart(2, '0');
-                            const mm = String(d.getUTCMinutes()).padStart(2, '0');
-                            const ss = String(d.getUTCSeconds()).padStart(2, '0');
-                            return `${hh}:${mm}:${ss} WIB`;
+                            return d.toLocaleTimeString('id-ID', {
+                                timeZone: 'Asia/Jakarta',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                                second: '2-digit'
+                            }).replace(/\./g, ':') + ' WIB';
                         } catch (e) {
                             return '-';
                         }

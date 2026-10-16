@@ -37,6 +37,81 @@ function shuffleArray<T>(array: T[], seed?: string): T[] {
   return arr;
 }
 
+/**
+ * Auto-close ulangan harian yang waktu berakhirnya (waktuSelesai) sudah lewat
+ * Hitung skor akhir untuk siswa yang masih berstatus 'MENGERJAKAN'
+ */
+export const autoCloseExpiredUlanganHarian = async () => {
+  try {
+    const now = new Date();
+    const expiredList = await (prisma as any).ulanganHarian.findMany({
+      where: {
+        status: 'AKTIF',
+        waktuSelesai: {
+          lte: now
+        }
+      },
+      include: {
+        submissions: {
+          where: {
+            status: 'MENGERJAKAN'
+          }
+        }
+      }
+    });
+
+    for (const uh of expiredList) {
+      let parsedSoal: any[] = [];
+      try {
+        parsedSoal = uh.soalJson ? JSON.parse(uh.soalJson) : [];
+      } catch (e) {}
+
+      if (Array.isArray(uh.submissions)) {
+        for (const sub of uh.submissions) {
+          let jawaban = {};
+          try {
+            jawaban = sub.jawabanJson ? JSON.parse(sub.jawabanJson) : {};
+          } catch (e) {}
+
+          let benar = 0;
+          let salah = 0;
+          parsedSoal.forEach((soal) => {
+            const jwb = (jawaban as any)[soal.id];
+            if (jwb && String(jwb).trim().toUpperCase() === String(soal.correctOption).trim().toUpperCase()) {
+              benar++;
+            } else {
+              salah++;
+            }
+          });
+
+          const bobotPerSoal = parsedSoal.length > 0 ? 100 / parsedSoal.length : 0;
+          const skor = Math.round(benar * bobotPerSoal);
+
+          await (prisma as any).ulanganHarianSubmission.update({
+            where: { id: sub.id },
+            data: {
+              status: 'SELESAI',
+              waktuSelesai: sub.waktuSelesai || now,
+              totalBenar: benar,
+              totalSalah: salah,
+              nilai: skor
+            }
+          }).catch(() => {});
+        }
+      }
+
+      await (prisma as any).ulanganHarian.update({
+        where: { id: uh.id },
+        data: {
+          status: 'SELESAI'
+        }
+      }).catch(() => {});
+    }
+  } catch (err) {
+    console.error('Error auto-closing expired Ulangan Harian:', err);
+  }
+};
+
 // -------------------------------------------------------------
 // GURU CONTROLLERS
 // -------------------------------------------------------------
@@ -184,6 +259,7 @@ export const mulaiUlanganHarian = async (req: Request, res: Response) => {
  */
 export const getDaftarUhGuru = async (req: Request, res: Response) => {
   try {
+    await autoCloseExpiredUlanganHarian();
     const user = (req as any).user;
     const uhList = await (prisma as any).ulanganHarian.findMany({
       where: {
@@ -1087,8 +1163,6 @@ export const getSiswaUnifiedInbox = async (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
     const siswaId = user?.id;
-    const studentClass = ((user?.className || user?.classId || user?.kelasId || '') as string).trim().toUpperCase();
-    const kelasId = studentClass;
 
     if (!siswaId) {
       return res.status(401).json({
@@ -1097,7 +1171,34 @@ export const getSiswaUnifiedInbox = async (req: Request, res: Response) => {
       });
     }
 
+    // Auto-tutup ulangan harian yang telah lewat batas waktu selesai agar tidak menumpuk di siswa
+    await autoCloseExpiredUlanganHarian();
+
     const now = new Date();
+
+    // Resolusi nama & UUID kelas siswa secara menyeluruh
+    const studentClass = ((user?.className || user?.kelasId || '') as string).trim().toUpperCase();
+    const studentClassId = (user?.classId || '').trim();
+    const targetClassIds: string[] = [];
+    const targetClassNames: string[] = [];
+    if (studentClassId) targetClassIds.push(studentClassId);
+    if (studentClass) targetClassNames.push(studentClass);
+
+    if (studentClass) {
+      const cls = await prisma.class.findFirst({
+        where: {
+          OR: [
+            { name: studentClass },
+            { name: { equals: studentClass, mode: 'insensitive' } },
+            { id: studentClass }
+          ]
+        }
+      });
+      if (cls) {
+        if (!targetClassIds.includes(cls.id)) targetClassIds.push(cls.id);
+        if (!targetClassNames.includes(cls.name.toUpperCase())) targetClassNames.push(cls.name.toUpperCase());
+      }
+    }
 
     // 1. Ambil Ulangan Harian (Mendukung multi-centang rombel / kelas)
     const listAllUh = await (prisma as any).ulanganHarian.findMany({
@@ -1113,17 +1214,28 @@ export const getSiswaUnifiedInbox = async (req: Request, res: Response) => {
     const listUh = listAllUh.filter((uh: any) => {
       const assignedList = (uh.kelasId || '').toUpperCase().split(/[,;]+/).map((s: string) => s.trim()).filter(Boolean);
       if (assignedList.length === 0 || assignedList.includes('ALL') || assignedList.includes('SEMUA KELAS')) return true;
-      if (studentClass && assignedList.includes(studentClass)) return true;
+      for (const cName of targetClassNames) {
+        if (assignedList.includes(cName)) return true;
+      }
+      for (const cId of targetClassIds) {
+        if (assignedList.includes(cId.toUpperCase())) return true;
+      }
       return false;
     });
 
-    // 2. Ambil Homework
+    // 2. Ambil Homework (Cocokkan Class UUID dan Class Name)
+    const homeworkWhere: any = {};
+    if (targetClassIds.length > 0 || targetClassNames.length > 0) {
+      homeworkWhere.OR = [
+        ...(targetClassIds.length > 0 ? [{ classId: { in: targetClassIds } }] : []),
+        ...(targetClassNames.length > 0 ? [{ class: { name: { in: targetClassNames } } }] : [])
+      ];
+    } else {
+      homeworkWhere.id = '__NONE__';
+    }
+
     const listHomework = await prisma.homework.findMany({
-      where: {
-        OR: [
-          { classId: kelasId || 'ALL' }
-        ]
-      },
+      where: homeworkWhere,
       include: {
         submissions: {
           where: { userId: siswaId }
@@ -1142,6 +1254,7 @@ export const getSiswaUnifiedInbox = async (req: Request, res: Response) => {
 
     for (const uh of listUh) {
       const sub = Array.isArray(uh.submissions) ? uh.submissions[0] : null;
+      const isExpired = uh.waktuSelesai ? new Date(uh.waktuSelesai) <= now : false;
       const sisaWaktuMs = uh.waktuSelesai ? Math.max(0, new Date(uh.waktuSelesai).getTime() - now.getTime()) : 0;
       const sisaMenit = Math.ceil(sisaWaktuMs / (60 * 1000));
 
@@ -1158,10 +1271,10 @@ export const getSiswaUnifiedInbox = async (req: Request, res: Response) => {
         waktuMulai: uh.waktuMulai,
         waktuSelesai: uh.waktuSelesai,
         sisaMenit,
-        statusSub: sub ? sub.status : 'BELUM_MULAI',
+        statusSub: sub ? sub.status : (isExpired ? 'WAKTU_HABIS' : 'BELUM_MULAI'),
         nilai: sub?.nilai ?? null,
         insidenCount: sub?.insidenCount ?? 0,
-        badge: uh.status === 'AKTIF' && (!sub || sub.status === 'MENGERJAKAN') ? 'URGENT' : 'NORMAL'
+        badge: uh.status === 'AKTIF' && !isExpired && (!sub || sub.status === 'MENGERJAKAN') ? 'URGENT' : 'NORMAL'
       };
 
       if (sub && sub.status === 'SELESAI') {
@@ -1170,6 +1283,16 @@ export const getSiswaUnifiedInbox = async (req: Request, res: Response) => {
           badgeColor: 'GREY',
           actionText: 'Lihat Hasil'
         });
+      } else if (isExpired) {
+        // Waktu ulangan telah selesai
+        if (sub && sub.status === 'MENGERJAKAN') {
+          completedList.push({
+            ...itemUh,
+            badgeColor: 'GREY',
+            actionText: 'Waktu Habis'
+          });
+        }
+        // Jika belum pernah dikerjakan dan sudah kadaluarsa, abaikan agar tidak menumpuk di list aktif
       } else if (uh.status === 'AKTIF') {
         if (sub && sub.status === 'MENGERJAKAN') {
           ongoingList.push({
@@ -1191,12 +1314,12 @@ export const getSiswaUnifiedInbox = async (req: Request, res: Response) => {
           actionText: 'Belum Dimulai'
         });
       }
-      // Catatan: UH yang sudah lewat dan tidak pernah dikerjakan otomatis dihilangkan agar tidak menumpuk
     }
 
     for (const hw of listHomework) {
       const sub = Array.isArray(hw.submissions) ? hw.submissions[0] : null;
       const deadline = new Date(hw.deadline);
+      const isExpired = now >= deadline;
       const sisaJamMs = deadline.getTime() - now.getTime();
       const sisaJam = Math.round(sisaJamMs / (60 * 60 * 1000));
       const isUrgent = sisaJamMs > 0 && sisaJam <= 24;
@@ -1217,7 +1340,7 @@ export const getSiswaUnifiedInbox = async (req: Request, res: Response) => {
         sisaJam,
         totalSoal: parseQuestions.length,
         bobot: hw.weight || 100,
-        statusSub: sub ? (sub.score !== null ? 'DINILAI' : 'DISUBMIT') : 'BELUM_SUBMIT',
+        statusSub: sub ? (sub.score !== null ? 'DINILAI' : 'DISUBMIT') : (isExpired ? 'TERLEWAT' : 'BELUM_SUBMIT'),
         nilai: sub ? (sub.score ?? sub.autoScore ?? null) : null,
         badge: isUrgent ? 'WARNING' : 'NORMAL'
       };
@@ -1228,14 +1351,14 @@ export const getSiswaUnifiedInbox = async (req: Request, res: Response) => {
           badgeColor: 'GREY',
           actionText: 'Lihat Tugas'
         });
-      } else if (now < deadline) {
+      } else if (!isExpired) {
         activeList.push({
           ...itemHw,
           badgeColor: isUrgent ? 'YELLOW' : 'GREEN',
           actionText: 'Kerjakan'
         });
       }
-      // Catatan: Tugas/PR yang tenggatnya sudah lewat dan tidak disubmit otomatis dihilangkan agar tidak menumpuk
+      // Tugas/PR yang tenggatnya sudah lewat dan tidak disubmit otomatis dihilangkan dari tab Aktif
     }
 
     return res.json({
@@ -1290,6 +1413,17 @@ export const mulaiKerjakanUhSiswa = async (req: Request, res: Response) => {
       });
     }
 
+    if (uh.waktuSelesai && new Date(uh.waktuSelesai) <= new Date()) {
+      await (prisma as any).ulanganHarian.update({
+        where: { id },
+        data: { status: 'SELESAI' }
+      }).catch(() => {});
+      return res.status(400).json({
+        success: false,
+        message: 'Waktu pelaksanaan ulangan harian ini sudah berakhir.'
+      });
+    }
+
     // Validasi token untuk mode CBT_MINI
     if (uh.mode === 'CBT_MINI') {
       if (!token) {
@@ -1308,14 +1442,20 @@ export const mulaiKerjakanUhSiswa = async (req: Request, res: Response) => {
       }
     }
 
-    // Validasi kelas siswa
-    const studentClass = ((user?.className || user?.classId || user?.kelasId || '') as string).trim().toUpperCase();
-    if (studentClass && uh.kelasId && uh.kelasId !== 'ALL' && uh.kelasId !== 'Semua Kelas') {
+    // Validasi kelas siswa (Mendukung UUID dan Nama Rombel)
+    const studentClass = ((user?.className || user?.kelasId || '') as string).trim().toUpperCase();
+    const studentClassId = (user?.classId || '').trim().toUpperCase();
+    if ((studentClass || studentClassId) && uh.kelasId && uh.kelasId !== 'ALL' && uh.kelasId !== 'Semua Kelas') {
       const assignedList = (uh.kelasId || '').toUpperCase().split(/[,;]+/).map((s: string) => s.trim()).filter(Boolean);
-      if (assignedList.length > 0 && !assignedList.includes('ALL') && !assignedList.includes('SEMUA KELAS') && !assignedList.includes(studentClass)) {
+      const isAllowed = assignedList.length === 0 ||
+        assignedList.includes('ALL') ||
+        assignedList.includes('SEMUA KELAS') ||
+        (studentClass && assignedList.includes(studentClass)) ||
+        (studentClassId && assignedList.includes(studentClassId));
+      if (!isAllowed) {
         return res.status(403).json({
           success: false,
-          message: `Ulangan Harian ini khusus untuk kelas: ${uh.kelasId}. Kelas Anda (${studentClass}) tidak terdaftar.`
+          message: `Ulangan Harian ini khusus untuk kelas: ${uh.kelasId}. Kelas Anda (${studentClass || studentClassId}) tidak terdaftar.`
         });
       }
     }

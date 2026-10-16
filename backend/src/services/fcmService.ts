@@ -26,19 +26,6 @@ export function initFirebaseAdmin(): boolean {
 
         fcmInitialized = true;
         console.log('[FCM] Firebase Admin SDK successfully initialized for project:', serviceAccount.project_id);
-
-        // Ensure UserFcmToken table exists
-        prisma.$executeRawUnsafe(`
-            CREATE TABLE IF NOT EXISTS "UserFcmToken" (
-                "id" TEXT PRIMARY KEY,
-                "userId" TEXT NOT NULL,
-                "token" TEXT NOT NULL UNIQUE,
-                "deviceAndroidId" TEXT,
-                "role" TEXT,
-                "updatedAt" DATETIME DEFAULT CURRENT_TIMESTAMP
-            );
-        `).catch((err: any) => console.warn('[FCM] Table ensure non-fatal:', err.message));
-
         return true;
     } catch (error: any) {
         console.error('[FCM] Failed to initialize Firebase Admin SDK:', error.message);
@@ -50,16 +37,21 @@ export function initFirebaseAdmin(): boolean {
 export async function saveUserFcmToken(userId: string, token: string, deviceAndroidId?: string, role?: string): Promise<boolean> {
     try {
         initFirebaseAdmin();
-        const id = 'fcm_' + Math.random().toString(36).substring(2, 10);
-        await prisma.$executeRawUnsafe(`
-            INSERT INTO "UserFcmToken" ("id", "userId", "token", "deviceAndroidId", "role", "updatedAt")
-            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT("token") DO UPDATE SET
-                "userId" = excluded."userId",
-                "deviceAndroidId" = excluded."deviceAndroidId",
-                "role" = excluded."role",
-                "updatedAt" = CURRENT_TIMESTAMP;
-        `, id, userId, token, deviceAndroidId || null, role || null);
+        await (prisma as any).userFcmToken.upsert({
+            where: { token },
+            update: {
+                userId,
+                deviceAndroidId: deviceAndroidId || null,
+                role: role || null,
+                updatedAt: new Date()
+            },
+            create: {
+                userId,
+                token,
+                deviceAndroidId: deviceAndroidId || null,
+                role: role || null
+            }
+        });
         return true;
     } catch (e: any) {
         console.warn('[FCM] saveUserFcmToken error:', e.message);
@@ -83,10 +75,10 @@ export async function sendFcmToUser(userId: string, title: string, body: string,
             return 0;
         }
 
-        const rows: any[] = await prisma.$queryRawUnsafe(
-            `SELECT "token" FROM "UserFcmToken" WHERE "userId" = ?`,
-            userId
-        );
+        const rows: any[] = await (prisma as any).userFcmToken.findMany({
+            where: { userId },
+            select: { token: true }
+        });
 
         if (!rows || rows.length === 0) return 0;
         const tokens = rows.map((r: any) => r.token).filter(Boolean);
@@ -108,10 +100,10 @@ export async function sendFcmToRole(role: string, title: string, body: string, d
     if (!initFirebaseAdmin()) return 0;
 
     try {
-        const rows: any[] = await prisma.$queryRawUnsafe(
-            `SELECT "token" FROM "UserFcmToken" WHERE "role" = ?`,
-            role
-        );
+        const rows: any[] = await (prisma as any).userFcmToken.findMany({
+            where: { role },
+            select: { token: true }
+        });
 
         if (!rows || rows.length === 0) return 0;
         const tokens = rows.map((r: any) => r.token).filter(Boolean);
@@ -168,11 +160,9 @@ export async function sendFcmToTokens(tokens: string[], title: string, body: str
             });
 
             if (badTokens.length > 0) {
-                const placeholders = badTokens.map(() => '?').join(',');
-                await prisma.$executeRawUnsafe(
-                    `DELETE FROM "UserFcmToken" WHERE "token" IN (${placeholders})`,
-                    ...badTokens
-                ).catch(() => {});
+                await (prisma as any).userFcmToken.deleteMany({
+                    where: { token: { in: badTokens } }
+                }).catch(() => {});
             }
         }
     } catch (err: any) {

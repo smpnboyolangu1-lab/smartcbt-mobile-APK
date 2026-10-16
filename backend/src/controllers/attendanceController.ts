@@ -473,14 +473,29 @@ export const scanClassGate = async (req: Request, res: Response) => {
         const isMusholaOut = rawCodeUpper.includes('MUSHOLA_OUT') || (rawCodeUpper.includes('MUSHOLA') && rawCodeUpper.includes('OUT'));
         const isMusholaBarcode = isMusholaIn || isMusholaOut || rawCodeUpper.includes('MUSHOLA') || rawCodeUpper.includes('SHOLAT');
 
-        // Sesuai instruksi: QR Code statis (QR_STATIC / barcode stiker kelas) dinonaktifkan total!
-        // Wajib menggunakan QR Dinamis pada HP Pengurus Kelas (kecuali barcode khusus Ruang BK / Mushola / Mesin RFID).
+        const settings = await getOrCreateGateSettings();
+        const effective = getEffectiveGateSettings(settings);
+        const isTestingMode = Boolean(
+            settings.isEmergencyGateOut && 
+            (settings.emergencyReason?.toLowerCase().includes('uji') || 
+             settings.emergencyReason?.toLowerCase().includes('test') || 
+             settings.emergencyReason?.toLowerCase().includes('24 jam') || 
+             settings.emergencyReason?.toLowerCase().includes('trial'))
+        );
+
+        // Validasi Metode Presensi Ruang Kelas:
+        // 1. Barcode Statis di Pintu Kelas: WAJIB divalidasi dengan GPS di area sekolah SMPN 1 Boyolangu.
+        // 2. QR Dinamis Pengurus Kelas (DYNAMIC_CLASS_QR): Validasi tanpa GPS (berganti per 10 detik).
+        // 3. QR-STATIC tanpa validasi GPS ditutup total (wajib GPS aktif atau beralih ke QR Dinamis Pengurus).
+        const hasGps = lat !== undefined && lng !== undefined && lat !== null && lng !== null && Number(lat) !== 0 && Number(lng) !== 0;
         if (!isDynamicOfficerQr && !isBkBarcode && !isMusholaBarcode && method !== 'RFID' && rawCodeUpper !== 'QR_DYNAMIC_OFFICER' && !rawCodeUpper.startsWith('DYNAMIC_CLASS_QR|')) {
-            return res.status(403).json({
-                success: false,
-                redirectDynamicQr: true,
-                message: '⛔ QR Code Statis (QR_STATIC) telah dinonaktifkan total! Silakan minta Pengurus Kelas untuk membuka menu QR Dinamis dan pindai langsung dari HP Pengurus Kelas.'
-            });
+            if (!hasGps && !isTestingMode) {
+                return res.status(403).json({
+                    success: false,
+                    redirectDynamicQr: true,
+                    message: '⛔ Presensi Barcode Statis Kelas Wajib Validasi GPS! Nyalakan GPS di area sekolah atau gunakan QR Dinamis Pengurus Kelas.'
+                });
+            }
         }
 
         const studentClass = student.className ? await prisma.class.findFirst({ where: { name: student.className } }) : null;
@@ -515,16 +530,6 @@ export const scanClassGate = async (req: Request, res: Response) => {
         const baseRadius = Math.max(rawClassRadius, 70); // Minimal 70m mencakup seluruh area gedung sekolah SMPN 1 Boyolangu
         const gpsAccuracyBuffer = (accuracyNum && accuracyNum > 25) ? Math.min(Math.round(accuracyNum * 0.65), 65) : 0;
         const maxRadius = isBkBarcode ? Math.max(baseRadius + defaultBufferVal + gpsAccuracyBuffer, 85) : (baseRadius + defaultBufferVal + gpsAccuracyBuffer);
-
-        const settings = await getOrCreateGateSettings();
-        const effective = getEffectiveGateSettings(settings);
-        const isTestingMode = Boolean(
-            settings.isEmergencyGateOut && 
-            (settings.emergencyReason?.toLowerCase().includes('uji') || 
-             settings.emergencyReason?.toLowerCase().includes('test') || 
-             settings.emergencyReason?.toLowerCase().includes('24 jam') || 
-             settings.emergencyReason?.toLowerCase().includes('trial'))
-        );
 
         // Validasi Hari Libur Sekolah / Situasi Tertentu
         const todayYmd = effective.currentDateStr;
@@ -1390,7 +1395,7 @@ export const scanClassGate = async (req: Request, res: Response) => {
                             { username: `p${cleanNisn}` },
                             { username: cleanNisn },
                             { nisn: cleanNisn },
-                            ...(student.parentPhone ? [{ username: student.parentPhone }, { phone: student.parentPhone }] : [])
+                            ...(student.parentPhone ? [{ username: student.parentPhone }] : [])
                         ]
                     }
                 });
@@ -1442,10 +1447,16 @@ export const scanClassGate = async (req: Request, res: Response) => {
 
         const actionText = scanType === 'GATE_IN' 
             ? (status === 'LATE' ? `TERLAMBAT MASUK (${lateMinutes} Menit)` : 'MASUK SEKOLAH (Tepat Waktu)') 
-            : 'PULANG SEKOLAH';
+            : (isMissingIn ? 'PULANG SEKOLAH (⚠️ Tanpa Rekaman Masuk Pagi)' : 'PULANG SEKOLAH');
+
+        const successMessage = isMissingIn
+            ? `⚠️ Perhatian! ${student.name} (${student.className}) tercatat Pulang pukul ${timeWithSec}, namun Anda belum scan masuk tadi pagi. Status kepulangan Anda ditandai 'Pulang Tanpa Presensi Masuk' dan memerlukan verifikasi Wali Kelas / Guru BK.`
+            : `✅ Berhasil! ${student.name} (${student.className}) telah tercatat ${actionText} pukul ${timeWithSec}.`;
 
         res.json({
-            message: `✅ Berhasil! ${student.name} (${student.className}) telah tercatat ${actionText} pukul ${timeWithSec}.`,
+            message: successMessage,
+            isMissingIn: Boolean(isMissingIn),
+            isWarningYellow: Boolean(isMissingIn),
             attendance: attRecord,
             scanTimeStr: timeWithSec,
             scanType,
@@ -2124,14 +2135,8 @@ export const getAttendanceRekap = async (req: Request, res: Response) => {
         const currTimeStr = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false });
         const isPastGateOutEnd = currTimeStr > settings.gateOutEndTime;
 
-        const formatPreciseTime = (dt: Date | string | null | undefined) => {
-            if (!dt) return '-';
-            try {
-                const d = new Date(dt);
-                return d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ' WIB';
-            } catch {
-                return '-';
-            }
+        const formatPreciseTime = (dt: Date | string | null | undefined, fallbackNote?: string | null) => {
+            return formatTimeWibWithSuffix(dt, true, fallbackNote);
         };
 
         const rekapData = students.map(s => {
@@ -2215,7 +2220,7 @@ export const getAttendanceRekap = async (req: Request, res: Response) => {
                     finalStatus = 'LATE';
                     statusLabel = 'Terlambat';
                     if (inRecord && !outRecord && (isPastDate || isPastGateOutEnd)) {
-                        const inTimeOnly = new Date(inRecord.scanTime).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+                        const inTimeOnly = formatTimeWib(inRecord.scanTime, false, inRecord.note);
                         finalNote = `🟡 Terlambat (Masuk pk. ${inTimeOnly} WIB - Tanpa Scan Pulang)`;
                     } else {
                         finalNote = inRecord?.note || '🟡 Terlambat Hadir';
@@ -2230,7 +2235,7 @@ export const getAttendanceRekap = async (req: Request, res: Response) => {
                         statusCode = '?';
                         finalStatus = 'UNCONFIRMED_OUT';
                         statusLabel = 'Tdk Scan Pulang';
-                        const inTimeOnly = new Date(inRecord.scanTime).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+                        const inTimeOnly = formatTimeWib(inRecord.scanTime, false, inRecord.note);
                         finalNote = inRecord.note || `🔷 Hadir (Masuk pk. ${inTimeOnly} WIB - Belum/Tidak Scan Pulang)`;
                     } else {
                         statusCode = 'H';
@@ -2274,10 +2279,10 @@ export const getAttendanceRekap = async (req: Request, res: Response) => {
                 statusLabel,
                 type: outRecord ? 'GATE_OUT' : (inRecord ? 'GATE_IN' : '-'),
                 method: inRecord?.method || outRecord?.method || '-',
-                gateInTime: inRecord ? formatPreciseTime(inRecord.scanTime) : '-',
-                gateOutTime: outRecord ? formatPreciseTime(outRecord.scanTime) : '-',
+                gateInTime: inRecord ? formatPreciseTime(inRecord.scanTime, inRecord.note) : '-',
+                gateOutTime: outRecord ? formatPreciseTime(outRecord.scanTime, outRecord.note) : '-',
                 scanTime: outRecord?.scanTime || inRecord?.scanTime || null,
-                scanTimeStr: formatPreciseTime(outRecord?.scanTime || inRecord?.scanTime),
+                scanTimeStr: formatPreciseTime(outRecord?.scanTime || inRecord?.scanTime, outRecord?.note || inRecord?.note),
                 lat: outRecord?.lat || inRecord?.lat || null,
                 lng: outRecord?.lng || inRecord?.lng || null,
                 isFakeGps: inRecord?.isFakeGps || outRecord?.isFakeGps || false,
@@ -3831,12 +3836,13 @@ export const bulkSyncAttendance = async (req: Request, res: Response) => {
                     }
                 }
 
-                // QR Code statis dinonaktifkan total
-                if (item.method === 'QR_STATIC' || (item.barcodeCode && !item.barcodeCode.startsWith('DYNAMIC_CLASS_QR|') && !item.barcodeCode.includes('BK') && !item.barcodeCode.includes('SHOLAT'))) {
+                // QR Code statis tanpa validasi GPS ditutup
+                const hasOfflineGps = item.lat !== undefined && item.lng !== undefined && item.lat !== null && item.lng !== null && Number(item.lat) !== 0 && Number(item.lng) !== 0;
+                if ((item.method === 'QR_STATIC' || !hasOfflineGps) && (item.barcodeCode && !item.barcodeCode.startsWith('DYNAMIC_CLASS_QR|') && !item.barcodeCode.includes('BK') && !item.barcodeCode.includes('SHOLAT'))) {
                     results.push({
                         clientLocalId: item.clientLocalId,
                         status: 'REJECTED',
-                        message: '⛔ QR Code Statis (QR_STATIC) telah dinonaktifkan. Wajib menggunakan QR Dinamis Pengurus Kelas.'
+                        message: '⛔ Presensi Barcode Statis Kelas tanpa GPS (QR_STATIC) tidak diizinkan. Wajib menggunakan GPS di sekolah atau QR Dinamis Pengurus Kelas.'
                     });
                     failedCount++;
                     continue;
@@ -4450,8 +4456,8 @@ export const getAttendanceRekapSiswa = async (req: Request, res: Response) => {
             let statusCode = 'BELUM';
             let statusLabel = 'Belum Ada';
             let note = '-';
-            let gateInTime = inRec ? new Date(inRec.scanTime).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WIB' : '-';
-            let gateOutTime = outRec ? new Date(outRec.scanTime).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WIB' : '-';
+            let gateInTime = inRec ? formatTimeWibWithSuffix(inRec.scanTime, false, inRec.note) : '-';
+            let gateOutTime = outRec ? formatTimeWibWithSuffix(outRec.scanTime, false, outRec.note) : '-';
             let lateMinutes = 0;
             let lat = inRec?.lat || outRec?.lat || null;
             let lng = inRec?.lng || outRec?.lng || null;
