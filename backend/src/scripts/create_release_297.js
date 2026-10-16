@@ -95,7 +95,10 @@ async function run() {
     const targets = [
         'C:/APK/smartcbt-latest.apk',
         'C:/APK/SmartCBT-v2.9.7-Release.apk',
-        'C:/APK/storage/uploads/smartcbt-latest.apk'
+        'C:/APK/storage/uploads/smartcbt-latest.apk',
+        'C:/APK/backend/uploads/smartcbt-latest.apk',
+        'C:/APK/backend/uploads/SmartSchool_CBT_Release.apk',
+        'C:/APK/backend/uploads/SmartCBT_v2.9.7.apk'
     ];
     for (const t of targets) {
         try {
@@ -178,6 +181,29 @@ async function run() {
     }
 
     console.log('Release ready ID:', releaseData.id);
+
+    // Hapus asset lama jika sudah ada agar bisa di-overwrite dengan file terbaru
+    if (Array.isArray(releaseData.assets)) {
+        for (const asset of releaseData.assets) {
+            if (asset.name === `SmartCBT_${TAG}.apk` || asset.name === 'SmartCBT_latest.apk') {
+                console.log(`Menghapus asset lama di GitHub: ${asset.name} (ID: ${asset.id})...`);
+                try {
+                    await request({
+                        hostname: 'api.github.com',
+                        path: `/repos/${REPO}/releases/assets/${asset.id}`,
+                        method: 'DELETE',
+                        headers: {
+                            'Authorization': `token ${TOKEN}`,
+                            'User-Agent': 'Node-Release-Uploader'
+                        }
+                    });
+                } catch (e) {
+                    console.warn(`Gagal menghapus asset ${asset.name}:`, e.message);
+                }
+            }
+        }
+    }
+
     console.log('Mengunggah SmartCBT_v2.9.7.apk ke GitHub...');
     await uploadAsset(releaseData.upload_url, apkSourcePath, `SmartCBT_${TAG}.apk`);
 

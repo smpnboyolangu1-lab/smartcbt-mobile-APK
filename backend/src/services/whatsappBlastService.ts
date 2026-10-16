@@ -155,9 +155,10 @@ export async function initBaileys(forceNew = false): Promise<void> {
 
       if (qr) {
         try {
-          currentQrBase64 = await QRCode.toDataURL(qr, { width: 300, margin: 2 });
+          if (connectionStatus !== 'WAITING_QR') {
+            console.log('[WhatsApp Baileys] Menunggu otentikasi WhatsApp via dashboard web.');
+          }
           connectionStatus = 'WAITING_QR';
-          console.log('[WhatsApp Baileys] QR Code baru siap dipindai.');
         } catch (qrErr) {
           console.error('[WhatsApp Baileys] Gagal membuat data URL QR:', qrErr);
         }

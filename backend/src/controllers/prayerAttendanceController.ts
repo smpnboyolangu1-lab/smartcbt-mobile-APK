@@ -1980,6 +1980,8 @@ export const triggerPrayerH1Reminder = async (req: Request, res: Response) => {
 
 /**
  * 15. Otomatis Mengirim WhatsApp ke Orang Tua jika Siswa yang Ada Jadwal Sholat Ternyata Tidak Presensi Sholat
+ * ATURAN KETAT: HANYA siswa yang benar-benar HADIR di sekolah hari ini (ada log GATE_IN / MANUAL_BK)
+ * namun TIDAK melakukan scan sholat / keputrian (dan tidak berhalangan/izin resmi) yang dikirimi WhatsApp.
  */
 export async function dispatchAbsentPrayerStudentsBlast(prayerType?: string, targetDate?: Date): Promise<{ sentCount: number; failedCount: number; details: any[] }> {
     const now = targetDate || new Date();
@@ -2008,22 +2010,108 @@ export async function dispatchAbsentPrayerStudentsBlast(prayerType?: string, tar
         return { sentCount: 0, failedCount: 0, details: [] };
     }
 
+    // 1. Ambil daftar siswa yang terbukti HADIR FISIK di sekolah hari ini (GATE_IN / MANUAL_BK)
+    const attendanceInToday = await prisma.attendance.findMany({
+        where: {
+            type: { in: ['GATE_IN', 'MANUAL_BK'] },
+            status: { in: ['PRESENT', 'LATE'] },
+            scanTime: { gte: startOfDay, lte: endOfDay }
+        },
+        select: { userId: true, scanTime: true },
+        distinct: ['userId']
+    });
+    const presentStudentIds = new Set(attendanceInToday.map((a: any) => a.userId));
+
+    // Jika tidak ada siswa yang hadir di sekolah hari ini (misal hari libur/dini hari), langsung hentikan
+    if (presentStudentIds.size === 0) {
+        return { sentCount: 0, failedCount: 0, details: [] };
+    }
+
+    // 2. Ambil siswa yang sudah checkout / GATE_OUT hari ini (misal pulang lebih awal karena sakit)
+    const gateOutsToday = await prisma.attendance.findMany({
+        where: {
+            type: 'GATE_OUT',
+            scanTime: { gte: startOfDay, lte: endOfDay }
+        },
+        select: { userId: true, scanTime: true }
+    });
+    const gateOutMap = new Map<string, Date>();
+    gateOutsToday.forEach((g: any) => gateOutMap.set(g.userId, g.scanTime));
+
+    // 3. Ambil siswa dengan izin darurat BK (Gatepass resmi) hari ini
+    let excusedGatepassIds = new Set<string>();
+    try {
+        const gatepassesToday = await (prisma as any).gatepassRequest.findMany({
+            where: {
+                createdAt: { gte: startOfDay, lte: endOfDay },
+                status: { in: ['ACTIVE_APPROVED', 'COMPLETED', 'APPROVED', 'WAITING_SATPA_SCAN'] }
+            },
+            select: { studentId: true }
+        });
+        excusedGatepassIds = new Set(gatepassesToday.map((g: any) => g.studentId));
+    } catch (e) {}
+
+    // 4. Ambil siswa yang sedang dirawat / istirahat di UKS hari ini
+    let uksActiveIds = new Set<string>();
+    try {
+        const uksVisitsToday = await (prisma as any).uksVisit.findMany({
+            where: {
+                entryTime: { gte: startOfDay, lte: endOfDay },
+                OR: [
+                    { isDischarged: false },
+                    { status: { in: ['RESTING', 'OBSERVATION', 'TREATED'] } }
+                ]
+            },
+            select: { studentId: true }
+        });
+        uksActiveIds = new Set(uksVisitsToday.map((u: any) => u.studentId));
+    } catch (e) {}
+
+    // 5. Ambil siswa dengan izin/dispensasi resmi disetujui (StudentLeaveRequest) hari ini
+    let leaveApprovedIds = new Set<string>();
+    try {
+        const leavesToday = await (prisma as any).studentLeaveRequest.findMany({
+            where: {
+                startDate: { lte: endOfDay },
+                endDate: { gte: startOfDay },
+                status: 'APPROVED'
+            },
+            select: { studentId: true }
+        });
+        leaveApprovedIds = new Set(leavesToday.map((l: any) => l.studentId));
+    } catch (e) {}
+
     let sentCount = 0;
     let failedCount = 0;
     const details: any[] = [];
 
     for (const sched of activeSchedules) {
         const pType = (sched.prayerType || 'DHUHUR').toUpperCase();
-        const scheduledClasses = (sched.classNames || '')
+        const rawClassNames = (sched.classNames || '').trim();
+        const isAll = rawClassNames.toUpperCase() === 'ALL';
+        const isAllMale = rawClassNames.toUpperCase() === 'ALL_MALE';
+        const isAllFemale = rawClassNames.toUpperCase() === 'ALL_FEMALE';
+
+        const scheduledClasses = rawClassNames
             .split(',')
             .map((c: string) => c.trim().toUpperCase())
-            .filter((c: string) => c.length > 0 && c !== 'ALL_MALE');
+            .filter((c: string) => c.length > 0 && !c.startsWith('ALL'));
+
+        // Jika tidak diset ALL dan tidak ada kelas yang terdaftar, lewati untuk mencegah salah blast
+        if (!isAll && !isAllMale && !isAllFemale && scheduledClasses.length === 0) {
+            continue;
+        }
 
         const whereClause: any = {
             role: 'STUDENT',
             isActive: true
         };
-        if (sched.classNames !== 'ALL' && scheduledClasses.length > 0) {
+
+        if (isAllMale) {
+            whereClause.gender = { in: ['L', 'LAKI-LAKI', 'Laki-laki', 'MALE', 'Male'] };
+        } else if (isAllFemale) {
+            whereClause.gender = { in: ['P', 'PEREMPUAN', 'Perempuan', 'FEMALE', 'Female'] };
+        } else if (!isAll && scheduledClasses.length > 0) {
             whereClause.className = { in: scheduledClasses };
         }
 
@@ -2041,52 +2129,107 @@ export async function dispatchAbsentPrayerStudentsBlast(prayerType?: string, tar
             }
         });
 
-        const attendanceInToday = await prisma.attendance.findMany({
-            where: {
-                type: 'GATE_IN',
-                scanTime: { gte: startOfDay, lte: endOfDay }
-            },
-            select: { userId: true },
-            distinct: ['userId']
-        });
-        const presentStudentIds = new Set(attendanceInToday.map((a: any) => a.userId));
+        // 6. Ambil seluruh presensi sholat hari ini yang relevan
+        // Sholat Dhuha: mencakup status SHOLAT_BERJAMAAH, HADIR_KEPUTRIAN, BERHALANGAN_HAID
+        // Sholat Dhuhur/Jumat: mencakup DHUHUR, JUMAT, dan KEPUTRIAN (bagi siswi yang ikut keputrian/uzur)
+        const prayerTypesToMatch = pType === 'DHUHA'
+            ? ['DHUHA', 'KEPUTRIAN']
+            : ['DHUHUR', 'JUMAT', 'KEPUTRIAN'];
 
         const recordedPrayers = await (prisma as any).studentPrayerAttendance.findMany({
             where: {
-                prayerType: pType,
-                date: todayStr
+                prayerType: { in: prayerTypesToMatch },
+                date: todayStr,
+                status: { in: ['SHOLAT_BERJAMAAH', 'HADIR_KEPUTRIAN', 'BERHALANGAN_HAID', 'HADIR'] }
             },
             select: { studentId: true, status: true }
         });
         const prayedStudentIds = new Set(recordedPrayers.map((p: any) => p.studentId));
 
         for (const student of scheduledStudents) {
+            // A. Filter Agama: Hanya siswa Muslim
             const religion = (student.religion || 'ISLAM').toUpperCase();
             if (religion.includes('KRISTEN') || religion.includes('KATOLIK') || religion.includes('HINDU') || religion.includes('BUDDHA') || religion.includes('KONGHUCU')) {
                 continue;
             }
 
-            if (pType === 'JUMAT' && (student.gender || '').toUpperCase().startsWith('P')) {
+            // B. Filter Gender untuk Sholat Jumat (putra) vs Keputrian
+            const studentGender = ((student.gender || 'L').toString().toUpperCase().startsWith('P') || (student.gender || '').toLowerCase().includes('perempuan')) ? 'P' : 'L';
+            if (pType === 'JUMAT' && studentGender === 'P') {
+                continue;
+            }
+            if (isAllMale && studentGender !== 'L') {
+                continue;
+            }
+            if (isAllFemale && studentGender !== 'P') {
                 continue;
             }
 
-            const isPresentInSchool = presentStudentIds.has(student.id);
-            const hasDonePrayer = prayedStudentIds.has(student.id);
-
-            if (isPresentInSchool && !hasDonePrayer) {
-                const alreadyNotified = await (prisma as any).notificationMessage.findFirst({
-                    where: {
-                        studentId: student.id,
-                        category: `PRAYER_ABSENT_${pType}`,
-                        createdAt: { gte: startOfDay, lte: endOfDay }
-                    }
-                });
-
-                if (alreadyNotified) {
+            // C. Filter Validasi Kelas: Pastikan kelas siswa benar-benar cocok jika bukan ALL
+            if (!isAll && !isAllMale && !isAllFemale && scheduledClasses.length > 0) {
+                const sClass = (student.className || '').trim().toUpperCase();
+                if (!sClass || !scheduledClasses.includes(sClass)) {
                     continue;
                 }
+            }
 
-                const waMessage = `*PEMBERITAHUAN PRESENSI IBADAH SEKOLAH - SMPN 1 BOYOLANGU*
+            // D. SYARAT MUTLAK 1: Siswa WAJIB tercatat HADIR di sekolah hari ini
+            const isPresentInSchool = presentStudentIds.has(student.id);
+            if (!isPresentInSchool) {
+                // Siswa tidak hadir di sekolah (alpa/sakit/izin dari pagi di rumah), JANGAN dikirim WA bolos sholat!
+                continue;
+            }
+
+            // E. SYARAT MUTLAK 2: Siswa TIDAK sedang izin resmi pulang (Gatepass), tidak di UKS, tidak dispensasi
+            if (excusedGatepassIds.has(student.id) || uksActiveIds.has(student.id) || leaveApprovedIds.has(student.id)) {
+                continue;
+            }
+
+            // Jika siswa sudah checkout sebelum waktu sholat dimulai, lewati
+            const checkoutTime = gateOutMap.get(student.id);
+            if (checkoutTime) {
+                const [startH, startM] = (sched.scanStartTime || '11:45').split(':').map(Number);
+                const prayerStartMin = (startH || 11) * 60 + (startM || 45);
+                const outDate = new Date(checkoutTime);
+                const outMin = (outDate.getUTCHours() + 7) * 60 + outDate.getUTCMinutes();
+                if (outMin <= prayerStartMin) {
+                    continue; // Sudah pulang sebelum waktu sholat
+                }
+            }
+
+            // F. SYARAT MUTLAK 3: Siswa BELUM / TIDAK presensi sholat atau keputrian (artinya BOLOS TIDAK SCAN)
+            const hasDonePrayer = prayedStudentIds.has(student.id);
+            if (hasDonePrayer) {
+                // Siswa sudah scan sholat atau keputrian/haid, JANGAN dikirim WA!
+                continue;
+            }
+
+            // G. Cegah spam / duplikasi: Cek apakah notifikasi untuk siswa ini sudah pernah dikirim hari ini
+            const alreadyNotified = await (prisma as any).notificationMessage.findFirst({
+                where: {
+                    studentId: student.id,
+                    category: `PRAYER_ABSENT_${pType}`,
+                    createdAt: { gte: startOfDay, lte: endOfDay }
+                }
+            });
+
+            if (alreadyNotified) {
+                continue;
+            }
+
+            // Ambil nomor HP Orang Tua: Cek user.parentPhone, jika kosong cari di BiodataSiswa
+            let targetPhone = (student.parentPhone || '').trim();
+            if (!targetPhone || targetPhone.length < 8) {
+                try {
+                    const bio = await (prisma as any).biodataSiswa?.findUnique({
+                        where: { siswaId: student.id },
+                        select: { teleponOrangTua: true, noHpIbu: true, noHpAyah: true, noHpWali: true }
+                    });
+                    targetPhone = (bio?.teleponOrangTua || bio?.noHpIbu || bio?.noHpAyah || bio?.noHpWali || '').trim();
+                } catch (e) {}
+            }
+
+            const waMessage = `*PEMBERITAHUAN PRESENSI IBADAH SEKOLAH - SMPN 1 BOYOLANGU*
 Yth. Bapak/Ibu Orang Tua/Wali dari:
 Nama: *${student.name}*
 Kelas: *${student.className || '-'}*
@@ -2094,69 +2237,70 @@ Hari/Tanggal: *${dateFormatted}*
 
 Diberitahukan bahwa ananda hari ini tercatat *HADIR di sekolah*, namun *BELUM / TIDAK MELAKUKAN PRESENSI SHOLAT ${pType} BERJAMAAH* di Mushola SMPN 1 Boyolangu.
 
-_Catatan untuk siswi putri: Apabila ananda sedang berhalangan (uzur syar'i/haid), mohon konfirmasi untuk pencatatan di Pos Pembinaan Keputrian Mushola._
+_Catatan untuk siswi putri: Apabila ananda sedang berhalangan (uzur syar'i/haid), ananda wajib melapor ke Pos Pembinaan Keputrian Mushola untuk pencatatan presensi keputrian._
 
 Mohon kerja sama Bapak/Ibu untuk memberikan motivasi dan pembiasaan sholat berjamaah kepada ananda demi ketakwaan dan pembentukan karakter mulia.
 
-_Pesan otomatis Sistem Informasi Akademik & Keagamaan SMPN 1 Boyolangu_`;
+_Pesan resmi otomatis Sistem Informasi Akademik & Keagamaan SMPN 1 Boyolangu_`;
 
-                let sendSuccess = false;
-                if (student.parentPhone && student.parentPhone.trim().length >= 8) {
-                    try {
-                        const waRes = await sendSingleWhatsApp(student.parentPhone, waMessage);
-                        sendSuccess = waRes.success;
-                        if (sendSuccess) sentCount++;
-                        else failedCount++;
-                    } catch (e) {
-                        failedCount++;
-                    }
-                } else {
+            let sendSuccess = false;
+            if (targetPhone && targetPhone.length >= 8) {
+                try {
+                    const waRes = await sendSingleWhatsApp(targetPhone, waMessage);
+                    sendSuccess = waRes.success;
+                    if (sendSuccess) sentCount++;
+                    else failedCount++;
+                } catch (e) {
                     failedCount++;
                 }
+            } else {
+                failedCount++;
+            }
 
-                await (prisma as any).notificationMessage.create({
-                    data: {
-                        recipientRole: 'PARENT',
-                        studentId: student.id,
-                        studentName: student.name,
-                        className: student.className,
-                        title: `⚠️ Laporan Ibadah: Ananda Tidak Presensi Sholat ${pType}`,
-                        message: `Ananda ${student.name} (Kelas ${student.className}) hadir di sekolah namun tidak tercatat presensi Sholat ${pType} di Mushola pada ${dateFormatted}.`,
-                        category: `PRAYER_ABSENT_${pType}`
-                    }
-                }).catch(() => {});
-
-                try {
-                    const parentUsername = `P${student.nisn || student.username}`;
-                    const parentUser = await prisma.user.findFirst({
-                        where: {
-                            OR: [
-                                { username: parentUsername },
-                                { nisn: student.nisn || student.username, role: 'PARENT' }
-                            ]
-                        }
-                    });
-                    if (parentUser) {
-                        await sendFcmToUser(
-                            parentUser.id,
-                            `⚠️ Laporan Ibadah: Sholat ${pType}`,
-                            `Ananda ${student.name} hadir di sekolah namun tidak tercatat presensi Sholat ${pType} di Mushola hari ini.`,
-                            { type: 'PRAYER_ABSENT_ALERT', studentId: student.id }
-                        ).catch(() => {});
-                    }
-                } catch (e) {}
-
-                details.push({
+            // Catat ke NotificationMessage agar tercatat di aplikasi orang tua & mencegah blast berulang
+            await (prisma as any).notificationMessage.create({
+                data: {
+                    recipientRole: 'PARENT',
                     studentId: student.id,
                     studentName: student.name,
                     className: student.className,
-                    prayerType: pType,
-                    parentPhone: student.parentPhone,
-                    waSent: sendSuccess
-                });
+                    title: `⚠️ Laporan Ibadah: Ananda Tidak Presensi Sholat ${pType}`,
+                    message: `Ananda ${student.name} (Kelas ${student.className}) hadir di sekolah namun tidak tercatat presensi Sholat ${pType} di Mushola pada ${dateFormatted}.`,
+                    category: `PRAYER_ABSENT_${pType}`
+                }
+            }).catch(() => {});
 
-                await new Promise((r) => setTimeout(r, 300));
-            }
+            // Kirim Push Notification FCM ke akun Orang Tua
+            try {
+                const parentUsername = `P${student.nisn || student.username}`;
+                const parentUser = await prisma.user.findFirst({
+                    where: {
+                        OR: [
+                            { username: parentUsername },
+                            { nisn: student.nisn || student.username, role: 'PARENT' }
+                        ]
+                    }
+                });
+                if (parentUser) {
+                    await sendFcmToUser(
+                        parentUser.id,
+                        `⚠️ Laporan Ibadah: Sholat ${pType}`,
+                        `Ananda ${student.name} hadir di sekolah namun tidak tercatat presensi Sholat ${pType} di Mushola hari ini.`,
+                        { type: 'PRAYER_ABSENT_ALERT', studentId: student.id }
+                    ).catch(() => {});
+                }
+            } catch (e) {}
+
+            details.push({
+                studentId: student.id,
+                studentName: student.name,
+                className: student.className,
+                prayerType: pType,
+                parentPhone: targetPhone || '-',
+                waSent: sendSuccess
+            });
+
+            await new Promise((r) => setTimeout(r, 400));
         }
     }
 

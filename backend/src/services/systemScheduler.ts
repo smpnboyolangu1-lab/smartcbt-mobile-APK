@@ -377,6 +377,7 @@ export async function processDailyAutoRecap(now: Date = new Date()) {
  */
 let lastPrayerH1Date = '';
 const sentPrayerDayOfMap = new Set<string>();
+const sentPrayerPostBlastMap = new Set<string>();
 let lastPrayerMissedDate = '';
 
 /**
@@ -690,89 +691,65 @@ export async function processPrayerReminders(now: Date = new Date()) {
             }
         }
 
-        // 3. NOTIFIKASI KE ORANG TUA SETELAH JAM PULANG SELESAI (BAGI SISWA YANG TIDAK SCAN SHOLAT)
-        // Dijalankan pukul 14:45 WIB saat jam kepulangan KBM selesai
-        if (hour === 14 && minute >= 45 && minute <= 59 && lastPrayerMissedDate !== todayYmd && todayDay !== 0) {
-            lastPrayerMissedDate = todayYmd;
-
+        // 3. NOTIFIKASI OTOMATIS WHATSAPP KE ORANG TUA BEGITU WAKTU SHOLAT BERJAMAAH BERAKHIR
+        // Memeriksa seluruh siswa yang berstatus hadir di sekolah (GATE_IN), tetapi tidak presensi sholat / keputrian
+        if (todayDay !== 0) {
             const holiday = await prisma.schoolHoliday.findUnique({ where: { date: todayYmd } });
             const gateSettings = await prisma.gateSetting.findUnique({ where: { id: 'default' } });
             const isEarlyDismissalToday = Boolean(gateSettings?.isEmergencyGateOut || gateSettings?.isEarlyDismissal);
 
-            if (isEarlyDismissalToday) {
-                console.log(`🕌 [Scheduler] Hari ini diberlakukan kepulangan lebih awal / darurat. Notifikasi tidak sholat dibatalkan (prioritas dipulangkan ke rumah).`);
-            }
-
             if (!holiday && !isEarlyDismissalToday) {
                 const todaySchedules = await (prisma as any).prayerClassSchedule.findMany({
-                    where: { dayOfWeek: todayDay, isActive: true }
+                    where: { dayOfWeek: todayDay, isActive: true },
+                    orderBy: { scanEndTime: 'asc' }
                 });
-
-                // Ambil presensi gerbang hari ini (untuk tidak menuduh siswa yang memang izin/sakit/tidak masuk)
-                const { startOfDay: todayStart, endOfDay: todayEnd } = getWibDayBounds(now);
-
-                const gateLogs = await prisma.attendance.findMany({
-                    where: {
-                        scanTime: { gte: todayStart, lte: todayEnd },
-                        type: { in: ['GATE_IN', 'MANUAL_BK'] }
-                    },
-                    select: { userId: true, status: true }
-                });
-                const gatePresentIds = new Set(gateLogs.filter(g => g.status === 'PRESENT' || g.status === 'LATE').map(g => g.userId));
-
-                let totalMissedNotified = 0;
 
                 for (const schedule of todaySchedules) {
-                    const pType = schedule.prayerType || 'DHUHUR';
-                    const targetClasses = (schedule.classNames || '').split(',').map((c: string) => c.trim()).filter(Boolean);
+                    const pType = (schedule.prayerType || 'DHUHUR').toUpperCase();
+                    const endTimeStr = schedule.scanEndTime || (pType === 'DHUHA' ? '07:45' : (todayDay === 5 ? '12:45' : '12:30'));
+                    const [eH, eM] = endTimeStr.split(':').map(Number);
+                    const endMinutes = (eH || 12) * 60 + (eM || 30);
 
-                    const studentQuery: any = {
-                        role: 'STUDENT',
-                        isActive: true,
-                        OR: [
-                            { religion: { in: ['Islam', 'ISLAM'] } },
-                            { religion: null },
-                            { religion: '' }
-                        ]
-                    };
-                    if (schedule.classNames === 'ALL_MALE') {
-                        studentQuery.gender = { in: ['L', 'LAKI-LAKI', 'Laki-laki', 'MALE', 'Male'] };
-                    } else if (!targetClasses.includes('ALL') && !targetClasses.includes('SEMUA')) {
-                        studentQuery.className = { in: targetClasses };
-                    }
+                    // Sesi berakhir: dieksekusi begitu waktu sholat berakhir (rentang 0 s.d. 15 menit setelah scanEndTime)
+                    const blastKey = `${todayYmd}_${schedule.id || pType}_${pType}_POST_BLAST`;
+                    if (currentTotalMinutes >= endMinutes && currentTotalMinutes <= endMinutes + 15 && !sentPrayerPostBlastMap.has(blastKey)) {
+                        sentPrayerPostBlastMap.add(blastKey);
 
-                    const scheduledStudents = await prisma.user.findMany({
-                        where: studentQuery,
-                        select: { id: true, name: true, className: true, gender: true }
-                    });
+                        console.log(`🕌 [Scheduler] Waktu Sholat ${pType} hari ini telah berakhir (${endTimeStr} WIB). Menjalankan deteksi otomatis & WhatsApp blast siswa bolos sholat...`);
+                        try {
+                            const { dispatchAbsentPrayerStudentsBlast } = require('../controllers/prayerAttendanceController');
+                            const blastRes = await dispatchAbsentPrayerStudentsBlast(pType, now);
+                            console.log(`🕌 [Scheduler] Hasil Blast Sholat ${pType}: Terkirim WA: ${blastRes.sentCount}, Gagal/Tanpa No: ${blastRes.failedCount}, Total Terdeteksi Bolos: ${blastRes.details.length}.`);
 
-                    // Ambil seluruh presensi sholat jenis ini hari ini
-                    const prayerLogs = await (prisma as any).studentPrayerAttendance.findMany({
-                        where: { date: todayYmd, prayerType: pType }
-                    });
-                    const attendedStudentIds = new Set(prayerLogs.map((p: any) => p.studentId));
-
-                    for (const st of scheduledStudents) {
-                        const isAttendedPrayer = attendedStudentIds.has(st.id);
-                        const isPresentAtSchool = gatePresentIds.has(st.id);
-
-                        if (isPresentAtSchool && !isAttendedPrayer) {
-                            totalMissedNotified++;
-                            await (prisma as any).notificationMessage.create({
+                            await prisma.auditLog.create({
                                 data: {
-                                    recipientRole: 'PARENT',
-                                    studentId: st.id,
-                                    studentName: st.name,
-                                    className: st.className,
-                                    title: `⚠️ Laporan Ibadah: Ananda ${st.name} Tidak Melaksanakan Sholat`,
-                                    message: `Pemberitahuan Wali Murid: Ananda ${st.name} (Kelas ${st.className || '-'}) hari ini hadir di sekolah namun TIDAK tercatat melaksanakan Sholat ${pType} Berjamaah di Masjid/Mushola SMPN 1 Boyolangu.`,
-                                    category: 'ATTENDANCE'
+                                    action: 'AUTO_PRAYER_ABSENT_BLAST',
+                                    details: JSON.stringify({
+                                        prayerType: pType,
+                                        date: todayYmd,
+                                        endTime: endTimeStr,
+                                        sentCount: blastRes.sentCount,
+                                        failedCount: blastRes.failedCount,
+                                        detectedCount: blastRes.details.length
+                                    }),
+                                    ipAddress: '127.0.0.1 (SystemScheduler)'
                                 }
                             }).catch(() => {});
+                        } catch (blastErr: any) {
+                            console.error(`[Scheduler Error] Gagal menjalankan dispatchAbsentPrayerStudentsBlast untuk ${pType}:`, blastErr.message);
                         }
                     }
                 }
-                console.log(`🕌 [Scheduler] Laporan Tidak Sholat Pasca-KBM terkirim ke orang tua untuk ${totalMissedNotified} siswa.`);
+
+                // 4. SAFETY SWEEP AKHIR JAM KBM (Pukul 14:45 WIB)
+                // Memastikan tidak ada siswa sholat Dhuhur yang terlewat jika jadwal disesuaikan saat KBM
+                if (hour === 14 && minute >= 45 && minute <= 59 && lastPrayerMissedDate !== todayYmd) {
+                    lastPrayerMissedDate = todayYmd;
+                    try {
+                        const { dispatchAbsentPrayerStudentsBlast } = require('../controllers/prayerAttendanceController');
+                        await dispatchAbsentPrayerStudentsBlast('DHUHUR', now);
+                    } catch (e) {}
+                }
             }
         }
     } catch (err: any) {

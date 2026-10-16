@@ -118,7 +118,7 @@ export const checkVersionV1 = async (req: Request, res: Response) => {
         const currentVersion = (req.query.current_version as string) || '1.0.0';
 
         let config = await prisma.appVersionConfig.findUnique({ where: { id: 'latest' } });
-        const latestVersion = config?.versionName || '2.9.4';
+        const latestVersion = config?.versionName || '2.9.7';
         const minSupportedVersion = '2.9.4';
 
         const rawUrl = config?.downloadUrl || '';
