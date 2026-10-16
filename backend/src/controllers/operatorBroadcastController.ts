@@ -7,13 +7,17 @@ import fs from 'fs';
 export const sendOperatorBroadcast = async (req: Request, res: Response) => {
     try {
         const user = (req as any).user;
-        const { title, content, targetType, targetValue, pdfBase64, category } = req.body;
+        const title = (req.body.title || '').trim();
+        const content = (req.body.content || req.body.message || '').trim();
+        const rawTargetType = (req.body.targetType || 'ALL').toUpperCase();
+        const validTarget = ['ALL', 'GRADE', 'CLASS', 'STUDENT'].includes(rawTargetType) ? rawTargetType : 'ALL';
+        const targetValue = (req.body.targetValue || req.body.targetGrade || req.body.targetClass || '').toString().trim();
+        const pdfBase64 = req.body.pdfBase64;
+        const category = req.body.category || 'PENTING';
 
         if (!title || !content) {
             return res.status(400).json({ success: false, message: 'Judul dan isi pengumuman wajib diisi.' });
         }
-
-        const validTarget = ['ALL', 'GRADE', 'CLASS', 'STUDENT'].includes(targetType) ? targetType : 'ALL';
 
         let fileUrl: string | null = null;
         let fileSize: string = '0 KB';

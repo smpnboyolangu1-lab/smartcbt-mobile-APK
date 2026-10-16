@@ -50,6 +50,17 @@
                 android:textSize="11sp" />
         </LinearLayout>
 
+        <Button
+            android:id="@+id/btnDigitalMemberCard"
+            android:layout_width="wrap_content"
+            android:layout_height="34dp"
+            android:text="🪪 Kartu"
+            android:textSize="11sp"
+            android:textColor="#FFFFFF"
+            android:textStyle="bold"
+            android:backgroundTint="#2563EB"
+            android:layout_marginEnd="6dp" />
+
         <ImageView
             android:id="@+id/btnRefreshLibrary"
             android:layout_width="32dp"
@@ -508,7 +519,7 @@
                         android:layout_weight="1"
                         android:background="@android:color/transparent"
                         android:gravity="center"
-                        android:text="Tunggakan Denda"
+                        android:text="Tanggungan Buku"
                         android:textColor="#64748B"
                         android:textSize="11sp"
                         android:textStyle="bold" />
@@ -556,7 +567,7 @@
                             android:layout_height="wrap_content"
                             android:layout_marginTop="10dp"
                             android:lineSpacingExtra="4dp"
-                            android:text="1. Buku paket wajib dipindai barcode-nya di awal tahun ajaran.\n2. Siswa bertanggung jawab menjaga keutuhan buku fisik.\n3. Jangan mencoret atau merusak stiker barcode eksemplar.\n4. Buku paket wajib dikembalikan lengkap di akhir tahun ajaran sebagai syarat Bebas Pustaka penerbitan rapor.\n5. Peminjaman koleksi umum perpustakaan berjangka waktu 7 hari kerja dan dapat diperpanjang 1 kali."
+                            android:text="1. Buku paket wajib dipindai barcode-nya di awal tahun ajaran.\n2. Siswa bertanggung jawab menjaga keutuhan buku fisik.\n3. Jangan mencoret atau merusak stiker barcode eksemplar.\n4. Pengembalian buku paket dilakukan secara kolektif per rombel di akhir tahun ajaran (Bebas denda finansial 100% dan tanpa penahanan rapor/ijazah).\n5. Peminjaman koleksi umum perpustakaan berjangka waktu 7 hari kerja. Buku kategori Referensi/Kamus/Ensiklopedia hanya dibaca di tempat."
                             android:textColor="#334155"
                             android:textSize="12sp" />
                     </LinearLayout>

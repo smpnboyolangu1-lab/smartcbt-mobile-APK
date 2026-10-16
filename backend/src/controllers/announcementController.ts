@@ -55,11 +55,23 @@ export const getAnnouncements = async (req: Request, res: Response) => {
             take: 50
         });
 
+        const userRole = (student?.role || '').toUpperCase();
+        const isAdminOrOperator = userRole === 'ADMIN' || userRole === 'OPERATOR';
+        const isTeacher = userRole === 'TEACHER' || userRole === 'GURU';
+
         const relevantLetters = allLetters.filter((letter: any) => {
-            // Target ALL selalu tampil untuk semua siswa
+            // Admin dan Operator dapat melihat semua surat
+            if (isAdminOrOperator) return true;
+
+            // Target ALL selalu tampil untuk semua pengguna
             if (letter.targetType === 'ALL') return true;
 
-            // Jika identitas siswa tidak diketahui (akses publik/web umum)
+            // Guru dapat melihat surat untuk ALL, GRADE, dan CLASS
+            if (isTeacher) {
+                return letter.targetType === 'ALL' || letter.targetType === 'GRADE' || letter.targetType === 'CLASS';
+            }
+
+            // Jika identitas siswa tidak diketahui (akses publik/web umum/belum login)
             if (!student) return letter.targetType === 'ALL' || letter.targetType === 'GRADE';
 
             // Filter Per Tingkat (GRADE)
@@ -74,8 +86,9 @@ export const getAnnouncements = async (req: Request, res: Response) => {
 
             // Filter Per Kelas (CLASS)
             if (letter.targetType === 'CLASS') {
-                const targetCls = String(letter.targetValue || '').trim().toUpperCase();
-                return className && (targetCls === className || targetCls === `KELAS ${className}`);
+                const targetCls = String(letter.targetValue || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+                const cleanCls = className.replace(/[^A-Z0-9]/g, '');
+                return cleanCls && (targetCls === cleanCls || targetCls === `KELAS${cleanCls}`);
             }
 
             // Filter Per Siswa (STUDENT)
@@ -94,23 +107,23 @@ export const getAnnouncements = async (req: Request, res: Response) => {
         const mappedLetters = relevantLetters.map((l: any) => {
             let catBadge = 'SURAT EDARAN RESMI';
             if (l.targetType === 'ALL') catBadge = 'SURAT EDARAN (SEMUA)';
-            else if (l.targetType === 'GRADE') catBadge = `SURAT EDARAN (TINGKAT ${l.targetValue})`;
-            else if (l.targetType === 'CLASS') catBadge = `SURAT EDARAN (KELAS ${l.targetValue})`;
+            else if (l.targetType === 'GRADE') catBadge = `SURAT EDARAN (TINGKAT ${l.targetValue || ''})`;
+            else if (l.targetType === 'CLASS') catBadge = `SURAT EDARAN (KELAS ${l.targetValue || ''})`;
             else if (l.targetType === 'STUDENT') catBadge = 'SURAT RESMI (PERSONAL)';
 
             return {
                 id: l.id,
-                title: l.title,
-                content: l.content,
+                title: l.title || 'Surat Edaran Resmi',
+                content: l.content || '',
                 category: catBadge,
                 author: l.senderName || 'Pihak Sekolah',
                 isPinned: true,
                 fileUrl: l.fileUrl || null,
-                fileSize: l.fileSize || null,
+                fileSize: l.fileSize || (l.fileUrl ? 'Dokumen PDF' : null),
                 letterNo: l.letterNo || null,
                 targetType: l.targetType,
                 targetValue: l.targetValue,
-                createdAt: l.createdAt
+                createdAt: l.createdAt ? new Date(l.createdAt).toISOString() : new Date().toISOString()
             };
         });
 
@@ -124,16 +137,25 @@ export const getAnnouncements = async (req: Request, res: Response) => {
                 take: 50
             });
 
-            const userRole = (student?.role || '').toUpperCase();
-
             broadcastItems = rawBroadcasts.filter(b => {
+                // Admin dan Operator dapat memantau seluruh siaran broadcast
+                if (isAdminOrOperator) return true;
+
+                // Guru dapat memantau seluruh broadcast sekolah, tingkat, dan siswa
+                if (isTeacher) return true;
+
                 const bLvl = (b.targetLevel || '').toUpperCase();
+                if (bLvl === 'SEKOLAH') return true;
+
+                // Jika pengguna belum terautentikasi (tampilan publik), tampilkan siaran siswa & sekolah umum
+                if (!student || !userRole) {
+                    return bLvl === 'STUDENT_ONLY' || bLvl === 'STUDENT_PARENT' || bLvl === 'SEKOLAH';
+                }
+
                 if (bLvl === 'STUDENT_ONLY') return userRole === 'STUDENT';
                 if (bLvl === 'PARENT_ONLY') return userRole === 'PARENT';
                 if (bLvl === 'STUDENT_PARENT') return userRole === 'STUDENT' || userRole === 'PARENT';
-                if (bLvl === 'SEKOLAH') return true;
                 if (bLvl === 'ROLE') {
-                    if (!userRole) return true;
                     const r = (b.targetId || '').toUpperCase();
                     if (r === 'STUDENT_PARENT') return userRole === 'STUDENT' || userRole === 'PARENT';
                     return r === userRole;
@@ -145,7 +167,9 @@ export const getAnnouncements = async (req: Request, res: Response) => {
                 }
                 if (bLvl === 'KELAS') {
                     if (!className) return true;
-                    return (b.targetId || '').toUpperCase() === className;
+                    const targetCls = (b.targetId || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+                    const cleanCls = className.replace(/[^A-Z0-9]/g, '');
+                    return targetCls === cleanCls || targetCls === `KELAS${cleanCls}`;
                 }
                 return true;
             }).map(b => {
@@ -159,32 +183,55 @@ export const getAnnouncements = async (req: Request, res: Response) => {
 
                 return {
                     id: b.id,
-                    title: b.judul,
-                    content: b.isi,
+                    title: b.judul || 'Pengumuman Broadcast',
+                    content: b.isi || '',
                     category: badge,
                     prioritas: b.prioritas,
                     targetLevel: b.targetLevel,
                     targetId: b.targetId,
-                    author: b.dibuatOlehId || 'Admin',
+                    author: b.dibuatOlehId || 'Admin Sekolah',
                     isPinned: b.prioritas === 'MENDESAK' || b.prioritas === 'PENTING',
-                    lampiranUrl: b.lampiranUrl,
+                    fileUrl: b.lampiranUrl || null,
+                    fileSize: b.lampiranUrl ? 'Lampiran Berkas' : null,
+                    lampiranUrl: b.lampiranUrl || null,
+                    letterNo: null,
+                    targetType: b.targetLevel,
+                    targetValue: b.targetId,
                     stats: {
                         totalReceipts: b.receipts.length,
                         readCount,
                         yesCount,
                         noCount
                     },
-                    createdAt: b.createdAt
+                    createdAt: b.createdAt ? new Date(b.createdAt).toISOString() : new Date().toISOString()
                 };
             });
         } catch (bErr) {
             console.warn('[Announcements] Broadcast fetch error:', bErr);
         }
 
-        const combined = [...broadcastItems, ...mappedLetters, ...rawAnnouncements].sort((a: any, b: any) => {
+        // Format raw announcements (Pengumuman Umum)
+        const mappedRawAnnouncements = rawAnnouncements.map((a: any) => ({
+            id: a.id,
+            title: a.title || 'Pengumuman',
+            content: a.content || '',
+            category: a.category || 'UMUM',
+            author: a.author || 'Admin Sekolah',
+            isPinned: !!a.isPinned,
+            fileUrl: null,
+            fileSize: null,
+            letterNo: null,
+            targetType: 'ALL',
+            targetValue: null,
+            createdAt: a.createdAt ? new Date(a.createdAt).toISOString() : new Date().toISOString()
+        }));
+
+        const combined = [...broadcastItems, ...mappedLetters, ...mappedRawAnnouncements].sort((a: any, b: any) => {
             // Urutkan prioritas MENDESAK paling atas
             if (a.prioritas === 'MENDESAK' && b.prioritas !== 'MENDESAK') return -1;
             if (b.prioritas === 'MENDESAK' && a.prioritas !== 'MENDESAK') return 1;
+            if (a.isPinned && !b.isPinned) return -1;
+            if (!a.isPinned && b.isPinned) return 1;
             return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
         });
 

@@ -118,6 +118,49 @@ export const createBroadcastAnnouncement = async (req: Request, res: Response) =
             console.warn('[AuditLog] Notice:', auditErr);
         }
 
+        // Distribusikan NotificationMessage agar APK siswa/orangtua langsung menerima popup & notifikasi
+        try {
+            const shortContent = isi.length > 140 ? isi.substring(0, 137) + '...' : isi;
+            const notifTitle = `📢 ${prioritas === 'MENDESAK' ? '🚨 [MENDESAK] ' : (prioritas === 'PENTING' ? '⚠️ [PENTING] ' : '')}${judul}`;
+            const tLvl = String(targetLevel || 'SEKOLAH').toUpperCase();
+
+            // Notifikasi Siswa
+            if (tLvl === 'SEKOLAH' || tLvl === 'STUDENT_ONLY' || tLvl === 'STUDENT_PARENT' || (tLvl === 'ROLE' && (targetId === 'STUDENT' || targetId === 'STUDENT_PARENT'))) {
+                await (prisma as any).notificationMessage.create({
+                    data: {
+                        recipientRole: 'STUDENT',
+                        title: notifTitle,
+                        message: shortContent,
+                        category: 'ANNOUNCEMENT'
+                    }
+                });
+            } else if (tLvl === 'KELAS' && targetId) {
+                await (prisma as any).notificationMessage.create({
+                    data: {
+                        recipientRole: 'STUDENT',
+                        className: String(targetId).trim(),
+                        title: notifTitle,
+                        message: shortContent,
+                        category: 'ANNOUNCEMENT'
+                    }
+                });
+            }
+
+            // Notifikasi Orang Tua
+            if (tLvl === 'SEKOLAH' || tLvl === 'PARENT_ONLY' || tLvl === 'STUDENT_PARENT' || (tLvl === 'ROLE' && (targetId === 'PARENT' || targetId === 'STUDENT_PARENT'))) {
+                await (prisma as any).notificationMessage.create({
+                    data: {
+                        recipientRole: 'PARENT',
+                        title: notifTitle,
+                        message: shortContent,
+                        category: 'ANNOUNCEMENT'
+                    }
+                });
+            }
+        } catch (notifErr) {
+            console.warn('[Broadcast] Notif creation notice:', notifErr);
+        }
+
         return res.json({
             success: true,
             message: 'Pengumuman broadcast berhasil disiarkan',

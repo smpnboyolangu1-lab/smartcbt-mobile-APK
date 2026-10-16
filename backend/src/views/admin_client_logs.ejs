@@ -280,6 +280,16 @@
             }
         }
 
+        function escapeHtml(str) {
+            if (str == null) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
         function renderTable(logs) {
             const tbody = document.getElementById('logsTableBody');
             if (logs.length === 0) {
@@ -312,35 +322,36 @@
 
                 const deviceStr = [l.deviceModel, l.androidVersion].filter(Boolean).join(' • ') || 'Perangkat Anonim';
                 const userStr = l.username ? `${l.username} (${l.role || 'User'})` : (l.role || 'Anonim');
+                const safeId = encodeURIComponent(String(l.id || ''));
 
                 return `
                     <tr class="hover:bg-slate-50/70 transition-colors">
                         <td class="py-3.5 px-4 font-mono text-xs text-slate-500 whitespace-nowrap">${dateStr} WIB</td>
                         <td class="py-3.5 px-3 whitespace-nowrap">${levelBadge}</td>
                         <td class="py-3.5 px-4">
-                            <div class="font-semibold text-slate-800">${userStr}</div>
-                            <div class="text-xs text-slate-400">${l.activityName || 'Global Context'}</div>
+                            <div class="font-semibold text-slate-800">${escapeHtml(userStr)}</div>
+                            <div class="text-xs text-slate-400">${escapeHtml(l.activityName || 'Global Context')}</div>
                         </td>
                         <td class="py-3.5 px-4">
-                            <div class="font-medium text-slate-700">${deviceStr}</div>
-                            <div class="text-xs text-slate-400">v${l.appVersion || 'Unknown'} • ${l.networkType || 'Unknown Net'}</div>
+                            <div class="font-medium text-slate-700">${escapeHtml(deviceStr)}</div>
+                            <div class="text-xs text-slate-400">v${escapeHtml(l.appVersion || 'Unknown')} • ${escapeHtml(l.networkType || 'Unknown Net')}</div>
                         </td>
                         <td class="py-3.5 px-4 max-w-xs">
-                            <span class="text-xs font-bold text-slate-500 block mb-0.5">[${l.tag || 'General'}]</span>
-                            <p class="text-xs text-slate-800 line-clamp-2 break-all font-mono" title="${l.errorMessage}">${l.errorMessage}</p>
+                            <span class="text-xs font-bold text-slate-500 block mb-0.5">[${escapeHtml(l.tag || 'General')}]</span>
+                            <p class="text-xs text-slate-800 line-clamp-2 break-all font-mono" title="${escapeHtml(l.errorMessage)}">${escapeHtml(l.errorMessage)}</p>
                         </td>
                         <td class="py-3.5 px-3 text-center whitespace-nowrap">${statusBadge}</td>
                         <td class="py-3.5 px-4 text-center whitespace-nowrap">
                             <div class="flex items-center justify-center gap-1.5">
-                                <button onclick="openDetailModal('${l.id}')" class="px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 font-semibold text-xs transition-colors" title="Lihat Stack Trace">
+                                <button onclick="openDetailModal('${safeId}')" class="px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 font-semibold text-xs transition-colors" title="Lihat Stack Trace">
                                     🔍 Detail
                                 </button>
                                 ${!l.resolved ? `
-                                    <button onclick="toggleResolve('${l.id}', true)" class="px-2.5 py-1.5 rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-100 font-semibold text-xs transition-colors" title="Tandai Selesai">
+                                    <button onclick="toggleResolve('${safeId}', true)" class="px-2.5 py-1.5 rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-100 font-semibold text-xs transition-colors" title="Tandai Selesai">
                                         ✅ Selesai
                                     </button>
                                 ` : `
-                                    <button onclick="deleteLog('${l.id}')" class="px-2 py-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 text-xs transition-colors" title="Hapus Log">
+                                    <button onclick="deleteLog('${safeId}')" class="px-2 py-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 text-xs transition-colors" title="Hapus Log">
                                         🗑️
                                     </button>
                                 `}

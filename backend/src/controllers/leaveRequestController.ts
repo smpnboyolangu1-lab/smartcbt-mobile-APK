@@ -939,3 +939,67 @@ export const deleteLeaveRequest = async (req: Request, res: Response) => {
         res.status(500).json({ message: 'Gagal menghapus histori surat izin' });
     }
 };
+
+// [T-05] 6. Revoke Status Izin / Sakit Beralasan (BK / Admin)
+// Membatalkan status APPROVED menjadi REVOKED dan membersihkan attendance placeholder agar siswa tidak tertahan
+export const revokeStudentLeaveRequest = async (req: Request, res: Response) => {
+    try {
+        const id = req.params.id as string;
+        const user = (req as any).user;
+        const { reason } = req.body;
+
+        if (!reason || !String(reason).trim()) {
+            return res.status(400).json({
+                success: false,
+                message: 'Alasan pencabutan status izin/sakit wajib diisi (misal: Siswa hadir fisik / salah input).'
+            });
+        }
+
+        const leaveReq = await (prisma as any).studentLeaveRequest.findUnique({
+            where: { id }
+        });
+
+        if (!leaveReq) {
+            return res.status(404).json({ success: false, message: 'Data izin/sakit tidak ditemukan.' });
+        }
+
+        const start = new Date(leaveReq.startDate);
+        start.setHours(0, 0, 0, 0);
+        const end = new Date(leaveReq.endDate || leaveReq.startDate);
+        end.setHours(23, 59, 59, 999);
+
+        const updated = await (prisma as any).studentLeaveRequest.update({
+            where: { id },
+            data: {
+                status: 'REVOKED',
+                rejectionNote: `Dicabut oleh ${user?.name || 'BK'}: ${String(reason).trim()}`,
+                verifiedBy: user?.name || 'Guru BK',
+                verifiedAt: new Date()
+            }
+        });
+
+        // Hapus presensi SICK/PERMISSION yang otomatis terbuat untuk rentang tanggal tersebut
+        await prisma.attendance.deleteMany({
+            where: {
+                studentId: leaveReq.studentId,
+                status: { in: ['SICK', 'SAKIT', 'PERMISSION', 'IZIN'] },
+                scanTime: { gte: start, lte: end }
+            }
+        }).catch(() => null);
+
+        await logAudit(req, 'REVOKE_LEAVE_REQUEST', `Izin ${id} (${leaveReq.studentName}) dicabut oleh ${user?.name}`, {
+            requestId: id,
+            reason: String(reason).trim(),
+            revokedBy: user?.name
+        });
+
+        res.json({
+            success: true,
+            message: `✅ Izin ${leaveReq.studentName} berhasil dicabut. Siswa kini dapat melakukan presensi scan secara normal.`,
+            leave: updated
+        });
+    } catch (error: any) {
+        console.error('Error in revokeStudentLeaveRequest:', error);
+        res.status(500).json({ success: false, message: 'Gagal mencabut status izin: ' + error.message });
+    }
+};

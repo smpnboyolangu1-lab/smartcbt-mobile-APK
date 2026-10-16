@@ -755,6 +755,15 @@ export const quickCirculation = async (req: Request, res: Response) => {
                 });
             }
 
+            // 1. Validasi Kategori: Buku Referensi Hanya Baca di Tempat
+            const bookCat = (copy.book?.category || '').toUpperCase();
+            if (bookCat === 'REFERENSI' || bookCat === 'KAMUS' || bookCat === 'ENSIKLOPEDIA') {
+                return res.status(400).json({
+                    success: false,
+                    message: `Buku kategori "${copy.book?.category}" hanya dapat dibaca di tempat (ruang perpustakaan) dan tidak dapat dipinjam bawa pulang.`
+                });
+            }
+
             const cleanQuery = String(studentQuery).replace(/^STUDENT_MEMBER:/, '').split(':')[0].trim();
             const student = await prisma.user.findFirst({
                 where: {
@@ -775,10 +784,29 @@ export const quickCirculation = async (req: Request, res: Response) => {
                 });
             }
 
+            // 2. Batas Pinjam Maksimal 3 Buku Umum per Siswa
+            if (bookCat !== 'BUKU_PAKET') {
+                const activeLoansCount = await prisma.bookCopy.count({
+                    where: {
+                        currentBorrowerId: student.id,
+                        status: 'BORROWED',
+                        book: { category: { not: 'BUKU_PAKET' } }
+                    }
+                });
+                if (activeLoansCount >= 3) {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Batas peminjaman buku umum telah mencapai kuota maksimum (3 buku). Harap kembalikan buku sebelumnya terlebih dahulu.'
+                    });
+                }
+            }
+
             const now = new Date();
             const days = parseInt(durationDays) || 7;
             const due = new Date();
             due.setDate(now.getDate() + days);
+            // Standardisasi jam tutup operasional perpus 15:00 WIB (08:00 UTC)
+            due.setUTCHours(8, 0, 0, 0);
 
             const updatedCopy = await prisma.bookCopy.update({
                 where: { id: copy.id },
@@ -1001,5 +1029,413 @@ export const getAllMembers = async (req: Request, res: Response) => {
         res.status(500).json({ success: false, message: 'Gagal memuat daftar anggota perpustakaan.' });
     }
 };
+
+// =========================================================================
+// 10. PROSES AKHIR TAHUN MASAL: PENGEMBALIAN KOLEKTIF BUKU PAKET PER ROMBEL
+// =========================================================================
+export const bulkReturnByClass = async (req: Request, res: Response) => {
+    try {
+        const { className, academicYear = '2026/2027', notes } = req.body;
+        const officer = (req as any).user;
+
+        if (!className) {
+            return res.status(400).json({ success: false, message: 'Parameter className (contoh: "VII-A") wajib diisi.' });
+        }
+
+        const now = new Date();
+
+        // 1. Eksekusi pengembalian massal BookCopy & LibraryBorrowing
+        const borrowedCopies = await prisma.bookCopy.findMany({
+            where: {
+                currentBorrowerClass: className,
+                status: 'BORROWED'
+            },
+            include: { book: true }
+        });
+
+        const copyIds = borrowedCopies.map(c => c.id);
+
+        if (copyIds.length > 0) {
+            await prisma.bookCopy.updateMany({
+                where: { id: { in: copyIds } },
+                data: {
+                    status: 'AVAILABLE',
+                    currentBorrowerId: null,
+                    currentBorrowerName: null,
+                    currentBorrowerClass: null,
+                    currentBorrowerNisn: null,
+                    borrowedAt: null,
+                    dueDate: null
+                }
+            });
+
+            await prisma.libraryBorrowing.updateMany({
+                where: {
+                    bookCopyId: { in: copyIds },
+                    status: 'BORROWED'
+                },
+                data: {
+                    status: 'RETURNED',
+                    returnDate: now,
+                    notes: `Pengembalian Kolektif Akhir Tahun Rombel ${className} oleh ${officer ? officer.name : 'Pustakawan'}`
+                }
+            });
+        }
+
+        // 2. Eksekusi pengembalian massal PackageBookCopy & StudentBookAssignment jika ada
+        let packageReturnedCount = 0;
+        try {
+            const packageAssignments = await (prisma as any).studentBookAssignment.findMany({
+                where: {
+                    academicYear,
+                    status: 'APPROVED',
+                    student: { className }
+                },
+                select: { id: true, packageBookCopyId: true }
+            });
+
+            if (packageAssignments.length > 0) {
+                const pAssignIds = packageAssignments.map((a: any) => a.id);
+                const pCopyIds = packageAssignments.map((a: any) => a.packageBookCopyId).filter(Boolean);
+
+                await (prisma as any).studentBookAssignment.updateMany({
+                    where: { id: { in: pAssignIds } },
+                    data: {
+                        status: 'RETURNED',
+                        returnedAt: now,
+                        returnedToOperator: officer ? officer.name : 'Pustakawan'
+                    }
+                });
+
+                if (pCopyIds.length > 0) {
+                    await (prisma as any).packageBookCopy.updateMany({
+                        where: { id: { in: pCopyIds } },
+                        data: { status: 'TERSEDIA' }
+                    });
+                }
+                packageReturnedCount = packageAssignments.length;
+            }
+        } catch (_) {}
+
+        return res.json({
+            success: true,
+            message: `✅ Pengembalian massal akhir tahun untuk rombel ${className} berhasil diproses.`,
+            summary: {
+                className,
+                academicYear,
+                generalCopiesReturned: copyIds.length,
+                packageBooksReturned: packageReturnedCount,
+                totalBooksProcessed: copyIds.length + packageReturnedCount,
+                processedAt: now.toISOString(),
+                operator: officer ? officer.name : 'Pustakawan'
+            }
+        });
+    } catch (error: any) {
+        console.error('Error in bulkReturnByClass:', error);
+        return res.status(500).json({ success: false, message: 'Gagal memproses pengembalian massal: ' + error.message });
+    }
+};
+
+// =========================================================================
+// 11. LAPORAN SISA BUKU BELUM KEMBALI (TERMASUK SISWA LULUS / ALUMNI)
+// =========================================================================
+export const getUnreturnedClassReport = async (req: Request, res: Response) => {
+    try {
+        const { className, academicYear = '2026/2027' } = req.query;
+
+        // Ambil data peminjaman aktif umum
+        const copyWhere: any = { status: 'BORROWED' };
+        if (className && className !== 'ALL') {
+            copyWhere.currentBorrowerClass = String(className);
+        }
+
+        const unreturnedCopies = await prisma.bookCopy.findMany({
+            where: copyWhere,
+            include: {
+                book: {
+                    select: { id: true, title: true, author: true, category: true, subject: true }
+                }
+            },
+            orderBy: [{ currentBorrowerClass: 'asc' }, { currentBorrowerName: 'asc' }]
+        });
+
+        // Ambil data buku paket belum kembali
+        let unreturnedPackages: any[] = [];
+        try {
+            const pWhere: any = {
+                status: 'APPROVED',
+                academicYear: String(academicYear)
+            };
+            if (className && className !== 'ALL') {
+                pWhere.student = { className: String(className) };
+            }
+
+            unreturnedPackages = await (prisma as any).studentBookAssignment.findMany({
+                where: pWhere,
+                include: {
+                    student: {
+                        select: { id: true, name: true, username: true, nisn: true, className: true, parentPhone: true, role: true }
+                    },
+                    packageBook: {
+                        select: { id: true, judul: true, mataPelajaran: true, tingkatKelas: true }
+                    },
+                    packageBookCopy: {
+                        select: { id: true, barcodeCode: true, kondisi: true }
+                    }
+                },
+                orderBy: { student: { name: 'asc' } }
+            });
+        } catch (_) {}
+
+        // Susun grup per siswa
+        const studentMap: Record<string, any> = {};
+
+        // 1. Masukkan unreturnedCopies
+        unreturnedCopies.forEach(c => {
+            const sid = c.currentBorrowerId || c.currentBorrowerNisn || 'UNKNOWN';
+            if (!studentMap[sid]) {
+                studentMap[sid] = {
+                    studentId: c.currentBorrowerId,
+                    studentName: c.currentBorrowerName || '-',
+                    className: c.currentBorrowerClass || '-',
+                    nisn: c.currentBorrowerNisn || '-',
+                    isAlumniOrInactive: c.currentBorrowerClass === 'ALUMNI' || c.currentBorrowerClass === 'LULUS',
+                    books: []
+                };
+            }
+            studentMap[sid].books.push({
+                type: 'BUKU_UMUM',
+                title: c.book.title,
+                barcode: c.barcodeCode,
+                borrowedAt: c.borrowedAt ? c.borrowedAt.toISOString().split('T')[0] : '-',
+                dueDate: c.dueDate ? c.dueDate.toISOString().split('T')[0] : '-',
+                isOverdue: c.dueDate ? new Date() > c.dueDate : false
+            });
+        });
+
+        // 2. Masukkan unreturnedPackages
+        unreturnedPackages.forEach(p => {
+            const sid = p.studentId;
+            if (!studentMap[sid]) {
+                studentMap[sid] = {
+                    studentId: p.student.id,
+                    studentName: p.student.name,
+                    className: p.student.className || '-',
+                    nisn: p.student.nisn || p.student.username,
+                    parentPhone: p.student.parentPhone,
+                    isAlumniOrInactive: p.student.role === 'ALUMNI' || p.student.className === 'ALUMNI',
+                    books: []
+                };
+            }
+            studentMap[sid].books.push({
+                type: 'BUKU_PAKET',
+                title: p.packageBook.judul,
+                barcode: p.packageBookCopy?.barcodeCode || p.barcodeScanned || '-',
+                borrowedAt: p.claimedAt ? p.claimedAt.toISOString().split('T')[0] : '-',
+                dueDate: 'Akhir Tahun Ajaran',
+                isOverdue: false
+            });
+        });
+
+        const studentsList = Object.values(studentMap);
+        const totalPendingBooks = unreturnedCopies.length + unreturnedPackages.length;
+
+        return res.json({
+            success: true,
+            summary: {
+                targetClass: className || 'ALL',
+                academicYear,
+                totalStudentsWithObligations: studentsList.length,
+                totalUnreturnedBooks: totalPendingBooks,
+                unreturnedCopiesCount: unreturnedCopies.length,
+                unreturnedPackagesCount: unreturnedPackages.length,
+                notice: 'Sistem bebas biaya denda finansial. Seluruh penagihan berfokus pada pengembalian fisik buku aset sekolah.'
+            },
+            data: studentsList
+        });
+    } catch (error: any) {
+        console.error('Error in getUnreturnedClassReport:', error);
+        return res.status(500).json({ success: false, message: 'Gagal membuat laporan sisa buku: ' + error.message });
+    }
+};
+
+// =========================================================================
+// 12. ALUR PEMBALIKAN STATUS: BUKU HILANG DITEMUKAN KEMBALI (LOST-TO-FOUND)
+// =========================================================================
+export const revertLostBookStatus = async (req: Request, res: Response) => {
+    try {
+        const { barcodeCode, condition = 'BAIK', note = 'Buku ditemukan kembali' } = req.body;
+        const officer = (req as any).user;
+
+        if (!barcodeCode) {
+            return res.status(400).json({ success: false, message: 'Barcode buku yang ditemukan wajib diisi.' });
+        }
+
+        const cleanBarcode = String(barcodeCode).trim().toUpperCase();
+
+        // 1. Cari di BookCopy
+        const copy = await prisma.bookCopy.findUnique({
+            where: { barcodeCode: cleanBarcode },
+            include: { book: true }
+        });
+
+        if (copy) {
+            const previousStatus = copy.status;
+            const updatedCopy = await prisma.bookCopy.update({
+                where: { id: copy.id },
+                data: {
+                    status: 'AVAILABLE',
+                    condition,
+                    currentBorrowerId: null,
+                    currentBorrowerName: null,
+                    currentBorrowerClass: null,
+                    currentBorrowerNisn: null,
+                    borrowedAt: null,
+                    dueDate: null
+                },
+                include: { book: true }
+            });
+
+            // Selesaikan transaksi peminjaman terkait tanpa denda
+            await prisma.libraryBorrowing.updateMany({
+                where: { bookCopyId: copy.id, status: { in: ['BORROWED', 'LOST', 'HILANG'] } },
+                data: {
+                    status: 'RETURNED',
+                    returnDate: new Date(),
+                    notes: `Buku ditemukan kembali (${note}) oleh ${officer ? officer.name : 'Pustakawan'}. Bebas biaya denda.`
+                }
+            });
+
+            return res.json({
+                success: true,
+                message: `✅ Buku "${copy.book.title}" (Barcode: ${cleanBarcode}) berhasil dipulihkan dari status [${previousStatus}] menjadi [TERSEDIA].`,
+                copy: updatedCopy
+            });
+        }
+
+        // 2. Cari di PackageBookCopy
+        try {
+            const pCopy = await (prisma as any).packageBookCopy.findUnique({
+                where: { barcodeCode: cleanBarcode },
+                include: { packageBook: true }
+            });
+
+            if (pCopy) {
+                const prev = pCopy.status;
+                await (prisma as any).packageBookCopy.update({
+                    where: { id: pCopy.id },
+                    data: {
+                        status: 'TERSEDIA',
+                        kondisi: condition
+                    }
+                });
+
+                await (prisma as any).studentBookAssignment.updateMany({
+                    where: { packageBookCopyId: pCopy.id, status: 'APPROVED' },
+                    data: {
+                        status: 'RETURNED',
+                        returnedAt: new Date(),
+                        returnedToOperator: officer ? officer.name : 'Pustakawan'
+                    }
+                });
+
+                return res.json({
+                    success: true,
+                    message: `✅ Buku Paket "${pCopy.packageBook.judul}" (Barcode: ${cleanBarcode}) berhasil dipulihkan dari status [${prev}] menjadi [TERSEDIA].`
+                });
+            }
+        } catch (_) {}
+
+        return res.status(404).json({
+            success: false,
+            message: `Buku dengan barcode "${cleanBarcode}" tidak ditemukan dalam master eksemplar.`
+        });
+    } catch (error: any) {
+        console.error('Error in revertLostBookStatus:', error);
+        return res.status(500).json({ success: false, message: 'Gagal memulihkan status buku: ' + error.message });
+    }
+};
+
+/**
+ * Stream berkas E-Book PDF dengan proteksi autentikasi & HTTP Range Streaming
+ * Mencegah kebocoran URL file fisik langsung & mendukung pembacaan halaman demi halaman tanpa buffering penuh
+ */
+export const streamEbookPdf = async (req: Request, res: Response) => {
+    try {
+        const bookId = String(req.params.bookId || '');
+        if (!bookId) {
+            return res.status(400).json({ success: false, message: 'ID Buku diperlukan.' });
+        }
+
+        const book = await prisma.libraryBook.findUnique({
+            where: { id: bookId },
+            select: { id: true, title: true, ebookUrl: true }
+        });
+
+        if (!book || !book.ebookUrl) {
+            return res.status(404).json({ success: false, message: 'E-Book tidak ditemukan untuk judul buku ini.' });
+        }
+
+        // Resolusi jalur file fisik di server
+        let relativePath = book.ebookUrl;
+        if (relativePath.startsWith('/')) {
+            relativePath = relativePath.substring(1);
+        }
+        
+        let filePath = path.resolve(process.cwd(), relativePath);
+
+        // Fallback jika path tersimpan hanya nama file
+        if (!fs.existsSync(filePath)) {
+            const fallbackPath = path.resolve(process.cwd(), 'uploads/ebooks', path.basename(book.ebookUrl));
+            if (fs.existsSync(fallbackPath)) {
+                filePath = fallbackPath;
+            } else {
+                return res.status(404).json({ success: false, message: 'Berkas PDF fisik e-book tidak ditemukan di server.' });
+            }
+        }
+
+        const stat = fs.statSync(filePath);
+        const fileSize = stat.size;
+        const range = req.headers.range;
+
+        const safeFilename = encodeURIComponent(book.title.replace(/[^a-zA-Z0-9_\-]/g, '_')) + '.pdf';
+
+        if (range) {
+            const parts = range.replace(/bytes=/, '').split('-');
+            const start = parseInt(parts[0], 10);
+            const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+
+            if (start >= fileSize || end >= fileSize) {
+                res.status(416).set('Content-Range', `bytes */${fileSize}`);
+                return res.end();
+            }
+
+            const chunksize = (end - start) + 1;
+            const file = fs.createReadStream(filePath, { start, end });
+            const head = {
+                'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+                'Accept-Ranges': 'bytes',
+                'Content-Length': chunksize,
+                'Content-Type': 'application/pdf',
+                'Content-Disposition': `inline; filename="${safeFilename}"`
+            };
+            res.writeHead(206, head);
+            file.pipe(res);
+        } else {
+            const head = {
+                'Content-Length': fileSize,
+                'Content-Type': 'application/pdf',
+                'Accept-Ranges': 'bytes',
+                'Content-Disposition': `inline; filename="${safeFilename}"`
+            };
+            res.writeHead(200, head);
+            fs.createReadStream(filePath).pipe(res);
+        }
+    } catch (err: any) {
+        console.error('Error in streamEbookPdf:', err);
+        return res.status(500).json({ success: false, message: 'Gagal melakukan streaming E-Book: ' + err.message });
+    }
+};
+
 
 

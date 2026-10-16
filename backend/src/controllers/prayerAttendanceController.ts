@@ -97,131 +97,49 @@ export const getAllPrayerSchedules = async (req: Request, res: Response) => {
 
         const dayNames = ['MINGGU', 'SENIN', 'SELASA', 'RABU', 'KAMIS', 'JUMAT', 'SABTU'];
         const fullWeekSchedules: any[] = [];
+        const defaultSchedulesMap: Record<number, any[]> = {
+            1: [
+                { id: 'default-1-dhuhur', dayOfWeek: 1, dayName: 'SENIN', prayerType: 'DHUHUR', classNames: 'VII-F,VII-G,VIII-A,IX-A,IX-B', barcodeKey: 'BARCODE_SHOLAT_DHUHUR_MASJID', wudhuTime: '11:45', scanStartTime: '12:00', scanEndTime: '12:30', notes: 'Jadwal Sholat Dhuhur Berjamaah di Masjid Sekolah', isActive: true }
+            ],
+            2: [
+                { id: 'default-2-dhuhur', dayOfWeek: 2, dayName: 'SELASA', prayerType: 'DHUHUR', classNames: 'VII-B,VII-C,VIII-B,VIII-C,IX-C,IX-D', barcodeKey: 'BARCODE_SHOLAT_DHUHUR_MASJID', wudhuTime: '11:45', scanStartTime: '12:00', scanEndTime: '12:30', notes: 'Jadwal Sholat Dhuhur Berjamaah di Masjid Sekolah', isActive: true }
+            ],
+            3: [
+                { id: 'default-3-dhuhur', dayOfWeek: 3, dayName: 'RABU', prayerType: 'DHUHUR', classNames: 'VII-D,VII-E,VII-H,IX-E,IX-H', barcodeKey: 'BARCODE_SHOLAT_DHUHUR_MASJID', wudhuTime: '11:45', scanStartTime: '12:00', scanEndTime: '12:30', notes: 'Jadwal Sholat Dhuhur Berjamaah di Masjid Sekolah', isActive: true }
+            ],
+            4: [
+                { id: 'default-4-dhuhur', dayOfWeek: 4, dayName: 'KAMIS', prayerType: 'DHUHUR', classNames: 'VII-A,VIII-F,VIII-G,IX-I', barcodeKey: 'BARCODE_SHOLAT_DHUHUR_MASJID', wudhuTime: '11:45', scanStartTime: '12:00', scanEndTime: '12:30', notes: 'Jadwal Sholat Dhuhur Berjamaah di Masjid Sekolah', isActive: true }
+            ],
+            5: [
+                { id: 'default-5-dhuha', dayOfWeek: 5, dayName: 'JUMAT', prayerType: 'DHUHA', classNames: 'VII-I,VIII-H,VIII-I,IX-F,IX-J', barcodeKey: 'BARCODE_SHOLAT_DHUHA_MASJID', wudhuTime: '06:45', scanStartTime: '07:00', scanEndTime: '07:45', notes: 'Jadwal Sholat Dhuha Berjamaah di Masjid Sekolah', isActive: true },
+                { id: 'default-5-jumat', dayOfWeek: 5, dayName: 'JUMAT', prayerType: 'JUMAT', classNames: 'ALL_MALE', barcodeKey: 'BARCODE_SHOLAT_JUMAT_MASJID', wudhuTime: '11:30', scanStartTime: '11:45', scanEndTime: '12:45', notes: 'Jadwal Sholat Jumat Berjamaah di Masjid Sekolah', isActive: true }
+            ],
+            6: [
+                { id: 'default-6-dhuha', dayOfWeek: 6, dayName: 'SABTU', prayerType: 'DHUHA', classNames: 'IX-K', barcodeKey: 'BARCODE_SHOLAT_DHUHA_MASJID', wudhuTime: '06:45', scanStartTime: '07:00', scanEndTime: '07:45', notes: 'Jadwal Sholat Dhuha Berjamaah di Masjid Sekolah', isActive: true },
+                { id: 'default-6-dhuhur', dayOfWeek: 6, dayName: 'SABTU', prayerType: 'DHUHUR', classNames: 'VII-J,VII-K,VIII-J,VIII-K,IX-G', barcodeKey: 'BARCODE_SHOLAT_DHUHUR_MASJID', wudhuTime: '11:45', scanStartTime: '12:00', scanEndTime: '12:30', notes: 'Jadwal Sholat Dhuhur Berjamaah di Masjid Sekolah', isActive: true }
+            ]
+        };
 
         for (let d = 1; d <= 6; d++) {
             const daySchedules = schedules.filter((s: any) => s.dayOfWeek === d);
-            if (daySchedules.length > 0) {
-                daySchedules.forEach((s: any) => {
-                    fullWeekSchedules.push({
-                        ...s,
-                        wudhuTime: s.wudhuTime || (s.prayerType === 'DHUHA' ? '06:45' : '11:45'),
-                        scanStartTime: s.scanStartTime || (s.prayerType === 'DHUHA' ? '07:00' : '12:00'),
-                        scanEndTime: s.scanEndTime || (s.prayerType === 'DHUHA' ? '07:45' : '12:30')
-                    });
+            const defaults = defaultSchedulesMap[d] || [];
+            const handledTypes = new Set<string>();
+
+            daySchedules.forEach((s: any) => {
+                handledTypes.add(s.prayerType);
+                fullWeekSchedules.push({
+                    ...s,
+                    wudhuTime: s.wudhuTime || (s.prayerType === 'DHUHA' ? '06:45' : '11:45'),
+                    scanStartTime: s.scanStartTime || (s.prayerType === 'DHUHA' ? '07:00' : '12:00'),
+                    scanEndTime: s.scanEndTime || (s.prayerType === 'DHUHA' ? '07:45' : '12:30')
                 });
-            } else {
-                if (d === 1) {
-                    fullWeekSchedules.push({
-                        id: `default-${d}-dhuhur`,
-                        dayOfWeek: d,
-                        dayName: dayNames[d],
-                        prayerType: 'DHUHUR',
-                        classNames: 'VII-F,VII-G,VIII-A,IX-A,IX-B',
-                        barcodeKey: 'BARCODE_SHOLAT_DHUHUR_MASJID',
-                        wudhuTime: '11:45',
-                        scanStartTime: '12:00',
-                        scanEndTime: '12:30',
-                        notes: 'Jadwal Sholat Dhuhur Berjamaah di Masjid Sekolah',
-                        isActive: true
-                    });
-                } else if (d === 2) {
-                    fullWeekSchedules.push({
-                        id: `default-${d}-dhuhur`,
-                        dayOfWeek: d,
-                        dayName: dayNames[d],
-                        prayerType: 'DHUHUR',
-                        classNames: 'VII-B,VII-C,VIII-B,VIII-C,IX-C,IX-D',
-                        barcodeKey: 'BARCODE_SHOLAT_DHUHUR_MASJID',
-                        wudhuTime: '11:45',
-                        scanStartTime: '12:00',
-                        scanEndTime: '12:30',
-                        notes: 'Jadwal Sholat Dhuhur Berjamaah di Masjid Sekolah',
-                        isActive: true
-                    });
-                } else if (d === 3) {
-                    fullWeekSchedules.push({
-                        id: `default-${d}-dhuhur`,
-                        dayOfWeek: d,
-                        dayName: dayNames[d],
-                        prayerType: 'DHUHUR',
-                        classNames: 'VII-D,VII-E,VII-H,IX-E,IX-H',
-                        barcodeKey: 'BARCODE_SHOLAT_DHUHUR_MASJID',
-                        wudhuTime: '11:45',
-                        scanStartTime: '12:00',
-                        scanEndTime: '12:30',
-                        notes: 'Jadwal Sholat Dhuhur Berjamaah di Masjid Sekolah',
-                        isActive: true
-                    });
-                } else if (d === 4) {
-                    fullWeekSchedules.push({
-                        id: `default-${d}-dhuhur`,
-                        dayOfWeek: d,
-                        dayName: dayNames[d],
-                        prayerType: 'DHUHUR',
-                        classNames: 'VII-A,VIII-F,VIII-G,IX-I',
-                        barcodeKey: 'BARCODE_SHOLAT_DHUHUR_MASJID',
-                        wudhuTime: '11:45',
-                        scanStartTime: '12:00',
-                        scanEndTime: '12:30',
-                        notes: 'Jadwal Sholat Dhuhur Berjamaah di Masjid Sekolah',
-                        isActive: true
-                    });
-                } else if (d === 5) {
-                    fullWeekSchedules.push({
-                        id: `default-${d}-dhuha`,
-                        dayOfWeek: d,
-                        dayName: dayNames[d],
-                        prayerType: 'DHUHA',
-                        classNames: 'VII-I,VIII-H,VIII-I,IX-F,IX-J',
-                        barcodeKey: 'BARCODE_SHOLAT_DHUHA_MASJID',
-                        wudhuTime: '06:45',
-                        scanStartTime: '07:00',
-                        scanEndTime: '07:45',
-                        notes: 'Jadwal Sholat Dhuha Berjamaah di Masjid Sekolah',
-                        isActive: true
-                    });
-                    fullWeekSchedules.push({
-                        id: `default-${d}-jumat`,
-                        dayOfWeek: d,
-                        dayName: dayNames[d],
-                        prayerType: 'JUMAT',
-                        classNames: 'ALL_MALE',
-                        barcodeKey: 'BARCODE_SHOLAT_JUMAT_MASJID',
-                        wudhuTime: '11:30',
-                        scanStartTime: '11:45',
-                        scanEndTime: '12:45',
-                        notes: 'Jadwal Sholat Jumat Berjamaah di Masjid Sekolah',
-                        isActive: true
-                    });
-                } else if (d === 6) {
-                    fullWeekSchedules.push({
-                        id: `default-${d}-dhuha`,
-                        dayOfWeek: d,
-                        dayName: dayNames[d],
-                        prayerType: 'DHUHA',
-                        classNames: 'IX-K',
-                        barcodeKey: 'BARCODE_SHOLAT_DHUHA_MASJID',
-                        wudhuTime: '06:45',
-                        scanStartTime: '07:00',
-                        scanEndTime: '07:45',
-                        notes: 'Jadwal Sholat Dhuha Berjamaah di Masjid Sekolah',
-                        isActive: true
-                    });
-                    fullWeekSchedules.push({
-                        id: `default-${d}-dhuhur`,
-                        dayOfWeek: d,
-                        dayName: dayNames[d],
-                        prayerType: 'DHUHUR',
-                        classNames: 'VII-J,VII-K,VIII-J,VIII-K,IX-G',
-                        barcodeKey: 'BARCODE_SHOLAT_DHUHUR_MASJID',
-                        wudhuTime: '11:45',
-                        scanStartTime: '12:00',
-                        scanEndTime: '12:30',
-                        notes: 'Jadwal Sholat Dhuhur Berjamaah di Masjid Sekolah',
-                        isActive: true
-                    });
+            });
+
+            defaults.forEach((def: any) => {
+                if (!handledTypes.has(def.prayerType)) {
+                    fullWeekSchedules.push(def);
                 }
-            }
+            });
         }
 
         res.json({
@@ -1744,7 +1662,6 @@ export const paiScanStudentCard = async (req: Request, res: Response) => {
                 OR: [
                     { nisn: cleanCode },
                     { nis: cleanCode },
-                    { rfidChipUid: cleanCode },
                     { username: cleanCode },
                     { id: cleanCode }
                 ]

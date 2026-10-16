@@ -11,7 +11,7 @@ data class PendingAttendanceEntity(
     val studentIdentifier: String,
     val barcodeCode: String,
     val scanType: String = "GATE_IN", // GATE_IN atau GATE_OUT
-    val method: String = "GPS",        // GPS, QR_STATIC, RFID
+    val method: String = "GPS",        // GPS, DYNAMIC_QR, QR_STATIC
     val lat: Double? = null,
     val lng: Double? = null,
     val accuracy: Float? = null,

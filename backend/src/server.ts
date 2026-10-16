@@ -37,6 +37,7 @@ function safeNumber(val: any): number | null {
   try { return Number(val); } catch { return null; }
 }
 
+app.set("trust proxy", 1);
 app.use(cors());
 app.use(express.json({ limit: "150mb" }));
 app.use(express.urlencoded({ limit: "150mb", extended: true }));
@@ -121,9 +122,13 @@ import {
 } from "./middlewares/authMiddleware";
 
 import { checkVersionV1 } from "./controllers/appUpdateController";
+import { enforceMinimumAppVersion } from "./middlewares/versionEnforcementMiddleware";
 
 // --- Activity & Anomaly Logger Middleware ---
 app.use(activityLogger);
+
+// --- Version Enforcement Middleware for Mobile Clients ---
+app.use(enforceMinimumAppVersion);
 
 // --- API Routes ---
 import canteenTopupRoutes from "./routes/canteenTopupRoutes";
@@ -458,7 +463,15 @@ app.get(['/admin/absensi', '/operator/absensi', '/bk/absensi'], authenticateWebB
   const isBk = req.path.startsWith('/bk') || ['COUNSELOR', 'BK', 'GURU_BK'].includes((req as any).user?.role);
   res.render('rekap_absensi', { isOperator, isBk });
 });
-app.get(['/absensi/tap-kartu', '/admin/tap-kartu', '/operator/tap-kartu'], authenticateWebSatpam, (req, res) => res.render('kiosk_tap_kartu'));
+// Decommission Kiosk Tap RFID (Hapus Total RFID sesuai instruksi audit dan sekolah)
+app.get(['/absensi/tap-kartu', '/admin/tap-kartu', '/operator/tap-kartu'], (req, res) => {
+  res.status(410).send(`<!DOCTYPE html><html lang="id"><head><meta charset="UTF-8"><title>Layanan Dinonaktifkan</title><script src="/js/tailwind.js"></script></head><body class="bg-slate-900 text-white min-h-screen flex items-center justify-center p-6 text-center"><div class="max-w-md bg-slate-800 p-8 rounded-2xl border border-amber-500/30 shadow-2xl"><div class="text-5xl mb-4">💳❌</div><h1 class="text-xl font-bold text-amber-400 mb-2">Layanan Kiosk RFID Dinonaktifkan Total</h1><p class="text-slate-300 text-sm leading-relaxed mb-6">Sesuai keputusan audit sistem dan instruksi sekolah, fasilitas tap kartu RFID telah dihapus total dari ekosistem portal &amp; APK. Seluruh pencatatan kehadiran menggunakan QR Code Dinamis Pengurus Kelas dan Presensi Mandiri GPS pada Aplikasi Resmi SmartSchool.</p><a href="/admin" class="inline-block bg-slate-700 hover:bg-slate-600 text-white font-bold py-2.5 px-6 rounded-xl text-sm transition-all shadow-lg">Kembali ke Dashboard Utama</a></div></body></html>`);
+});
+
+// A-01: Proteksi Ruang CBT Web - Blokir browser umum agar tidak dapat melewati Kiosk Lockdown APK
+app.get(['/cbt/room', '/cbt/room/:roomId', '/cbt/student', '/cbt/ujian'], (req, res) => {
+  res.status(403).send(`<!DOCTYPE html><html lang="id"><head><meta charset="UTF-8"><title>Akses CBT Web Dibatasi</title><script src="/js/tailwind.js"></script></head><body class="bg-slate-900 text-white min-h-screen flex items-center justify-center p-6 text-center"><div class="max-w-md bg-slate-800 p-8 rounded-2xl border border-rose-500/30 shadow-2xl"><div class="text-5xl mb-4">🛡️</div><h1 class="text-xl font-bold text-rose-400 mb-2">Akses Web CBT Ditutup</h1><p class="text-slate-300 text-sm leading-relaxed mb-6">Sesuai kebijakan integritas asesmen SMPN 1 Boyolangu, seluruh siswa <b>WAJIB</b> mengerjakan ujian menggunakan aplikasi resmi <b>SmartCBT Kiosk Lockdown Android</b>. Akses melalui peramban web umum (Chrome/Firefox/Edge) diblokir untuk mencegah kecurangan.</p><a href="/download/apk" class="inline-block bg-blue-600 hover:bg-blue-500 text-white font-bold py-2.5 px-6 rounded-xl text-sm transition-all shadow-lg">Unduh Aplikasi Resmi SmartCBT APK</a></div></body></html>`);
+});
 app.get(['/admin/cbt', '/kurikulum/cbt', '/operator/cbt'], authenticateWebAkademik, (req, res) => {
   const isOperator = req.path.startsWith('/operator') || (req as any).user?.role === 'OPERATOR';
   const activeTab = String(req.query.tab || 'jadwal').toLowerCase();

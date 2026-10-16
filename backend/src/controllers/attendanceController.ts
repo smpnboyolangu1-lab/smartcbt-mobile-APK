@@ -7,6 +7,7 @@ import { compareClassNames, sortStudentsByGradeAndName } from '../utils/classSor
 import { sendFcmToUser, sendFcmToRole } from '../services/fcmService';
 import { sendSingleWhatsApp } from '../services/whatsappBlastService';
 import { formatTimeWib, formatTimeWibWithSuffix, getWibDayBounds, getWibTimeColon, getWibDayOfWeek } from '../utils/dateUtils';
+import { logAudit } from '../services/auditLogger';
 
 export const DYNAMIC_QR_SALT = 'SmartCBT_Boyolangu_DynQR_Salt_2026';
 
@@ -441,8 +442,7 @@ export const scanClassGate = async (req: Request, res: Response) => {
                 OR: [
                     { username: String(studentIdentifier) },
                     { nisn: String(studentIdentifier) },
-                    { nis: String(studentIdentifier) },
-                    { rfidChipUid: String(studentIdentifier) }
+                    { nis: String(studentIdentifier) }
                 ],
                 role: 'STUDENT'
             }
@@ -488,7 +488,7 @@ export const scanClassGate = async (req: Request, res: Response) => {
         // 2. QR Dinamis Pengurus Kelas (DYNAMIC_CLASS_QR): Validasi tanpa GPS (berganti per 10 detik).
         // 3. QR-STATIC tanpa validasi GPS ditutup total (wajib GPS aktif atau beralih ke QR Dinamis Pengurus).
         const hasGps = lat !== undefined && lng !== undefined && lat !== null && lng !== null && Number(lat) !== 0 && Number(lng) !== 0;
-        if (!isDynamicOfficerQr && !isBkBarcode && !isMusholaBarcode && method !== 'RFID' && rawCodeUpper !== 'QR_DYNAMIC_OFFICER' && !rawCodeUpper.startsWith('DYNAMIC_CLASS_QR|')) {
+        if (!isDynamicOfficerQr && !isBkBarcode && !isMusholaBarcode && rawCodeUpper !== 'QR_DYNAMIC_OFFICER' && !rawCodeUpper.startsWith('DYNAMIC_CLASS_QR|')) {
             if (!hasGps && !isTestingMode) {
                 return res.status(403).json({
                     success: false,
@@ -955,11 +955,29 @@ export const scanClassGate = async (req: Request, res: Response) => {
         });
 
         if (approvedSickToday) {
-            return res.status(400).json({
-                success: false,
-                isLocked: true,
-                message: `🔒 Absensi Terkunci (LOCKED): Ananda ${student.name} telah disetujui SAKIT oleh Guru BK hari ini (${approvedSickToday.reason || 'Surat Dokter / Izin Sakit'}). Seluruh absensi masuk, pulang, dan KBM otomatis dinonaktifkan.`
-            });
+            // [T-05] A10 Lock Sakit: jangan blokir scan! Jika siswa hadir fisik di sekolah,
+            // batalkan status sakit (REVOKED) dan hapus placeholder SICK di Attendance hari ini,
+            // lalu izinkan proses scan berlangsung sehingga siswa tidak tertahan.
+            await (prisma as any).studentLeaveRequest.update({
+                where: { id: approvedSickToday.id },
+                data: {
+                    status: 'REVOKED',
+                    rejectionNote: `Status sakit dibatalkan otomatis karena siswa hadir fisik di sekolah dan melakukan scan presensi pada ${now.toLocaleTimeString('id-ID')} WIB.`
+                }
+            }).catch(() => null);
+
+            await prisma.attendance.deleteMany({
+                where: {
+                    studentId: student.id,
+                    status: { in: ['SICK', 'SAKIT'] },
+                    scanTime: { gte: todayStart, lte: todayEnd }
+                }
+            }).catch(() => null);
+
+            await logAudit(req, 'REVOKE_SICK_ON_PRESENCE', `Siswa ${student.name} hadir fisik; izin sakit ${approvedSickToday.id} dicabut otomatis.`, {
+                studentId: student.id,
+                leaveId: approvedSickToday.id
+            }).catch(() => null);
         }
 
         // ============================================================
@@ -1350,7 +1368,7 @@ export const scanClassGate = async (req: Request, res: Response) => {
         }
 
         if (!hasNotifiedToday) {
-            const methodLabel = method === 'GPS' ? 'Geolocation GPS Sekolah (Radius Valid)' : (method === 'RFID' ? 'Mesin Tap Kartu RFID Gerbang' : 'Pemindaian Barcode Siswa');
+            const methodLabel = method === 'GPS' ? 'Geolocation GPS Sekolah (Radius Valid)' : (method === 'DYNAMIC_QR' ? 'QR Dinamis Pengurus Kelas' : 'Pemindaian Kode Siswa');
             
             const parentTitle = scanType === 'GATE_IN'
                 ? (status === 'LATE' ? '⏰ [SIBOY KEDISIPLINAN] Siswa Tiba Terlambat di Sekolah' : '✅ [SIBOY PRESENSI] Ananda Tiba di Sekolah Tepat Waktu')
@@ -1600,7 +1618,7 @@ export const recordAttendanceScan = async (req: Request, res: Response) => {
 
         const targetIdentifier = identifier || inputUserId;
         if (!targetIdentifier) {
-            return res.status(400).json({ success: false, message: 'Identifier (NISN/NIP/RFID/UserId) wajib disertakan' });
+            return res.status(400).json({ success: false, message: 'Identifier (NISN/NIP/UserId) wajib disertakan' });
         }
 
         const user = await prisma.user.findFirst({
@@ -1608,7 +1626,6 @@ export const recordAttendanceScan = async (req: Request, res: Response) => {
                 OR: [
                     { id: String(targetIdentifier) },
                     { username: String(targetIdentifier) },
-                    { rfidChipUid: String(targetIdentifier) },
                     { nis: String(targetIdentifier) },
                     { nisn: String(targetIdentifier) }
                 ]
@@ -3479,178 +3496,10 @@ export const exportAttendancePdf = async (req: Request, res: Response) => {
 };
 
 export const tapCardAttendance = async (req: Request, res: Response) => {
-    try {
-        const { cardIdentifier, type, method } = req.body;
-
-        if (!cardIdentifier || String(cardIdentifier).trim().length === 0) {
-            return res.status(400).json({ message: 'UID Kartu / Barcode Siswa tidak terbaca' });
-        }
-
-        const cleanId = String(cardIdentifier).trim();
-
-        // Cari siswa berdasarkan RFID UID, NISN, NIS, atau Username
-        const student = await prisma.user.findFirst({
-            where: {
-                OR: [
-                    { rfidChipUid: cleanId },
-                    { nisn: cleanId },
-                    { nis: cleanId },
-                    { username: cleanId }
-                ]
-            }
-        });
-
-        if (!student) {
-            return res.status(404).json({ 
-                success: false,
-                message: `Kartu dengan UID/Barcode "${cleanId}" belum terdaftar di sistem sekolah. Daftarkan di Manajemen Siswa.` 
-            });
-        }
-
-        const settings = await getOrCreateGateSettings();
-        const now = new Date();
-        const effective = getEffectiveGateSettings(settings, now);
-
-        let scanType = type || 'GATE_IN';
-        let status = 'PRESENT';
-        let isLate = false;
-        let note = `Tap Kartu ${method || 'RFID'} Masuk`;
-
-        const gateInEndSec = '07:00:00'; // Batas resmi mutlak: 07:00:00 WIB
-        const gateOutStartSec = (effective.gateOutStartTime || '12:30') + ':00';
-        const gateOutEndSec = (effective.gateOutEndTime || '18:00') + ':59';
-
-        const isTestingMode = Boolean(
-            settings.isEmergencyGateOut && 
-            (settings.emergencyReason?.toLowerCase().includes('uji') || 
-             settings.emergencyReason?.toLowerCase().includes('test') || 
-             settings.emergencyReason?.toLowerCase().includes('trial'))
-        );
-
-        let lateMinutes = 0;
-        if (scanType === 'GATE_IN') {
-            if (effective.currentTimeWithSecStr > gateInEndSec) {
-                status = 'LATE';
-                isLate = true;
-                const [curH, curM, curS] = effective.currentTimeWithSecStr.split(':').map(Number);
-                const curSeconds = (curH || 0) * 3600 + (curM || 0) * 60 + (curS || 0);
-                const limitSeconds = 7 * 3600; // 07:00:00
-                lateMinutes = Math.max(1, Math.ceil((curSeconds - limitSeconds) / 60));
-                note = `Terlambat Tap Masuk (${lateMinutes} menit - Pk. ${effective.currentTimeWithSecStr} WIB)`;
-            }
-        } else {
-            const isPermittedOut = isTestingMode || settings.isEmergencyGateOut || settings.isEarlyDismissal ||
-                (effective.currentTimeWithSecStr >= gateOutStartSec && effective.currentTimeWithSecStr <= gateOutEndSec);
-            if (!isPermittedOut) {
-                return res.status(400).json({
-                    success: false,
-                    message: `⚠️ Gerbang Kepulangan Terkunci (LOCK)! Presensi kepulangan dibuka mulai pukul ${effective.gateOutStartTime} WIB (saat ini ${effective.currentTimeWithSecStr} WIB).`
-                });
-            }
-            note = settings.isEmergencyGateOut
-                ? `Pulang Lebih Awal: ${settings.emergencyReason || 'Izin Acara'}`
-                : `Tap Kartu Kepulangan Normal (${effective.currentTimeWithSecStr} WIB)`;
-        }
-
-        // Catat ke Database Attendance
-        const att = await prisma.attendance.create({
-            data: {
-                userId: student.id,
-                type: scanType,
-                method: method || 'RFID',
-                status,
-                scanTime: now,
-                note
-            }
-        });
-
-        // Kirim Notifikasi Real-time ke Orang Tua
-        try {
-            let notifTitle = `✅ Presensi Masuk (RFID): ${student.name}`;
-            let notifMsg = `Alhamdulillah, ananda ${student.name} (Kelas ${student.className || '-'}) telah tiba di sekolah dan melakukan tap kartu RFID tepat waktu pada pukul ${effective.currentTimeWithSecStr} WIB.`;
-
-            if (scanType === 'GATE_IN' && isLate) {
-                notifTitle = `⚠️ Presensi Masuk Terlambat (RFID): ${student.name}`;
-                notifMsg = `Pemberitahuan: Ananda ${student.name} (Kelas ${student.className || '-'}) melakukan tap kartu RFID masuk pukul ${effective.currentTimeWithSecStr} WIB (Terlambat ${lateMinutes} menit dari batas resmi 07:00:00 WIB).`;
-            } else if (scanType === 'GATE_OUT') {
-                notifTitle = `🔵 Presensi Kepulangan (RFID): ${student.name}`;
-                notifMsg = `Ananda ${student.name} (Kelas ${student.className || '-'}) telah melakukan tap kartu kepulangan presensi di SMP Negeri 1 Boyolangu (di kelas) pada pukul ${effective.currentTimeWithSecStr} WIB.`;
-            }
-
-            await (prisma as any).notificationMessage.create({
-                data: {
-                    recipientRole: 'PARENT',
-                    studentId: student.id,
-                    studentName: student.name,
-                    className: student.className,
-                    title: notifTitle,
-                    message: notifMsg,
-                    category: 'ATTENDANCE'
-                }
-            });
-
-            const cleanNisn = (student.nisn || student.username || '').replace(/^[Pp]/, '').trim();
-            const parentUsers = await prisma.user.findMany({
-                where: {
-                    role: 'PARENT',
-                    OR: [
-                        { username: `P${cleanNisn}` },
-                        { username: `p${cleanNisn}` },
-                        { username: cleanNisn },
-                        { nisn: cleanNisn },
-                        ...(student.parentPhone ? [{ username: student.parentPhone }] : [])
-                    ]
-                }
-            });
-
-            for (const p of parentUsers) {
-                await sendFcmToUser(p.id, notifTitle, notifMsg, {
-                    type: 'ATTENDANCE_RFID',
-                    scanType,
-                    studentId: student.id,
-                    studentName: student.name
-                }).catch(e => console.warn('[FCM RFID Parent]', e.message));
-            }
-
-            req.app.get('io')?.emit('attendance_updated', {
-                studentId: student.id,
-                studentName: student.name,
-                className: student.className,
-                scanType,
-                status
-            });
-        } catch (nErr) {}
-
-        const statusLabel = scanType === 'GATE_IN' 
-            ? (status === 'LATE' ? `TERLAMBAT (+${lateMinutes}m)` : 'HADIR TEPAT WAKTU')
-            : 'PULANG';
-
-        res.json({
-            success: true,
-            message: `✅ Bip! ${student.name} (${student.className || 'Siswa'}) - ${statusLabel}`,
-            attendance: att,
-            student: {
-                id: student.id,
-                name: student.name,
-                role: student.role,
-                className: student.className || 'Staff/Guru',
-                nisn: student.nisn || student.username,
-                nis: student.nis || '-',
-                photoUrl: student.profilePicUrl,
-                points: student.points ?? 0,
-                homeroomTeacher: student.homeroomTeacher || 'Wali Kelas Belum Diplot',
-                parentPhone: student.parentPhone || '-'
-            },
-            lateMinutes,
-            parentNotified: true,
-            scanTime: effective.currentTimeWithSecStr,
-            status: statusLabel,
-            isLate
-        });
-    } catch (error) {
-        console.error('Error tap card attendance:', error);
-        res.status(500).json({ message: 'Gagal memproses tap kartu' });
-    }
+    return res.status(410).json({
+        success: false,
+        message: 'Layanan presensi fisik RFID telah dinonaktifkan secara total. Seluruh pencatatan kehadiran menggunakan QR Code Dinamis Pengurus Kelas dan Presensi Mandiri GPS pada Aplikasi Resmi SmartSchool.'
+    });
 };
 
 /**

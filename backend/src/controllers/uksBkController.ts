@@ -288,11 +288,12 @@ export const getBkConsultations = async (req: Request, res: Response) => {
             if (c.isAnonymous) {
                 return {
                     ...c,
+                    studentId: 'ANONYMOUS',
                     student: {
                         id: 'ANONYMOUS',
                         name: 'Anonim (Dirahasiakan / Whistleblower)',
                         username: 'anonim',
-                        className: c.student?.className || '-',
+                        className: '-',
                         nisn: null,
                         nis: null,
                         gender: null,
@@ -462,10 +463,14 @@ export const createStudentReport = async (req: Request, res: Response) => {
             ? '💬 Pesan konsultasi wali murid telah berhasil dikirim ke Guru BK.'
             : '🕊️ Pesan / Laporan Pengaduan Anda telah terkirim dengan aman ke Guru BK. Kami akan menjaga kerahasiaan Anda.';
 
+        const sanitizedConsultation = consultation.isAnonymous
+            ? { ...consultation, studentId: 'ANONYMOUS' }
+            : consultation;
+
         res.json({
             success: true,
             message: successText,
-            consultation
+            consultation: sanitizedConsultation
         });
     } catch (error) {
         console.error('Error submitting student report:', error);
@@ -577,12 +582,20 @@ export const replyBkConsultation = async (req: Request, res: Response) => {
         }
 
         const safeStudentName = updated.student?.name || 'Siswa';
+        const sanitizedUpdated = updated.isAnonymous
+            ? {
+                ...updated,
+                studentId: 'ANONYMOUS',
+                student: { id: 'ANONYMOUS', name: 'Anonim (Dirahasiakan / Whistleblower)', className: '-' }
+            }
+            : updated;
+
         res.json({
             success: true,
             message: isScheduled 
                 ? '📅 Jadwal tatap muka di Ruang BK berhasil dikirimkan ke siswa & orang tua!'
                 : 'Balasan dan tindak lanjut berhasil dikirim ke ' + (updated.isAnonymous ? 'Siswa (Privat)' : safeStudentName),
-            consultation: updated
+            consultation: sanitizedUpdated
         });
     } catch (error) {
         console.error('Error replying consultation:', error);
@@ -1038,7 +1051,18 @@ export const getParentConsultations = async (req: Request, res: Response) => {
             orderBy: { createdAt: 'desc' }
         });
 
-        res.json(consultations);
+        const sanitized = consultations.map((c: any) => {
+            if (c.isAnonymous) {
+                return {
+                    ...c,
+                    studentId: 'ANONYMOUS',
+                    student: { id: 'ANONYMOUS', name: 'Anonim (Dirahasiakan / Whistleblower)', className: '-' }
+                };
+            }
+            return c;
+        });
+
+        res.json(sanitized);
     } catch (error) {
         console.error('Error fetching parent consultations:', error);
         res.status(500).json({ message: 'Gagal memuat konsultasi orang tua' });

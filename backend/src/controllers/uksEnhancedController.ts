@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { sendFcmToUser } from '../services/fcmService';
+import { sendSingleWhatsApp } from '../services/whatsappBlastService';
 
 const prisma = new PrismaClient();
 
@@ -201,6 +202,15 @@ export const updateUksTriage = async (req: Request, res: Response) => {
                             title: notifTitle,
                             body: notifMsg
                         });
+
+                        // Pengiriman WhatsApp Darurat ke Orang Tua Siswa
+                        if (student?.parentPhone) {
+                            const cleanPhone = String(student.parentPhone).replace(/[^0-9]/g, '');
+                            if (cleanPhone.length >= 9) {
+                                const waMsg = `*PEMBERITAHUAN UKS SMP NEGERI 1 BOYOLANGU*\n\nYth. Orang Tua/Wali dari Ananda *${student.name || 'Siswa'}* (${student.className || '-'}),\n\nSaat ini ananda sedang berada di ruang Unit Kesehatan Sekolah (UKS) dan disarankan untuk dijemput beristirahat di rumah.\n\nMohon Bapak/Ibu dapat menuju ke Pos Satpam / Ruang UKS SMPN 1 Boyolangu untuk proses penjemputan ananda.\n\n_Pesan otomatis resmi Sistem Smart School SIBOY 2026._`;
+                                await sendSingleWhatsApp(cleanPhone, waMsg).catch(err => console.warn('[WA UKS Alert Error]:', err));
+                            }
+                        }
                     } catch (e: any) {
                         console.warn('[UKS Pickup] Error sending notification:', e.message);
                     }

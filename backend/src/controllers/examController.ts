@@ -148,7 +148,7 @@ export const scheduleNationalExam = async (req: Request, res: Response) => {
         const updateData: any = {};
         if (title) updateData.title = title;
         if (packageCode) updateData.packageCode = packageCode;
-        if (status) updateData.status = status;
+        // [T-01] Status Ujian tidak boleh diubah lewat jadwal; wajib melalui alur updateExamPackageStatus
         if (durationMinutes) updateData.durationMinutes = Number(durationMinutes);
         if (minDurationMinutes !== undefined) updateData.minDurationMinutes = Number(minDurationMinutes);
         if (assignedClasses !== undefined) updateData.assignedClasses = Array.isArray(assignedClasses) ? assignedClasses.join(',') : assignedClasses;
@@ -347,11 +347,24 @@ export const uploadQuestionAudio = async (req: Request, res: Response) => {
 export const getQuestions = async (req: Request, res: Response) => {
     try {
         const examId = req.params.examId as string;
+        const user = (req as any).user;
+        const isStudent = !user || user.role === 'STUDENT';
+
         const questions = await prisma.question.findMany({
             where: { examId },
             orderBy: { orderNum: 'asc' }
         });
-        res.json(questions);
+
+        // A-02: Siswa TIDAK PERNAH menerima kunci jawaban (correctOption) atau pembahasan (explanation)
+        const sanitized = questions.map(q => {
+            if (isStudent) {
+                const { correctOption, explanation, ...safeFields } = q;
+                return safeFields;
+            }
+            return q;
+        });
+
+        res.json(sanitized);
     } catch (error) {
         res.status(500).json({ message: 'Error fetching questions' });
     }
@@ -366,12 +379,61 @@ function normalizeCorrectOption(raw: any): string {
     return s.toUpperCase();
 }
 
+// [T-10 & D6] Opsi Jawaban SMP Wajib 4 Pilihan (A–D). Kunci jawaban dan opsi E ditolak / disanitasi.
+function sanitizeSmpOptionsAndKey(options: any, rawCorrectOption: any): { optionsStr: string | null, correctOption: string } {
+    let parsed: any = null;
+    if (typeof options === 'string') {
+        try {
+            parsed = JSON.parse(options);
+        } catch (e) {
+            parsed = options;
+        }
+    } else {
+        parsed = options;
+    }
+
+    let finalOptionsObj: any = null;
+    if (Array.isArray(parsed)) {
+        finalOptionsObj = {};
+        const labels = ['A', 'B', 'C', 'D'];
+        parsed.slice(0, 4).forEach((val, idx) => {
+            finalOptionsObj[labels[idx]] = typeof val === 'object' && val ? (val.text || val.content || JSON.stringify(val)) : String(val);
+        });
+    } else if (typeof parsed === 'object' && parsed !== null) {
+        finalOptionsObj = {
+            A: parsed.A !== undefined ? parsed.A : (parsed.a !== undefined ? parsed.a : ''),
+            B: parsed.B !== undefined ? parsed.B : (parsed.b !== undefined ? parsed.b : ''),
+            C: parsed.C !== undefined ? parsed.C : (parsed.c !== undefined ? parsed.c : ''),
+            D: parsed.D !== undefined ? parsed.D : (parsed.d !== undefined ? parsed.d : '')
+        };
+    }
+
+    let normKey = normalizeCorrectOption(rawCorrectOption);
+    const validLetters = ['A', 'B', 'C', 'D'];
+    if (normKey.includes(',')) {
+        const filtered = normKey.split(',').filter(k => validLetters.includes(k));
+        normKey = filtered.length > 0 ? filtered.join(',') : 'A';
+    } else if (!validLetters.includes(normKey)) {
+        normKey = 'A';
+    }
+
+    return {
+        optionsStr: finalOptionsObj ? JSON.stringify(finalOptionsObj) : (typeof options === 'object' ? JSON.stringify(options) : options),
+        correctOption: normKey
+    };
+}
+
 export const createQuestion = async (req: Request, res: Response) => {
     const examId = req.params.examId as string;
     const { content, type, correctOption, options, imageUrl, audioUrl, cognitiveLevel, kdTag, explanation } = req.body;
     try {
         const count = await prisma.question.count({ where: { examId } });
         const mediaType = imageUrl && audioUrl ? 'BOTH' : (imageUrl ? 'IMAGE' : (audioUrl ? 'AUDIO' : 'NONE'));
+        const isEssay = type === 'ESSAY' || type === 'URAIAN';
+
+        const sanitized = !isEssay
+            ? sanitizeSmpOptionsAndKey(options, correctOption)
+            : { optionsStr: null, correctOption: correctOption ? String(correctOption).trim() : null };
 
         const question = await prisma.question.create({
             data: {
@@ -381,8 +443,8 @@ export const createQuestion = async (req: Request, res: Response) => {
                 imageUrl: imageUrl || null,
                 audioUrl: audioUrl || null,
                 mediaType,
-                correctOption: normalizeCorrectOption(correctOption),
-                options: typeof options === 'object' ? JSON.stringify(options) : options,
+                correctOption: sanitized.correctOption,
+                options: sanitized.optionsStr,
                 cognitiveLevel: cognitiveLevel || 'C3',
                 kdTag: kdTag || null,
                 explanation: explanation || null,
@@ -401,10 +463,16 @@ export const updateQuestion = async (req: Request, res: Response) => {
     const { content, type, correctOption, options, imageUrl, audioUrl, cognitiveLevel, kdTag, orderNum, explanation } = req.body;
     try {
         const mediaType = imageUrl && audioUrl ? 'BOTH' : (imageUrl ? 'IMAGE' : (audioUrl ? 'AUDIO' : 'NONE'));
+        const isEssay = type === 'ESSAY' || type === 'URAIAN';
+
+        const sanitized = !isEssay
+            ? sanitizeSmpOptionsAndKey(options, correctOption)
+            : { optionsStr: null, correctOption: correctOption ? String(correctOption).trim() : null };
+
         const updateData: any = {
             content,
-            correctOption: normalizeCorrectOption(correctOption),
-            options: typeof options === 'object' ? JSON.stringify(options) : options,
+            correctOption: sanitized.correctOption,
+            options: sanitized.optionsStr,
             imageUrl: imageUrl || null,
             audioUrl: audioUrl || null,
             mediaType

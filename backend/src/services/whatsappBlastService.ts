@@ -65,9 +65,9 @@ export function getWaConfig(): WaGatewayConfig {
       return {
         provider: 'BAILEYS_SELF_HOSTED',
         isActive: parsed.isActive ?? true,
-        schoolDownloadUrl: parsed.schoolDownloadUrl && !parsed.schoolDownloadUrl.includes('/uploads/smartcbt-latest.apk') 
+        schoolDownloadUrl: parsed.schoolDownloadUrl && !parsed.schoolDownloadUrl.includes('/uploads/smartcbt-latest.apk') && !parsed.schoolDownloadUrl.includes('adiprayitno')
           ? parsed.schoolDownloadUrl 
-          : 'https://github.com/adiprayitno160-glitch/smartcbt-mobile-APK/releases/latest/download/SmartCBT_latest.apk',
+          : 'https://github.com/smpnboyolangu1-lab/smartcbt-mobile-APK/releases/latest/download/SmartCBT_latest.apk',
         officialPhone: parsed.officialPhone || connectedPhone || '081234567890',
         senderName: parsed.senderName || 'SMP Negeri 1 Boyolangu'
       };
@@ -77,7 +77,7 @@ export function getWaConfig(): WaGatewayConfig {
   return {
     provider: 'BAILEYS_SELF_HOSTED',
     isActive: true,
-    schoolDownloadUrl: 'https://github.com/adiprayitno160-glitch/smartcbt-mobile-APK/releases/latest/download/SmartCBT_latest.apk',
+    schoolDownloadUrl: 'https://github.com/smpnboyolangu1-lab/smartcbt-mobile-APK/releases/latest/download/SmartCBT_latest.apk',
     officialPhone: connectedPhone || '081234567890',
     senderName: 'SMP Negeri 1 Boyolangu'
   };

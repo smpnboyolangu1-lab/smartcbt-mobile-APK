@@ -3335,16 +3335,25 @@
                         <tr class="hover:bg-slate-50 transition-colors">
                             <td class="p-3 font-bold text-slate-800">${s.student_name}</td>
                             <td class="p-3 font-semibold text-slate-600">${s.class_name}</td>
-                            <td class="p-3 font-bold text-emerald-800">Surat #${s.surah_number} ${s.surah_name} (Ayat ${s.ayat_start}-${s.ayat_end})</td>
+                            <td class="p-3">
+                                <span class="font-bold text-emerald-800 text-xs">Surat #${s.surah_number} ${s.surah_name}</span>
+                                <div class="text-[11px] text-slate-500 font-semibold">Ayat ${s.ayat_start} s.d. ${s.ayat_end}</div>
+                                ${s.student_notes ? `<div class="text-[10px] text-amber-700 italic mt-0.5">💬 "${s.student_notes}"</div>` : ''}
+                            </td>
                             <td class="p-3">
                                 <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${s.metode === 'REKAMAN_AUDIO' ? 'bg-purple-100 text-purple-800' : 'bg-teal-100 text-teal-800'}">
                                     ${s.metode === 'REKAMAN_AUDIO' ? '🎧 Rekaman Audio' : '🗣️ Setoran Langsung'}
                                 </span>
+                                ${s.metode === 'LANGSUNG' ? `
+                                    <div class="text-[10px] text-slate-600 mt-1 font-semibold">📅 ${s.scheduled_date || s.submission_date} (${s.scheduled_session || 'Istirahat'})</div>
+                                    <div class="text-[10px] text-teal-700 font-medium">📍 ${s.meeting_location || 'Mushola'}</div>
+                                    ${s.target_guru_name ? `<div class="text-[10px] text-slate-500">Guru: ${s.target_guru_name}</div>` : ''}
+                                ` : ''}
                             </td>
                             <td class="p-3">
                                 ${s.audio_record_url ? `
                                     <audio controls src="${s.audio_record_url}" class="h-7 w-36"></audio>
-                                ` : '<span class="text-slate-400">-</span>'}
+                                ` : (s.metode === 'LANGSUNG' ? '<span class="text-[11px] text-teal-700 font-semibold">Tatap Muka di Sekolah</span>' : '<span class="text-slate-400">-</span>')}
                             </td>
                             <td class="p-3">
                                 <span class="px-2 py-0.5 rounded-full text-[10px] font-black ${s.status === 'MENUNGGU' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}">

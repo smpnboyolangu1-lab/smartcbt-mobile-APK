@@ -92,6 +92,10 @@ class LibraryActivity : AppCompatActivity() {
         binding.btnScanBookBarcode.setOnClickListener {
             showScanMenuOptionsDialog()
         }
+
+        binding.btnDigitalMemberCard.setOnClickListener {
+            showDigitalMemberCardDialog()
+        }
     }
 
     private fun setupTabs() {
@@ -789,6 +793,24 @@ class LibraryActivity : AppCompatActivity() {
             infoCol.addView(tvTitle)
             infoCol.addView(tvAuthor)
             infoCol.addView(tvTag)
+
+            val isReference = eb.judul.contains("kamus", ignoreCase = true) ||
+                    eb.judul.contains("ensiklopedia", ignoreCase = true) ||
+                    eb.judul.contains("atlas", ignoreCase = true) ||
+                    eb.mataPelajaran.contains("referensi", ignoreCase = true)
+
+            if (isReference) {
+                val tvRefBadge = TextView(this).apply {
+                    text = "📖 Hanya Baca di Tempat (Koleksi Referensi)"
+                    textSize = 9f
+                    typeface = Typeface.DEFAULT_BOLD
+                    setTextColor(Color.parseColor("#B45309"))
+                    setBackgroundColor(Color.parseColor("#FEF3C7"))
+                    setPadding((6 * density).toInt(), (2 * density).toInt(), (6 * density).toInt(), (2 * density).toInt())
+                }
+                infoCol.addView(tvRefBadge)
+            }
+
             row.addView(infoCol)
 
             val btnRead = Button(this).apply {
@@ -1092,5 +1114,137 @@ class LibraryActivity : AppCompatActivity() {
             putExtra(PdfViewerActivity.EXTRA_DOC_TYPE, "EBOOK")
         }
         startActivity(intent)
+    }
+
+    private fun showDigitalMemberCardDialog() {
+        val density = resources.displayMetrics.density
+        val dialogView = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val p = (20 * density).toInt()
+            setPadding(p, p, p, p)
+            setBackgroundColor(Color.WHITE)
+        }
+
+        val card = CardView(this).apply {
+            radius = 16 * density
+            cardElevation = 4 * density
+            setCardBackgroundColor(Color.parseColor("#0F2F57"))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
+
+        val cardContent = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val cp = (18 * density).toInt()
+            setPadding(cp, cp, cp, cp)
+        }
+
+        val tvHeader = TextView(this).apply {
+            text = "SMP NEGERI 1 BOYOLANGU"
+            textSize = 10f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.parseColor("#93C5FD"))
+            letterSpacing = 0.08f
+        }
+
+        val tvCardTitle = TextView(this).apply {
+            text = "KARTU DIGITAL PERPUSTAKAAN"
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+            setPadding(0, (2 * density).toInt(), 0, (12 * density).toInt())
+        }
+
+        val tvName = TextView(this).apply {
+            text = sessionManager.getName().ifEmpty { "Siswa Perpustakaan" }
+            textSize = 16f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+        }
+
+        val tvNisn = TextView(this).apply {
+            val username = sessionManager.getUsername()
+            text = "NISN / ID: ${if (username.isNotEmpty()) username else "1234567890"}"
+            textSize = 12f
+            setTextColor(Color.parseColor("#E2E8F0"))
+        }
+
+        val tvClass = TextView(this).apply {
+            text = "Kelas: ${sessionManager.getClassName().ifEmpty { "Semua Kelas" }}"
+            textSize = 12f
+            setTextColor(Color.parseColor("#93C5FD"))
+            setPadding(0, (2 * density).toInt(), 0, (14 * density).toInt())
+        }
+
+        // Barcode Visual Box
+        val barcodeBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val bp = (10 * density).toInt()
+            setPadding(bp, bp, bp, bp)
+            setBackgroundColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
+
+        val tvBarcodeDisplay = TextView(this).apply {
+            text = "||||| || |||||| ||||| |||| || ||||||"
+            textSize = 18f
+            typeface = Typeface.MONOSPACE
+            setTextColor(Color.BLACK)
+            gravity = Gravity.CENTER
+        }
+
+        val tvBarcodeCode = TextView(this).apply {
+            val code = sessionManager.getUsername().ifEmpty { "LIB-STD-" + sessionManager.getUserId().take(8) }
+            text = "* $code *"
+            textSize = 11f
+            typeface = Typeface.MONOSPACE
+            setTextColor(Color.parseColor("#334155"))
+            gravity = Gravity.CENTER
+            setPadding(0, (4 * density).toInt(), 0, 0)
+        }
+
+        barcodeBox.addView(tvBarcodeDisplay)
+        barcodeBox.addView(tvBarcodeCode)
+
+        val tvFooter = TextView(this).apply {
+            text = "✓ ANGGOTA RESMI AKTIF • BEBAS DENDA FINANSIAL 100%"
+            textSize = 9.5f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.parseColor("#34D399"))
+            gravity = Gravity.CENTER
+            setPadding(0, (10 * density).toInt(), 0, 0)
+        }
+
+        cardContent.addView(tvHeader)
+        cardContent.addView(tvCardTitle)
+        cardContent.addView(tvName)
+        cardContent.addView(tvNisn)
+        cardContent.addView(tvClass)
+        cardContent.addView(barcodeBox)
+        cardContent.addView(tvFooter)
+
+        card.addView(cardContent)
+        dialogView.addView(card)
+
+        val btnClose = Button(this).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (44 * density).toInt()).apply {
+                topMargin = (14 * density).toInt()
+            }
+            text = "Tutup Kartu"
+            textSize = 12f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#0F2F57"))
+        }
+
+        dialogView.addView(btnClose)
+
+        val dialog = AlertDialog.Builder(this)
+            .setView(dialogView)
+            .setCancelable(true)
+            .create()
+
+        btnClose.setOnClickListener { dialog.dismiss() }
+        dialog.show()
     }
 }

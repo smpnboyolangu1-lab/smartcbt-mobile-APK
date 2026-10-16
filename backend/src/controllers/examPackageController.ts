@@ -186,15 +186,7 @@ export const updateExamPackageStatus = async (req: Request, res: Response) => {
     try {
         const user = (req as any).user;
         const { examId, action, notes, qualityScore } = req.body;
-        // action: 'REVIEW', 'MINTA_REVISI', 'SETUJUI', 'SIAP_RILIS', 'RILIS', 'NONAKTIF', 'ARSIP'
-
-        const isKurikulum = user && (user.role === 'ADMIN' || (user.rolesTambahan && user.rolesTambahan.includes('kurikulum')));
-        if (!isKurikulum) {
-            return res.status(403).json({
-                success: false,
-                message: 'Akses Ditolak: Hanya Tim Kurikulum yang memiliki kewenangan review dan penetapan status paket ujian.'
-            });
-        }
+        // action: 'REVIEW', 'MINTA_REVISI', 'SETUJUI', 'SIAP_RILIS', 'RILIS', 'DRAFT', 'NONAKTIF', 'ARSIP'
 
         const exam = await prisma.exam.findUnique({
             where: { id: examId },
@@ -202,14 +194,94 @@ export const updateExamPackageStatus = async (req: Request, res: Response) => {
         });
         if (!exam) return res.status(404).json({ success: false, message: 'Paket ujian tidak ditemukan.' });
 
+        const isUH = ['UH', 'FORMATIF', 'KUIS', 'HARIAN', 'ULANGAN_HARIAN', 'REMEDIAL'].includes(String(exam.examType || '').toUpperCase());
+        const isKurikulum = user && (user.role === 'ADMIN' || (user.rolesTambahan && user.rolesTambahan.includes('kurikulum')));
+
+        let authorIds: string[] = [];
+        try {
+            if (exam.authorTeacherIds) {
+                authorIds = typeof exam.authorTeacherIds === 'string' ? JSON.parse(exam.authorTeacherIds) : exam.authorTeacherIds;
+            }
+        } catch (e) {}
+
+        const isOwner = user && (user.id === exam.teacherId || authorIds.includes(user.id) || user.role === 'ADMIN');
+
+        // [D5 & T-01] Jalur 1: Ujian Harian (UH) dirilis langsung oleh guru pemilik tanpa review kurikulum
+        if (isUH) {
+            if (!isOwner) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Akses Ditolak: Hanya Guru Pembuat / Pemilik yang berhak merilis atau mengubah status Ulangan Harian ini.'
+                });
+            }
+
+            // Validasi kelas yang diajar guru pemilik (hanya untuk kelas yang diajar)
+            if (user.role !== 'ADMIN' && user.teachingClasses && exam.assignedClasses && exam.assignedClasses !== 'ALL') {
+                const taughtClasses = user.teachingClasses.split(',').map((c: string) => c.trim().toUpperCase());
+                const assigned = exam.assignedClasses.split(',').map((c: string) => c.trim().toUpperCase());
+                const invalid = assigned.filter((c: string) => !taughtClasses.includes(c));
+                if (invalid.length > 0) {
+                    return res.status(403).json({
+                        success: false,
+                        message: `Ulangan Harian hanya dapat dirilis untuk kelas yang Anda ajar (${user.teachingClasses}). Kelas ${invalid.join(', ')} di luar kewenangan mengajar Anda.`
+                    });
+                }
+            }
+
+            let newStatus = exam.status || 'DRAFT';
+            if (action === 'RILIS') {
+                if (exam.questions.length === 0) {
+                    return res.status(400).json({ success: false, message: 'Paket Ulangan Harian belum memiliki butir soal! Tambahkan soal sebelum merilis.' });
+                }
+                newStatus = 'DIRILIS';
+            } else if (action === 'DRAFT') {
+                newStatus = 'DRAFT';
+            } else if (action === 'NONAKTIF') {
+                newStatus = 'NONAKTIF';
+            } else if (action === 'ARSIP') {
+                newStatus = 'ARSIP';
+            } else {
+                return res.status(400).json({ success: false, message: `Aksi "${action}" tidak valid untuk alur Ulangan Harian (UH). Gunakan RILIS, DRAFT, NONAKTIF, atau ARSIP.` });
+            }
+
+            const updated = await prisma.exam.update({
+                where: { id: examId },
+                data: {
+                    status: newStatus,
+                    curriculumNotes: notes || exam.curriculumNotes,
+                    isTokenActive: action === 'RILIS' ? true : (action === 'NONAKTIF' ? false : exam.isTokenActive)
+                }
+            });
+
+            await logAudit(req, 'UPDATE_UH_STATUS', `Status Ulangan Harian ${exam.title} diubah menjadi ${newStatus} oleh ${user.name}`, { action, notes });
+
+            return res.json({
+                success: true,
+                message: `Status Ulangan Harian berhasil diperbarui menjadi ${newStatus}!`,
+                exam: updated
+            });
+        }
+
+        // [T-01] Jalur 2: Non-UH (STS / SAS / SAT / US / TRYOUT) wajib melalui review Kurikulum
+        if (!isKurikulum) {
+            return res.status(403).json({
+                success: false,
+                message: 'Akses Ditolak: Hanya Tim Kurikulum yang memiliki kewenangan review dan penetapan status paket ujian non-UH (STS/SAS/SAT).'
+            });
+        }
+
         let newStatus = exam.status || 'DRAFT';
         if (action === 'REVIEW') newStatus = 'REVIEW_KURIKULUM';
         else if (action === 'MINTA_REVISI') newStatus = 'REVISI';
         else if (action === 'SETUJUI') newStatus = 'DISETUJUI';
         else if (action === 'SIAP_RILIS') newStatus = 'SIAP_RILIS';
         else if (action === 'RILIS') newStatus = 'DIRILIS';
+        else if (action === 'DRAFT') newStatus = 'DRAFT';
         else if (action === 'NONAKTIF') newStatus = 'NONAKTIF';
         else if (action === 'ARSIP') newStatus = 'ARSIP';
+        else {
+            return res.status(400).json({ success: false, message: `Aksi status kurikulum "${action}" tidak dikenal.` });
+        }
 
         // Jika rilis: kunci paket & rekam snapshot versi v1 atau v berikutnya
         if (action === 'RILIS') {
@@ -238,7 +310,7 @@ export const updateExamPackageStatus = async (req: Request, res: Response) => {
                 status: newStatus,
                 curriculumNotes: notes || exam.curriculumNotes,
                 qualityScore: qualityScore != null ? Number(qualityScore) : exam.qualityScore,
-                isTokenActive: action === 'RILIS' ? true : exam.isTokenActive
+                isTokenActive: action === 'RILIS' ? true : (action === 'NONAKTIF' ? false : exam.isTokenActive)
             }
         });
 

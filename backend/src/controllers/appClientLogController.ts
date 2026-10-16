@@ -25,9 +25,10 @@ export async function recordClientLog(req: Request, res: Response) {
       role = null
     } = req.body;
 
-    // Sanitasi input agar tidak meluap
-    const safeErrorMessage = String(errorMessage || "Unknown Error").substring(0, 2000);
-    const safeStackTrace = stackTrace ? String(stackTrace).substring(0, 15000) : null;
+    // Sanitasi input agar aman dari XSS dan tidak meluap
+    const stripHtml = (s: any, maxLen: number) => String(s || '').replace(/<[^>]*>/g, '').trim().substring(0, maxLen);
+    const safeErrorMessage = stripHtml(errorMessage || "Unknown Error", 2000);
+    const safeStackTrace = stackTrace ? String(stackTrace).replace(/<[^>]*>/g, '').substring(0, 15000) : null;
     const safeLevel = ["CRASH", "FATAL", "ERROR", "WARN", "INFO"].includes(String(level).toUpperCase())
       ? String(level).toUpperCase()
       : "ERROR";
@@ -36,18 +37,18 @@ export async function recordClientLog(req: Request, res: Response) {
     const createdLog = await prisma.appClientErrorLog.create({
       data: {
         level: safeLevel,
-        tag: tag ? String(tag).substring(0, 100) : null,
+        tag: tag ? stripHtml(tag, 100) : null,
         errorMessage: safeErrorMessage,
         stackTrace: safeStackTrace,
-        deviceModel: deviceModel ? String(deviceModel).substring(0, 150) : null,
-        androidVersion: androidVersion ? String(androidVersion).substring(0, 100) : null,
-        appVersion: appVersion ? String(appVersion).substring(0, 50) : null,
-        networkType: networkType ? String(networkType).substring(0, 50) : null,
-        serverUrl: serverUrl ? String(serverUrl).substring(0, 200) : null,
-        activityName: activityName ? String(activityName).substring(0, 150) : null,
-        userId: userId ? String(userId).substring(0, 100) : null,
-        username: username ? String(username).substring(0, 100) : null,
-        role: role ? String(role).substring(0, 50) : null,
+        deviceModel: deviceModel ? stripHtml(deviceModel, 150) : null,
+        androidVersion: androidVersion ? stripHtml(androidVersion, 100) : null,
+        appVersion: appVersion ? stripHtml(appVersion, 50) : null,
+        networkType: networkType ? stripHtml(networkType, 50) : null,
+        serverUrl: serverUrl ? stripHtml(serverUrl, 200) : null,
+        activityName: activityName ? stripHtml(activityName, 150) : null,
+        userId: userId ? stripHtml(userId, 100) : null,
+        username: username ? stripHtml(username, 100) : null,
+        role: role ? stripHtml(role, 50) : null,
         resolved: false
       }
     });

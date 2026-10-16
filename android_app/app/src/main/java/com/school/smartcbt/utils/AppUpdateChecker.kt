@@ -262,7 +262,7 @@ object AppUpdateChecker {
             val downloadUrl = if (update.downloadUrl.contains("github.com", ignoreCase = true)) {
                 update.downloadUrl
             } else {
-                "https://github.com/adiprayitno160-glitch/smartcbt-mobile-APK/releases/download/v$cleanVer/SmartCBT_v$cleanVer.apk"
+                "https://github.com/smpnboyolangu1-lab/smartcbt-mobile-APK/releases/download/v$cleanVer/SmartCBT_v$cleanVer.apk"
             }
             val intent = Intent(Intent.ACTION_VIEW, Uri.parse(downloadUrl)).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -672,7 +672,7 @@ object AppUpdateChecker {
                     val browserUrl = if (update.downloadUrl.contains("github.com", ignoreCase = true)) {
                         update.downloadUrl
                     } else {
-                        "https://github.com/adiprayitno160-glitch/smartcbt-mobile-APK/releases/download/v$cleanVer/SmartCBT_v$cleanVer.apk"
+                        "https://github.com/smpnboyolangu1-lab/smartcbt-mobile-APK/releases/download/v$cleanVer/SmartCBT_v$cleanVer.apk"
                     }
                     val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(browserUrl)).apply {
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -709,6 +709,13 @@ object AppUpdateChecker {
                 .setView(cardView)
                 .setCancelable(!update.isForceUpdate)
                 .create()
+
+            if (update.isForceUpdate) {
+                dialog.setCanceledOnTouchOutside(false)
+                dialog.setOnKeyListener { _, keyCode, _ ->
+                    keyCode == android.view.KeyEvent.KEYCODE_BACK
+                }
+            }
 
             dialog.setOnDismissListener {
                 isUpdateDialogShowing = false
@@ -760,8 +767,8 @@ object AppUpdateChecker {
                     .build()
 
                 val cleanVer = update.versionName.trim().removePrefix("v")
-                val githubTagUrl = "https://github.com/adiprayitno160-glitch/smartcbt-mobile-APK/releases/download/v$cleanVer/SmartCBT_v$cleanVer.apk"
-                val githubLatestUrl = "https://github.com/adiprayitno160-glitch/smartcbt-mobile-APK/releases/latest/download/SmartCBT_latest.apk"
+                val githubTagUrl = "https://github.com/smpnboyolangu1-lab/smartcbt-mobile-APK/releases/download/v$cleanVer/SmartCBT_v$cleanVer.apk"
+                val githubLatestUrl = "https://github.com/smpnboyolangu1-lab/smartcbt-mobile-APK/releases/latest/download/SmartCBT_latest.apk"
 
                 val targetUrls = mutableListOf<String>()
 

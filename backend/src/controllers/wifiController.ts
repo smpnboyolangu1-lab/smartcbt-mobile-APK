@@ -324,7 +324,6 @@ export const activateStudentWifi = async (req: Request, res: Response): Promise<
         // Verifikasi keaslian kartu
         const isValid = verifyCardToken(scannedToken, fullStudent.id, studentNisn) ||
             scannedToken === fullStudent.nis ||
-            scannedToken === fullStudent.rfidChipUid ||
             scannedToken === studentNisn;
 
         if (!isValid) {

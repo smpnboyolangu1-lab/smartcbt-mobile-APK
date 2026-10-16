@@ -108,6 +108,9 @@
             <button onclick="switchTab('members')" id="tabBtnMembers" class="px-6 py-3.5 text-sm text-gray-500 hover:text-blue-600 flex items-center gap-2">
                 <span>🪪</span> Kartu Anggota Digital Siswa
             </button>
+            <button onclick="switchTab('yearEnd')" id="tabBtnYearEnd" class="px-6 py-3.5 text-sm text-gray-500 hover:text-blue-600 flex items-center gap-2">
+                <span>📋</span> Kenaikan Kelas & Tanggungan Akhir Tahun
+            </button>
         </div>
 
         <!-- TAB 1: Katalog Buku & PDF -->
@@ -270,6 +273,151 @@
 
             <div id="membersCardsGrid" class="grid grid-cols-3 gap-4">
                 <p class="text-gray-400 text-xs col-span-3 text-center py-8">Memuat daftar anggota perpustakaan...</p>
+            </div>
+        </div>
+
+        <!-- TAB 5: Kenaikan Kelas & Tanggungan Akhir Tahun -->
+        <div id="sectionYearEnd" class="hidden space-y-6">
+            <!-- Kebijakan Humanis Banner -->
+            <div class="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 p-5 rounded-2xl flex items-start gap-4 shadow-sm">
+                <span class="text-3xl">🕊️</span>
+                <div>
+                    <h3 class="font-bold text-emerald-900 text-sm">Kebijakan Bebas Biaya Denda & Bebas Penahanan Dokumen (SMPN 1 Boyolangu)</h3>
+                    <p class="text-xs text-emerald-800 mt-1 leading-relaxed">
+                        1. <strong>Nol Denda Uang:</strong> Tidak ada pungutan denda finansial atas keterlambatan pengembalian buku.<br>
+                        2. <strong>Bebas Penahanan Ijazah / Rapor:</strong> Urusan perpustakaan murni tertib inventaris aset buku fisik sekolah dan <strong>tidak boleh menghambat atau menahan penerbitan Ijazah, SKL, Rapor, maupun Surat Pindah</strong>.<br>
+                        3. <strong>Penagihan Tertib Fisik:</strong> Penagihan dilakukan secara persuasif dan ramah langsung kepada orang tua siswa.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Panel 1: Pengembalian Massal per Rombel -->
+            <div class="bg-white rounded-2xl shadow-sm border p-6">
+                <div class="flex justify-between items-center mb-4 pb-3 border-b">
+                    <div>
+                        <h3 class="font-bold text-gray-800 text-base flex items-center gap-2">
+                            <span>📦</span> Pengembalian Kolektif Buku Paket per Rombongan Belajar (Rombel)
+                        </h3>
+                        <p class="text-xs text-gray-500 mt-1">Gunakan fitur ini saat akhir tahun ajaran / kenaikan kelas untuk menyelesaikan peminjaman 1 rombel sekaligus.</p>
+                    </div>
+                </div>
+
+                <div class="flex flex-wrap items-center gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Pilih Kelas / Rombel</label>
+                        <select id="bulkReturnClassSelect" class="border rounded-lg px-3 py-2 text-xs bg-white font-bold text-slate-800">
+                            <option value="VII-A">Kelas VII-A</option>
+                            <option value="VII-B">Kelas VII-B</option>
+                            <option value="VII-C">Kelas VII-C</option>
+                            <option value="VII-D">Kelas VII-D</option>
+                            <option value="VII-E">Kelas VII-E</option>
+                            <option value="VIII-A">Kelas VIII-A</option>
+                            <option value="VIII-B">Kelas VIII-B</option>
+                            <option value="VIII-C">Kelas VIII-C</option>
+                            <option value="VIII-D">Kelas VIII-D</option>
+                            <option value="VIII-E">Kelas VIII-E</option>
+                            <option value="IX-A">Kelas IX-A</option>
+                            <option value="IX-B">Kelas IX-B</option>
+                            <option value="IX-C">Kelas IX-C</option>
+                            <option value="IX-D">Kelas IX-D</option>
+                            <option value="IX-E">Kelas IX-E</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Tahun Ajaran</label>
+                        <input type="text" id="bulkReturnYearInput" value="2026/2027" class="border rounded-lg px-3 py-2 text-xs bg-white font-bold w-28 text-slate-800">
+                    </div>
+
+                    <div class="pt-5">
+                        <button onclick="executeBulkReturnClass()" id="btnBulkReturn" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-5 py-2.5 rounded-xl shadow flex items-center gap-2">
+                            <span>✅</span> Proses Pengembalian Kolektif 1 Rombel
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Panel 2: Pemulihan Status Buku Hilang (Lost-to-Found) -->
+            <div class="bg-white rounded-2xl shadow-sm border p-6">
+                <div class="flex justify-between items-center mb-4 pb-3 border-b">
+                    <div>
+                        <h3 class="font-bold text-gray-800 text-base flex items-center gap-2">
+                            <span>🔄</span> Pemulihan Status Buku Hilang (Ditemukan Kembali / Lost-to-Found)
+                        </h3>
+                        <p class="text-xs text-gray-500 mt-1">Eksemplar buku yang sebelumnya dilaporkan hilang dan ditemukan kembali dapat langsung dipulihkan ke status TERSEDIA.</p>
+                    </div>
+                </div>
+
+                <div class="flex flex-wrap items-center gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                    <div class="flex-1 min-w-[200px]">
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Barcode Eksemplar Buku yang Ditemukan</label>
+                        <input type="text" id="revertBarcodeCode" placeholder="Cth: BKP-MAT7-001" class="border rounded-lg px-3 py-2 text-xs bg-white font-mono font-bold w-full text-slate-800">
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Kondisi Fisik Buku</label>
+                        <select id="revertCondition" class="border rounded-lg px-3 py-2 text-xs bg-white font-bold text-slate-800">
+                            <option value="BAIK">Kondisi Baik</option>
+                            <option value="RUSAK_RINGAN">Rusak Ringan (Cover/Halaman Lecet)</option>
+                            <option value="RUSAK_BERAT">Rusak Berat</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Catatan Penemuan</label>
+                        <input type="text" id="revertNote" placeholder="Ditemukan di ruang kelas / loker" class="border rounded-lg px-3 py-2 text-xs bg-white w-64 text-slate-800">
+                    </div>
+
+                    <div class="pt-5">
+                        <button onclick="executeRevertLostBook()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-5 py-2.5 rounded-xl shadow flex items-center gap-2">
+                            <span>⚡</span> Pulihkan ke Status TERSEDIA
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Panel 3: Laporan Sisa Tanggungan Buku (Termasuk Alumni / Nonaktif) -->
+            <div class="bg-white rounded-2xl shadow-sm border p-6">
+                <div class="flex justify-between items-center mb-4 pb-3 border-b">
+                    <div>
+                        <h3 class="font-bold text-gray-800 text-base flex items-center gap-2">
+                            <span>📊</span> Laporan Sisa Buku Belum Kembali (Inventaris Aktif &amp; Siswa Lulus/Alumni)
+                        </h3>
+                        <p class="text-xs text-gray-500 mt-1">Daftar siswa yang masih tercatat memegang buku fisik sekolah untuk tindak lanjut pengingat ramah.</p>
+                    </div>
+
+                    <div class="flex items-center gap-2">
+                        <select id="filterReportClass" onchange="loadUnreturnedReport()" class="border rounded-lg px-3 py-1.5 text-xs bg-white font-bold text-slate-800">
+                            <option value="ALL">Semua Kelas &amp; Alumni</option>
+                            <option value="VII-A">Kelas VII-A</option>
+                            <option value="VII-B">Kelas VII-B</option>
+                            <option value="VIII-A">Kelas VIII-A</option>
+                            <option value="IX-A">Kelas IX-A</option>
+                            <option value="ALUMNI">Alumni / Siswa Lulus</option>
+                        </select>
+                        <button onclick="loadUnreturnedReport()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs px-3 py-1.5 rounded-lg border">
+                            🔄 Muat Laporan
+                        </button>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="bg-gray-100 text-gray-600 uppercase text-[11px] font-bold border-b">
+                                <th class="py-3 px-4">Nama Siswa / NISN</th>
+                                <th class="py-3 px-4">Kelas</th>
+                                <th class="py-3 px-4">Judul Buku Belum Kembali</th>
+                                <th class="py-3 px-4">Barcode</th>
+                                <th class="py-3 px-4">Tanggal Pinjam</th>
+                                <th class="py-3 px-4 text-center">Tindakan Persuasif</th>
+                            </tr>
+                        </thead>
+                        <tbody id="unreturnedReportTableBody" class="text-xs divide-y">
+                            <tr><td colspan="6" class="text-center py-6 text-gray-400">Pilih kelas atau klik Muat Laporan untuk menampilkan data.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </main>
@@ -618,7 +766,7 @@
 
         function switchTab(tab) {
             currentTab = tab;
-            ['catalog', 'copies', 'circulation', 'members'].forEach(t => {
+            ['catalog', 'copies', 'circulation', 'members', 'yearEnd'].forEach(t => {
                 const sec = document.getElementById('section' + t.charAt(0).toUpperCase() + t.slice(1));
                 const btn = document.getElementById('tabBtn' + t.charAt(0).toUpperCase() + t.slice(1));
                 if (sec) sec.classList.add('hidden');
@@ -633,12 +781,120 @@
             if (tab === 'catalog') loadLibraryData();
             else if (tab === 'copies') loadAllCopies();
             else if (tab === 'members') loadAllMembersData();
+            else if (tab === 'yearEnd') loadUnreturnedReport();
         }
 
         function refreshCurrentTab() {
             if(currentTab === 'catalog') loadLibraryData();
             else if(currentTab === 'copies') loadAllCopies();
             else if(currentTab === 'members') loadAllMembersData();
+            else if(currentTab === 'yearEnd') loadUnreturnedReport();
+        }
+
+        // ==================== TAB 5: AKHIR TAHUN & KENAIKAN KELAS ====================
+        async function executeBulkReturnClass() {
+            const cls = document.getElementById('bulkReturnClassSelect').value;
+            const year = document.getElementById('bulkReturnYearInput').value;
+
+            if (!confirm(`Konfirmasi: Proses pengembalian kolektif seluruh buku paket untuk rombel ${cls} (Tahun ${year})?\n\nSemua eksemplar buku pinjaman rombel ini akan dikembalikan ke status TERSEDIA.`)) {
+                return;
+            }
+
+            const btn = document.getElementById('btnBulkReturn');
+            btn.disabled = true;
+            btn.innerHTML = '<span>⏳</span> Memproses pengembalian...';
+
+            try {
+                const res = await fetch('/api/elibrary/bulk-return-class', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+                    body: JSON.stringify({ className: cls, academicYear: year })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    alert(`✅ Sukses!\n${data.message}\nTotal Buku Diproses: ${data.summary.totalBooksProcessed}`);
+                    loadUnreturnedReport();
+                } else {
+                    alert('❌ Gagal: ' + data.message);
+                }
+            } catch (e) {
+                alert('Kesalahan jaringan saat memproses pengembalian massal: ' + e.message);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<span>✅</span> Proses Pengembalian Kolektif 1 Rombel';
+            }
+        }
+
+        async function executeRevertLostBook() {
+            const barcode = document.getElementById('revertBarcodeCode').value.trim();
+            const condition = document.getElementById('revertCondition').value;
+            const note = document.getElementById('revertNote').value.trim();
+
+            if (!barcode) {
+                alert('Harap isi kode barcode buku yang ditemukan.');
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/elibrary/revert-lost-status', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+                    body: JSON.stringify({ barcodeCode: barcode, condition, note })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    alert(data.message);
+                    document.getElementById('revertBarcodeCode').value = '';
+                    document.getElementById('revertNote').value = '';
+                    loadAllCopies();
+                } else {
+                    alert('❌ ' + data.message);
+                }
+            } catch (e) {
+                alert('Kesalahan jaringan: ' + e.message);
+            }
+        }
+
+        async function loadUnreturnedReport() {
+            const cls = document.getElementById('filterReportClass').value;
+            const tbody = document.getElementById('unreturnedReportTableBody');
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center py-6 text-gray-400">Memuat laporan sisa tanggungan buku...</td></tr>';
+
+            try {
+                const res = await fetch('/api/elibrary/unreturned-report?className=' + encodeURIComponent(cls), {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                const json = await res.json();
+                if (!json.success || !json.data || json.data.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" class="text-center py-6 text-emerald-600 font-bold">✨ Alhamdulillah! Tidak ada sisa tanggungan buku untuk kelas ini. Seluruh buku telah kembali.</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = '';
+                json.data.forEach(st => {
+                    st.books.forEach((b, idx) => {
+                        tbody.innerHTML += `
+                            <tr class="hover:bg-slate-50 border-b">
+                                <td class="py-2.5 px-4 font-bold text-slate-800">
+                                    ${st.studentName}
+                                    <div class="text-[10px] text-slate-400 font-mono">NISN: ${st.nisn} ${st.isAlumniOrInactive ? '<span class="text-rose-600 font-bold">(Alumni/Lulus)</span>' : ''}</div>
+                                </td>
+                                <td class="py-2.5 px-4 font-bold text-slate-700">${st.className}</td>
+                                <td class="py-2.5 px-4 text-slate-800 font-semibold">${b.title} <span class="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono">${b.type}</span></td>
+                                <td class="py-2.5 px-4 font-mono text-indigo-700 font-bold">${b.barcode}</td>
+                                <td class="py-2.5 px-4 text-slate-500">${b.borrowedAt}</td>
+                                <td class="py-2.5 px-4 text-center">
+                                    <span class="text-[11px] bg-amber-50 border border-amber-200 text-amber-800 font-bold px-2 py-1 rounded-lg">
+                                        📌 Tagih Fisik Buku
+                                    </span>
+                                </td>
+                            </tr>
+                        `;
+                    });
+                });
+            } catch (e) {
+                tbody.innerHTML = '<tr><td colspan="6" class="text-center py-6 text-rose-500 font-bold">Gagal memuat laporan: ' + e.message + '</td></tr>';
+            }
         }
 
         async function loadLibraryData() {

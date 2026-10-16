@@ -163,10 +163,23 @@
                     android:id="@+id/chipCatGeneral"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
+                    android:layout_marginEnd="6dp"
                     android:background="#F1F5F9"
                     android:paddingHorizontal="12dp"
                     android:paddingVertical="5dp"
                     android:text="📢 UMUM"
+                    android:textColor="#475569"
+                    android:textSize="11sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/chipCatLetter"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:background="#F1F5F9"
+                    android:paddingHorizontal="12dp"
+                    android:paddingVertical="5dp"
+                    android:text="📜 SURAT RESMI"
                     android:textColor="#475569"
                     android:textSize="11sp"
                     android:textStyle="bold" />

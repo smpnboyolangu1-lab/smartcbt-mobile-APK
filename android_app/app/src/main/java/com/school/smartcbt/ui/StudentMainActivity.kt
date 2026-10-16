@@ -5111,9 +5111,9 @@ class StudentMainActivity : AppCompatActivity() {
             cardLayout.addView(tvBarcodeText)
         }
 
-        // Info RFID / NFC
-        val tvRfidNote = TextView(this).apply {
-            text = "💡 Kompatibel dengan Scanner Laser Perpustakaan, Barcode UKS, Gate Masuk/Pulang & Kartu RFID Sekolah"
+        // Info Kompatibilitas Kartu
+        val tvCardNote = TextView(this).apply {
+            text = "💡 Kompatibel dengan Scanner Laser Perpustakaan, Barcode UKS, & Gate Masuk/Pulang Sekolah"
             setTextColor(Color.parseColor("#1D4ED8"))
             textSize = 9f
             gravity = Gravity.CENTER
@@ -5127,7 +5127,7 @@ class StudentMainActivity : AppCompatActivity() {
                 topMargin = (10 * density).toInt()
             }
         }
-        cardLayout.addView(tvRfidNote)
+        cardLayout.addView(tvCardNote)
 
         cardId.addView(cardLayout)
         root.addView(cardId)

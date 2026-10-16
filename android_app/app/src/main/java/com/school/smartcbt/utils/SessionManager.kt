@@ -115,6 +115,9 @@ class SessionManager(private val context: Context) {
     }
     fun getActiveRole(): String = prefs.getString("user_active_role", getRole()) ?: getRole()
     fun setActiveRole(role: String) = prefs.edit().putString("user_active_role", role).apply()
+
+    fun getEmergencyContactsJson(): String? = prefs.getString("key_uks_emergency_contacts_json", null)
+    fun saveEmergencyContactsJson(json: String) = prefs.edit().putString("key_uks_emergency_contacts_json", json).apply()
     
     fun isOutsideSchoolOrCellular(): Boolean {
         return try {

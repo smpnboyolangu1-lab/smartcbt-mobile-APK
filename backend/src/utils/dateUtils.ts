@@ -133,3 +133,13 @@ export function getWibTimeColon(d: Date = new Date(), includeSeconds: boolean = 
     const formatted = formatTimeWib(d, includeSeconds);
     return formatted.replace(/\./g, ':');
 }
+
+/**
+ * A-10: Penentuan tanggal hari sekolah resmi (Asia/Jakarta, WIB)
+ * Mencegah bug batas tanggal di mana pemindaian sebelum pukul 07:00:00 WIB
+ * keliru tercatat sebagai tanggal hari kemarin karena perbedaan UTC.
+ */
+export function schoolDay(d: Date = new Date()): string {
+    return getWibDayBounds(d).ymd;
+}
+

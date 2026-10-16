@@ -1063,6 +1063,18 @@ export const syncExamData = async (req: any, res: Response) => {
             return res.status(403).json({ message: 'Akses ditolak. Sesi ujian ini bukan milik akun Anda.' });
         }
 
+        // B-02 & P0: Anti-tamper lock - jika status sudah SUBMITTED/COMPLETED, tolak modifikasi lanjutan
+        if (existingRecord.status === 'SUBMITTED' || existingRecord.status === 'COMPLETED' || existingRecord.status === 'SELESAI') {
+            return res.json({
+                success: true,
+                message: 'Ujian ini sudah diselesaikan dan lembar jawaban telah terkunci permanen di Meja Proktor.',
+                score: existingRecord.score,
+                status: existingRecord.status,
+                alreadyFinished: true,
+                serverNow: new Date().toISOString()
+            });
+        }
+
         let calculatedScore: number | null = existingRecord.score;
 
         // Jika selesai ujian, hitung skor otomatis berdasarkan kunci jawaban PG

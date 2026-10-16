@@ -58,6 +58,12 @@ export async function initTahfizTables() {
         ayat_end INTEGER NOT NULL,
         metode TEXT NOT NULL DEFAULT 'LANGSUNG',
         audio_record_url TEXT,
+        scheduled_date TEXT,
+        scheduled_session TEXT,
+        target_guru_id TEXT,
+        target_guru_name TEXT,
+        meeting_location TEXT,
+        student_notes TEXT,
         submission_date TEXT NOT NULL,
         status TEXT NOT NULL DEFAULT 'MENUNGGU',
         teacher_notes TEXT,
@@ -65,6 +71,16 @@ export async function initTahfizTables() {
         updated_at ${dtType} DEFAULT CURRENT_TIMESTAMP
       );
     `);
+
+    // Migration alter columns for existing tables
+    try {
+      await prisma.$executeRawUnsafe(`ALTER TABLE tahfiz_setoran ADD COLUMN IF NOT EXISTS scheduled_date TEXT;`);
+      await prisma.$executeRawUnsafe(`ALTER TABLE tahfiz_setoran ADD COLUMN IF NOT EXISTS scheduled_session TEXT;`);
+      await prisma.$executeRawUnsafe(`ALTER TABLE tahfiz_setoran ADD COLUMN IF NOT EXISTS target_guru_id TEXT;`);
+      await prisma.$executeRawUnsafe(`ALTER TABLE tahfiz_setoran ADD COLUMN IF NOT EXISTS target_guru_name TEXT;`);
+      await prisma.$executeRawUnsafe(`ALTER TABLE tahfiz_setoran ADD COLUMN IF NOT EXISTS meeting_location TEXT;`);
+      await prisma.$executeRawUnsafe(`ALTER TABLE tahfiz_setoran ADD COLUMN IF NOT EXISTS student_notes TEXT;`);
+    } catch (e) {}
 
     // 4. Table: tahfiz_penilaian
     await prisma.$executeRawUnsafe(`

@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/db';
 import { sendFcmToUser } from '../services/fcmService';
+import { sendSingleWhatsApp } from '../services/whatsappBlastService';
 
 // =========================================================================
 // 1. SISWA AJUKAN LAYANAN UKS (DARI APK SISWA)
@@ -155,6 +156,43 @@ export const processUksPatientStatus = async (req: Request, res: Response) => {
 
         if (!currentVisit) {
             return res.status(404).json({ success: false, message: 'Data kunjungan UKS tidak ditemukan' });
+        }
+
+        // 1. PENGECEKAN ALERGI OBAT OTOMATIS (HARD-STOP KEAMANAN PASIEN)
+        if (medicine) {
+            const studentAllergies = (currentVisit.user?.allergies || '').toLowerCase();
+            let studentCardAllergy = '';
+            try {
+                const healthCard = await (prisma as any).uksStudentHealthData.findUnique({
+                    where: { siswaId: currentVisit.userId }
+                });
+                if (healthCard?.alergi) {
+                    studentCardAllergy = healthCard.alergi.toLowerCase();
+                }
+            } catch (_) {}
+
+            const combinedAllergies = `${studentAllergies} ${studentCardAllergy}`.trim();
+            const medLower = String(medicine).toLowerCase();
+
+            if (combinedAllergies && (combinedAllergies.includes(medLower) || (medLower.includes('paracetamol') && combinedAllergies.includes('paracetamol')) || (medLower.includes('aspirin') && combinedAllergies.includes('aspirin')) || (medLower.includes('amoxicillin') && combinedAllergies.includes('amoxicillin')) || (medLower.includes('antibiotik') && combinedAllergies.includes('antibiotik')))) {
+                return res.status(400).json({
+                    success: false,
+                    message: `⚠️ PERINGATAN BAHAYA ALERGI: Siswa ${currentVisit.user?.name || 'Siswa'} memiliki riwayat alergi terhadap obat "${medicine}" (Catatan Alergi: "${combinedAllergies}"). Pemberian obat ini dibatalkan demi keselamatan pasien!`
+                });
+            }
+
+            // 2. PENGECEKAN TANGGAL KADALUWARSA OBAT
+            try {
+                const medRecord = await (prisma as any).medicine.findFirst({
+                    where: { name: { contains: medicine } }
+                });
+                if (medRecord && medRecord.expiryDate && new Date(medRecord.expiryDate) < new Date()) {
+                    return res.status(400).json({
+                        success: false,
+                        message: `⚠️ PERINGATAN KADALUWARSA: Obat "${medRecord.name}" telah melewati batas tanggal kadaluwarsa (${new Date(medRecord.expiryDate).toLocaleDateString('id-ID')}). Obat kadaluwarsa tidak boleh diberikan kepada siswa!`
+                    });
+                }
+            } catch (_) {}
         }
 
         const isFinishing = ['FINISHED', 'BACK_TO_CLASS', 'PICKED_UP'].includes(visitStatus);
@@ -324,8 +362,18 @@ export const processUksPatientStatus = async (req: Request, res: Response) => {
                             title: notifTitle,
                             body: notifMsg
                         });
+
+                        // Pengiriman WhatsApp Darurat ke Nomor Orang Tua
+                        const parentPhone = updated.pickupParentPhone || updated.user?.parentPhone;
+                        if (parentPhone) {
+                            const cleanPhone = String(parentPhone).replace(/[^0-9]/g, '');
+                            if (cleanPhone.length >= 9) {
+                                const waMsg = `*PEMBERITAHUAN UKS SMP NEGERI 1 BOYOLANGU*\n\nYth. Orang Tua/Wali dari Ananda *${updated.user?.name || 'Siswa'}* (${updated.user?.className || '-'}),\n\nSaat ini ananda sedang berada di ruang Unit Kesehatan Sekolah (UKS) dan disarankan untuk dijemput beristirahat di rumah.\n\nMohon Bapak/Ibu dapat menuju ke Pos Satpam / Ruang UKS SMPN 1 Boyolangu untuk proses penjemputan ananda.\n\n_Pesan otomatis resmi Sistem Smart School SIBOY 2026._`;
+                                await sendSingleWhatsApp(cleanPhone, waMsg).catch(err => console.warn('[WA UKS Alert Error]:', err));
+                            }
+                        }
                     } catch (fe: any) {
-                        console.warn('[UKS Pickup] Error sending FCM:', fe.message);
+                        console.warn('[UKS Pickup] Error sending notification/WhatsApp:', fe.message);
                     }
                 })();
             }
@@ -543,3 +591,67 @@ export const getComprehensiveUksReport = async (req: Request, res: Response) => 
         return res.status(500).json({ success: false, message: 'Gagal membuat laporan UKS: ' + err.message });
     }
 };
+
+// =========================================================================
+// 8. MANAJEMEN KONTAK DARURAT & HOTLINE UKS (KONTROL DARI PORTAL KE APK)
+// =========================================================================
+
+const DEFAULT_EMERGENCY_CONTACTS = [
+    { id: '1', name: 'Puskesmas Boyolangu', phone: '(0355) 321852', cleanPhone: '0355321852', icon: '🏥', category: 'Puskesmas', active: true },
+    { id: '2', name: 'Ambulans Gawat Darurat (PSC 119)', phone: '119', cleanPhone: '119', icon: '🚑', category: 'Ambulans', active: true },
+    { id: '3', name: 'Pos Medis & Satpam Sekolah', phone: '08123456789', cleanPhone: '08123456789', icon: '🏫', category: 'Sekolah', active: true },
+    { id: '4', name: 'Polsek Boyolangu', phone: '(0355) 321110', cleanPhone: '0355321110', icon: '👮', category: 'Polisi', active: true }
+];
+
+export const getUksEmergencyContacts = async (req: Request, res: Response) => {
+    try {
+        const setting = await prisma.systemSetting.findUnique({
+            where: { key: 'uks_emergency_contacts' }
+        });
+
+        if (setting && setting.value) {
+            try {
+                const parsed = JSON.parse(setting.value);
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                    return res.json({ success: true, data: parsed });
+                }
+            } catch (_) {}
+        }
+
+        return res.json({ success: true, data: DEFAULT_EMERGENCY_CONTACTS });
+    } catch (err: any) {
+        return res.json({ success: true, data: DEFAULT_EMERGENCY_CONTACTS });
+    }
+};
+
+export const saveUksEmergencyContacts = async (req: Request, res: Response) => {
+    try {
+        const { contacts } = req.body;
+        if (!contacts || !Array.isArray(contacts)) {
+            return res.status(400).json({ success: false, message: 'Format data kontak tidak valid (harus array).' });
+        }
+
+        const jsonStr = JSON.stringify(contacts);
+
+        await prisma.systemSetting.upsert({
+            where: { key: 'uks_emergency_contacts' },
+            create: {
+                key: 'uks_emergency_contacts',
+                value: jsonStr
+            },
+            update: {
+                value: jsonStr
+            }
+        });
+
+        return res.json({
+            success: true,
+            message: 'Kontak darurat UKS berhasil diperbarui di portal dan disinkronkan ke seluruh APK client.',
+            data: contacts
+        });
+    } catch (err: any) {
+        console.error('Error saveUksEmergencyContacts:', err);
+        return res.status(500).json({ success: false, message: 'Gagal menyimpan kontak darurat: ' + err.message });
+    }
+};
+

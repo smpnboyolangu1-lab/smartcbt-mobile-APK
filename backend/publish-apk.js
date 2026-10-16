@@ -37,19 +37,19 @@ async function main() {
         console.log(`Copied APK to: ${dest}`);
     }
 
-    const releaseNotes = 'Pembaruan Smart CBT & School v2.9.3 (Build 173):\n' +
-        '1. Stabilitas Pembaruan: Pengecekan versi definitif tanpa perulangan dialog.\n' +
-        '2. Mode Notifikasi Ringan: Latar belakang bersih tanpa notifikasi berjalan terus-menerus.\n' +
-        '3. Keamanan Presensi: QR Statis dinonaktifkan total, digantikan Dynamic Class QR Session.\n' +
-        '4. Notifikasi Suara Pengurus: Suara TTS otomatis saat presensi terbaca oleh pengurus kelas.\n' +
-        '5. Notifikasi Orang Tua: Laporan keterlambatan dikirimkan langsung ke WhatsApp orang tua.';
+    const releaseNotes = 'Pembaruan Smart CBT & School v2.9.4 (Build 174):\n' +
+        '1. Perpustakaan Bebas Denda & Ijazah: Denda uang ditiadakan 100%, jaminan tidak ada penahanan ijazah/rapor.\n' +
+        '2. Pengembalian Massal Rombel: Fitur pengembalian kolektif buku paket per rombel saat kenaikan kelas & laporan sisa buku.\n' +
+        '3. Pemulihan Buku Hilang (Lost-to-Found): Alur pemulihan status buku hilang kembali ke TERSEDIA tanpa biaya denda.\n' +
+        '4. Batas Pinjam Kategori: Buku referensi hanya dibaca di tempat, kuota maks 3 buku umum per siswa.\n' +
+        '5. UKS & PMR Terpadu: Presensi otomatis IZIN_UKS (anti salah alpa), notifikasi darurat WhatsApp ke orang tua, dan monitoring bed real-time.';
 
     // 1. Update appVersionConfig for all keys (latest, app_latest, cbt_latest)
     await prisma.appVersionConfig.updateMany({
         data: {
-            versionCode: 173,
-            versionName: '2.9.3',
-            downloadUrl: 'https://github.com/adiprayitno160-glitch/smartcbt-mobile-APK/releases/download/v2.9.3/SmartCBT_v2.9.3.apk',
+            versionCode: 174,
+            versionName: '2.9.4',
+            downloadUrl: 'https://github.com/smpnboyolangu1-lab/smartcbt-mobile-APK/releases/download/v2.9.4/SmartCBT_v2.9.4.apk',
             fileSizeMb,
             releaseNotes,
             isForceUpdate: true
@@ -60,11 +60,11 @@ async function main() {
     // 2. Update appVersionRelease for sideload controller
     if (prisma.appVersionRelease) {
         await prisma.appVersionRelease.upsert({
-        where: { versionCode: 173 },
+        where: { versionCode: 174 },
         update: {
-            nomorVersi: '2.9.3',
+            nomorVersi: '2.9.4',
             changelog: releaseNotes,
-            fileApkUrl: 'https://github.com/adiprayitno160-glitch/smartcbt-mobile-APK/releases/download/v2.9.3/SmartCBT_v2.9.3.apk',
+            fileApkUrl: 'https://github.com/smpnboyolangu1-lab/smartcbt-mobile-APK/releases/download/v2.9.4/SmartCBT_v2.9.4.apk',
             fileSizeMb,
             checksumSha256: sha256,
             isForceUpdate: true,
@@ -72,10 +72,10 @@ async function main() {
             status: 'ACTIVE'
         },
         create: {
-            nomorVersi: '2.9.3',
-            versionCode: 173,
+            nomorVersi: '2.9.4',
+            versionCode: 174,
             changelog: releaseNotes,
-            fileApkUrl: 'https://github.com/adiprayitno160-glitch/smartcbt-mobile-APK/releases/download/v2.9.3/SmartCBT_v2.9.3.apk',
+            fileApkUrl: 'https://github.com/smpnboyolangu1-lab/smartcbt-mobile-APK/releases/download/v2.9.4/SmartCBT_v2.9.4.apk',
             fileSizeMb,
             checksumSha256: sha256,
             isForceUpdate: true,

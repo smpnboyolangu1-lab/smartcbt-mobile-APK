@@ -207,7 +207,7 @@ class PdfViewerActivity : AppCompatActivity() {
                     canvas.drawText("Nama : $studentName", 60f, currentY + 65f, paint)
                     canvas.drawText("NISN : $nisn", 60f, currentY + 85f, paint)
                     canvas.drawText("Kelas : $className", 60f, currentY + 105f, paint)
-                    canvas.drawText("UID RFID : [04:B2:7F:A1]", 60f, currentY + 125f, paint)
+                    canvas.drawText("Digital Pass : [VERIFIED]", 60f, currentY + 125f, paint)
                     canvas.drawText("Berlaku Hingga : 30 Juni 2027", 350f, currentY + 125f, paint)
                     currentY += 190f
                 } else {

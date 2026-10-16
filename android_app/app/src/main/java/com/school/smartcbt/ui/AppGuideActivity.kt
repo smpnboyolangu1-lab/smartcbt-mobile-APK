@@ -313,18 +313,18 @@ class AppGuideActivity : AppCompatActivity() {
     private fun getStudentGuides(): List<GuideItem> {
         return listOf(
             GuideItem(
-                title = "Presensi Pintu Gerbang Sekolah",
+                title = "Presensi Pagi (3 Jalur Resmi)",
                 icon = "🏫",
-                badge = "GERBANG PAGI",
-                summary = "Mencatat kehadiran siswa saat memasuki pintu gerbang sekolah di pagi hari.",
+                badge = "PRESENSI MASUK",
+                summary = "Sistem presensi masuk tiga jalur sesuai jadwal operasional resmi sekolah.",
                 steps = listOf(
-                    "Buka aplikasi Smart CBT sebelum memasuki area pintu gerbang.",
-                    "Tekan tombol bulat melingkar 'Scan QR' di bagian tengah bawah navigasi.",
-                    "Arahkan kamera ke QR Code Gerbang Sekolah yang terpasang di pos gerbang.",
-                    "Sistem akan memverifikasi koordinat GPS sekolah dan mencatat status Masuk (Hadir / Terlambat).",
-                    "Orang tua akan langsung menerima notifikasi kehadiran seketika."
+                    "Jalur A (06:00 - 07:00 WIB): Scan QR Statis di pintu ruang kelas masing-masing dengan GPS sekolah aktif (Hadir Tepat Waktu).",
+                    "Jalur B (06:00 - 07:05 WIB): Jika GPS error/mati, scan Barcode Dinamis di HP Pengurus Kelas tanpa validasi GPS. Pukul 07:00:01 - 07:05:00 WIB status tercatat Terlambat (WhatsApp otomatis ke orang tua).",
+                    "Pukul 07:05:00 WIB: Seluruh scan QR kelas & barcode dinamis pengurus DITUTUP TOTAL.",
+                    "Jalur C (07:05:01 - 08:00 WIB): Siswa terlambat wajib scan QR Statis Terlambat di Ruang BK. Status Terlambat (WhatsApp otomatis ke orang tua).",
+                    "Setelah 08:00 WIB: Seluruh jalur scan ditutup. Siswa wajib lapor ke Guru BK untuk input presensi manual dengan alasan keterlambatan."
                 ),
-                tips = "Batas waktu masuk normal adalah pukul 07:15 WIB. Setelah pukul 07:15 WIB status otomatis tercatat Terlambat."
+                tips = "Hadir sebelum pukul 07:00:00 WIB di ruang kelas agar tercatat Hadir Tepat Waktu dan menghindari poin keterlambatan."
             ),
             GuideItem(
                 title = "Presensi Mata Pelajaran di Kelas",
@@ -411,17 +411,17 @@ class AppGuideActivity : AppCompatActivity() {
     private fun getParentGuides(): List<GuideItem> {
         return listOf(
             GuideItem(
-                title = "Pemantauan Kehadiran Siswa Real-Time",
+                title = "Pemantauan Kehadiran & Notifikasi Kedisiplinan",
                 icon = "📱",
-                badge = "PRESENSI GERBANG",
-                summary = "Memantau jam kedatangan dan kepulangan putra/putri tercinta di sekolah.",
+                badge = "PRESENSI & NOTIFIKASI",
+                summary = "Memantau jam kedatangan, keterlambatan, dan kepulangan putra/putri tercinta.",
                 steps = listOf(
-                    "Buka aplikasi Smart CBT akun Orang Tua.",
-                    "Pada dashboard beranda, status kehadiran hari ini langsung muncul seketika.",
-                    "Tertera jam tepat siswa memindai QR gerbang masuk dan gerbang pulang.",
-                    "Jika siswa terlambat, sistem mencatat menit keterlambatan."
+                    "Buka aplikasi Smart CBT akun Orang Tua untuk memantau status kehadiran real-time.",
+                    "Notifikasi WhatsApp otomatis dikirim khusus jika siswa terlambat (tertera waktu tiba, menit keterlambatan, dan jalur presensi).",
+                    "Pukul 15:00 WIB: Notifikasi Push di aplikasi otomatis dikirim jika siswa tidak hadir tanpa surat izin (Alpa).",
+                    "Presensi tepat waktu dan kepulangan normal terpantau langsung melalui banner notifikasi aplikasi."
                 ),
-                tips = "Pastikan notifikasi aplikasi tetap aktif agar pembaruan kehadiran dapat diterima secara otomatis."
+                tips = "Pastikan nomor HP WhatsApp orang tua telah terdaftar dan notifikasi aplikasi aktif."
             ),
             GuideItem(
                 title = "Formulir Biodata Siswa & Foto-ke-PDF Dokumen",
@@ -543,15 +543,18 @@ class AppGuideActivity : AppCompatActivity() {
                 )
             ),
             GuideItem(
-                title = "Presensi Manual Siswa Tanpa HP",
+                title = "Presensi Keterlambatan & Manual BK",
                 icon = "✍️",
-                badge = "PELAYANAN KHUSUS",
-                summary = "Membantu mencatatkan kehadiran siswa yang HP-nya tertinggal atau kehabisan baterai.",
+                badge = "KETERTIBAN & BK",
+                summary = "Pengelolaan barcode keterlambatan (07:05-08:00 WIB) dan presensi manual setelah 08:00 WIB.",
                 steps = listOf(
-                    "Pilih menu 'Presensi Manual Siswa' di modul BK.",
-                    "Cari siswa berdasarkan nama atau NISN.",
-                    "Pilih status kehadiran (Hadir, Sakit, Izin) dan simpan catatan."
-                )
+                    "QR Statis Ruang BK aktif otomatis pukul 07:05:01 s/d 08:00:00 WIB untuk siswa terlambat.",
+                    "Setelah pukul 08:00:00 WIB, seluruh scan QR otomatis ditutup oleh server.",
+                    "Siswa yang datang setelah pukul 08:00 WIB diinput manual melalui menu 'Presensi Manual BK'.",
+                    "Wajib mengisi alasan keterlambatan untuk setiap siswa yang datang setelah pukul 08:00 WIB.",
+                    "Notifikasi WhatsApp otomatis terkirim ke orang tua siswa saat presensi terlambat disimpan."
+                ),
+                tips = "Alasan keterlambatan wajib diisi untuk siswa yang hadir setelah pukul 08:00 WIB."
             )
         )
     }

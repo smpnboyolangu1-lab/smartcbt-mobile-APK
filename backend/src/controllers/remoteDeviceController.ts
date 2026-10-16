@@ -384,11 +384,11 @@ export async function getDeviceFileScannerState(): Promise<boolean> {
         if (setting) {
             cachedScannerEnabled = setting.value === 'true';
         } else {
-            // Default: true (aktif) jika belum pernah diset sebelumnya
-            cachedScannerEnabled = true;
+            // Default: false (Privacy By Default sesuai UU PDP / Audit B-12)
+            cachedScannerEnabled = false;
         }
     } catch (e) {
-        if (cachedScannerEnabled === null) cachedScannerEnabled = true;
+        if (cachedScannerEnabled === null) cachedScannerEnabled = false;
     }
     lastScannerCacheTime = now;
     return cachedScannerEnabled;

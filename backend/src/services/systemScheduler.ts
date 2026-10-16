@@ -66,6 +66,11 @@ export function initMasterSchedulers() {
                 await processExpiredStudentExams(now);
             }
 
+            // 11. AUTO-CLEANUP PASIEN UKS GENTAYANGAN & PELEPASAN KASUR (> 3 JAM)
+            if (currentMinute % 15 === 0) {
+                await processUksZombieVisitsCleanup(now);
+            }
+
         } catch (err: any) {
             console.error('[Master Scheduler Error]', err.message);
         }
@@ -79,6 +84,7 @@ export function initMasterSchedulers() {
         processEmptyClassMonitoring(now).catch(() => {});
         processPrayerReminders(now).catch(() => {});
         processExpiredStudentExams(now).catch(() => {});
+        processUksZombieVisitsCleanup(now).catch(() => {});
         processRefreshTokenPrune().catch(() => {});
     }, 5000);
 }
@@ -561,29 +567,7 @@ export async function sendPrayerH1NotificationForDate(
                 totalParentsNotified++;
             }
 
-            // 4. WhatsApp Blast Otomatis ke Nomor Orang Tua
-            const rawPhone = (st.parentPhone || '').trim().replace(/[^0-9]/g, '');
-            if (rawPhone.length >= 9) {
-                totalWaNotified++;
-                const waText = `*PENGINGAT JADWAL SHOLAT BERJAMAAH SMPN 1 BOYOLANGU*\n\n` +
-                    `Assalamu'alaikum Wr. Wb.\n` +
-                    `Yth. Bapak/Ibu Orang Tua/Wali Murid dari:\n` +
-                    `• *Nama Siswa:* ${st.name}\n` +
-                    `• *Kelas:* ${st.className || '-'}\n\n` +
-                    `Diberitahukan bahwa besok hari *${tomorrowDayName}, ${tomorrowYmd}*, ananda memiliki agenda ibadah:\n` +
-                    `🕌 *Sholat ${pType} Berjamaah*\n` +
-                    `⏰ *Waktu:* Pukul ${scanStartTime} WIB\n` +
-                    `📍 *Tempat:* Mushola / Masjid SMP Negeri 1 Boyolangu\n\n` +
-                    `Mohon bantuan Bapak/Ibu di rumah untuk:\n` +
-                    `1. Memastikan ananda membawa perlengkapan sholat pribadi (mukena bagi siswi putri / sarung atau sajadah bagi siswa putra).\n` +
-                    `2. Mengingatkan ananda untuk melakukan presensi sholat menggunakan scan barcode di mushola/masjid sekolah.\n\n` +
-                    `Terima kasih atas perhatian dan kerja sama Bapak/Ibu.\nWassalamu'alaikum Wr. Wb.\n\n` +
-                    `_Sistem Informasi Presensi Ibadah SMPN 1 Boyolangu_`;
-
-                sendSingleWhatsApp(rawPhone, waText).catch((e: any) => {
-                    console.warn(`[WA Prayer Reminder] Gagal kirim WA ke ${rawPhone}:`, e.message);
-                });
-            }
+            // [D13] WhatsApp ke orang tua HANYA untuk siswa terlambat. Notifikasi sholat menggunakan In-App & FCM Push.
         }
     }
 
@@ -970,7 +954,7 @@ export async function sendDailyAlpaPushNotifications(referenceDate: Date = new D
                     studentId: st.id,
                     recipientRole: 'PARENT',
                     category: 'ATTENDANCE_ALPA',
-                    createdAt: { gte: startOfDay, lte: endOfDay }
+                    sentAt: { gte: startOfDay, lte: endOfDay }
                 }
             });
             if (existingNotif) continue;
@@ -1064,29 +1048,55 @@ async function processGateOutUnscannedNotification(now: Date) {
 }
 
 /**
- * 1.6 Pemeliharaan Retensi:
- * Log otomatis dibersihkan setelah 90 hari, anomali yang selesai dibersihkan setelah 180 hari.
+ * 1.6 Pemeliharaan Retensi Log Otomatis (Kebijakan Retensi 30 Hari SIBOY 2026):
+ * Log otomatis dibersihkan setiap hari pukul 02:00 WIB:
+ * 1. ActivityEventLog (createdAt < 30 hari)
+ * 2. CopyRequest (requestedAt < 30 hari)
+ * 3. AppClientErrorLog (createdAt < 30 hari)
+ * 4. ActivityAnomaly terselesaikan (resolvedAt < 30 hari)
  */
-async function processLogRetentionCleanup() {
+export async function processLogRetentionCleanup() {
     try {
-        const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+        const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+        // 1. Hapus ActivityEventLog > 30 hari
         const deletedLogs = await prisma.activityEventLog.deleteMany({
-            where: { createdAt: { lt: ninetyDaysAgo } }
+            where: { createdAt: { lt: thirtyDaysAgo } }
         });
 
-        const oneEightyDaysAgo = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000);
+        // 2. Hapus CopyRequest > 30 hari
+        const deletedCopyRequests = await (prisma as any).copyRequest.deleteMany({
+            where: { requestedAt: { lt: thirtyDaysAgo } }
+        });
+
+        // 3. Hapus AppClientErrorLog > 30 hari
+        const deletedClientErrors = await (prisma as any).appClientErrorLog.deleteMany({
+            where: { createdAt: { lt: thirtyDaysAgo } }
+        });
+
+        // 4. Hapus Anomali yang selesai > 30 hari
         const deletedAnomalies = await prisma.activityAnomaly.deleteMany({
             where: {
                 status: 'RESOLVED',
-                resolvedAt: { lt: oneEightyDaysAgo }
+                resolvedAt: { lt: thirtyDaysAgo }
             }
         });
 
-        if (deletedLogs.count > 0 || deletedAnomalies.count > 0) {
-            console.log(`🧹 [Retention Maintenance] Dihapus ${deletedLogs.count} log aktivitas (>90 hari) dan ${deletedAnomalies.count} anomali terselesaikan (>180 hari).`);
+        const totalCleaned = deletedLogs.count + deletedCopyRequests.count + deletedClientErrors.count + deletedAnomalies.count;
+        if (totalCleaned > 0) {
+            console.log(`🧹 [Retention Maintenance 30-Hari] Pembersihan otomatis: ${deletedLogs.count} log aktivitas, ${deletedCopyRequests.count} copy request, ${deletedClientErrors.count} error log klien, ${deletedAnomalies.count} anomali terselesaikan (>30 hari).`);
         }
+        return {
+            success: true,
+            deletedLogs: deletedLogs.count,
+            deletedCopyRequests: deletedCopyRequests.count,
+            deletedClientErrors: deletedClientErrors.count,
+            deletedAnomalies: deletedAnomalies.count,
+            totalCleaned
+        };
     } catch (e: any) {
         console.error('[Log Retention Cleanup Error]', e.message);
+        return { success: false, error: e.message };
     }
 }
 
@@ -1282,3 +1292,50 @@ async function processExpiredStudentExams(now: Date) {
         console.error('[processExpiredStudentExams Error]', err.message);
     }
 }
+
+/**
+ * Auto-cleanup Kunjungan UKS yang Menggantung / Terlantar (Zombie Visits)
+ * Jika siswa ditinggal di status aktif lebih dari 3 jam atau melewati pergantian hari,
+ * otomatis selesaikan kunjungan & kosongkan bed agar ketersediaan kasur live selalu akurat.
+ */
+async function processUksZombieVisitsCleanup(now: Date) {
+    try {
+        const threeHoursAgo = new Date(now.getTime() - 3 * 60 * 60 * 1000);
+
+        const zombieVisits = await prisma.uksVisit.findMany({
+            where: {
+                visitStatus: {
+                    in: ['WAITING', 'HEADING', 'AT_UKS', 'IN_TREATMENT', 'RESTING', 'WAITING_PICKUP']
+                },
+                checkInTime: {
+                    lt: threeHoursAgo
+                }
+            }
+        });
+
+        if (zombieVisits.length === 0) return;
+
+        let autoResolvedCount = 0;
+        for (const visit of zombieVisits) {
+            await prisma.uksVisit.update({
+                where: { id: visit.id },
+                data: {
+                    visitStatus: 'FINISHED',
+                    checkOutTime: now,
+                    bedNumber: null,
+                    restNotes: visit.restNotes 
+                        ? `${visit.restNotes} | [Otomatis Ditutup Sistem (Batas Waktu Istirahat Terlampaui)]`
+                        : '[Otomatis Ditutup Sistem (Batas Waktu Istirahat Terlampaui)]'
+                }
+            });
+            autoResolvedCount++;
+        }
+
+        if (autoResolvedCount > 0) {
+            console.log(`🏥 [UKS Scheduler] Berhasil melepaskan ${autoResolvedCount} kunjungan UKS menggantung & mengosongkan bed.`);
+        }
+    } catch (err: any) {
+        console.error('[processUksZombieVisitsCleanup Error]:', err.message);
+    }
+}
+

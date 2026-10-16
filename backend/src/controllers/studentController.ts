@@ -1143,7 +1143,7 @@ export const getStudentNotifications = async (req: Request, res: Response): Prom
     // Filter ketat notifikasi siswa:
     // 1. Notifikasi personal siswa (studentId atau recipientId sama persis dengan id siswa).
     // 2. Notifikasi broadcast kelas (className sama, TAPI studentId null/kosong dan recipientId null/kosong).
-    // Ini menjamin notifikasi personal kelengkapan berkas/biodata/peringatan nama A tidak pernah bocor ke nama B!
+    // 3. Notifikasi broadcast umum seluruh sekolah (className null/kosong, studentId null, recipientId null).
     const whereCondition: any = {
       recipientRole: { in: ['STUDENT', 'ALL'] },
       OR: [
@@ -1152,6 +1152,20 @@ export const getStudentNotifications = async (req: Request, res: Response): Prom
         {
           AND: [
             { className: student.className },
+            { studentId: null },
+            { recipientId: null }
+          ]
+        },
+        {
+          AND: [
+            { className: null },
+            { studentId: null },
+            { recipientId: null }
+          ]
+        },
+        {
+          AND: [
+            { className: '' },
             { studentId: null },
             { recipientId: null }
           ]

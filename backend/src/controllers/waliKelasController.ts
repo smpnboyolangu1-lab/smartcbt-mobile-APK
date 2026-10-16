@@ -543,10 +543,22 @@ export const recordManualAttendanceByWali = async (req: Request, res: Response) 
         });
 
         if (approvedSickToday) {
-            return res.status(400).json({
-                success: false,
-                message: `🔒 Absensi Terkunci: Siswa ${student.name} tercatat SAKIT resmi yang telah disetujui oleh Guru BK hari ini.`
-            });
+            // [T-05] A10 Lock Sakit: Wali Kelas mencatat kehadiran fisik siswa
+            await (prisma as any).studentLeaveRequest.update({
+                where: { id: approvedSickToday.id },
+                data: {
+                    status: 'REVOKED',
+                    rejectionNote: `Izin sakit dicabut otomatis karena Wali Kelas (${user.name}) mencatat kehadiran fisik siswa.`
+                }
+            }).catch(() => null);
+
+            await prisma.attendance.deleteMany({
+                where: {
+                    studentId: student.id,
+                    status: { in: ['SICK', 'SAKIT'] },
+                    scanTime: { gte: startOfDay, lte: endOfDay }
+                }
+            }).catch(() => null);
         }
 
         const scanType = req.body.type === 'GATE_OUT' ? 'GATE_OUT' : 'GATE_IN';

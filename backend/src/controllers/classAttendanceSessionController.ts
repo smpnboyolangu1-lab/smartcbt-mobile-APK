@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import crypto from 'crypto';
 import prisma from '../utils/db';
 import { sendFcmToUser } from '../services/fcmService';
+import { sendSingleWhatsApp } from '../services/whatsappBlastService';
 
 // Format date in WIB (Asia/Jakarta, UTC+7)
 export function getWibDateKey(date: Date = new Date()): string {
@@ -60,12 +61,28 @@ export async function openClassAttendanceSession(req: Request, res: Response) {
         const resolvedClassName = targetClass ? targetClass.name : (className || classId);
 
         const dateKey = getWibDateKey();
-        const { hour } = getWibHourMinute();
+        const { hour, timeStr } = getWibHourMinute();
 
         // Tipe sesi: MASUK atau PULANG
         let sessionType = (type || '').toUpperCase();
         if (!['MASUK', 'PULANG'].includes(sessionType)) {
             sessionType = hour < 11 ? 'MASUK' : 'PULANG';
+        }
+
+        // Batas waktu: Sesi masuk di kelas hanya dapat dibuka pukul 06:00 - 07:05 WIB
+        if (sessionType === 'MASUK') {
+            if (timeStr < '06:00') {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Sesi presensi masuk di kelas baru dapat dibuka mulai pukul 06:00 WIB.'
+                });
+            }
+            if (timeStr > '07:05') {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Sesi presensi masuk di kelas ditutup pukul 07:05 WIB. Siswa yang terlambat diarahkan scan di Ruang BK (07:05 - 08:00 WIB).'
+                });
+            }
         }
 
         // Cek apakah sesi untuk hari ini sudah pernah dibuat
@@ -150,7 +167,7 @@ export async function scanClassAttendanceSession(req: Request, res: Response) {
         // 2. Ambil Profil Siswa & Kelas
         const student = await prisma.user.findUnique({
             where: { id: studentId },
-            select: { id: true, name: true, nisn: true, className: true, deviceId: true }
+            select: { id: true, name: true, nisn: true, className: true, deviceId: true, parentPhone: true }
         });
 
         if (!student) {
@@ -218,6 +235,19 @@ export async function scanClassAttendanceSession(req: Request, res: Response) {
         }
 
         if (session.type === 'MASUK') {
+            if (timeStr < '06:00') {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Presensi masuk di kelas belum dibuka. Dibuka mulai pukul 06:00 WIB.'
+                });
+            }
+            if (timeStr > '07:05') {
+                return res.status(400).json({
+                    success: false,
+                    isClassGateClosedToBk: true,
+                    message: 'Presensi masuk di kelas telah ditutup pukul 07:05 WIB. Silakan lakukan scan di Ruang BK.'
+                });
+            }
             if (hour > 7 || (hour === 7 && minute > 0)) {
                 recordStatus = 'LATE';
             } else {
@@ -338,6 +368,26 @@ export async function scanClassAttendanceSession(req: Request, res: Response) {
                     time: timeStr
                 }).catch(() => {});
             }
+        }
+
+        // Sesuai D13: Notifikasi WhatsApp HANYA untuk siswa terlambat dan hanya ke nomor orang tua yang terinput
+        if (recordStatus === 'LATE' && student.parentPhone) {
+            const [currH, currM] = timeStr.split(':').map(Number);
+            const lateMinutes = Math.max(1, (currH * 60 + currM) - (7 * 60));
+            const waLateNotice = `*PEMBERITAHUAN KETERLAMBATAN SISWA*\n` +
+                `*SMP NEGERI 1 BOYOLANGU*\n\n` +
+                `Yth. Bapak/Ibu Orang Tua / Wali Murid dari ananda *${student.name}* (Kelas ${student.className || '-'}),\n\n` +
+                `Kami menginformasikan bahwa ananda telah tiba di sekolah dengan status *TERLAMBAT*:\n` +
+                `• *Waktu Tiba*: ${timeStr} WIB\n` +
+                `• *Keterlambatan*: *${lateMinutes} Menit* (Batas Tepat Waktu: 07:00 WIB)\n` +
+                `• *Jalur Presensi*: Scan QR Sesi Kelas (${student.className || '-'})\n` +
+                `• *Lokasi*: Ruang Kelas ${student.className || '-'}\n` +
+                `• *Tindak Lanjut*: Diarahkan oleh Tim Ketertiban / Pengurus Kelas sebelum pembelajaran dimulai.\n\n` +
+                `Laporan kedisiplinan ini dikirimkan secara otomatis oleh Sistem Presensi Cerdas SMPN 1 Boyolangu. Mohon bantuan Bapak/Ibu untuk membimbing ananda agar dapat berangkat lebih awal demi kelancaran proses pembelajaran. Terima kasih atas kerja samanya.`;
+
+            sendSingleWhatsApp(student.parentPhone, waLateNotice).catch(waErr => {
+                console.warn(`[WA ClassSession Late Alert] Gagal kirim WA ke ${student.parentPhone}:`, waErr.message);
+            });
         }
 
         return res.json({

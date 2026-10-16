@@ -9,7 +9,7 @@ if (!token) {
   console.error('Harap sertakan token GitHub: node deploy_github.js <TOKEN>');
   process.exit(1);
 }
-const repoOwner = 'adiprayitno160-glitch';
+const repoOwner = 'smpnboyolangu1-lab';
 const repoName = 'smartcbt-mobile-APK';
 const tagName = 'v2.8.91';
 const releaseTitle = 'Smart CBT v2.8.91 (Build 101) - UI Profil Modern, Grafik Tren Canggih & Menu Panduan';

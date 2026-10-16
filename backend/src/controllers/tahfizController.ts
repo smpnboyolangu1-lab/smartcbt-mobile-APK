@@ -2,6 +2,8 @@ import { Request, Response } from 'express';
 import prisma from '../utils/db';
 import { sendFcmToUser } from '../services/fcmService';
 import * as xlsx from 'xlsx';
+import * as fs from 'fs';
+import * as path from 'path';
 
 function formatQueryForEngine(sql: string): string {
   const isPg = (process.env.DATABASE_URL || '').includes('postgres');
@@ -98,14 +100,16 @@ export const getTahfizDashboardSummary = async (req: Request, res: Response) => 
     const user = (req as any).user;
     const { className } = req.query;
 
-    let studentWhereClause = "WHERE role = 'STUDENT'";
+    const studentWhere: any = { role: 'STUDENT' };
     if (className && className !== 'ALL') {
-      studentWhereClause += ` AND className = '${String(className).trim()}'`;
+      studentWhere.className = String(className).trim();
     }
 
-    const students: any[] = await safeRawQuery(`
-      SELECT id, name, username, nisn, className, gender FROM User ${studentWhereClause} ORDER BY name ASC
-    `);
+    const students = await prisma.user.findMany({
+      where: studentWhere,
+      select: { id: true, name: true, username: true, nisn: true, className: true, gender: true },
+      orderBy: { name: 'asc' }
+    });
 
     const totalStudents = students.length;
     const studentIds = students.map(s => `'${s.id}'`).join(',');
@@ -133,11 +137,21 @@ export const getTahfizDashboardSummary = async (req: Request, res: Response) => 
       `);
       murojaahCount = Number(murojaahRes[0]?.cnt || 0);
 
-      recentSetoran = await safeRawQuery(`
+      recentSetoran = (await safeRawQuery(`
         SELECT * FROM tahfiz_setoran 
         WHERE student_id IN (${studentIds}) 
-        ORDER BY created_at DESC LIMIT 15
-      `);
+        ORDER BY created_at DESC LIMIT 25
+      `)).map(r => ({
+        ...r,
+        audio_url: r.audio_record_url,
+        audioRecordUrl: r.audio_record_url,
+        scheduledDate: r.scheduled_date,
+        scheduledSession: r.scheduled_session,
+        targetGuruId: r.target_guru_id,
+        targetGuruName: r.target_guru_name,
+        meetingLocation: r.meeting_location,
+        studentNotes: r.student_notes
+      }));
     }
 
     // Ambil target aktif kelas / sekolah
@@ -151,7 +165,10 @@ export const getTahfizDashboardSummary = async (req: Request, res: Response) => 
       pendingSetoran: pendingCount,
       needMurojaah: murojaahCount,
       setoranMenunggu: pendingCount,
-      murojaahPerlu: murojaahCount
+      murojaahPerlu: murojaahCount,
+      setoranHariIni: pendingCount,
+      perluMurojaah: murojaahCount,
+      butuhBimbingan: murojaahCount
     };
 
     res.json({
@@ -160,6 +177,8 @@ export const getTahfizDashboardSummary = async (req: Request, res: Response) => 
       kpi: kpiData,
       targets,
       recentSetoran,
+      recentSubmissions: recentSetoran, // Alias for Teacher APK
+      submissions: recentSetoran,
       studentsCount: totalStudents
     });
   } catch (error: any) {
@@ -239,6 +258,12 @@ export const saveTahfizTarget = async (req: Request, res: Response) => {
 /**
  * 4. Pengajuan Setoran Hafalan Siswa (APK Siswa / Guru PAI)
  */
+/**
+ * 4. Pengajuan Setoran Hafalan Siswa (APK Siswa / Guru PAI)
+ * Mendukung:
+ * - Setoran Langsung (Penjadwalan Temu Guru PAI di Sekolah)
+ * - Rekaman Audio Langsung (Upload File / Base64 Audio)
+ */
 export const submitTahfizSetoran = async (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
@@ -250,7 +275,15 @@ export const submitTahfizSetoran = async (req: Request, res: Response) => {
       ayatEnd,
       metode = 'LANGSUNG',
       audioRecordUrl,
-      submissionDate
+      audioBase64,
+      submissionDate,
+      scheduledDate,
+      scheduledSession,
+      targetGuruId,
+      targetGuruName,
+      meetingLocation,
+      notes,
+      studentNotes
     } = req.body;
 
     const sId = studentId || user?.id;
@@ -261,12 +294,37 @@ export const submitTahfizSetoran = async (req: Request, res: Response) => {
 
     const id = 'str_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
     const subDate = submissionDate || new Date().toISOString().substring(0, 10);
+    const resolvedNotes = notes || studentNotes || null;
+
+    let finalAudioUrl = audioRecordUrl || null;
+    if ((req as any).file && (req as any).file.filename) {
+      finalAudioUrl = `/uploads/tahfiz_audio/${(req as any).file.filename}`;
+    } else if (audioBase64 && typeof audioBase64 === 'string') {
+      try {
+        const audioDir = path.join(process.cwd(), 'uploads', 'tahfiz_audio');
+        if (!fs.existsSync(audioDir)) fs.mkdirSync(audioDir, { recursive: true });
+
+        const cleanBase64 = audioBase64.replace(/^data:audio\/\w+;base64,/, '');
+        const buffer = Buffer.from(cleanBase64, 'base64');
+        const filename = `setoran_${id}_${Date.now()}.m4a`;
+        const filePath = path.join(audioDir, filename);
+        fs.writeFileSync(filePath, buffer);
+        finalAudioUrl = `/uploads/tahfiz_audio/${filename}`;
+      } catch (err: any) {
+        console.warn('Gagal menyimpan base64 audio setoran:', err.message);
+      }
+    }
+
+    const targetDate = scheduledDate || (metode === 'LANGSUNG' ? subDate : null);
+    const targetSession = scheduledSession || (metode === 'LANGSUNG' ? 'Istirahat 1 (09:30 - 10:00 WIB)' : null);
+    const targetLocation = meetingLocation || (metode === 'LANGSUNG' ? 'Mushola / Masjid SMPN 1 Boyolangu' : null);
 
     await safeRawExecute(`
       INSERT INTO tahfiz_setoran (
         id, student_id, student_name, class_name, surah_number, surah_name,
-        ayat_start, ayat_end, metode, audio_record_url, submission_date, status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'MENUNGGU')
+        ayat_start, ayat_end, metode, audio_record_url, scheduled_date, scheduled_session,
+        target_guru_id, target_guru_name, meeting_location, student_notes, submission_date, status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'MENUNGGU')
     `,
       id,
       student.id,
@@ -277,11 +335,17 @@ export const submitTahfizSetoran = async (req: Request, res: Response) => {
       Number(ayatStart),
       Number(ayatEnd),
       metode,
-      audioRecordUrl || null,
+      finalAudioUrl,
+      targetDate,
+      targetSession,
+      targetGuruId || null,
+      targetGuruName || null,
+      targetLocation,
+      resolvedNotes,
       subDate
     );
 
-    // Update status penilaian sementara menjadi SIAP_DISETORKAN
+    // Update status penilaian sementara menjadi SIAP_DISETORKAN (Menunggu Penilaian Guru PAI)
     const existingPenilaian: any[] = await safeRawQuery(`
       SELECT id FROM tahfiz_penilaian WHERE student_id = ? AND surah_number = ?
     `, student.id, Number(surahNumber));
@@ -292,18 +356,156 @@ export const submitTahfizSetoran = async (req: Request, res: Response) => {
         INSERT INTO tahfiz_penilaian (
           id, setoran_id, student_id, student_name, class_name, guru_id, guru_name,
           surah_number, surah_name, ayat_start, ayat_end, status_hafalan, tanggal_penilaian
-        ) VALUES (?, ?, ?, ?, ?, 'SYS', 'Menunggu Penilaian', ?, ?, ?, ?, 'SIAP_DISETORKAN', ?)
-      `, pId, id, student.id, student.name, student.className || '-', Number(surahNumber), String(surahName), Number(ayatStart), Number(ayatEnd), subDate);
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SIAP_DISETORKAN', ?)
+      `, pId, id, student.id, student.name, student.className || '-', targetGuruId || 'GURU_PAI', targetGuruName || 'Menunggu Penilaian Guru PAI', Number(surahNumber), String(surahName), Number(ayatStart), Number(ayatEnd), subDate);
     }
+
+    // Kirim notifikasi In-App & FCM ke Guru PAI
+    try {
+      const guruMsg = metode === 'LANGSUNG'
+        ? `Santri ${student.name} (Kelas ${student.className || '-'}) mengajukan Setoran Langsung Surat ${surahName} (Ayat ${ayatStart}-${ayatEnd}) pada tanggal ${targetDate} (${targetSession}). Mohon verifikasi di portal / APK Guru PAI.`
+        : `Santri ${student.name} (Kelas ${student.className || '-'}) mengirim rekaman audio hafalan Surat ${surahName} (Ayat ${ayatStart}-${ayatEnd}). Dengarkan dan nilai di portal / APK Guru PAI.`;
+
+      if (targetGuruId) {
+        await (prisma as any).notificationMessage.create({
+          data: {
+            recipientId: targetGuruId,
+            recipientRole: 'TEACHER',
+            title: `📖 Setoran Hafalan Baru: ${student.name}`,
+            message: guruMsg,
+            category: 'ACADEMIC'
+          }
+        }).catch(() => {});
+        sendFcmToUser(targetGuruId, `📖 Setoran Baru: ${student.name}`, guruMsg, { type: 'TAHFIZ_SETORAN', setoranId: id }).catch(() => {});
+      }
+    } catch (e) {}
+
+    const successMessage = metode === 'LANGSUNG'
+      ? `Jadwal setoran tatap muka Surat ${surahName} berhasil diajukan untuk tanggal ${targetDate} (${targetSession})! Guru PAI telah dinotifikasi.`
+      : `Rekaman audio hafalan Surat ${surahName} berhasil dikirim! Menunggu penilaian Guru PAI.`;
 
     res.json({
       success: true,
-      message: `Setoran Surat ${surahName} berhasil diajukan! Menunggu verifikasi dan penilaian Guru PAI.`,
-      setoranId: id
+      message: successMessage,
+      setoranId: id,
+      audioUrl: finalAudioUrl
     });
   } catch (error: any) {
     console.error('Error submitTahfizSetoran:', error);
     res.status(500).json({ success: false, message: 'Gagal mengajukan setoran: ' + error.message });
+  }
+};
+
+/**
+ * 4b. Ambil Daftar Antrean / Riwayat Setoran Hafalan (Untuk Guru PAI & Siswa)
+ */
+export const getTahfizSetoranList = async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const { status, className, studentId, limit = 50, page = 1 } = req.query;
+
+    let whereConditions: string[] = [];
+    if (status && status !== 'ALL') {
+      whereConditions.push(`status = '${String(status).trim()}'`);
+    }
+    if (className && className !== 'ALL') {
+      whereConditions.push(`class_name = '${String(className).trim()}'`);
+    }
+    if (studentId) {
+      whereConditions.push(`student_id = '${String(studentId).trim()}'`);
+    } else if (user?.role === 'STUDENT') {
+      whereConditions.push(`student_id = '${user.id}'`);
+    }
+
+    const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
+    const offset = (Number(page) - 1) * Number(limit);
+
+    const list: any[] = await safeRawQuery(`
+      SELECT * FROM tahfiz_setoran
+      ${whereClause}
+      ORDER BY created_at DESC
+      LIMIT ${Number(limit)} OFFSET ${offset}
+    `);
+
+    const enriched = list.map(item => ({
+      ...item,
+      audio_url: item.audio_record_url,
+      audioRecordUrl: item.audio_record_url,
+      scheduledDate: item.scheduled_date,
+      scheduledSession: item.scheduled_session,
+      targetGuruId: item.target_guru_id,
+      targetGuruName: item.target_guru_name,
+      meetingLocation: item.meeting_location,
+      studentNotes: item.student_notes,
+      notes: item.student_notes
+    }));
+
+    res.json({
+      success: true,
+      setoran: enriched,
+      submissions: enriched,
+      recentSubmissions: enriched,
+      recentSetoran: enriched,
+      list: enriched
+    });
+  } catch (error: any) {
+    console.error('Error getTahfizSetoranList:', error);
+    res.status(500).json({ success: false, message: 'Gagal memuat daftar setoran: ' + error.message });
+  }
+};
+
+/**
+ * 4c. Upload Berkas Audio Setoran Siswa (Multipart)
+ */
+export const uploadTahfizAudio = async (req: Request, res: Response) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'Berkas audio tidak ditemukan.' });
+    }
+    const audioUrl = `/uploads/tahfiz_audio/${req.file.filename}`;
+    res.json({
+      success: true,
+      message: 'Audio rekaman setoran berhasil diunggah.',
+      audioUrl
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: 'Gagal mengunggah audio: ' + error.message });
+  }
+};
+
+/**
+ * 4d. Ambil Daftar Guru PAI untuk Pilihan Jadwal Temu Santri
+ */
+export const getPaiTeachersList = async (req: Request, res: Response) => {
+  try {
+    const teachers = await prisma.user.findMany({
+      where: {
+        role: 'TEACHER',
+        isActive: true,
+        OR: [
+          { teachingSubject: { contains: 'PAI', mode: 'insensitive' } },
+          { teachingSubject: { contains: 'Agama', mode: 'insensitive' } },
+          { name: { contains: 'Munawir', mode: 'insensitive' } },
+          { name: { contains: 'Brian', mode: 'insensitive' } },
+          { name: { contains: 'Eny Astuti', mode: 'insensitive' } },
+          { name: { contains: 'Maurik', mode: 'insensitive' } }
+        ]
+      },
+      select: {
+        id: true,
+        name: true,
+        teachingSubject: true,
+        username: true
+      },
+      orderBy: { name: 'asc' }
+    });
+
+    res.json({
+      success: true,
+      teachers
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: 'Gagal memuat daftar Guru PAI: ' + error.message });
   }
 };
 
@@ -319,6 +521,13 @@ export const submitTahfizSetoran = async (req: Request, res: Response) => {
 export const saveTahfizPenilaian = async (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
+    if (!user || !['TEACHER', 'ADMIN', 'OPERATOR'].includes(user.role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Akses Ditolak: Hanya Guru PAI / Penguji yang berwenang memberikan penilaian Tahfiz. Siswa tidak diizinkan memilih atau mengisi penilaian sendiri.'
+      });
+    }
+
     const {
       setoranId,
       studentId,
@@ -646,10 +855,26 @@ export const getStudentTahfizDetail = async (req: Request, res: Response) => {
       SELECT * FROM tahfiz_target WHERE (class_name = ? OR student_id = ? OR target_type = 'SEKOLAH') AND status = 'AKTIF'
     `, student.className || '-', student.id);
 
+    const setorans: any[] = (await safeRawQuery(`
+      SELECT * FROM tahfiz_setoran WHERE student_id = ? ORDER BY created_at DESC
+    `, student.id)).map(r => ({
+      ...r,
+      audio_url: r.audio_record_url,
+      audioRecordUrl: r.audio_record_url,
+      scheduledDate: r.scheduled_date,
+      scheduledSession: r.scheduled_session,
+      targetGuruId: r.target_guru_id,
+      targetGuruName: r.target_guru_name,
+      meetingLocation: r.meeting_location,
+      studentNotes: r.student_notes
+    }));
+
     res.json({
       success: true,
       student,
       evaluations,
+      setorans,
+      submissions: setorans,
       badges,
       murojaahs,
       targets
@@ -665,12 +890,14 @@ export const getStudentTahfizDetail = async (req: Request, res: Response) => {
 export const exportTahfizExcel = async (req: Request, res: Response) => {
   try {
     const className = String(req.query.className || 'ALL');
-    let whereSql = "WHERE role = 'STUDENT'";
-    if (className !== 'ALL') whereSql += ` AND className = '${className}'`;
+    const studentWhere: any = { role: 'STUDENT' };
+    if (className !== 'ALL') studentWhere.className = className;
 
-    const students: any[] = await safeRawQuery(`
-      SELECT id, name, nisn, className FROM User ${whereSql} ORDER BY name ASC
-    `);
+    const students = await prisma.user.findMany({
+      where: studentWhere,
+      select: { id: true, name: true, nisn: true, className: true },
+      orderBy: { name: 'asc' }
+    });
 
     const excelRows: any[] = [];
     for (let idx = 0; idx < students.length; idx++) {

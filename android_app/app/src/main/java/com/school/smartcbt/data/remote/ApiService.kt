@@ -944,6 +944,9 @@ interface ApiService {
     @POST("/api/tahfiz/setoran")
     fun submitTahfizSetoran(@Body body: Map<String, @JvmSuppressWildcards Any?>): Call<Map<String, Any>>
 
+    @GET("/api/tahfiz/pai-teachers")
+    fun getPaiTeachersList(): Call<Map<String, Any>>
+
     @POST("/api/tahfiz/penilaian")
     fun saveTahfizPenilaian(@Body body: Map<String, @JvmSuppressWildcards Any?>): Call<Map<String, Any>>
 

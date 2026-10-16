@@ -2,7 +2,7 @@ import prisma from '../utils/db';
 import { reportEmptyClass, getEmptyClassReports, handleEmptyClass, streamEmptyClassMonitor, getEmptyClassStatus, getClassMonitoringStatus, resolveEmptyClass, forwardEmptyClassToKurikulum } from '../controllers/emptyClassController';
 import { getAppVersion, updateAppVersionConfig, checkVersionV1 } from '../controllers/appUpdateController';
 import { getStudents, createStudent, deleteStudent, updateStudent, syncStudentsToLocal, getTeachers, createTeacher, updateTeacher, deleteTeacher, syncTeachersToLocal } from '../controllers/userController';
-import { createParentLeaveRequest, getParentLeaveRequests, getTeacherLeaveRequests, verifyLeaveRequest, deleteLeaveRequest } from '../controllers/leaveRequestController';
+import { createParentLeaveRequest, getParentLeaveRequests, getTeacherLeaveRequests, verifyLeaveRequest, deleteLeaveRequest, revokeStudentLeaveRequest } from '../controllers/leaveRequestController';
 import { checkBKKelasAccess } from '../middlewares/checkBKKelasAccess';
 import { getSekolahKonteks } from '../controllers/schoolController';
 import { getStudentTimeline } from '../controllers/studentTimelineController';
@@ -32,7 +32,7 @@ import {
 } from '../controllers/teacherFeatureController';
 
 import {
-     getBooks, createBook, borrowBook, deleteBook, adjustBookCopiesStock, updateBookCover, checkBookOwnerByBarcode, reassignBookBorrower, getMyBorrowedBooks, getAllBookCopies, returnBookCopy, getBookCoverSvg, quickCirculation, getDigitalMemberCard, getAllMembers } from '../controllers/libraryController';
+     getBooks, createBook, borrowBook, deleteBook, adjustBookCopiesStock, updateBookCover, checkBookOwnerByBarcode, reassignBookBorrower, getMyBorrowedBooks, getAllBookCopies, returnBookCopy, getBookCoverSvg, quickCirculation, getDigitalMemberCard, getAllMembers, bulkReturnByClass, getUnreturnedClassReport, revertLostBookStatus, streamEbookPdf } from '../controllers/libraryController';
 import { getWeeklyPiketSchedules, createPiketSchedule, updatePiketSchedule, deletePiketSchedule, getTodayOnDutyTeachers, checkTeacherPiketStatus, getTeacherPiketReports } from '../controllers/piketScheduleController';
 import { getTeacherInactivityReport } from '../controllers/teacherInactivityController';
 import { getRemoteFiles, uploadAndDistributeFile, deleteRemoteFile } from '../controllers/fileManagerController';
@@ -443,7 +443,7 @@ router.post('/cbt/strike', authenticateJWT, requireRole(['STUDENT', 'ADMIN', 'OP
 router.get('/cbt/exam-packages', authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'TEACHER']), getExamPackages);
 router.post('/cbt/exam-packages/assign-authors', authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'TEACHER']), assignExamAuthors);
 router.post('/cbt/exam-packages/submit-review', authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'TEACHER']), submitExamPackageForReview);
-router.post('/cbt/exam-packages/update-status', authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'TEACHER']), updateExamPackageStatus);
+router.post(['/cbt/exam-packages/update-status', '/cbt/package/status'], authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'TEACHER']), updateExamPackageStatus);
 router.post('/cbt/exam-packages/create-revision', authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'TEACHER']), createPackageRevisionVersion);
 router.get('/homework/collaborative', authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'TEACHER']), getCollaborativeHomeworks);
 router.post('/homework/clone', authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'TEACHER']), cloneHomework);
@@ -655,6 +655,10 @@ router.post('/elibrary/quick-circulation', authenticateJWT, requireRole(['ADMIN'
 router.get('/elibrary/member-card', authenticateJWT, getDigitalMemberCard);
 router.get('/elibrary/member-card/:studentId', authenticateJWT, getDigitalMemberCard);
 router.get('/elibrary/all-members', authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'LIBRARIAN']), getAllMembers);
+router.post(['/elibrary/bulk-return-class', '/library/bulk-return-class'], authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'LIBRARIAN']), bulkReturnByClass);
+router.get(['/elibrary/unreturned-report', '/library/unreturned-report'], authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'LIBRARIAN']), getUnreturnedClassReport);
+router.post(['/elibrary/revert-lost-status', '/library/revert-lost-status'], authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'LIBRARIAN']), revertLostBookStatus);
+router.get(['/elibrary/stream/:bookId', '/library/stream/:bookId'], authenticateJWT, streamEbookPdf);
 
 // --- Device Registration & Sync Routes (APK Client) ---
 import path from 'path';
@@ -1136,7 +1140,9 @@ import {
     getPmrMembers,
     assignPmrMember,
     getUksIncidentCenter,
-    getComprehensiveUksReport
+    getComprehensiveUksReport,
+    getUksEmergencyContacts,
+    saveUksEmergencyContacts
 } from '../controllers/uksPmrUnifiedController';
 
 router.post('/uks/request', authenticateJWT, studentRequestUks);
@@ -1148,6 +1154,9 @@ router.get('/uks/pmr-members', authenticateJWT, getPmrMembers);
 router.post('/uks/pmr-members', authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'MEDICAL', 'TEACHER']), assignPmrMember);
 router.get('/uks/incidents', authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'MEDICAL', 'TEACHER']), getUksIncidentCenter);
 router.get('/uks/reports/comprehensive', authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'MEDICAL', 'TEACHER']), getComprehensiveUksReport);
+router.get(['/uks/emergency-contacts', '/api/uks/emergency-contacts'], getUksEmergencyContacts);
+router.post(['/uks/emergency-contacts', '/api/uks/emergency-contacts'], authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'MEDICAL', 'TEACHER', 'GURU']), saveUksEmergencyContacts);
+
 
 
 // ========================================================
@@ -1429,22 +1438,41 @@ router.post(['/v1/gatepass/request', '/gatepass/request'], authenticateJWT, crea
 router.get(['/v1/gatepass/active', '/gatepass/active'], authenticateJWT, getActiveGatepass);
 router.get(['/v1/gatepass/history', '/gatepass/history', '/student/leaves/history', '/v1/student/leaves/history'], authenticateJWT, getStudentLeaveHistory);
 router.get(['/v1/gatepass/dynamic-qr/:id', '/gatepass/dynamic-qr/:id'], authenticateJWT, generateGatepassDynamicQr);
-router.get(['/v1/bk/dynamic-qr', '/bk/dynamic-qr', '/gatepass/bk/dynamic-token', '/v1/gatepass/bk/dynamic-token'], authenticateJWT, requireRole(['ADMIN', 'COUNSELOR', 'OPERATOR', 'TEACHER']), generateBkDynamicQr);
-router.get(['/v1/bk/gatepasses', '/bk/gatepasses'], authenticateJWT, requireRole(['ADMIN', 'COUNSELOR', 'OPERATOR', 'TEACHER']), getBkGatepassList);
-router.patch(['/v1/bk/gatepass/:id/status', '/bk/gatepass/:id/status'], authenticateJWT, requireRole(['ADMIN', 'COUNSELOR', 'OPERATOR', 'TEACHER']), updateGatepassStatusByBk);
-router.post(['/v1/bk/gatepass/:id/status', '/bk/gatepass/:id/status'], authenticateJWT, requireRole(['ADMIN', 'COUNSELOR', 'OPERATOR', 'TEACHER']), updateGatepassStatusByBk);
+router.get(['/v1/bk/dynamic-qr', '/bk/dynamic-qr', '/gatepass/bk/dynamic-token', '/v1/gatepass/bk/dynamic-token'], authenticateJWT, requireRole(['ADMIN', 'COUNSELOR', 'OPERATOR']), generateBkDynamicQr);
+router.get(['/v1/bk/gatepasses', '/bk/gatepasses'], authenticateJWT, requireRole(['ADMIN', 'COUNSELOR', 'OPERATOR']), getBkGatepassList);
+router.patch(['/v1/bk/gatepass/:id/status', '/bk/gatepass/:id/status'], authenticateJWT, requireRole(['ADMIN', 'COUNSELOR', 'OPERATOR']), updateGatepassStatusByBk);
+router.post(['/v1/bk/gatepass/:id/status', '/bk/gatepass/:id/status'], authenticateJWT, requireRole(['ADMIN', 'COUNSELOR', 'OPERATOR']), updateGatepassStatusByBk);
 router.post(['/v1/gatepass/verify-by-scan', '/gatepass/verify-by-scan'], authenticateJWT, requireRole(['STUDENT', 'ADMIN', 'OPERATOR']), verifyGatepassByBkScan);
 router.post(['/v1/gatepass/verify-scan', '/gatepass/verify-scan'], authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'SATPAM', 'SECURITY', 'COUNSELOR']), verifyGatepassScan);
 router.post(['/v1/satpam/gatepass/checkout', '/satpam/gatepass/checkout', '/v1/satpam/gatepass/verify-scan', '/satpam/gatepass/verify-scan'], authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'SATPAM', 'SECURITY']), checkoutGatepassBySatpam);
 router.get(['/v1/satpam/gatepass/list', '/satpam/gatepass/list'], authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'SATPAM', 'SECURITY']), getSatpamGatepassList);
 
-// Legacy Leave Endpoints (Bridged & Synchronized)
-router.post('/v1/student/leaves/apply', authenticateJWT, applyStudentLeave);
-router.get('/v1/student/leaves/active', authenticateJWT, getActiveStudentLeave);
-router.get('/v1/counselor/leaves', authenticateJWT, requireRole(['ADMIN', 'COUNSELOR', 'OPERATOR', 'TEACHER']), getCounselorLeaves);
-router.patch('/v1/counselor/leaves/:id/approve', authenticateJWT, requireRole(['ADMIN', 'COUNSELOR', 'OPERATOR']), approveCounselorLeave);
-router.post('/v1/student/leaves/checkout-bk', authenticateJWT, checkoutBkStation);
-router.get('/v1/counselor/stations', authenticateJWT, getBkStationsList);
+// [T-05] Route Revoke Status Izin / Sakit Beralasan (BK & Admin)
+router.post('/v1/student/leaves/:id/revoke', authenticateJWT, requireRole(['ADMIN', 'COUNSELOR', 'OPERATOR']), revokeStudentLeaveRequest);
+router.patch('/v1/student/leaves/:id/revoke', authenticateJWT, requireRole(['ADMIN', 'COUNSELOR', 'OPERATOR']), revokeStudentLeaveRequest);
+
+// [T-02] Legacy Leave Endpoints (Disabled - 410 Gone)
+const handleLegacyLeave410 = (_req: any, res: any) => {
+    return res.status(410).json({
+        success: false,
+        statusCode: 410,
+        message: 'Endpoint Gatepass/Izin lama telah dinonaktifkan (410 Gone). Silakan gunakan alur Gatepass Digital Terpadu /v1/gatepass.'
+    });
+};
+router.all([
+    '/v1/student/leaves/apply',
+    '/student/leaves/apply',
+    '/v1/student/leaves/active',
+    '/student/leaves/active',
+    '/v1/counselor/leaves',
+    '/counselor/leaves',
+    '/v1/counselor/leaves/:id/approve',
+    '/counselor/leaves/:id/approve',
+    '/v1/student/leaves/checkout-bk',
+    '/student/leaves/checkout-bk',
+    '/v1/counselor/stations',
+    '/counselor/stations'
+], handleLegacyLeave410);
 
 // D. Modul Formulir Biodata Siswa Terpadu (Staging & Feature Toggle)
 import {
@@ -1546,8 +1574,20 @@ import {
 router.post(['/app/client-logs', '/v1/app/client-logs'], recordClientLog);
 router.get(['/app/client-logs', '/v1/app/client-logs'], authenticateJWT, requireRole(['ADMIN', 'OPERATOR']), getClientLogs);
 router.put(['/app/client-logs/:id/resolve', '/v1/app/client-logs/:id/resolve'], authenticateJWT, requireRole(['ADMIN', 'OPERATOR']), resolveClientLog);
-router.delete(['/app/client-logs/:id', '/v1/app/client-logs/:id'], authenticateJWT, requireRole(['ADMIN', 'OPERATOR']), deleteClientLog);
 router.post(['/app/client-logs/cleanup', '/v1/app/client-logs/cleanup'], authenticateJWT, requireRole(['ADMIN', 'OPERATOR']), cleanupClientLogs);
+router.post('/admin/logs/retention-cleanup', authenticateJWT, requireRole(['ADMIN', 'OPERATOR']), async (req, res) => {
+    try {
+        const { processLogRetentionCleanup } = await import('../services/systemScheduler');
+        const result = await processLogRetentionCleanup();
+        res.json({
+            success: true,
+            message: `Pembersihan log otomatis selesai (data >30 hari dihapus)`,
+            result
+        });
+    } catch (e: any) {
+        res.status(500).json({ success: false, message: e.message });
+    }
+});
 
 // --- ALIAS JADWAL PIKET SISWA / PENGURUS KELAS ---
 router.get(['/student/piket-schedule', '/v1/student/piket-schedule'], authenticateJWT, getWeeklyPiketSchedules);
@@ -1736,6 +1776,9 @@ router.get(['/siswa/uh/:id/hasil', '/student/uh/:id/hasil'], authenticateJWT, ge
 import {
   getTahfizSurahList,
   getTahfizDashboardSummary,
+  getTahfizSetoranList,
+  uploadTahfizAudio,
+  getPaiTeachersList,
   saveTahfizTarget,
   submitTahfizSetoran,
   saveTahfizPenilaian,
@@ -1746,10 +1789,29 @@ import {
   exportTahfizExcel
 } from '../controllers/tahfizController';
 
+const tahfizAudioDir = path.join(process.cwd(), 'uploads', 'tahfiz_audio');
+if (!fs.existsSync(tahfizAudioDir)) fs.mkdirSync(tahfizAudioDir, { recursive: true });
+
+const tahfizAudioStorage = multer.diskStorage({
+    destination: (req, file, cb) => cb(null, tahfizAudioDir),
+    filename: (req, file, cb) => {
+        const ext = path.extname(file.originalname) || '.m4a';
+        cb(null, `tahfiz_${Date.now()}_${Math.random().toString(36).substring(2, 7)}${ext}`);
+    }
+});
+const uploadTahfizAudioMulter = multer({
+    storage: tahfizAudioStorage,
+    limits: { fileSize: 50 * 1024 * 1024 }
+});
+
 router.get('/tahfiz/surahs', authenticateJWT, getTahfizSurahList);
 router.get('/tahfiz/dashboard', authenticateJWT, getTahfizDashboardSummary);
+router.get('/tahfiz/setoran', authenticateJWT, getTahfizSetoranList);
+router.get('/tahfiz/setoran-list', authenticateJWT, getTahfizSetoranList);
+router.post('/tahfiz/upload-audio', authenticateJWT, uploadTahfizAudioMulter.single('audio'), uploadTahfizAudio);
+router.get('/tahfiz/pai-teachers', authenticateJWT, getPaiTeachersList);
 router.post('/tahfiz/targets', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR']), saveTahfizTarget);
-router.post('/tahfiz/setoran', authenticateJWT, submitTahfizSetoran);
+router.post('/tahfiz/setoran', authenticateJWT, uploadTahfizAudioMulter.single('audio'), submitTahfizSetoran);
 router.post('/tahfiz/penilaian', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR']), saveTahfizPenilaian);
 router.get('/tahfiz/murojaah', authenticateJWT, getMurojaahList);
 router.post('/tahfiz/murojaah/evaluate', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR']), evaluateMurojaah);

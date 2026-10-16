@@ -79,17 +79,166 @@
     }
 
     async function updateMedicineStockPrompt(id, currentStock) {
-        const newStock = prompt('Masukkan jumlah stok baru:', currentStock);
+        const newStock = prompt('Masukkan jumlah stok fisik baru (unit):', currentStock);
         if (newStock !== null) {
             const stockNum = parseInt(newStock);
             if (!isNaN(stockNum) && stockNum >= 0) {
+                const reason = prompt('Masukkan catatan/alasan penyesuaian stok (opsional):', 'Penyesuaian stok opname berkala');
                 await fetch('/api/uks/medicines/' + id + '/stock', {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-                    body: JSON.stringify({ stock: stockNum })
+                    body: JSON.stringify({ stock: stockNum, notes: reason || 'Penyesuaian stok opname' })
                 });
                 loadMedicineInventory();
+            } else {
+                alert('Jumlah stok harus berupa angka positif (>= 0).');
             }
+        }
+    }
+
+    // ========================================================
+    // KONTAK DARURAT & HOTLINE UKS (KONTROL KE APK)
+    // ========================================================
+    let emergencyContactsList = [];
+
+    function openEmergencyContactsModal() {
+        document.getElementById('modalEmergencyContacts').classList.remove('hidden');
+        loadEmergencyContactsFromPortal();
+    }
+
+    function closeEmergencyContactsModal() {
+        document.getElementById('modalEmergencyContacts').classList.add('hidden');
+    }
+
+    async function loadEmergencyContactsFromPortal() {
+        const tbody = document.getElementById('emergencyContactsTableBody');
+        tbody.innerHTML = '<tr><td colspan="6" class="p-4 text-center text-slate-400">Memuat kontak darurat dari server...</td></tr>';
+        try {
+            const res = await fetch('/api/uks/emergency-contacts');
+            const data = await res.json();
+            if (data.success && Array.isArray(data.data)) {
+                emergencyContactsList = data.data;
+            } else {
+                emergencyContactsList = [
+                    { id: '1', name: 'Puskesmas Boyolangu', phone: '(0355) 321852', cleanPhone: '0355321852', icon: '🏥', category: 'Puskesmas', active: true },
+                    { id: '2', name: 'Ambulans Gawat Darurat (PSC 119)', phone: '119', cleanPhone: '119', icon: '🚑', category: 'Ambulans', active: true },
+                    { id: '3', name: 'Pos Medis & Satpam Sekolah', phone: '08123456789', cleanPhone: '08123456789', icon: '🏫', category: 'Sekolah', active: true },
+                    { id: '4', name: 'Polsek Boyolangu', phone: '(0355) 321110', cleanPhone: '0355321110', icon: '👮', category: 'Polisi', active: true }
+                ];
+            }
+            renderEmergencyContactsTable();
+        } catch (e) {
+            tbody.innerHTML = '<tr><td colspan="6" class="p-4 text-center text-rose-500">Gagal memuat kontak darurat: ' + e.message + '</td></tr>';
+        }
+    }
+
+    function renderEmergencyContactsTable() {
+        const tbody = document.getElementById('emergencyContactsTableBody');
+        tbody.innerHTML = '';
+        if (emergencyContactsList.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" class="p-4 text-center text-slate-400">Belum ada kontak darurat. Silakan tambahkan melalui form di atas.</td></tr>';
+            return;
+        }
+
+        emergencyContactsList.forEach((c, idx) => {
+            const clean = c.cleanPhone || c.phone.replace(/[^0-9]/g, '');
+            tbody.innerHTML += `
+                <tr class="hover:bg-slate-50 border-b">
+                    <td class="p-3 text-center text-lg">${c.icon || '📞'}</td>
+                    <td class="p-3">
+                        <div class="font-bold text-slate-800">${c.name}</div>
+                        <div class="text-[10px] text-slate-400 font-mono">${c.category || 'Darurat'}</div>
+                    </td>
+                    <td class="p-3 font-mono font-bold text-slate-700">${c.phone}</td>
+                    <td class="p-3 font-mono text-emerald-700 font-bold">${clean}</td>
+                    <td class="p-3 text-center">
+                        <button onclick="toggleContactStatus(${idx})" class="px-2.5 py-0.5 rounded-full text-[10px] font-bold ${c.active !== false ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'}">
+                            ${c.active !== false ? 'Aktif di APK' : 'Nonaktif'}
+                        </button>
+                    </td>
+                    <td class="p-3 text-right">
+                        <button onclick="deleteEmergencyContact(${idx})" class="text-rose-600 hover:text-rose-800 font-bold hover:underline">Hapus</button>
+                    </td>
+                </tr>
+            `;
+        });
+    }
+
+    function handleAddEmergencyContact(e) {
+        e.preventDefault();
+        const icon = document.getElementById('contactIcon').value;
+        const name = document.getElementById('contactName').value.trim();
+        const phone = document.getElementById('contactPhone').value.trim();
+        const cleanPhone = phone.replace(/[^0-9]/g, '');
+
+        if (!name || !phone) {
+            alert('Nama instansi dan nomor telepon wajib diisi.');
+            return;
+        }
+
+        emergencyContactsList.push({
+            id: 'c_' + Date.now(),
+            name,
+            phone,
+            cleanPhone,
+            icon,
+            category: 'Kontak Darurat',
+            active: true
+        });
+
+        document.getElementById('contactName').value = '';
+        document.getElementById('contactPhone').value = '';
+        renderEmergencyContactsTable();
+        document.getElementById('contactSaveStatus').textContent = '⚠️ Ada perubahan baru yang belum disimpan ke server!';
+        document.getElementById('contactSaveStatus').className = 'text-xs text-amber-600 font-bold';
+    }
+
+    function toggleContactStatus(index) {
+        if (emergencyContactsList[index]) {
+            emergencyContactsList[index].active = !emergencyContactsList[index].active;
+            renderEmergencyContactsTable();
+            document.getElementById('contactSaveStatus').textContent = '⚠️ Ada perubahan baru yang belum disimpan ke server!';
+            document.getElementById('contactSaveStatus').className = 'text-xs text-amber-600 font-bold';
+        }
+    }
+
+    function deleteEmergencyContact(index) {
+        if (confirm('Yakin ingin menghapus kontak ini dari tombol darurat APK?')) {
+            emergencyContactsList.splice(index, 1);
+            renderEmergencyContactsTable();
+            document.getElementById('contactSaveStatus').textContent = '⚠️ Ada perubahan baru yang belum disimpan ke server!';
+            document.getElementById('contactSaveStatus').className = 'text-xs text-amber-600 font-bold';
+        }
+    }
+
+    async function saveEmergencyContactsToPortal() {
+        const statusSpan = document.getElementById('contactSaveStatus');
+        statusSpan.textContent = '⏳ Menyimpan kontak ke server & mensinkronkan ke APK...';
+        statusSpan.className = 'text-xs text-blue-600 font-bold';
+
+        try {
+            const res = await fetch('/api/uks/emergency-contacts', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + (typeof token !== 'undefined' ? token : (localStorage.getItem('token') || ''))
+                },
+                body: JSON.stringify({ contacts: emergencyContactsList })
+            });
+            const result = await res.json();
+            if (result.success) {
+                statusSpan.textContent = '✅ Berhasil disimpan! Seluruh APK client akan langsung memanggil nomor ini.';
+                statusSpan.className = 'text-xs text-emerald-600 font-bold';
+                setTimeout(() => {
+                    closeEmergencyContactsModal();
+                }, 1200);
+            } else {
+                statusSpan.textContent = '❌ Gagal: ' + result.message;
+                statusSpan.className = 'text-xs text-rose-600 font-bold';
+            }
+        } catch (err) {
+            statusSpan.textContent = '❌ Kesalahan jaringan: ' + err.message;
+            statusSpan.className = 'text-xs text-rose-600 font-bold';
         }
     }
     
@@ -193,6 +342,9 @@
             <div class="flex items-center gap-2.5 flex-wrap">
                 <button onclick="openScanQrUksModal()" class="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2.5 rounded-xl text-xs font-bold shadow-sm flex items-center gap-1.5 transition-all">
                     <span>📷</span> Scan QR Siswa
+                </button>
+                <button onclick="openEmergencyContactsModal()" class="bg-red-700 hover:bg-red-800 text-white px-4 py-2.5 rounded-xl text-xs font-bold shadow-sm flex items-center gap-1.5 transition-all">
+                    <span>🚨</span> Kontak Darurat &amp; Hotline APK
                 </button>
                 <button onclick="openMedicineModal()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl text-xs font-bold shadow-sm flex items-center gap-1.5 transition-all">
                     <span>💊</span> Inventaris Obat & Alkes
@@ -1643,6 +1795,89 @@
 
             <div class="px-6 py-3 bg-slate-50 border-t flex justify-end">
                 <button type="button" onclick="closeMedicineModal()" class="px-5 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs">Tutup</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL KONTAK DARURAT & HOTLINE UKS (KONTROL PENUH PORTAL KE APK) -->
+    <div id="modalEmergencyContacts" class="hidden fixed inset-0 bg-slate-950/75 backdrop-blur-md flex justify-center items-center z-50 p-4">
+        <div class="bg-white rounded-3xl w-full max-w-4xl max-h-[92vh] shadow-2xl border border-slate-200 flex flex-col overflow-hidden animate-fade-in">
+            <div class="px-6 py-4 bg-gradient-to-r from-rose-800 to-red-900 text-white flex justify-between items-center">
+                <div class="flex items-center gap-3">
+                    <span class="text-2xl">🚨</span>
+                    <div>
+                        <h3 class="font-extrabold text-base">Manajemen Kontak Darurat &amp; Hotline UKS</h3>
+                        <p class="text-xs text-rose-200">Semua nomor di sini otomatis disinkronkan ke tombol SOS di seluruh APK siswa &amp; guru</p>
+                    </div>
+                </div>
+                <button onclick="closeEmergencyContactsModal()" class="text-white/80 hover:text-white text-2xl font-bold">&times;</button>
+            </div>
+
+            <div class="p-6 overflow-y-auto space-y-4 text-xs">
+                <!-- Info Arsitektur Client-Base -->
+                <div class="bg-amber-50 border border-amber-200 p-3.5 rounded-2xl flex items-start gap-3">
+                    <span class="text-lg">💡</span>
+                    <p class="text-slate-700 text-xs">
+                        <strong>Arsitektur Client-Base:</strong> APK Android hanya bertindak sebagai client penampil &amp; pemanggil otomatis. Kontrol penuh daftar nomor darurat berada di portal ini. Jika nomor Puskesmas, Satpam, atau Ambulans berubah, ubah di tabel ini lalu klik <strong>Simpan Perubahan ke Seluruh APK</strong>.
+                    </p>
+                </div>
+
+                <!-- Form Tambah Kontak Baru -->
+                <form id="formAddContact" onsubmit="handleAddEmergencyContact(event)" class="p-4 bg-slate-50 rounded-2xl border border-slate-200 grid grid-cols-1 sm:grid-cols-5 gap-3 items-end">
+                    <div>
+                        <label class="block font-bold text-slate-800 mb-1">Ikon / Emoji</label>
+                        <select id="contactIcon" class="w-full border border-slate-300 p-2 rounded-xl text-xs bg-white">
+                            <option value="🏥">🏥 Puskesmas / RS</option>
+                            <option value="🚑">🚑 Ambulans</option>
+                            <option value="🏫">🏫 Sekolah / Satpam</option>
+                            <option value="👮">👮 Polisi / Polsek</option>
+                            <option value="🚒">🚒 Damkar</option>
+                            <option value="📞">📞 Hotline Lainnya</option>
+                        </select>
+                    </div>
+                    <div class="sm:col-span-2">
+                        <label class="block font-bold text-slate-800 mb-1">Nama Instansi / Pos Darurat *</label>
+                        <input type="text" id="contactName" placeholder="Cth: Puskesmas Boyolangu" class="w-full border border-slate-300 p-2 rounded-xl text-xs bg-white" required>
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-800 mb-1">Nomor Telepon *</label>
+                        <input type="text" id="contactPhone" placeholder="Cth: (0355) 321852" class="w-full border border-slate-300 p-2 rounded-xl text-xs bg-white" required>
+                    </div>
+                    <div>
+                        <button type="submit" class="w-full py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs shadow">
+                            + Tambah Kontak
+                        </button>
+                    </div>
+                </form>
+
+                <!-- Contacts Table -->
+                <div class="border rounded-2xl overflow-hidden">
+                    <table class="w-full text-left border-collapse text-xs">
+                        <thead>
+                            <tr class="bg-slate-100 text-slate-700 font-bold border-b">
+                                <th class="p-3 w-12 text-center">Ikon</th>
+                                <th class="p-3">Nama Instansi / Pos Darurat</th>
+                                <th class="p-3">Nomor Tampilan</th>
+                                <th class="p-3">Nomor Dial Langsung</th>
+                                <th class="p-3 w-28 text-center">Status</th>
+                                <th class="p-3 w-20 text-right">Aksi</th>
+                            </tr>
+                        </thead>
+                        <tbody id="emergencyContactsTableBody" class="divide-y">
+                            <tr><td colspan="6" class="p-4 text-center text-slate-400">Memuat kontak darurat...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="px-6 py-3.5 bg-slate-50 border-t flex justify-between items-center">
+                <span id="contactSaveStatus" class="text-xs text-slate-500 font-medium">Siap disinkronkan ke seluruh client APK.</span>
+                <div class="flex gap-2">
+                    <button type="button" onclick="closeEmergencyContactsModal()" class="px-5 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs">Tutup</button>
+                    <button type="button" onclick="saveEmergencyContactsToPortal()" class="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md">
+                        💾 Simpan Perubahan ke Seluruh APK
+                    </button>
+                </div>
             </div>
         </div>
     </div>

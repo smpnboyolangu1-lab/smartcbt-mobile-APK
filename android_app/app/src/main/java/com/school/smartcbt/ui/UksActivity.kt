@@ -1,6 +1,8 @@
 package com.school.smartcbt.ui
 
+import android.content.Intent
 import android.graphics.Color
+import android.net.Uri
 import android.os.Bundle
 import android.view.View
 import android.widget.*
@@ -10,9 +12,14 @@ import com.school.smartcbt.data.model.*
 import com.school.smartcbt.data.remote.ApiClient
 import com.school.smartcbt.databinding.ActivityUksBinding
 import com.school.smartcbt.utils.SessionManager
+import org.json.JSONArray
+import org.json.JSONObject
 import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.concurrent.Executors
 
 class UksActivity : AppCompatActivity() {
 
@@ -24,11 +31,13 @@ class UksActivity : AppCompatActivity() {
         const val EXTRA_STUDENT_NAME = "extra_student_name"
         const val EXTRA_CLASS_NAME = "extra_class_name"
         const val EXTRA_IS_PARENT = "extra_is_parent"
+        const val KEY_UKS_EMERGENCY_CONTACTS = "key_uks_emergency_contacts_json"
     }
 
     private var targetStudentId: String? = null
     private var isParentMode: Boolean = false
     private var isMedicalAdmin: Boolean = false
+    private var currentStudentAllergies: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -44,6 +53,9 @@ class UksActivity : AppCompatActivity() {
         binding.btnRefreshUks.setOnClickListener { loadUksData() }
         binding.btnUpdateUks.setOnClickListener {
             com.school.smartcbt.utils.AppUpdateChecker.checkForUpdates(this, showToastIfLatest = true)
+        }
+        binding.btnUksEmergencyCall.setOnClickListener {
+            showEmergencyDialDialog()
         }
         com.school.smartcbt.utils.AppUpdateChecker.checkForUpdates(this)
 
@@ -107,6 +119,7 @@ class UksActivity : AppCompatActivity() {
 
     private fun loadUksData() {
         Toast.makeText(this, "Memuat rekam medis & status kasur UKS...", Toast.LENGTH_SHORT).show()
+        fetchEmergencyContactsFromPortal()
 
         val queryId = targetStudentId
         ApiClient.getClient(this).getStudentUksHealth(queryId).enqueue(object : Callback<StudentHealthResponse> {
@@ -143,7 +156,17 @@ class UksActivity : AppCompatActivity() {
         val blood = if (!s.bloodType.isNullOrEmpty()) s.bloodType else "Belum Dicek"
         binding.tvUksBloodBadge.text = "Gol: $blood"
 
-        binding.tvUksAllergies.text = if (!s.allergies.isNullOrEmpty()) s.allergies else "Tidak ada alergi tercatat"
+        val hasAllergy = !s.allergies.isNullOrEmpty() && 
+            !s.allergies.equals("-", ignoreCase = true) && 
+            !s.allergies.contains("tidak ada", ignoreCase = true)
+        currentStudentAllergies = if (hasAllergy) s.allergies else null
+        if (hasAllergy) {
+            binding.tvUksAllergies.text = "⚠️ " + s.allergies
+            binding.tvUksAllergies.setTextColor(Color.parseColor("#DC2626"))
+        } else {
+            binding.tvUksAllergies.text = "Tidak ada alergi tercatat"
+            binding.tvUksAllergies.setTextColor(Color.parseColor("#334155"))
+        }
         binding.tvUksSickDays.text = "${s.totalSickDays ?: 0} Hari (Semester ini)"
     }
 
@@ -478,6 +501,34 @@ class UksActivity : AppCompatActivity() {
         headerCard.addView(tvBannerSub)
         dialogView.addView(headerCard)
 
+        // Peringatan Khusus jika Siswa Memiliki Riwayat Alergi Obat/Lainnya
+        if (!currentStudentAllergies.isNullOrEmpty()) {
+            val allergyWarningCard = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(20, 14, 20, 14)
+                setBackgroundColor(Color.parseColor("#FEF2F2"))
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { setMargins(0, 0, 0, 14) }
+            }
+            val tvWarnTitle = TextView(this).apply {
+                text = "⚠️ PERINGATAN ALERGI PASIEN:"
+                setTextColor(Color.parseColor("#991B1B"))
+                textSize = 12f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+            }
+            val tvWarnDesc = TextView(this).apply {
+                text = "Siswa ini memiliki riwayat alergi: $currentStudentAllergies. Dilarang memberikan obat yang memicu reaksi alergi tersebut!"
+                setTextColor(Color.parseColor("#DC2626"))
+                textSize = 11f
+                setPadding(0, 4, 0, 0)
+            }
+            allergyWarningCard.addView(tvWarnTitle)
+            allergyWarningCard.addView(tvWarnDesc)
+            dialogView.addView(allergyWarningCard)
+        }
+
         // 2. Quick Symptom Selector Chips
         val tvLabelSymptom = TextView(this).apply {
             text = "Pilih Gejala Utama yang Dirasakan:"
@@ -742,5 +793,85 @@ class UksActivity : AppCompatActivity() {
 
         btnClose.setOnClickListener { confirmDialog.dismiss() }
         confirmDialog.show()
+    }
+
+    private fun fetchEmergencyContactsFromPortal() {
+        Executors.newSingleThreadExecutor().execute {
+            try {
+                val fullUrl = ApiClient.getBaseServerUrl(this) + "/api/uks/emergency-contacts"
+                val conn = URL(fullUrl).openConnection() as HttpURLConnection
+                conn.connectTimeout = 4000
+                conn.readTimeout = 4000
+                conn.requestMethod = "GET"
+                conn.instanceFollowRedirects = true
+                if (conn.responseCode == 200) {
+                    val body = conn.inputStream.bufferedReader().use { it.readText() }
+                    val json = JSONObject(body)
+                    if (json.optBoolean("success")) {
+                        val arr = json.optJSONArray("data")
+                        if (arr != null && arr.length() > 0) {
+                            sessionManager.saveEmergencyContactsJson(arr.toString())
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                // Biarkan menggunakan cache lokal offline
+            }
+        }
+    }
+
+    private fun showEmergencyDialDialog() {
+        val cachedJson = sessionManager.getEmergencyContactsJson()
+        val optionsList = mutableListOf<String>()
+        val phoneList = mutableListOf<String>()
+
+        if (!cachedJson.isNullOrEmpty()) {
+            try {
+                val arr = JSONArray(cachedJson)
+                for (i in 0 until arr.length()) {
+                    val obj = arr.getJSONObject(i)
+                    val active = obj.optBoolean("active", true)
+                    if (!active) continue
+                    val name = obj.optString("name", "Kontak Darurat")
+                    val phone = obj.optString("phone", "-")
+                    val clean = obj.optString("cleanPhone", phone.replace("[^0-9]".toRegex(), ""))
+                    val icon = obj.optString("icon", "📞")
+                    optionsList.add("$icon $name: $phone")
+                    phoneList.add(clean)
+                }
+            } catch (e: Exception) {}
+        }
+
+        // Fallback default jika cache lokal belum terisi
+        if (optionsList.isEmpty()) {
+            optionsList.addAll(listOf(
+                "🏥 Puskesmas Boyolangu: (0355) 321852",
+                "🚑 Ambulans Gawat Darurat (PSC 119): 119",
+                "🏫 Pos Medis & Satpam Sekolah: 08123456789",
+                "👮 Polsek Boyolangu: (0355) 321110"
+            ))
+            phoneList.addAll(listOf(
+                "0355321852",
+                "119",
+                "08123456789",
+                "0355321110"
+            ))
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("🚨 Panggilan Darurat Medis & Sekolah")
+            .setItems(optionsList.toTypedArray()) { _, which ->
+                val chosenNumber = phoneList[which]
+                try {
+                    val intent = Intent(Intent.ACTION_DIAL).apply {
+                        data = Uri.parse("tel:$chosenNumber")
+                    }
+                    startActivity(intent)
+                } catch (e: Exception) {
+                    Toast.makeText(this, "Tidak dapat membuka dialer telepon: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("Tutup", null)
+            .show()
     }
 }

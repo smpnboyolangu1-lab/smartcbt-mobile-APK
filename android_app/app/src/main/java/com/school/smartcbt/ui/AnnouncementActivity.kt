@@ -47,7 +47,8 @@ class AnnouncementActivity : AppCompatActivity() {
             Triple(binding.chipCatImportant, "PENTING", "📌 PENTING"),
             Triple(binding.chipCatExam, "UJIAN", "📝 UJIAN"),
             Triple(binding.chipCatAcademic, "AKADEMIK", "🎓 AKADEMIK"),
-            Triple(binding.chipCatGeneral, "UMUM", "📢 UMUM")
+            Triple(binding.chipCatGeneral, "UMUM", "📢 UMUM"),
+            Triple(binding.chipCatLetter, "SURAT", "📜 SURAT RESMI")
         )
 
         chips.forEach { (chip, category, _) ->
@@ -102,18 +103,29 @@ class AnnouncementActivity : AppCompatActivity() {
         var filtered = allAnnouncements
 
         if (currentFilter != "ALL") {
-            filtered = filtered.filter {
-                (it.category ?: "UMUM").uppercase().contains(currentFilter) ||
-                (it.title).uppercase().contains(currentFilter)
+            filtered = filtered.filter { item ->
+                val cat = (item.category ?: "").uppercase()
+                val title = (item.title ?: "").uppercase()
+                val content = (item.content ?: "").uppercase()
+                when (currentFilter) {
+                    "PENTING" -> item.isPinned == true || cat.contains("PENTING") || cat.contains("MENDESAK") || title.contains("PENTING") || title.contains("MENDESAK")
+                    "UJIAN" -> cat.contains("UJIAN") || title.contains("UJIAN") || title.contains("PAS") || title.contains("PTS") || title.contains("PAT") || title.contains("ASESMEN") || title.contains("CBT")
+                    "AKADEMIK" -> cat.contains("AKADEMIK") || title.contains("AKADEMIK") || title.contains("JADWAL") || title.contains("RAPOR") || title.contains("KURIKULUM")
+                    "UMUM" -> cat.contains("UMUM") || cat.contains("BROADCAST") || cat.contains("BIASA") || cat.contains("SEKOLAH") || (!cat.contains("PENTING") && !cat.contains("MENDESAK") && !cat.contains("UJIAN"))
+                    "SURAT" -> cat.contains("SURAT") || cat.contains("EDARAN") || !item.letterNo.isNullOrEmpty()
+                    else -> cat.contains(currentFilter) || title.contains(currentFilter) || content.contains(currentFilter)
+                }
             }
         }
 
         if (currentSearchQuery.isNotEmpty()) {
             val q = currentSearchQuery.lowercase()
             filtered = filtered.filter {
-                it.title.lowercase().contains(q) ||
-                it.content.lowercase().contains(q) ||
-                (it.author ?: "").lowercase().contains(q)
+                (it.title ?: "").lowercase().contains(q) ||
+                (it.content ?: "").lowercase().contains(q) ||
+                (it.author ?: "").lowercase().contains(q) ||
+                (it.letterNo ?: "").lowercase().contains(q) ||
+                (it.category ?: "").lowercase().contains(q)
             }
         }
 
@@ -166,12 +178,13 @@ class AnnouncementActivity : AppCompatActivity() {
                 setPadding(8, 4, 8, 4)
                 setBackgroundColor(
                     if (item.isPinned == true) Color.parseColor("#B45309")
-                    else if (catText.contains("PENTING")) Color.parseColor("#DC2626")
+                    else if (catText.contains("PENTING") || catText.contains("MENDESAK")) Color.parseColor("#DC2626")
                     else Color.parseColor("#1E3A8A")
                 )
             }
 
-            val dateStr = if (item.createdAt.length >= 10) item.createdAt.substring(0, 10) else item.createdAt
+            val rawDate = item.createdAt ?: ""
+            val dateStr = if (rawDate.length >= 10) rawDate.substring(0, 10) else rawDate.ifEmpty { "-" }
             val tvDate = TextView(this).apply {
                 text = dateStr
                 setTextColor(Color.parseColor("#94A3B8"))
@@ -185,7 +198,7 @@ class AnnouncementActivity : AppCompatActivity() {
 
             // Title
             val tvTitle = TextView(this).apply {
-                text = item.title
+                text = item.title ?: "Pengumuman Sekolah"
                 setTextColor(Color.parseColor("#0F172A"))
                 textSize = 14f
                 setTypeface(null, android.graphics.Typeface.BOLD)
@@ -193,7 +206,8 @@ class AnnouncementActivity : AppCompatActivity() {
             }
 
             // Snippet
-            val snippet = if (item.content.length > 120) item.content.substring(0, 120) + "..." else item.content
+            val safeContent = item.content ?: ""
+            val snippet = if (safeContent.length > 120) safeContent.substring(0, 120) + "..." else safeContent
             val tvSnippet = TextView(this).apply {
                 text = snippet
                 setTextColor(Color.parseColor("#475569"))
@@ -334,7 +348,7 @@ class AnnouncementActivity : AppCompatActivity() {
         header.addView(topRow)
 
         val tvTitle = TextView(this).apply {
-            text = item.title
+            text = item.title ?: "Pengumuman Sekolah"
             textSize = 16.5f
             typeface = android.graphics.Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
@@ -342,7 +356,8 @@ class AnnouncementActivity : AppCompatActivity() {
         }
         header.addView(tvTitle)
 
-        val dateStr = if (item.createdAt.length >= 10) item.createdAt.substring(0, 10) else item.createdAt
+        val rawDate = item.createdAt ?: ""
+        val dateStr = if (rawDate.length >= 10) rawDate.substring(0, 10) else rawDate.ifEmpty { "-" }
         val tvMeta = TextView(this).apply {
             val auth = item.author ?: "Humas & Kurikulum"
             val letNo = if (!item.letterNo.isNullOrEmpty()) " • No: ${item.letterNo}" else ""
@@ -360,7 +375,7 @@ class AnnouncementActivity : AppCompatActivity() {
         }
 
         val tvContent = TextView(this).apply {
-            text = item.content
+            text = item.content ?: ""
             textSize = 12.5f
             setTextColor(Color.parseColor("#1E293B"))
             setLineSpacing(4f, 1.25f)
@@ -412,12 +427,32 @@ class AnnouncementActivity : AppCompatActivity() {
 
     private fun openPdfFile(rawUrl: String) {
         try {
-            val fullUrl = if (rawUrl.startsWith("http", ignoreCase = true)) rawUrl 
-                          else ApiClient.BASE_URL.trimEnd('/') + (if (rawUrl.startsWith("/")) "" else "/") + rawUrl
-            val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(fullUrl))
-            startActivity(intent)
+            val baseServer = ApiClient.getBaseServerUrl(this).trimEnd('/')
+            val fullUrl = if (rawUrl.startsWith("http", ignoreCase = true)) {
+                rawUrl 
+            } else {
+                baseServer + (if (rawUrl.startsWith("/")) "" else "/") + rawUrl
+            }
+
+            // Utamakan in-app PdfViewerActivity jika tersedia
+            val inAppIntent = Intent(this, PdfViewerActivity::class.java).apply {
+                putExtra(PdfViewerActivity.EXTRA_TITLE, "Dokumen Resmi Pengumuman")
+                putExtra(PdfViewerActivity.EXTRA_URL, fullUrl)
+                putExtra(PdfViewerActivity.EXTRA_DOC_TYPE, "PENGUMUMAN")
+            }
+            startActivity(inAppIntent)
         } catch (e: Exception) {
-            Toast.makeText(this, "Tidak dapat membuka dokumen PDF: ${e.message}", Toast.LENGTH_SHORT).show()
+            // Fallback ke browser eksternal
+            try {
+                val fullUrl = if (rawUrl.startsWith("http", ignoreCase = true)) rawUrl 
+                              else ApiClient.getBaseServerUrl(this).trimEnd('/') + (if (rawUrl.startsWith("/")) "" else "/") + rawUrl
+                val extIntent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(fullUrl)).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                startActivity(extIntent)
+            } catch (e2: Exception) {
+                Toast.makeText(this, "Tidak dapat membuka dokumen PDF: ${e2.message}", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 }

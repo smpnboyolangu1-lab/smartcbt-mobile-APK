@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/db';
+import { formatTimeWib, formatTimeWibWithSuffix, getWibDayBounds, getWibTimeColon } from '../utils/dateUtils';
 
 export function normalizeClassVariations(clsName: string): string[] {
     if (!clsName) return [];
@@ -97,32 +98,39 @@ export const teacherInClassSession = async (req: Request, res: Response) => {
         }
 
         const now = new Date();
+        const bounds = getWibDayBounds(now);
+        const curMinutes = bounds.hour * 60 + bounds.minute;
         const teacherId = user.id;
         const teacherName = user.name || 'Guru Pengampu';
         const classVariations = normalizeClassVariations(className);
 
         // Validasi Waktu Jadwal: Sesi JP HANYA boleh dibuka maksimal 10 menit sebelum jam mulai
-        let scheduleStart: Date | null = null;
+        let schedStartMinutes: number | null = null;
+        let startFormatted = startTimeStr || '';
+
         if (startTimeStr && startTimeStr.includes(':')) {
             const [sH, sM] = startTimeStr.split(':').map(Number);
-            scheduleStart = new Date(now);
-            scheduleStart.setHours(sH, sM, 0, 0);
+            if (!isNaN(sH) && !isNaN(sM)) {
+                schedStartMinutes = sH * 60 + sM;
+                startFormatted = startTimeStr;
+            }
         } else if (scheduleId) {
             try {
                 const sched = await (prisma as any).classPeriodSchedule.findUnique({ where: { id: scheduleId } });
                 if (sched && sched.startTime && sched.startTime.includes(':')) {
                     const [sH, sM] = sched.startTime.split(':').map(Number);
-                    scheduleStart = new Date(now);
-                    scheduleStart.setHours(sH, sM, 0, 0);
+                    if (!isNaN(sH) && !isNaN(sM)) {
+                        schedStartMinutes = sH * 60 + sM;
+                        startFormatted = sched.startTime;
+                    }
                 }
             } catch (e) {}
         }
 
-        if (scheduleStart) {
-            const earliestAllowed = new Date(scheduleStart.getTime() - 10 * 60 * 1000);
-            if (now < earliestAllowed) {
-                const waitMinutes = Math.ceil((scheduleStart.getTime() - now.getTime()) / (60 * 1000));
-                const startFormatted = scheduleStart.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+        if (schedStartMinutes !== null) {
+            const earliestAllowedMin = schedStartMinutes - 10;
+            if (curMinutes < earliestAllowedMin) {
+                const waitMinutes = schedStartMinutes - curMinutes;
                 return res.status(400).json({
                     success: false,
                     message: `Sesi kelas ${className} belum dapat dibuka. Jam pelajaran ${subjectName} baru dimulai ${waitMinutes} menit lagi (pukul ${startFormatted} WIB). Buka sesi saat mendekati jam pelajaran.`
@@ -149,10 +157,13 @@ export const teacherInClassSession = async (req: Request, res: Response) => {
         let endDt: Date;
         if (endTimeStr && endTimeStr.includes(':')) {
             const [endH, endM] = endTimeStr.split(':').map(Number);
-            endDt = new Date(now);
-            endDt.setHours(endH, endM, 0, 0);
-            if (endDt <= now) {
-                // Jika jam berakhir terlewat, set 45 menit dari sekarang
+            if (!isNaN(endH) && !isNaN(endM)) {
+                // Gunakan bounds.startOfDay WIB deterministik
+                endDt = new Date(bounds.startOfDay.getTime() + (endH * 60 + endM) * 60 * 1000);
+                if (endDt <= now) {
+                    endDt = new Date(now.getTime() + 45 * 60 * 1000);
+                }
+            } else {
                 endDt = new Date(now.getTime() + 45 * 60 * 1000);
             }
         } else {
@@ -177,8 +188,8 @@ export const teacherInClassSession = async (req: Request, res: Response) => {
                 subjectName,
                 periodIndex: Number(periodIndex) || 1,
                 timeRange: timeRange || null,
-                startTimeStr: startTimeStr || now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false }),
-                endTimeStr: endTimeStr || endDt.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false }),
+                startTimeStr: startTimeStr || getWibTimeColon(now),
+                endTimeStr: endTimeStr || getWibTimeColon(endDt),
                 roomName: roomName || `Ruang Kelas ${className}`,
                 inTime: now,
                 outWindowStart,
@@ -189,7 +200,41 @@ export const teacherInClassSession = async (req: Request, res: Response) => {
             }
         });
 
-        const inTimeFormatted = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+        // Sinkronisasi otomatis ke TeachingSession (agar konsisten dengan web portal & modul handover)
+        try {
+            await (prisma as any).teachingSession.updateMany({
+                where: {
+                    teacherId,
+                    className: { in: classVariations },
+                    status: 'IN_PROGRESS'
+                },
+                data: {
+                    status: 'COMPLETED',
+                    checkOutTime: now,
+                    checkOutMethod: 'AUTO_PERIOD_SYNC'
+                }
+            });
+
+            await (prisma as any).teachingSession.create({
+                data: {
+                    teacherId,
+                    roomId: roomName || `Ruang Kelas ${className}`,
+                    className,
+                    subjectName,
+                    academicYear: '2026/2027',
+                    semester: 'GANJIL',
+                    checkInTime: now,
+                    checkInMethod: 'APK_1TAP_IN',
+                    status: 'IN_PROGRESS',
+                    studentCount: totalStudents || 32,
+                    presentCount: 0
+                }
+            });
+        } catch (syncErr: any) {
+            console.warn('Sync to TeachingSession notice:', syncErr.message);
+        }
+
+        const inTimeFormatted = formatTimeWib(now);
 
         // Broadcast ke TV Monitoring / Command Center agar status kelas seketika HIJAU
         if ((global as any).emitEmptyClassUpdate) {
@@ -248,6 +293,25 @@ export const teacherEndClassSession = async (req: Request, res: Response) => {
                 updatedAt: now
             }
         });
+
+        // Sinkronisasi otomatis penutupan ke TeachingSession
+        try {
+            const classVariations = normalizeClassVariations(session.className);
+            await (prisma as any).teachingSession.updateMany({
+                where: {
+                    teacherId: user.id,
+                    className: { in: classVariations.length > 0 ? classVariations : [session.className] },
+                    status: 'IN_PROGRESS'
+                },
+                data: {
+                    status: 'COMPLETED',
+                    checkOutTime: now,
+                    checkOutMethod: 'APK_1TAP_OUT'
+                }
+            });
+        } catch (syncCloseErr: any) {
+            console.warn('Sync close to TeachingSession notice:', syncCloseErr.message);
+        }
 
         // Broadcast ke TV Monitoring / Command Center agar status kelas tercatat selesai KBM
         if ((global as any).emitEmptyClassUpdate) {
@@ -323,10 +387,7 @@ export const getActiveClassSession = async (req: Request, res: Response) => {
             }
 
             // Cek status Gate In siswa hari ini
-            const startOfDay = new Date(now);
-            startOfDay.setHours(0, 0, 0, 0);
-            const endOfDay = new Date(now);
-            endOfDay.setHours(23, 59, 59, 999);
+            const { startOfDay, endOfDay } = getWibDayBounds(now);
 
             const gateInToday = await prisma.attendance.findFirst({
                 where: {
@@ -474,10 +535,7 @@ export const studentOutClassSession = async (req: Request, res: Response) => {
             return res.status(400).json({ message: '❌ Tidak ada sesi pelajaran aktif di kelas Anda saat ini' });
         }
 
-        const startOfDay = new Date(now);
-        startOfDay.setHours(0, 0, 0, 0);
-        const endOfDay = new Date(now);
-        endOfDay.setHours(23, 59, 59, 999);
+        const { startOfDay, endOfDay } = getWibDayBounds(now);
 
         // 1.A VALIDASI GATE IN (Presensi Masuk Gerbang)
         const gateInToday = await prisma.attendance.findFirst({
@@ -667,8 +725,7 @@ export const performAutoCloseExpiredSessions = async () => {
             const attendedStudentIds = new Set(attendedList.map((a: any) => a.studentId));
 
             // Ambil data Gate-In siswa hari ini
-            const startOfDay = new Date(sess.inTime);
-            startOfDay.setHours(0, 0, 0, 0);
+            const { startOfDay } = getWibDayBounds(new Date(sess.inTime));
             const gateInsToday = await prisma.attendance.findMany({
                 where: {
                     type: 'GATE_IN',
@@ -1008,10 +1065,13 @@ export const getTeacherTodayClassPeriods = async (req: Request, res: Response) =
         const user = (req as any).user;
         const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
         const now = new Date();
-        const currentDay = days[now.getDay()];
+        const bounds = getWibDayBounds(now);
+        const currentDay = days[bounds.dayOfWeek];
         const reqDay = req.query.day ? String(req.query.day).trim() : null;
-        const targetDay = reqDay || (currentDay === 'Minggu' ? 'Senin' : currentDay);
-        const currentTimeStr = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+        const isWeekend = (currentDay === 'Minggu' || currentDay === 'Sabtu');
+        const targetDay = reqDay || (isWeekend ? 'Senin' : currentDay);
+        const currentTimeStr = getWibTimeColon(now);
+        const isTargetToday = (targetDay.toLowerCase() === currentDay.toLowerCase());
 
         // Cari jadwal hari ini / hari target di database
         let schedules = await (prisma as any).classPeriodSchedule.findMany({
@@ -1062,8 +1122,7 @@ export const getTeacherTodayClassPeriods = async (req: Request, res: Response) =
         }
 
         // Cek sesi aktif / sudah IN hari ini
-        const startOfDay = new Date();
-        startOfDay.setHours(0, 0, 0, 0);
+        const startOfDay = bounds.startOfDay;
 
         const sessionsToday = await (prisma as any).classPeriodSession.findMany({
             where: {
@@ -1079,32 +1138,34 @@ export const getTeacherTodayClassPeriods = async (req: Request, res: Response) =
             );
 
             const isAlreadyIn = !!matchSession;
-            const inTimeFormatted = matchSession?.inTime ? new Date(matchSession.inTime).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : null;
+            const inTimeFormatted = matchSession?.inTime ? formatTimeWib(new Date(matchSession.inTime)) : null;
             const studentOutCount = matchSession?.studentOutCount || 0;
             const totalStudents = matchSession?.totalStudents || 30;
 
-            // Hitung status jendela waktu
+            // Hitung status jendela waktu berbasis menit WIB deterministik
             let canInNow = true;
             let timeStatus = 'ACTIVE_WINDOW';
             let statusMessage = 'Jam pelajaran aktif';
 
-            if (s.startTime && s.startTime.includes(':') && s.endTime && s.endTime.includes(':')) {
+            if (!isTargetToday) {
+                canInNow = false;
+                timeStatus = 'DIFFERENT_DAY';
+                statusMessage = `Jadwal hari ${targetDay}`;
+            } else if (s.startTime && s.startTime.includes(':') && s.endTime && s.endTime.includes(':')) {
                 const [sH, sM] = s.startTime.split(':').map(Number);
                 const [eH, eM] = s.endTime.split(':').map(Number);
-                const scheduleStart = new Date(now);
-                scheduleStart.setHours(sH, sM, 0, 0);
-                const scheduleEnd = new Date(now);
-                scheduleEnd.setHours(eH, eM, 0, 0);
+                const startMin = sH * 60 + sM;
+                const endMin = eH * 60 + eM;
+                const curMin = bounds.hour * 60 + bounds.minute;
 
-                // Boleh IN maksimal 10 menit sebelum jam mulai
-                const earliestIn = new Date(scheduleStart.getTime() - 10 * 60 * 1000);
-
-                if (now < earliestIn) {
+                if (curMin < (startMin - 10)) {
                     canInNow = false;
                     timeStatus = 'UPCOMING';
-                    const startFormatted = s.startTime;
-                    statusMessage = `Belum waktunya. Dibuka mulai ${earliestIn.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} (Mulai ${startFormatted} WIB)`;
-                } else if (now > scheduleEnd) {
+                    const earliestH = Math.floor((startMin - 10) / 60);
+                    const earliestM = (startMin - 10) % 60;
+                    const earliestStr = `${String(earliestH).padStart(2, '0')}:${String(earliestM).padStart(2, '0')}`;
+                    statusMessage = `Belum waktunya. Dibuka pukul ${earliestStr} WIB (Mulai ${s.startTime} WIB)`;
+                } else if (curMin > endMin) {
                     canInNow = false;
                     timeStatus = 'PAST';
                     statusMessage = `Jam pelajaran telah berakhir (${s.endTime} WIB)`;
@@ -1137,8 +1198,12 @@ export const getTeacherTodayClassPeriods = async (req: Request, res: Response) =
         });
 
         res.json({
+            success: true,
             teacherName: user.name,
-            day: currentDay,
+            day: targetDay,
+            currentDay,
+            targetDay,
+            isToday: isTargetToday,
             currentTime: currentTimeStr,
             schedules: items
         });
@@ -1160,10 +1225,7 @@ export const getClassSessionStudentsStatus = async (req: Request, res: Response)
 
         const classVariations = normalizeClassVariations(String(className));
         const now = new Date();
-        const startOfDay = new Date(now);
-        startOfDay.setHours(0, 0, 0, 0);
-        const endOfDay = new Date(now);
-        endOfDay.setHours(23, 59, 59, 999);
+        const { startOfDay, endOfDay } = getWibDayBounds(now);
 
         // Ambil semua siswa di kelas ini
         const students = await prisma.user.findMany({

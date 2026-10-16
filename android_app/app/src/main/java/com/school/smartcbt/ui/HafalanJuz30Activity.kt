@@ -1,25 +1,36 @@
 package com.school.smartcbt.ui
 
 import android.app.AlertDialog
+import android.app.DatePickerDialog
 import android.content.Context
 import android.content.SharedPreferences
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Typeface
 import android.media.AudioAttributes
 import android.media.MediaPlayer
+import android.media.MediaRecorder
+import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.text.Editable
 import android.text.TextWatcher
+import android.util.Base64
+import android.Manifest
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import androidx.cardview.widget.CardView
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import com.school.smartcbt.data.remote.ApiClient
 import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -107,6 +118,9 @@ class HafalanJuz30Activity : AppCompatActivity() {
 
     private var liveTargets: List<Map<String, Any>> = emptyList()
     private var liveEvaluations: List<Map<String, Any>> = emptyList()
+    private var cachedPaiTeachers: List<Map<String, Any>> = emptyList()
+    private var activeRecorder: MediaRecorder? = null
+    private var activeDialogPreviewPlayer: MediaPlayer? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -470,6 +484,7 @@ class HafalanJuz30Activity : AppCompatActivity() {
         // Load Initial Data & Sync
         switchTab("SURAH")
         syncDataFromServer()
+        fetchPaiTeachers()
     }
 
     private fun createTabButton(textLabel: String, weightVal: Float): TextView {
@@ -686,7 +701,7 @@ class HafalanJuz30Activity : AppCompatActivity() {
                 val padV = dp(4)
                 setPadding(padH, padV, padH, padV)
                 setOnClickListener {
-                    showStatusPickerDialog(s)
+                    showSurahDetailDialog(s)
                 }
             }
             actionRow.addView(btnStatusBadge)
@@ -788,35 +803,152 @@ class HafalanJuz30Activity : AppCompatActivity() {
         }
     }
 
-    private fun showStatusPickerDialog(surah: SurahItem) {
-        val options = arrayOf(
-            "🟢 Sudah Lulus (Mutqin)",
-            "🟡 Sedang Menghafal",
-            "🟣 Perlu Murojaah Pengulangan",
-            "⚪ Belum Mulai"
-        )
-        val current = when (getSurahStatus(surah.number)) {
-            "MUTQIN" -> 0
-            "PROGRES" -> 1
-            "MUROJAAH" -> 2
-            else -> 3
+    private fun showSurahDetailDialog(surah: SurahItem) {
+        val density = resources.displayMetrics.density
+        fun dp(v: Int): Int = (v * density).toInt()
+
+        val currentStatus = getSurahStatus(surah.number)
+        val teacherScore = prefs.getFloat("surah_score_${surah.number}", -1f)
+        val teacherNote = prefs.getString("surah_feedback_${surah.number}", null)
+
+        val dialogView = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val pad = dp(16)
+            setPadding(pad, pad, pad, pad)
         }
 
-        AlertDialog.Builder(this)
-            .setTitle("Status Hafalan: ${surah.nameLatin}")
-            .setSingleChoiceItems(options, current) { dialog, which ->
-                val newStatus = when (which) {
-                    0 -> "MUTQIN"
-                    1 -> "PROGRES"
-                    2 -> "MUROJAAH"
-                    else -> "BELUM"
-                }
-                setSurahStatus(surah.number, newStatus)
-                dialog.dismiss()
-                Toast.makeText(this, "Status ${surah.nameLatin} diperbarui!", Toast.LENGTH_SHORT).show()
+        // Header info
+        val tvTitle = TextView(this).apply {
+            text = "${surah.number}. Surat ${surah.nameLatin} (${surah.nameArabic})"
+            textSize = 15.5f
+            setTextColor(Color.parseColor("#065F46"))
+            setTypeface(null, Typeface.BOLD)
+        }
+        val tvSub = TextView(this).apply {
+            text = "Arti: ${surah.meaning} • ${surah.ayatCount} Ayat • Turun di ${surah.place}"
+            textSize = 11f
+            setTextColor(Color.parseColor("#64748B"))
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(2)
+                bottomMargin = dp(12)
             }
+            layoutParams = lp
+        }
+        dialogView.addView(tvTitle)
+        dialogView.addView(tvSub)
+
+        // Status Card
+        val statusCard = CardView(this).apply {
+            radius = dp(10).toFloat()
+            setCardBackgroundColor(Color.parseColor(when (currentStatus) {
+                "MUTQIN" -> "#DCFCE7"
+                "MENUNGGU" -> "#E0E7FF"
+                "PROGRES" -> "#FEF3C7"
+                "MUROJAAH" -> "#F3E8FF"
+                else -> "#F1F5F9"
+            }))
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(12)
+            }
+            layoutParams = lp
+        }
+        val innerStatus = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val p = dp(12)
+            setPadding(p, p, p, p)
+        }
+        val tvStatusHead = TextView(this).apply {
+            val (stTitle, col) = when (currentStatus) {
+                "MUTQIN" -> Pair("🟢 Status: Telah Lulus Resmi (Mutqin)", "#15803D")
+                "MENUNGGU" -> Pair("⏳ Status: Menunggu Penilaian Guru PAI", "#4338CA")
+                "PROGRES" -> Pair("🟡 Status: Sedang Proses Dihafal", "#D97706")
+                "MUROJAAH" -> Pair("🟣 Status: Perlu Uji Ulang Murojaah", "#7E22CE")
+                else -> Pair("⚪ Status: Belum Disetorkan", "#64748B")
+            }
+            text = stTitle
+            textSize = 12.5f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor(col))
+        }
+        val tvStatusDesc = TextView(this).apply {
+            text = when (currentStatus) {
+                "MUTQIN" -> "Alhamdulillah! Hafalan surat ini telah diuji dan dinyatakan lulus Mutqin oleh Guru PAI."
+                "MENUNGGU" -> "Setoran hafalan santri sudah terkirim ke Guru PAI dan sedang menunggu jadwal tatap muka atau evaluasi rekaman audio."
+                "PROGRES" -> "Surat ini tercatat dalam rencana hafalan aktif santri."
+                "MUROJAAH" -> "Guru PAI menjadwalkan murojaah pengulangan agar hafalan tetap lancar dan makhraj terjaga."
+                else -> "Belum ada catatan setoran resmi untuk surat ini. Silakan ajukan setoran kepada Guru PAI."
+            }
+            textSize = 11f
+            setTextColor(Color.parseColor("#334155"))
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(4)
+            }
+            layoutParams = lp
+        }
+        innerStatus.addView(tvStatusHead)
+        innerStatus.addView(tvStatusDesc)
+        statusCard.addView(innerStatus)
+        dialogView.addView(statusCard)
+
+        // Teacher Score / Feedback if available
+        if (teacherScore >= 0 || !teacherNote.isNullOrEmpty()) {
+            val scoreBox = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setBackgroundColor(Color.parseColor("#F8FAFC"))
+                val p = dp(10)
+                setPadding(p, p, p, p)
+                val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    bottomMargin = dp(12)
+                }
+                layoutParams = lp
+            }
+            if (teacherScore >= 0) {
+                val tvScore = TextView(this).apply {
+                    text = "⭐ Nilai Rubrik Guru PAI: ${teacherScore.toInt()} / 100"
+                    textSize = 12f
+                    setTypeface(null, Typeface.BOLD)
+                    setTextColor(Color.parseColor("#059669"))
+                }
+                scoreBox.addView(tvScore)
+            }
+            if (!teacherNote.isNullOrEmpty()) {
+                val tvNote = TextView(this).apply {
+                    text = "💬 Catatan Evaluasi: \"$teacherNote\""
+                    textSize = 11f
+                    setTextColor(Color.parseColor("#475569"))
+                    val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        topMargin = dp(4)
+                    }
+                    layoutParams = lp
+                }
+                scoreBox.addView(tvNote)
+            }
+            dialogView.addView(scoreBox)
+        }
+
+        // Integrity Notice
+        val tvNotice = TextView(this).apply {
+            text = "ℹ️ Aturan Penilaian:\nStatus kelulusan (Mutqin) dan penilaian hafalan sepenuhnya dievaluasi dan ditentukan oleh Guru PAI melalui setoran langsung maupun rekaman audio. Siswa tidak dapat menentukan nilai kelulusan sendiri."
+            textSize = 10f
+            setTextColor(Color.parseColor("#64748B"))
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(12)
+            }
+            layoutParams = lp
+        }
+        dialogView.addView(tvNotice)
+
+        val builder = AlertDialog.Builder(this)
+            .setView(dialogView)
             .setNegativeButton("Tutup", null)
-            .show()
+
+        if (currentStatus != "MUTQIN") {
+            builder.setPositiveButton("Ajukan Setoran Sekarang") { _, _ ->
+                showSetoranFormDialog(surah.number)
+            }
+        }
+
+        builder.show()
     }
 
     // ==================== TAB B: TARGET HAFALANKU ====================
@@ -968,14 +1100,19 @@ class HafalanJuz30Activity : AppCompatActivity() {
         val density = resources.displayMetrics.density
         fun dp(v: Int): Int = (v * density).toInt()
 
+        val scrollView = ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
+
         val dialogView = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             val pad = dp(16)
             setPadding(pad, pad, pad, pad)
         }
+        scrollView.addView(dialogView)
 
         val tvTitle = TextView(this).apply {
-            text = "Formulir Setoran Hafalan ke Guru PAI"
+            text = "Formulir Pengajuan Setoran Hafalan"
             textSize = 15f
             setTextColor(Color.parseColor("#065F46"))
             setTypeface(null, Typeface.BOLD)
@@ -1011,12 +1148,15 @@ class HafalanJuz30Activity : AppCompatActivity() {
         val etAyatStart = EditText(this).apply {
             hint = "Ayat Awal"
             setText("1")
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
             textSize = 12f
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) }
         }
+        val initialSelectedSurah = surahList[if (preselectedSurahNum != null) surahList.indexOfFirst { it.number == preselectedSurahNum }.coerceAtLeast(0) else 0]
         val etAyatEnd = EditText(this).apply {
             hint = "Ayat Akhir"
-            setText("10")
+            setText("${initialSelectedSurah.ayatCount}")
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
             textSize = 12f
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
@@ -1024,13 +1164,22 @@ class HafalanJuz30Activity : AppCompatActivity() {
         rowAyat.addView(etAyatEnd)
         dialogView.addView(rowAyat)
 
-        // Modern Selectable Pills for Metode Setoran (Anti-Bug Single Choice)
+        spinnerSurah.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                if (position in surahList.indices) {
+                    etAyatEnd.setText("${surahList[position].ayatCount}")
+                }
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+
+        // Metode Setoran Selection (Pill Buttons)
         val tvMetodeLbl = TextView(this).apply {
-            text = "Metode Setoran:"
+            text = "Metode Setoran ke Guru PAI:"
             textSize = 11.5f
             setTextColor(Color.parseColor("#475569"))
             val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(10)
+                topMargin = dp(12)
             }
             layoutParams = lp
         }
@@ -1041,29 +1190,344 @@ class HafalanJuz30Activity : AppCompatActivity() {
             orientation = LinearLayout.HORIZONTAL
             val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 topMargin = dp(4)
-                bottomMargin = dp(8)
+                bottomMargin = dp(10)
             }
             layoutParams = lp
         }
 
         val btnMetodeLangsung = TextView(this).apply {
-            text = "🗣️ Langsung"
-            textSize = 12f
+            text = "🗣️ Setoran Langsung (Tatap Muka)"
+            textSize = 11.5f
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
-            val p = dp(10)
+            val p = dp(9)
             setPadding(p, p, p, p)
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(4) }
         }
 
         val btnMetodeAudio = TextView(this).apply {
-            text = "🎧 Rekaman Audio"
-            textSize = 12f
+            text = "🎙️ Rekaman Suara Santri"
+            textSize = 11.5f
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
-            val p = dp(10)
+            val p = dp(9)
             setPadding(p, p, p, p)
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(4) }
+        }
+
+        rowMetode.addView(btnMetodeLangsung)
+        rowMetode.addView(btnMetodeAudio)
+        dialogView.addView(rowMetode)
+
+        // ==================== PANE 1: SETORAN LANGSUNG (PENJADWALAN TEMU) ====================
+        val paneLangsung = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#F0FDF4"))
+            val p = dp(12)
+            setPadding(p, p, p, p)
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(10)
+            }
+            layoutParams = lp
+        }
+
+        val tvLangsungHead = TextView(this).apply {
+            text = "📅 Penjadwalan Temu Guru PAI (Tatap Muka di Sekolah)"
+            textSize = 12f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#065F46"))
+        }
+        paneLangsung.addView(tvLangsungHead)
+
+        val defaultDateCal = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, 1) }
+        var selectedMeetingDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(defaultDateCal.time)
+
+        val btnDatePicker = TextView(this).apply {
+            text = "📅 Tanggal Temu: $selectedMeetingDate (Klik Ubah)"
+            textSize = 11.5f
+            setTextColor(Color.parseColor("#0369A1"))
+            setBackgroundColor(Color.parseColor("#E0F2FE"))
+            setTypeface(null, Typeface.BOLD)
+            val p = dp(9)
+            setPadding(p, p, p, p)
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(8)
+            }
+            layoutParams = lp
+            setOnClickListener {
+                val cal = Calendar.getInstance()
+                val dpd = DatePickerDialog(this@HafalanJuz30Activity, { _, year, month, dayOfMonth ->
+                    val chosen = Calendar.getInstance().apply { set(year, month, dayOfMonth) }
+                    selectedMeetingDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(chosen.time)
+                    text = "📅 Tanggal Temu: $selectedMeetingDate (Klik Ubah)"
+                }, cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH) + 1)
+                dpd.datePicker.minDate = System.currentTimeMillis() - 1000L
+                dpd.show()
+            }
+        }
+        paneLangsung.addView(btnDatePicker)
+
+        val tvSessionLbl = TextView(this).apply {
+            text = "⏰ Sesi / Jam Pertemuan:"; textSize = 11f; setTextColor(Color.parseColor("#475569"))
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) }
+            layoutParams = lp
+        }
+        paneLangsung.addView(tvSessionLbl)
+
+        val sessionList = listOf(
+            "Istirahat 1 (09:30 - 10:00 WIB)",
+            "Istirahat Dhuhur / Ba'da Sholat (12:15 - 13:00 WIB)",
+            "Setelah KBM / Jam Pulang (15:00 - 16:00 WIB)",
+            "Pagi Sebelum KBM (06:45 - 07:15 WIB)"
+        )
+        val spSession = Spinner(this).apply {
+            setAdapter(ArrayAdapter(this@HafalanJuz30Activity, android.R.layout.simple_spinner_dropdown_item, sessionList))
+        }
+        paneLangsung.addView(spSession)
+
+        val tvLocationLbl = TextView(this).apply {
+            text = "📍 Tempat / Lokasi Temu:"; textSize = 11f; setTextColor(Color.parseColor("#475569"))
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) }
+            layoutParams = lp
+        }
+        paneLangsung.addView(tvLocationLbl)
+
+        val locationList = listOf(
+            "Mushola / Masjid SMPN 1 Boyolangu",
+            "Ruang Guru PAI",
+            "Ruang Kelas Siswa",
+            "Area Gazebo Sekolah"
+        )
+        val spLocation = Spinner(this).apply {
+            setAdapter(ArrayAdapter(this@HafalanJuz30Activity, android.R.layout.simple_spinner_dropdown_item, locationList))
+        }
+        paneLangsung.addView(spLocation)
+        dialogView.addView(paneLangsung)
+
+        // ==================== PANE 2: REKAMAN AUDIO LANGSUNG ====================
+        val paneAudio = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#F8FAFC"))
+            val p = dp(12)
+            setPadding(p, p, p, p)
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(10)
+            }
+            layoutParams = lp
+            visibility = View.GONE
+        }
+
+        val tvAudioHead = TextView(this).apply {
+            text = "🎙️ Rekam Suara Hafalan Langsung di Aplikasi"
+            textSize = 12f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#065F46"))
+        }
+        paneAudio.addView(tvAudioHead)
+
+        val tvRecStatus = TextView(this).apply {
+            text = "Lantunkan hafalan dengan jelas & tartil. Tekan tombol merah untuk mulai merekam."
+            textSize = 11f
+            setTextColor(Color.parseColor("#475569"))
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(4) }
+            layoutParams = lp
+        }
+        paneAudio.addView(tvRecStatus)
+
+        val tvRecTimer = TextView(this).apply {
+            text = "⏱️ 00:00"
+            textSize = 18f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#DC2626"))
+            gravity = Gravity.CENTER
+            visibility = View.GONE
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(6)
+                bottomMargin = dp(4)
+            }
+            layoutParams = lp
+        }
+        paneAudio.addView(tvRecTimer)
+
+        val recControlsRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(6)
+            }
+            layoutParams = lp
+        }
+
+        val btnRecord = Button(this).apply {
+            text = "🔴 Mulai Rekam"
+            textSize = 11.5f
+            typeface = Typeface.DEFAULT_BOLD
+            setBackgroundColor(Color.parseColor("#DC2626"))
+            setTextColor(Color.WHITE)
+            layoutParams = LinearLayout.LayoutParams(0, dp(40), 1f)
+        }
+
+        val btnPreview = Button(this).apply {
+            text = "▶️ Putar"
+            textSize = 11.5f
+            typeface = Typeface.DEFAULT_BOLD
+            setBackgroundColor(Color.parseColor("#0284C7"))
+            setTextColor(Color.WHITE)
+            visibility = View.GONE
+            layoutParams = LinearLayout.LayoutParams(0, dp(40), 1f).apply { marginStart = dp(6) }
+        }
+
+        val btnResetRec = Button(this).apply {
+            text = "🔄 Hapus"
+            textSize = 11.5f
+            typeface = Typeface.DEFAULT_BOLD
+            setBackgroundColor(Color.parseColor("#64748B"))
+            setTextColor(Color.WHITE)
+            visibility = View.GONE
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(40)).apply { marginStart = dp(6) }
+        }
+
+        recControlsRow.addView(btnRecord)
+        recControlsRow.addView(btnPreview)
+        recControlsRow.addView(btnResetRec)
+        paneAudio.addView(recControlsRow)
+        dialogView.addView(paneAudio)
+
+        // Audio Recorder State Variables
+        var currentRecordingFile: File? = null
+        var isRecording = false
+        var recSeconds = 0
+        var recTimerHandler: Handler? = null
+        var recTimerRunnable: Runnable? = null
+
+        btnRecord.setOnClickListener {
+            if (!isRecording) {
+                // Check Record Audio Permission
+                if (ContextCompat.checkSelfPermission(this@HafalanJuz30Activity, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                    ActivityCompat.requestPermissions(this@HafalanJuz30Activity, arrayOf(Manifest.permission.RECORD_AUDIO), 2001)
+                    Toast.makeText(this@HafalanJuz30Activity, "Izinkan akses mikrofon untuk merekam audio hafalan", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+
+                activeDialogPreviewPlayer?.stop()
+                activeDialogPreviewPlayer?.release()
+                activeDialogPreviewPlayer = null
+                btnPreview.text = "▶️ Putar"
+
+                try {
+                    val audioFile = File(cacheDir, "rec_tahfiz_${System.currentTimeMillis()}.m4a")
+                    currentRecordingFile = audioFile
+
+                    val recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        MediaRecorder(this@HafalanJuz30Activity)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        MediaRecorder()
+                    }
+                    recorder.apply {
+                        setAudioSource(MediaRecorder.AudioSource.MIC)
+                        setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                        setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                        setAudioEncodingBitRate(128000)
+                        setAudioSamplingRate(44100)
+                        setOutputFile(audioFile.absolutePath)
+                        prepare()
+                        start()
+                    }
+                    activeRecorder = recorder
+                    isRecording = true
+                    recSeconds = 0
+
+                    tvRecTimer.visibility = View.VISIBLE
+                    tvRecTimer.text = "⏱️ 00:00"
+                    tvRecStatus.text = "🔴 Sedang merekam bacaan santri... Lantunkan ayat dengan jelas."
+                    tvRecStatus.setTextColor(Color.parseColor("#DC2626"))
+                    btnRecord.text = "⏹️ Selesai Rekam"
+                    btnRecord.setBackgroundColor(Color.parseColor("#065F46"))
+                    btnPreview.visibility = View.GONE
+                    btnResetRec.visibility = View.GONE
+
+                    recTimerHandler = Handler(Looper.getMainLooper())
+                    recTimerRunnable = object : Runnable {
+                        override fun run() {
+                            recSeconds++
+                            val m = recSeconds / 60
+                            val s = recSeconds % 60
+                            tvRecTimer.text = String.format(Locale.getDefault(), "⏱️ %02d:%02d", m, s)
+                            recTimerHandler?.postDelayed(this, 1000)
+                        }
+                    }
+                    recTimerHandler?.postDelayed(recTimerRunnable!!, 1000)
+                } catch (e: Exception) {
+                    Toast.makeText(this@HafalanJuz30Activity, "Gagal memulai perekaman: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            } else {
+                // Stop Recording
+                try {
+                    activeRecorder?.stop()
+                    activeRecorder?.release()
+                } catch (e: Exception) {}
+                activeRecorder = null
+                isRecording = false
+                recTimerRunnable?.let { recTimerHandler?.removeCallbacks(it) }
+
+                val fileKb = (currentRecordingFile?.length() ?: 0L) / 1024
+                val m = recSeconds / 60
+                val s = recSeconds % 60
+                val durationFormatted = String.format(Locale.getDefault(), "%02d:%02d", m, s)
+
+                tvRecStatus.text = "✅ Rekaman siap dikirim ($durationFormatted • $fileKb KB)"
+                tvRecStatus.setTextColor(Color.parseColor("#059669"))
+                btnRecord.text = "🔴 Rekam Ulang"
+                btnRecord.setBackgroundColor(Color.parseColor("#DC2626"))
+                btnPreview.visibility = View.VISIBLE
+                btnResetRec.visibility = View.VISIBLE
+            }
+        }
+
+        btnPreview.setOnClickListener {
+            if (activeDialogPreviewPlayer != null && activeDialogPreviewPlayer?.isPlaying == true) {
+                activeDialogPreviewPlayer?.stop()
+                activeDialogPreviewPlayer?.release()
+                activeDialogPreviewPlayer = null
+                btnPreview.text = "▶️ Putar"
+            } else {
+                if (currentRecordingFile == null || !currentRecordingFile!!.exists()) return@setOnClickListener
+                try {
+                    activeDialogPreviewPlayer?.release()
+                    activeDialogPreviewPlayer = MediaPlayer().apply {
+                        setDataSource(currentRecordingFile!!.absolutePath)
+                        prepare()
+                        start()
+                        btnPreview.text = "⏹️ Hentikan"
+                        setOnCompletionListener {
+                            btnPreview.text = "▶️ Putar"
+                            activeDialogPreviewPlayer?.release()
+                            activeDialogPreviewPlayer = null
+                        }
+                    }
+                } catch (e: Exception) {
+                    Toast.makeText(this@HafalanJuz30Activity, "Gagal memutar rekaman: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+
+        btnResetRec.setOnClickListener {
+            activeDialogPreviewPlayer?.stop()
+            activeDialogPreviewPlayer?.release()
+            activeDialogPreviewPlayer = null
+            currentRecordingFile?.delete()
+            currentRecordingFile = null
+            isRecording = false
+            recSeconds = 0
+            recTimerRunnable?.let { recTimerHandler?.removeCallbacks(it) }
+            tvRecTimer.visibility = View.GONE
+            tvRecStatus.text = "Lantunkan hafalan dengan jelas & tartil. Tekan tombol merah untuk mulai merekam."
+            tvRecStatus.setTextColor(Color.parseColor("#475569"))
+            btnRecord.text = "🔴 Mulai Rekam"
+            btnRecord.setBackgroundColor(Color.parseColor("#DC2626"))
+            btnPreview.visibility = View.GONE
+            btnResetRec.visibility = View.GONE
         }
 
         fun updateMetodeUI() {
@@ -1072,55 +1536,174 @@ class HafalanJuz30Activity : AppCompatActivity() {
                 btnMetodeLangsung.setTextColor(Color.WHITE)
                 btnMetodeAudio.setBackgroundColor(Color.parseColor("#E2E8F0"))
                 btnMetodeAudio.setTextColor(Color.parseColor("#475569"))
+                paneLangsung.visibility = View.VISIBLE
+                paneAudio.visibility = View.GONE
             } else {
                 btnMetodeAudio.setBackgroundColor(Color.parseColor("#065F46"))
                 btnMetodeAudio.setTextColor(Color.WHITE)
                 btnMetodeLangsung.setBackgroundColor(Color.parseColor("#E2E8F0"))
                 btnMetodeLangsung.setTextColor(Color.parseColor("#475569"))
+                paneAudio.visibility = View.VISIBLE
+                paneLangsung.visibility = View.GONE
             }
         }
         btnMetodeLangsung.setOnClickListener { selectedMetode = "LANGSUNG"; updateMetodeUI() }
         btnMetodeAudio.setOnClickListener { selectedMetode = "REKAMAN_AUDIO"; updateMetodeUI() }
         updateMetodeUI()
 
-        rowMetode.addView(btnMetodeLangsung)
-        rowMetode.addView(btnMetodeAudio)
-        dialogView.addView(rowMetode)
+        // Guru PAI Tujuan Selector (Shared)
+        val tvGuruLbl = TextView(this).apply {
+            text = "Guru PAI Penguji / Penilai:"
+            textSize = 11.5f
+            setTextColor(Color.parseColor("#475569"))
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(6)
+            }
+            layoutParams = lp
+        }
+        dialogView.addView(tvGuruLbl)
 
+        val teacherDisplayList = if (cachedPaiTeachers.isNotEmpty()) {
+            cachedPaiTeachers.map { t ->
+                val n = t["name"]?.toString() ?: "Guru PAI"
+                val subj = t["teachingSubject"]?.toString() ?: "PAI"
+                "$n ($subj)"
+            }
+        } else {
+            listOf(
+                "Ust. Munawir, S.Pd.I (Guru PAI)",
+                "Ust. Arsyad Muhammad Brian, S.Pd (Guru PAI)",
+                "Ustzh. Eny Astuti, S.Ag (Guru PAI)",
+                "Ust. Maurik, S.Pd.I (Guru PAI)"
+            )
+        }
+        val spTeacher = Spinner(this).apply {
+            setAdapter(ArrayAdapter(this@HafalanJuz30Activity, android.R.layout.simple_spinner_dropdown_item, teacherDisplayList))
+        }
+        dialogView.addView(spTeacher)
+
+        // Catatan Santri
         val etNotes = EditText(this).apply {
-            hint = "Catatan santri untuk ustadz / guru PAI..."
+            hint = "Catatan santri untuk ustadz / guru PAI (opsional)..."
             textSize = 12f
             setLines(2)
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(8)
+            }
+            layoutParams = lp
         }
         dialogView.addView(etNotes)
 
-        AlertDialog.Builder(this)
-            .setView(dialogView)
-            .setPositiveButton("Kirim Setoran") { dialog, _ ->
-                val selectedIdx = spinnerSurah.selectedItemPosition
-                val chosenSurah = surahList[selectedIdx]
-                val aStart = etAyatStart.text.toString().toIntOrNull() ?: 1
-                val aEnd = etAyatEnd.text.toString().toIntOrNull() ?: chosenSurah.ayatCount
-                val notes = etNotes.text.toString().trim()
-
-                submitSetoranToServer(chosenSurah, aStart, aEnd, selectedMetode, notes)
-                dialog.dismiss()
-            }
+        val dialog = AlertDialog.Builder(this)
+            .setView(scrollView)
+            .setPositiveButton("Kirim Pengajuan Setoran", null)
             .setNegativeButton("Batal", null)
-            .show()
+            .create()
+
+        dialog.setOnDismissListener {
+            if (isRecording) {
+                try {
+                    activeRecorder?.stop()
+                    activeRecorder?.release()
+                } catch (e: Exception) {}
+                activeRecorder = null
+                recTimerRunnable?.let { recTimerHandler?.removeCallbacks(it) }
+            }
+            activeDialogPreviewPlayer?.stop()
+            activeDialogPreviewPlayer?.release()
+            activeDialogPreviewPlayer = null
+        }
+
+        dialog.show()
+
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            val selectedIdx = spinnerSurah.selectedItemPosition
+            val chosenSurah = surahList[selectedIdx]
+            val aStart = etAyatStart.text.toString().toIntOrNull() ?: 1
+            val aEnd = etAyatEnd.text.toString().toIntOrNull() ?: chosenSurah.ayatCount
+            val notes = etNotes.text.toString().trim()
+
+            var audioBase64: String? = null
+            if (selectedMetode == "REKAMAN_AUDIO") {
+                if (currentRecordingFile == null || !currentRecordingFile!!.exists() || currentRecordingFile!!.length() == 0L) {
+                    Toast.makeText(this@HafalanJuz30Activity, "⚠️ Silakan rekam bacaan hafalan Anda terlebih dahulu!", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                val bytes = currentRecordingFile!!.readBytes()
+                audioBase64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+            }
+
+            val tIdx = spTeacher.selectedItemPosition
+            var targetGuruId: String? = null
+            var targetGuruName: String? = null
+            if (cachedPaiTeachers.isNotEmpty() && tIdx in cachedPaiTeachers.indices) {
+                targetGuruId = cachedPaiTeachers[tIdx]["id"]?.toString()
+                targetGuruName = cachedPaiTeachers[tIdx]["name"]?.toString()
+            } else if (tIdx in teacherDisplayList.indices) {
+                targetGuruName = teacherDisplayList[tIdx]
+            }
+
+            submitSetoranToServer(
+                surah = chosenSurah,
+                ayatStart = aStart,
+                ayatEnd = aEnd,
+                metode = selectedMetode,
+                notes = notes,
+                scheduledDate = if (selectedMetode == "LANGSUNG") selectedMeetingDate else null,
+                scheduledSession = if (selectedMetode == "LANGSUNG") spSession.selectedItem?.toString() else null,
+                targetGuruId = targetGuruId,
+                targetGuruName = targetGuruName,
+                meetingLocation = if (selectedMetode == "LANGSUNG") spLocation.selectedItem?.toString() else null,
+                audioBase64 = audioBase64
+            )
+            dialog.dismiss()
+        }
     }
 
-    private fun submitSetoranToServer(surah: SurahItem, ayatStart: Int, ayatEnd: Int, metode: String, notes: String) {
-        val body = mapOf(
+    private fun fetchPaiTeachers() {
+        ApiClient.getClient(this).getPaiTeachersList().enqueue(object : Callback<Map<String, Any>> {
+            override fun onResponse(call: Call<Map<String, Any>>, response: Response<Map<String, Any>>) {
+                if (response.isSuccessful && response.body()?.get("success") == true) {
+                    val list = response.body()?.get("teachers") as? List<Map<String, Any>>
+                    if (!list.isNullOrEmpty()) {
+                        cachedPaiTeachers = list
+                    }
+                }
+            }
+            override fun onFailure(call: Call<Map<String, Any>>, t: Throwable) {}
+        })
+    }
+
+    private fun submitSetoranToServer(
+        surah: SurahItem,
+        ayatStart: Int,
+        ayatEnd: Int,
+        metode: String,
+        notes: String,
+        scheduledDate: String? = null,
+        scheduledSession: String? = null,
+        targetGuruId: String? = null,
+        targetGuruName: String? = null,
+        meetingLocation: String? = null,
+        audioBase64: String? = null
+    ) {
+        val body = mutableMapOf<String, Any>(
             "surahNumber" to surah.number,
             "surahName" to surah.nameLatin,
             "ayatStart" to ayatStart,
             "ayatEnd" to ayatEnd,
             "metode" to metode,
-            "notes" to notes
+            "notes" to notes,
+            "studentNotes" to notes
         )
+        if (!scheduledDate.isNullOrEmpty()) body["scheduledDate"] = scheduledDate
+        if (!scheduledSession.isNullOrEmpty()) body["scheduledSession"] = scheduledSession
+        if (!targetGuruId.isNullOrEmpty()) body["targetGuruId"] = targetGuruId
+        if (!targetGuruName.isNullOrEmpty()) body["targetGuruName"] = targetGuruName
+        if (!meetingLocation.isNullOrEmpty()) body["meetingLocation"] = meetingLocation
+        if (!audioBase64.isNullOrEmpty()) body["audioBase64"] = audioBase64
 
-        Toast.makeText(this, "Mengirim pengajuan setoran...", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "Mengirim pengajuan setoran ke Guru PAI...", Toast.LENGTH_SHORT).show()
         ApiClient.getClient(this).submitTahfizSetoran(body).enqueue(object : Callback<Map<String, Any>> {
             override fun onResponse(call: Call<Map<String, Any>>, response: Response<Map<String, Any>>) {
                 if (response.isSuccessful && response.body()?.get("success") == true) {
@@ -1128,7 +1711,8 @@ class HafalanJuz30Activity : AppCompatActivity() {
                     setSurahStatus(surah.number, "MENUNGGU")
                     syncDataFromServer()
                 } else {
-                    Toast.makeText(this@HafalanJuz30Activity, "Setoran disimpan: ${response.message()}", Toast.LENGTH_SHORT).show()
+                    val msg = response.body()?.get("message")?.toString() ?: response.message()
+                    Toast.makeText(this@HafalanJuz30Activity, "Setoran disimpan: $msg", Toast.LENGTH_SHORT).show()
                     setSurahStatus(surah.number, "MENUNGGU")
                     syncDataFromServer()
                 }
@@ -1449,5 +2033,12 @@ class HafalanJuz30Activity : AppCompatActivity() {
         super.onDestroy()
         mediaPlayer?.release()
         mediaPlayer = null
+        activeDialogPreviewPlayer?.release()
+        activeDialogPreviewPlayer = null
+        try {
+            activeRecorder?.stop()
+            activeRecorder?.release()
+        } catch (e: Exception) {}
+        activeRecorder = null
     }
 }

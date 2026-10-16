@@ -3,15 +3,30 @@ import prisma from '../utils/db';
 import crypto from 'crypto';
 import { sendFcmToUser } from '../services/fcmService';
 import { formatTimeWibWithSuffix, getWibDayBounds, getWibTimeColon } from '../utils/dateUtils';
+import { normalizeClassVariations } from './classSessionController';
+
+/**
+ * =========================================================================
+ * ARSITEKTUR & KEBIJAKAN PRESENSI GURU SIBOY 2026:
+ * Sesuai regulasi resmi sekolah SMPN 1 Boyolangu:
+ * Guru TIDAK PERNAH melakukan presensi gerbang datang dan pulang sekolah (Gate In / Gate Out).
+ * Kehadiran resmi guru murni dihitung dari PRESENSI MASUK & KELUAR KELAS (KBM) pada jam pelajaran yang diampu.
+ * 
+ * Flag ini mengunci mode presensi guru agar di masa mendatang tidak terulang pembuatan alur gerbang untuk guru.
+ * =========================================================================
+ */
+export const TEACHER_ATTENDANCE_MODE = 'PER_CLASS_SCHEDULE'; // 'PER_CLASS_SCHEDULE' | 'GATE_ATTENDANCE'
+export const IS_TEACHER_GATE_ATTENDANCE_ENABLED = false;
 
 export const getTeacherTodaySchedule = async (req: Request, res: Response) => {
     try {
         const user = (req as any).user;
         const teacherName = user?.name || 'Guru';
-        const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
         const now = new Date();
-        const currentDay = days[now.getDay()];
-        const currentTimeStr = now.toTimeString().substring(0, 5);
+        const bounds = getWibDayBounds(now);
+        const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+        const currentDay = days[bounds.dayOfWeek];
+        const currentTimeStr = getWibTimeColon(now);
         const reqDay = req.query.day ? String(req.query.day).trim() : null;
 
         // If today is weekend (Minggu / Sabtu) and no specific day requested, default to 'Senin'
@@ -157,10 +172,8 @@ export const scanStudentDynamicQr = async (req: Request, res: Response) => {
             });
         }
 
-        const startOfDay = new Date();
-        startOfDay.setHours(0, 0, 0, 0);
-        const endOfDay = new Date();
-        endOfDay.setHours(23, 59, 59, 999);
+        const now = new Date();
+        const { startOfDay, endOfDay } = getWibDayBounds(now);
 
         const existingAttendance = await prisma.attendance.findFirst({
             where: {
@@ -209,18 +222,27 @@ export const quickMarkAllAttendance = async (req: Request, res: Response) => {
 
         // Validasi: Guru harus sudah presensi MASUK dan aktif mengajar di kelas ini
         if (currentUser && currentUser.role === 'TEACHER') {
-            const activeSession = await (prisma as any).teachingSession.findFirst({
+            const classVariations = normalizeClassVariations(className);
+            const activePeriodSession = await (prisma as any).classPeriodSession.findFirst({
                 where: {
                     teacherId: currentUser.id,
-                    status: 'IN_PROGRESS',
-                    className
+                    status: 'ACTIVE',
+                    className: { in: classVariations.length > 0 ? classVariations : [className] }
                 }
             });
 
-            if (!activeSession) {
+            const activeRoomSession = await (prisma as any).teachingSession.findFirst({
+                where: {
+                    teacherId: currentUser.id,
+                    status: 'IN_PROGRESS',
+                    className: { in: classVariations.length > 0 ? classVariations : [className] }
+                }
+            });
+
+            if (!activePeriodSession && !activeRoomSession) {
                 return res.status(403).json({
                     success: false,
-                    message: `⚠️ Anda belum melakukan Presensi Masuk KBM di kelas ${className}. Silakan mulai sesi mengajar di kelas terlebih dahulu sebelum melakukan presensi siswa.`
+                    message: `⚠️ Anda belum melakukan Presensi Masuk KBM di kelas ${className}. Silakan klik tombol "1-TAP IN KELAS" atau mulai sesi mengajar terlebih dahulu sebelum melakukan presensi siswa.`
                 });
             }
         }
@@ -269,15 +291,24 @@ export const updateSingleStudentAttendance = async (req: Request, res: Response)
 
         // Validasi: Guru harus sudah presensi MASUK dan aktif mengajar di kelas jika role TEACHER
         if (currentUser && currentUser.role === 'TEACHER' && className) {
-            const activeSession = await (prisma as any).teachingSession.findFirst({
+            const classVariations = normalizeClassVariations(className);
+            const activePeriodSession = await (prisma as any).classPeriodSession.findFirst({
                 where: {
                     teacherId: currentUser.id,
-                    status: 'IN_PROGRESS',
-                    className
+                    status: 'ACTIVE',
+                    className: { in: classVariations.length > 0 ? classVariations : [className] }
                 }
             });
 
-            if (!activeSession) {
+            const activeRoomSession = await (prisma as any).teachingSession.findFirst({
+                where: {
+                    teacherId: currentUser.id,
+                    status: 'IN_PROGRESS',
+                    className: { in: classVariations.length > 0 ? classVariations : [className] }
+                }
+            });
+
+            if (!activePeriodSession && !activeRoomSession) {
                 return res.status(403).json({
                     success: false,
                     message: `⚠️ Anda belum melakukan Presensi Masuk KBM di kelas ${className}. Silakan mulai sesi mengajar di kelas terlebih dahulu sebelum memperbarui presensi siswa.`
@@ -701,7 +732,7 @@ export const getTeacherClasses = async (req: Request, res: Response) => {
 
         if (todayOnly) {
             const dayNames = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
-            const todayDayName = dayNames[new Date().getDay()];
+            const todayDayName = dayNames[getWibDayBounds(new Date()).dayOfWeek];
 
             // Cari kelas yang dijadwalkan diajar oleh guru ini hari ini
             const todaySchedules = await prisma.classPeriodSchedule.findMany({
@@ -1405,6 +1436,14 @@ function calculateDistanceMeters(lat1: number, lon1: number, lat2: number, lon2:
  */
 export const teacherGeolocationAttendance = async (req: Request, res: Response) => {
     try {
+        if (!IS_TEACHER_GATE_ATTENDANCE_ENABLED) {
+            return res.status(403).json({
+                success: false,
+                policy: TEACHER_ATTENDANCE_MODE,
+                message: 'ℹ️ Kebijakan Resmi Sekolah: Guru tidak menggunakan presensi gerbang datang/pulang. Presensi guru dilakukan per jam pelajaran di kelas (Jadwal Mengajar KBM).'
+            });
+        }
+
         const user = (req as any).user;
         const { lat, lng, isFakeGps } = req.body;
 
@@ -1549,6 +1588,20 @@ export const teacherGeolocationAttendance = async (req: Request, res: Response) 
  */
 export const getTeacherTodayAttendance = async (req: Request, res: Response) => {
     try {
+        if (!IS_TEACHER_GATE_ATTENDANCE_ENABLED) {
+            return res.json({
+                success: true,
+                attendanceMode: TEACHER_ATTENDANCE_MODE,
+                isGateAttendanceDisabled: true,
+                hasIn: false,
+                inTime: null,
+                hasOut: false,
+                outTime: null,
+                status: 'PER_CLASS_MODE',
+                message: 'Presensi guru resmi berbasis jadwal pelajaran di kelas (KBM).'
+            });
+        }
+
         const user = (req as any).user;
         const now = new Date();
         const { startOfDay, endOfDay } = getWibDayBounds(now);

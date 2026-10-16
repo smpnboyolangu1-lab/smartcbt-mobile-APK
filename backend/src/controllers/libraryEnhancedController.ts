@@ -67,21 +67,49 @@ export const quickCirculationScan = async (req: Request, res: Response) => {
                 return res.status(400).json({ success: false, message: 'siswaId wajib disertakan saat meminjam buku' });
             }
 
+            // 1. Validasi Kategori: Buku Referensi Hanya Baca di Tempat
+            const kategoriUpper = (copy.buku.kategori || '').toUpperCase();
+            if (kategoriUpper === 'REFERENSI' || kategoriUpper === 'KAMUS' || kategoriUpper === 'ENSIKLOPEDIA') {
+                return res.status(400).json({
+                    success: false,
+                    message: `Buku kategori "${copy.buku.kategori}" hanya dapat dibaca di tempat (ruang perpustakaan) dan tidak dapat dipinjam bawa pulang.`
+                });
+            }
+
+            // 2. Batas Pinjam Maksimal 3 Buku Umum per Siswa
+            const activeLoansCount = await prisma.libraryLoan.count({
+                where: {
+                    siswaId,
+                    statusPinjam: 'AKTIF'
+                }
+            });
+            if (activeLoansCount >= 3) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Batas maksimum peminjaman tercapai (maksimal 3 buku). Silakan kembalikan buku sebelumnya terlebih dahulu.'
+                });
+            }
+
             if (copy.status !== 'TERSEDIA') {
                 return res.status(400).json({ success: false, message: `Buku sedang berstatus ${copy.status}` });
             }
 
+            // 3. Hitung Jatuh Tempo Konsisten Asia/Jakarta
             const borrowDuration = loanDays || 7;
             const dueDate = new Date();
             dueDate.setDate(dueDate.getDate() + borrowDuration);
+            // Standarisasi jam akhir operasional perpus: 15:00 WIB (08:00 UTC)
+            dueDate.setUTCHours(8, 0, 0, 0);
 
-            // Buat transaksi peminjaman baru
+            // Buat transaksi peminjaman baru (bebas biaya/denda)
             const loan = await prisma.libraryLoan.create({
                 data: {
                     siswaId,
                     eksemplarId: copy.id,
                     jatuhTempo: dueDate,
                     statusPinjam: 'AKTIF',
+                    denda: 0.0,
+                    statusDenda: 'LUNAS',
                     operatorId
                 }
             });
@@ -94,7 +122,7 @@ export const quickCirculationScan = async (req: Request, res: Response) => {
 
             return res.json({
                 success: true,
-                message: `Buku "${copy.buku.judul}" berhasil dipinjam hingga ${dueDate.toLocaleDateString('id-ID')}`,
+                message: `Buku "${copy.buku.judul}" berhasil dipinjam hingga ${dueDate.toLocaleDateString('id-ID')}. Bebas denda keterlambatan.`,
                 data: loan
             });
         } else if (actionType === 'RETURN') {
@@ -112,22 +140,16 @@ export const quickCirculationScan = async (req: Request, res: Response) => {
             }
 
             const now = new Date();
-            let fine = 0;
-            const finePerDay = 1000; // Rp 1.000 per hari keterlambatan
-
-            if (now > activeLoan.jatuhTempo) {
-                const diffTime = Math.abs(now.getTime() - activeLoan.jatuhTempo.getTime());
-                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                fine = diffDays * finePerDay;
-            }
+            // KEBIJAKAN SEKOLAH HUMANIS: Bebas denda finansial 100%
+            const fine = 0;
 
             const updatedLoan = await prisma.libraryLoan.update({
                 where: { id: activeLoan.id },
                 data: {
                     tanggalKembali: now,
                     statusPinjam: 'SELESAI',
-                    denda: fine,
-                    statusDenda: fine > 0 ? 'BELUM_LUNAS' : 'LUNAS'
+                    denda: 0.0,
+                    statusDenda: 'LUNAS'
                 }
             });
 
@@ -151,9 +173,9 @@ export const quickCirculationScan = async (req: Request, res: Response) => {
 
             return res.json({
                 success: true,
-                message: `Pengembalian buku "${copy.buku.judul}" berhasil dicatat.${fine > 0 ? ` Denda keterlambatan: Rp ${fine.toLocaleString('id-ID')}` : ''}`,
+                message: `Pengembalian buku "${copy.buku.judul}" berhasil dicatat. Terima kasih telah menjaga dan mengembalikan buku sekolah tepat waktu.`,
                 data: updatedLoan,
-                denda: fine
+                denda: 0
             });
         }
 
