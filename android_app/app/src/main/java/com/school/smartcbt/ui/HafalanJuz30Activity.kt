@@ -1573,8 +1573,7 @@ class HafalanJuz30Activity : AppCompatActivity() {
             listOf(
                 "Ust. Munawir, S.Pd.I (Guru PAI)",
                 "Ust. Arsyad Muhammad Brian, S.Pd (Guru PAI)",
-                "Ustzh. Eny Astuti, S.Ag (Guru PAI)",
-                "Ust. Maurik, S.Pd.I (Guru PAI)"
+                "Ustzh. Eny Astuti, S.Ag (Guru PAI)"
             )
         }
         val spTeacher = Spinner(this).apply {
@@ -1706,20 +1705,49 @@ class HafalanJuz30Activity : AppCompatActivity() {
         Toast.makeText(this, "Mengirim pengajuan setoran ke Guru PAI...", Toast.LENGTH_SHORT).show()
         ApiClient.getClient(this).submitTahfizSetoran(body).enqueue(object : Callback<Map<String, Any>> {
             override fun onResponse(call: Call<Map<String, Any>>, response: Response<Map<String, Any>>) {
+                val pendingLocal = mutableMapOf<String, Any>(
+                    "id" to "local_${System.currentTimeMillis()}",
+                    "surah_name" to surah.nameLatin,
+                    "surah_number" to surah.number,
+                    "ayat_start" to ayatStart,
+                    "ayat_end" to ayatEnd,
+                    "status_hafalan" to "MENUNGGU_NILAI",
+                    "target_guru_name" to (targetGuruName ?: ""),
+                    "catatan_guru" to (if (notes.isNotEmpty()) notes else "Menunggu verifikasi Guru PAI"),
+                    "tanggal_penilaian" to "Hari ini"
+                )
+                liveEvaluations = listOf(pendingLocal) + liveEvaluations.filterNot { 
+                    it["surah_number"] == surah.number && (it["nilai_akhir"] == null || it["status_hafalan"]?.toString()?.contains("MENUNGGU") == true)
+                }
+
                 if (response.isSuccessful && response.body()?.get("success") == true) {
                     Toast.makeText(this@HafalanJuz30Activity, "✅ Setoran ${surah.nameLatin} berhasil diajukan!", Toast.LENGTH_LONG).show()
                     setSurahStatus(surah.number, "MENUNGGU")
+                    renderSetoranHistory()
                     syncDataFromServer()
                 } else {
                     val msg = response.body()?.get("message")?.toString() ?: response.message()
                     Toast.makeText(this@HafalanJuz30Activity, "Setoran disimpan: $msg", Toast.LENGTH_SHORT).show()
                     setSurahStatus(surah.number, "MENUNGGU")
+                    renderSetoranHistory()
                     syncDataFromServer()
                 }
             }
 
             override fun onFailure(call: Call<Map<String, Any>>, t: Throwable) {
                 Toast.makeText(this@HafalanJuz30Activity, "Tersimpan offline: Disinkron saat koneksi kembali", Toast.LENGTH_SHORT).show()
+                val pendingLocal = mutableMapOf<String, Any>(
+                    "id" to "local_${System.currentTimeMillis()}",
+                    "surah_name" to surah.nameLatin,
+                    "surah_number" to surah.number,
+                    "ayat_start" to ayatStart,
+                    "ayat_end" to ayatEnd,
+                    "status_hafalan" to "MENUNGGU_NILAI",
+                    "target_guru_name" to (targetGuruName ?: ""),
+                    "catatan_guru" to (if (notes.isNotEmpty()) notes else "Tersimpan offline"),
+                    "tanggal_penilaian" to "Hari ini"
+                )
+                liveEvaluations = listOf(pendingLocal) + liveEvaluations
                 setSurahStatus(surah.number, "MENUNGGU")
                 renderSetoranHistory()
             }
@@ -1785,11 +1813,13 @@ class HafalanJuz30Activity : AppCompatActivity() {
             val statusHafalan = h["status_hafalan"] as? String ?: "SIAP_DISETORKAN"
             val catatanGuru = h["catatan_guru"] as? String ?: "Menunggu verifikasi ustadz/ustadzah."
             val tgl = h["tanggal_penilaian"] as? String ?: "Hari ini"
+            val targetGuru = (h["target_guru_name"] ?: h["targetGuruName"]) as? String ?: ""
+            val isPending = (nilaiAkhir == null || statusHafalan.contains("MENUNGGU") || statusHafalan == "SIAP_DISETORKAN")
 
             val card = CardView(this).apply {
                 radius = dp(12).toFloat()
                 cardElevation = dp(2).toFloat()
-                setCardBackgroundColor(Color.WHITE)
+                setCardBackgroundColor(if (isPending) Color.parseColor("#FFFBEB") else Color.WHITE)
                 useCompatPadding = true
             }
             val inner = LinearLayout(this).apply {
@@ -1804,9 +1834,13 @@ class HafalanJuz30Activity : AppCompatActivity() {
                 setTypeface(null, Typeface.BOLD)
             }
             val status = TextView(this).apply {
-                text = if (nilaiAkhir != null) "⭐ Nilai: $nilaiAkhir/100 • $statusHafalan" else "⏳ $statusHafalan"
+                text = if (!isPending && nilaiAkhir != null) {
+                    "⭐ Nilai: $nilaiAkhir/100 • $statusHafalan"
+                } else {
+                    if (targetGuru.isNotEmpty()) "⏳ Menunggu Penilaian Guru PAI: $targetGuru" else "⏳ Menunggu Penilaian Guru PAI"
+                }
                 textSize = 11.5f
-                setTextColor(if (nilaiAkhir != null) Color.parseColor("#059669") else Color.parseColor("#D97706"))
+                setTextColor(if (!isPending && nilaiAkhir != null && nilaiAkhir >= 75) Color.parseColor("#059669") else Color.parseColor("#D97706"))
                 setTypeface(null, Typeface.BOLD)
                 val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                     topMargin = dp(2)
@@ -1814,7 +1848,15 @@ class HafalanJuz30Activity : AppCompatActivity() {
                 layoutParams = lp
             }
             val notes = TextView(this).apply {
-                text = "💬 $catatanGuru"
+                text = if (isPending) {
+                    if (!catatanGuru.isNullOrEmpty() && catatanGuru != "Menunggu verifikasi ustadz/ustadzah.") {
+                        "💬 $catatanGuru"
+                    } else {
+                        "⏳ Pengajuan setoran sedang diproses oleh Guru PAI SMPN 1 Boyolangu."
+                    }
+                } else {
+                    "💬 Catatan Guru: $catatanGuru"
+                }
                 textSize = 10.5f
                 setTextColor(Color.parseColor("#64748B"))
                 val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
@@ -2015,9 +2057,38 @@ class HafalanJuz30Activity : AppCompatActivity() {
                         liveTargets = tgts
                     }
                     val evals = response.body()?.get("evaluations") as? List<Map<String, Any>>
+                    val rawSetorans = response.body()?.get("setorans") as? List<Map<String, Any>>
+                    val mergedList = mutableListOf<Map<String, Any>>()
                     if (evals != null) {
-                        liveEvaluations = evals
+                        mergedList.addAll(evals)
                     }
+                    if (rawSetorans != null) {
+                        for (s in rawSetorans) {
+                            val st = s["status"]?.toString() ?: ""
+                            if (st == "MENUNGGU" || st == "PENDING") {
+                                val sId = s["id"]?.toString()
+                                val alreadyIn = mergedList.any { 
+                                    (it["id"]?.toString() == sId) || (it["setoran_id"]?.toString() == sId) ||
+                                    (it["surah_number"] == (s["surah_number"] ?: s["surahNumber"]) && (it["nilai_akhir"] == null || it["status_hafalan"]?.toString()?.contains("MENUNGGU") == true))
+                                }
+                                if (!alreadyIn) {
+                                    val pendingMap = mutableMapOf<String, Any>(
+                                        "id" to (sId ?: "pending_${System.currentTimeMillis()}"),
+                                        "surah_name" to (s["surah_name"] ?: s["surahName"] ?: "Surah"),
+                                        "surah_number" to (s["surah_number"] ?: s["surahNumber"] ?: 1),
+                                        "ayat_start" to (s["ayat_start"] ?: s["ayatStart"] ?: 1),
+                                        "ayat_end" to (s["ayat_end"] ?: s["ayatEnd"] ?: 10),
+                                        "status_hafalan" to "MENUNGGU_NILAI",
+                                        "target_guru_name" to (s["target_guru_name"] ?: s["targetGuruName"] ?: ""),
+                                        "catatan_guru" to (s["student_notes"] ?: s["studentNotes"] ?: "Menunggu verifikasi Guru PAI"),
+                                        "tanggal_penilaian" to (s["scheduled_date"] ?: s["scheduledDate"] ?: "Hari ini")
+                                    )
+                                    mergedList.add(0, pendingMap)
+                                }
+                            }
+                        }
+                    }
+                    liveEvaluations = mergedList
                     if (currentTab == "TARGET") renderTargetList()
                     if (currentTab == "SETORAN") renderSetoranHistory()
                 }

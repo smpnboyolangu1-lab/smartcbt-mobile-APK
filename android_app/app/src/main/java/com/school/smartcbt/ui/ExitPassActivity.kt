@@ -94,6 +94,29 @@ class ExitPassActivity : AppCompatActivity() {
         private const val REQUEST_CODE_SCAN_BK = 3012
     }
 
+    private var isPendingPolling = false
+    private val pendingPollRunnable = object : Runnable {
+        override fun run() {
+            if (!isDestroyed && !isFinishing && isPendingPolling) {
+                fetchActiveLeave(isUserInitiated = false)
+                mainHandler.postDelayed(this, 3500)
+            }
+        }
+    }
+
+    private fun startPendingAutoPoll() {
+        if (!isPendingPolling) {
+            isPendingPolling = true
+            mainHandler.removeCallbacks(pendingPollRunnable)
+            mainHandler.postDelayed(pendingPollRunnable, 3500)
+        }
+    }
+
+    private fun stopPendingAutoPoll() {
+        isPendingPolling = false
+        mainHandler.removeCallbacks(pendingPollRunnable)
+    }
+
     private val liveClockRunnable = object : Runnable {
         override fun run() {
             if (isClockRunning) {
@@ -359,8 +382,18 @@ class ExitPassActivity : AppCompatActivity() {
     }
 
     private fun renderLeaveState(res: StudentLeaveActiveResponse, leave: StudentLeaveData) {
-        if (res.isCheckedOut) {
-            // State 3: TIKET HIJAU DIGITAL GATEPASS (#10B981)
+        val isApprovedOrActive = res.isCheckedOut || 
+            leave.status.equals("ACTIVE_APPROVED", ignoreCase = true) ||
+            leave.status.equals("APPROVED", ignoreCase = true) ||
+            leave.status.equals("approved_by_bk", ignoreCase = true) ||
+            leave.status.equals("WAITING_BK_SCAN", ignoreCase = true) ||
+            leave.status.equals("checked_out", ignoreCase = true) ||
+            leave.status.equals("COMPLETED", ignoreCase = true)
+
+        if (isApprovedOrActive) {
+            stopPendingAutoPoll()
+
+            // State 3: TIKET HIJAU DIGITAL GATEPASS (#10B981) - QR CODE LANGSUNG MUNCUL TANPA SCAN MEJA BK
             cardFormApply.visibility = View.GONE
             cardActiveStatus.visibility = View.GONE
             cardDigitalExitPass.visibility = View.VISIBLE
@@ -442,7 +475,7 @@ class ExitPassActivity : AppCompatActivity() {
             mainHandler.post(liveClockRunnable)
 
         } else {
-            // State 1 & 2: Waiting Approval vs Ready for Scan
+            // State 1 & 2: Waiting Approval
             cardFormApply.visibility = View.GONE
             cardActiveStatus.visibility = View.VISIBLE
             cardDigitalExitPass.visibility = View.GONE
@@ -464,6 +497,7 @@ class ExitPassActivity : AppCompatActivity() {
 
             val isRejected = leave.status.contains("REJECT", ignoreCase = true)
             if (isRejected) {
+                stopPendingAutoPoll()
                 layoutStatusBanner.setBackgroundColor(Color.parseColor("#FEE2E2"))
                 tvStatusIcon.text = "❌"
                 tvStatusTitle.text = "Permohonan Izin Ditolak Guru BK"
@@ -471,11 +505,12 @@ class ExitPassActivity : AppCompatActivity() {
                 tvStatusSubtitle.text = "Pengajuan izin tidak disetujui Guru BK. Silakan temui Guru BK di Ruang Konseling."
                 tvStatusSubtitle.setTextColor(Color.parseColor("#B91C1C"))
             } else {
+                startPendingAutoPoll()
                 layoutStatusBanner.setBackgroundColor(Color.parseColor("#FEF3C7"))
                 tvStatusIcon.text = "⏳"
                 tvStatusTitle.text = "Menunggu Persetujuan Guru BK"
                 tvStatusTitle.setTextColor(Color.parseColor("#92400E"))
-                tvStatusSubtitle.text = "Pengajuan izin Anda sedang ditinjau Guru BK. Begitu disetujui, Tiket Gatepass Resmi Satpam (Hijau) akan otomatis muncul."
+                tvStatusSubtitle.text = "Pengajuan izin Anda sedang ditinjau Guru BK di Ruang Konseling. Begitu disetujui, Tiket Gatepass Resmi Satpam (Hijau) beserta QR Code akan langsung muncul otomatis di layar HP ini untuk ditunjukkan ke Petugas Gerbang (Satpam). Anda tidak perlu scan QR di meja BK."
                 tvStatusSubtitle.setTextColor(Color.parseColor("#B45309"))
             }
         }

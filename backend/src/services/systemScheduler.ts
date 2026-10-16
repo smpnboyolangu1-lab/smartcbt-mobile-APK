@@ -1063,9 +1063,12 @@ export async function processLogRetentionCleanup() {
     try {
         const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
-        // 1. Hapus ActivityEventLog > 30 hari
+        // 1. Hapus ActivityEventLog umum > 30 hari (Kecuali log audit akademik CBT/EXAM/RAPORT/NILAI yang disimpan permanen untuk bukti sengketa nilai)
         const deletedLogs = await prisma.activityEventLog.deleteMany({
-            where: { createdAt: { lt: thirtyDaysAgo } }
+            where: {
+                createdAt: { lt: thirtyDaysAgo },
+                module: { notIn: ['CBT', 'EXAM', 'RAPORT', 'NILAI', 'ACADEMIC'] }
+            }
         });
 
         // 2. Hapus CopyRequest > 30 hari

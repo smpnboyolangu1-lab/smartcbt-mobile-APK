@@ -484,11 +484,18 @@ export const getPaiTeachersList = async (req: Request, res: Response) => {
         isActive: true,
         OR: [
           { teachingSubject: { contains: 'PAI', mode: 'insensitive' } },
-          { teachingSubject: { contains: 'Agama', mode: 'insensitive' } },
+          { teachingSubject: { contains: 'Agama Islam', mode: 'insensitive' } },
           { name: { contains: 'Munawir', mode: 'insensitive' } },
           { name: { contains: 'Brian', mode: 'insensitive' } },
-          { name: { contains: 'Eny Astuti', mode: 'insensitive' } },
-          { name: { contains: 'Maurik', mode: 'insensitive' } }
+          { name: { contains: 'Eny Astuti', mode: 'insensitive' } }
+        ],
+        NOT: [
+          { name: { contains: 'Maurik', mode: 'insensitive' } },
+          { name: { contains: 'Mavrik', mode: 'insensitive' } },
+          { teachingSubject: { contains: 'Kristen', mode: 'insensitive' } },
+          { teachingSubject: { contains: 'Katolik', mode: 'insensitive' } },
+          { teachingSubject: { contains: 'Hindu', mode: 'insensitive' } },
+          { teachingSubject: { contains: 'Buddha', mode: 'insensitive' } }
         ]
       },
       select: {
@@ -869,10 +876,37 @@ export const getStudentTahfizDetail = async (req: Request, res: Response) => {
       studentNotes: r.student_notes
     }));
 
+    const pendingSetorans = setorans
+      .filter(s => s.status === 'MENUNGGU')
+      .map(s => ({
+        id: s.id,
+        student_id: s.student_id,
+        student_name: s.student_name,
+        surah_number: s.surah_number,
+        surah_name: s.surah_name,
+        ayat_start: s.ayat_start,
+        ayat_end: s.ayat_end,
+        nilai_akhir: null,
+        status_hafalan: 'MENUNGGU_NILAI',
+        catatan_guru: `⏳ Menunggu Penilaian Guru PAI${s.target_guru_name ? ` (${s.target_guru_name})` : ''}`,
+        tanggal_penilaian: s.scheduled_date || (s.submission_date ? String(s.submission_date).substring(0, 10) : 'Hari ini'),
+        metode: s.metode,
+        audio_url: s.audio_url,
+        audioRecordUrl: s.audioRecordUrl,
+        target_guru_name: s.target_guru_name,
+        scheduled_session: s.scheduled_session,
+        meeting_location: s.meeting_location,
+        student_notes: s.student_notes,
+        created_at: s.created_at,
+        is_pending: true
+      }));
+
+    const combinedEvaluations = [...pendingSetorans, ...evaluations];
+
     res.json({
       success: true,
       student,
-      evaluations,
+      evaluations: combinedEvaluations,
       setorans,
       submissions: setorans,
       badges,

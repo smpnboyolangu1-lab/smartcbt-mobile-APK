@@ -1071,21 +1071,33 @@ export const getRemedialSummaryUh = async (req: Request, res: Response) => {
 
     if (!uh) return res.status(404).json({ success: false, message: 'Ulangan harian tidak ditemukan' });
 
-    const kkm = 75;
+    // BUG-KUR-20 Fix: Kebijakan remedial terkonfigurasi (CAP_AT_KKTP | REPLACE | BEST_OF) dan KKTP dinamis
+    const policy = (req.query.policy as string) || 'CAP_AT_KKTP';
+    const kkm = Number(req.query.kktp || req.query.kkm) || 75;
     const submissions: any[] = uh.submissions || [];
 
     const remedialList = submissions
       .filter(s => (s.nilai || 0) < kkm)
-      .map(s => ({
-        submissionId: s.id,
-        siswaId: s.siswaId,
-        nama: s.siswaName,
-        kelasId: s.kelasId,
-        nilaiAwal: s.nilai || 0,
-        kkm,
-        status: 'BELUM_TUNTAS',
-        selisih: kkm - (s.nilai || 0)
-      }));
+      .map(s => {
+        const rawScore = s.nilai || 0;
+        let maxRemedialScore = kkm;
+        if (policy === 'CAP_AT_KKTP') maxRemedialScore = kkm;
+        else if (policy === 'BEST_OF') maxRemedialScore = Math.max(kkm, rawScore);
+        else if (policy === 'REPLACE') maxRemedialScore = 100;
+
+        return {
+          submissionId: s.id,
+          siswaId: s.siswaId,
+          nama: s.siswaName,
+          kelasId: s.kelasId,
+          nilaiAwal: rawScore,
+          kktp: kkm,
+          status: 'BELUM_TUNTAS',
+          selisih: kkm - rawScore,
+          remedialPolicy: policy,
+          maxRemedialScore
+        };
+      });
 
     const pengayaanList = submissions
       .filter(s => (s.nilai || 0) >= kkm)
@@ -1100,7 +1112,8 @@ export const getRemedialSummaryUh = async (req: Request, res: Response) => {
 
     return res.json({
       success: true,
-      kkm,
+      kktp: kkm,
+      remedialPolicy: policy,
       totalPeserta: submissions.length,
       jumlahRemedial: remedialList.length,
       jumlahPengayaan: pengayaanList.length,

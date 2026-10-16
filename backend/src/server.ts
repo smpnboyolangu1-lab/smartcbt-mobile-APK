@@ -589,8 +589,12 @@ app.get(['/operator/perpus', '/operator/perpustakaan'], authenticateWebPerpus, (
 app.get('/operator/uks', authenticateWebUks, (req, res) => res.render('uks_dashboard'));
 app.get('/operator/bk', authenticateWebBk, (req, res) => res.render('bk_dashboard'));
 
-// TEACHER Routes (Emerald Green)
-app.get('/guru', authenticateWebGuru, (req, res) => res.render('guru_dashboard'));
+app.get('/guru', authenticateWebGuru, (req, res) => {
+  const user = (req as any).user;
+  const rolesTambahan = String(user?.rolesTambahan || '').toLowerCase();
+  const isKurikulum = rolesTambahan.includes('kurikulum') || ['KURIKULUM', 'ADMIN', 'OPERATOR'].includes(String(user?.role).toUpperCase());
+  res.render('guru_dashboard', { user, isKurikulum });
+});
 
 // KURIKULUM Routes (SIBOY FRESH Emerald/Teal) - Dedicated Kurikulum Portal
 app.get(['/kurikulum', '/kurikulum/dashboard'], authenticateWebKurikulum, (req, res) => res.render('kurikulum_dashboard'));

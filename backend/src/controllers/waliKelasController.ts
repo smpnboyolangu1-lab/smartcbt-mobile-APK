@@ -1266,11 +1266,20 @@ export const exportWaliKelasPdf = async (req: Request, res: Response) => {
 
             const startDate = new Date(year, month - 1, 1, 0, 0, 0);
             const endDate = new Date(year, month, 0, 23, 59, 59);
-
-            const logs = await prisma.attendance.findMany({
-                where: { userId: student.id, scanTime: { gte: startDate, lte: endDate } },
-                orderBy: { scanTime: 'asc' }
-            });
+            const [logs, approvedLeaves] = await Promise.all([
+                prisma.attendance.findMany({
+                    where: { userId: student.id, scanTime: { gte: startDate, lte: endDate } },
+                    orderBy: { scanTime: 'asc' }
+                }),
+                (prisma as any).studentLeaveRequest.findMany({
+                    where: {
+                        studentId: student.id,
+                        status: 'APPROVED',
+                        startDate: { lte: endDate },
+                        endDate: { gte: startDate }
+                    }
+                }).catch(() => [])
+            ]);
 
             const daysInMonth = new Date(year, month, 0).getDate();
             const dayNames = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
@@ -1295,12 +1304,22 @@ export const exportWaliKelasPdf = async (req: Request, res: Response) => {
                 let st = '-', inT = inR ? formatTimeWib(inR.scanTime) : '-', outT = outR ? formatTimeWib(outR.scanTime) : '-';
                 let note = '-';
 
-                const hasSick = dayLogs.some(l => l.status === 'SICK' || l.status === 'SAKIT');
-                const hasPerm = dayLogs.some(l => l.status === 'PERMISSION' || l.status === 'IZIN');
+                const curYmd = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                const matchedLeave = (approvedLeaves as any[]).find((lv: any) => {
+                    const startStr = lv.startDate ? new Date(lv.startDate).toISOString().split('T')[0] : '';
+                    const endStr = lv.endDate ? new Date(lv.endDate).toISOString().split('T')[0] : startStr;
+                    return curYmd >= startStr && curYmd <= endStr;
+                });
+
+                const isLeaveSick = matchedLeave && (matchedLeave.type === 'SAKIT' || matchedLeave.type === 'SICK');
+                const isLeavePerm = matchedLeave && (matchedLeave.type === 'IZIN' || matchedLeave.type === 'PERMISSION');
+
+                const hasSick = dayLogs.some(l => l.status === 'SICK' || l.status === 'SAKIT') || isLeaveSick;
+                const hasPerm = dayLogs.some(l => l.status === 'PERMISSION' || l.status === 'IZIN') || isLeavePerm;
                 const hasLate = dayLogs.some(l => l.status === 'LATE' || l.status === 'TERLAMBAT' || (l.note && /terlambat/i.test(l.note)) || ((l as any).morningGateStatus && /terlambat/i.test((l as any).morningGateStatus)));
 
-                if (hasSick) { st = 'Sakit [S]'; sCount++; note = inR?.note || 'Izin Sakit'; }
-                else if (hasPerm) { st = 'Izin [I]'; iCount++; note = inR?.note || 'Izin Resmi'; }
+                if (hasSick) { st = 'Sakit [S]'; sCount++; note = inR?.note || matchedLeave?.reason || 'Izin Sakit (Disetujui BK)'; }
+                else if (hasPerm) { st = 'Izin [I]'; iCount++; note = inR?.note || matchedLeave?.reason || 'Izin Resmi (Disetujui BK)'; }
                 else if (hasLate) { st = 'Terlambat [T]'; tCount++; note = inR?.note || 'Terlambat Hadir'; }
                 else if (inR && !outR) { st = 'Tdk Scan Pulang [?]'; qCount++; note = 'Hadir, tidak scan kepulangan'; }
                 else if (outR || inR || dayLogs.some(l => l.status === 'PRESENT' || l.status === 'HADIR')) { st = 'Hadir [H]'; hCount++; note = 'Hadir Tuntas'; }
@@ -1454,12 +1473,22 @@ export const exportWaliKelasPdf = async (req: Request, res: Response) => {
             endDate = new Date(year, month, 0, 23, 59, 59);
         }
 
-        const logs = await prisma.attendance.findMany({
-            where: {
-                userId: { in: students.map(s => s.id) },
-                scanTime: { gte: startDate, lte: endDate }
-            }
-        });
+        const [logs, classApprovedLeaves] = await Promise.all([
+            prisma.attendance.findMany({
+                where: {
+                    userId: { in: students.map(s => s.id) },
+                    scanTime: { gte: startDate, lte: endDate }
+                }
+            }),
+            (prisma as any).studentLeaveRequest.findMany({
+                where: {
+                    studentId: { in: students.map(s => s.id) },
+                    status: 'APPROVED',
+                    startDate: { lte: endDate },
+                    endDate: { gte: startDate }
+                }
+            }).catch(() => [])
+        ]);
 
         let tableRows = '';
         let totH = 0, totT = 0, totQ = 0, totS = 0, totI = 0, totA = 0;
@@ -1472,6 +1501,17 @@ export const exportWaliKelasPdf = async (req: Request, res: Response) => {
                 if (!dateMap.has(k)) dateMap.set(k, []);
                 dateMap.get(k)!.push(l);
             }
+
+            // BUG-KUR-17 Fix: Sinkronkan izin sakit/keperluan yang disetujui BK ke dateMap siswa
+            const studentLeaves = (classApprovedLeaves as any[]).filter(lv => lv.studentId === s.id);
+            studentLeaves.forEach(lv => {
+                const sYmd = lv.startDate ? new Date(lv.startDate).toISOString().split('T')[0] : '';
+                const eYmd = lv.endDate ? new Date(lv.endDate).toISOString().split('T')[0] : sYmd;
+                const leaveStatus = (lv.type === 'SAKIT' || lv.type === 'SICK') ? 'SAKIT' : 'IZIN';
+                if (sYmd && !dateMap.has(sYmd)) {
+                    dateMap.set(sYmd, [{ status: leaveStatus, type: 'LEAVE', note: lv.reason || 'Izin Disetujui BK' }]);
+                }
+            });
 
             let h = 0, t = 0, q = 0, sSick = 0, i = 0, a = 0;
             dateMap.forEach(dayLogs => {

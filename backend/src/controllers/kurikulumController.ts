@@ -827,6 +827,9 @@ export const getRekapPresensiGuru = async (req: AuthRequest, res: Response) => {
             let izin = 0;
             let sakit = 0;
             let alfa = 0;
+            let cutiCount = 0;
+            let cutiHariTotal = 0;
+            const cutiApprovedList: any[] = [];
 
             myGeo.forEach((g: any) => {
                 const st = (g.status || '').toUpperCase();
@@ -835,17 +838,40 @@ export const getRekapPresensiGuru = async (req: AuthRequest, res: Response) => {
                     terlambatMenitTotal += (g.lateMinutes || 15);
                 } else if (st === 'IZIN') izin++;
                 else if (st === 'SAKIT') sakit++;
+                else if (st === 'TIDAK_HADIR' || st === 'ALFA') alfa++;
             });
 
             myLeaves.forEach((l: any) => {
                 const cat = (l.category || '').toUpperCase();
-                if (cat.includes('SAKIT')) sakit++;
-                else izin++;
+                const startD = new Date(l.startDate);
+                const endD = new Date(l.endDate);
+                const days = Math.max(1, Math.round((endD.getTime() - startD.getTime()) / (24 * 3600 * 1000)) + 1);
+
+                if (cat.includes('CUTI')) {
+                    cutiCount++;
+                    cutiHariTotal += days;
+                    cutiApprovedList.push({
+                        id: l.id,
+                        kategori: l.category,
+                        startDate: startD.toISOString().split('T')[0],
+                        endDate: endD.toISOString().split('T')[0],
+                        durasiHari: days,
+                        alasan: l.reason,
+                        approvedBy: l.approvedBy || 'Kurikulum',
+                        approvedAt: l.approvedAt,
+                        piketNotes: l.piketNotes,
+                        dispositionToPiket: l.dispositionToPiket
+                    });
+                } else if (cat.includes('SAKIT')) {
+                    sakit++;
+                } else {
+                    izin++;
+                }
             });
 
             const hadirTotal = tepatWaktu + terlambat;
-            const tidakMasukCount = izin + sakit + alfa;
-            const totalSesi = hadirTotal + izin + sakit + alfa;
+            const tidakMasukCount = izin + sakit + alfa + cutiHariTotal;
+            const totalSesi = hadirTotal + tidakMasukCount;
             const persentase = totalSesi > 0 ? Math.round((hadirTotal / totalSesi) * 100) : 100;
 
             // Kategori warna: 🟢 > 80% (Baik), 🟡 60-80% (Perlu Perhatian), 🔴 < 60% (Bermasalah)
@@ -872,6 +898,9 @@ export const getRekapPresensiGuru = async (req: AuthRequest, res: Response) => {
                 izin,
                 sakit,
                 alfa,
+                cutiCount,
+                cutiHariTotal,
+                cutiApprovedList,
                 hadirTotal,
                 totalSesi: totalSesi || hadirTotal || 1,
                 persentaseKehadiran: persentase,

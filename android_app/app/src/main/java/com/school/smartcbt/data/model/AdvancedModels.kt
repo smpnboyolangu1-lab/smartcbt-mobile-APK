@@ -411,11 +411,27 @@ data class KurikulumTeacherSummaryDto(
     val izin: Int = 0,
     val sakit: Int = 0,
     val alfa: Int = 0,
+    val cutiCount: Int = 0,
+    val cutiHariTotal: Int = 0,
+    val cutiApprovedList: List<KurikulumCutiDetailDto>? = null,
     val hadirTotal: Int = 0,
     val totalSesi: Int = 0,
     val persentaseKehadiran: Int = 100,
     val kategori: String = "BAIK",
     val badgeColor: String = "#10B981"
+)
+
+data class KurikulumCutiDetailDto(
+    val id: String? = null,
+    val kategori: String? = null,
+    val startDate: String? = null,
+    val endDate: String? = null,
+    val durasiHari: Int = 1,
+    val alasan: String? = null,
+    val approvedBy: String? = null,
+    val approvedAt: String? = null,
+    val piketNotes: String? = null,
+    val dispositionToPiket: Boolean = false
 )
 
 data class KurikulumTeacherDetailLogDto(

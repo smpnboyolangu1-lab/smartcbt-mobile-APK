@@ -6507,7 +6507,7 @@ class TeacherMainActivity : AppCompatActivity() {
         }
         kpiRow.addView(createKpiChip("KBM Live", "33 Rombel", "#FFFFFF"))
         kpiRow.addView(createKpiChip("Piket Guru", "Siaga Hari Ini", "#FFFFFF"))
-        kpiRow.addView(createKpiChip("Portal Web", "SSO Aktif", "#FFFFFF"))
+        kpiRow.addView(createKpiChip("Kurikulum", "SIBOY FRESH", "#FFFFFF"))
         heroInner.addView(kpiRow)
         heroCard.addView(heroInner)
         contentInner.addView(heroCard)
@@ -7563,6 +7563,158 @@ class TeacherMainActivity : AppCompatActivity() {
                 infoCard.addView(infoInner)
                 contentInner.addView(infoCard)
 
+                // REKAP INDIVIDU GURU (TERLAMBAT, ALFA, IZIN, CUTI DISETUJUI)
+                if (summaries.isNotEmpty()) {
+                    contentInner.addView(TextView(this@TeacherMainActivity).apply {
+                        text = "📊 REKAP DISIPLIN & CUTI GURU 360°:"
+                        textSize = 12f
+                        setTypeface(null, Typeface.BOLD)
+                        setTextColor(Color.parseColor("#334155"))
+                        setPadding(4, 12, 4, 6)
+                    })
+
+                    summaries.forEach { g ->
+                        val teacherCard = CardView(this@TeacherMainActivity).apply {
+                            radius = 12f * resources.displayMetrics.density
+                            cardElevation = 2f * resources.displayMetrics.density
+                            setCardBackgroundColor(Color.WHITE)
+                            useCompatPadding = true
+                            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                                bottomMargin = (8 * resources.displayMetrics.density).toInt()
+                            }
+                        }
+                        val tInner = LinearLayout(this@TeacherMainActivity).apply {
+                            orientation = LinearLayout.VERTICAL
+                            val p = (12 * resources.displayMetrics.density).toInt()
+                            setPadding(p, p, p, p)
+                        }
+
+                        // Header Teacher
+                        val headRow = LinearLayout(this@TeacherMainActivity).apply {
+                            orientation = LinearLayout.HORIZONTAL
+                            gravity = Gravity.CENTER_VERTICAL
+                        }
+                        val infoCol = LinearLayout(this@TeacherMainActivity).apply {
+                            orientation = LinearLayout.VERTICAL
+                            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                        }
+                        infoCol.addView(TextView(this@TeacherMainActivity).apply {
+                            text = g.nama
+                            textSize = 13f
+                            setTypeface(null, Typeface.BOLD)
+                            setTextColor(Color.parseColor("#0F172A"))
+                        })
+                        infoCol.addView(TextView(this@TeacherMainActivity).apply {
+                            text = "${g.mapel ?: "-"} • NIP: ${g.nip ?: "-"}"
+                            textSize = 10.5f
+                            setTextColor(Color.parseColor("#64748B"))
+                        })
+                        headRow.addView(infoCol)
+
+                        // Badge Persentase & Kategori
+                        val badgeRate = TextView(this@TeacherMainActivity).apply {
+                            text = "${g.persentaseKehadiran}%\n${g.kategori}"
+                            textSize = 10f
+                            gravity = Gravity.CENTER
+                            setTypeface(null, Typeface.BOLD)
+                            setTextColor(Color.WHITE)
+                            val gd = android.graphics.drawable.GradientDrawable().apply {
+                                setColor(try { Color.parseColor(g.badgeColor) } catch (e: Exception) { Color.parseColor("#10B981") })
+                                cornerRadius = 8f * resources.displayMetrics.density
+                            }
+                            background = gd
+                            val hP = (8 * resources.displayMetrics.density).toInt()
+                            val vP = (4 * resources.displayMetrics.density).toInt()
+                            setPadding(hP, vP, hP, vP)
+                        }
+                        headRow.addView(badgeRate)
+                        tInner.addView(headRow)
+
+                        // Grid Rekap 4 Kolom (Tepat Waktu, Terlambat, Alfa, Izin/Sakit)
+                        val statGrid = LinearLayout(this@TeacherMainActivity).apply {
+                            orientation = LinearLayout.HORIZONTAL
+                            weightSum = 4f
+                            val pTop = (8 * resources.displayMetrics.density).toInt()
+                            setPadding(0, pTop, 0, 0)
+                        }
+
+                        fun createMiniStat(title: String, value: String, sub: String, colorHex: String): View {
+                            return LinearLayout(this@TeacherMainActivity).apply {
+                                orientation = LinearLayout.VERTICAL
+                                gravity = Gravity.CENTER
+                                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                                addView(TextView(this@TeacherMainActivity).apply {
+                                    text = value
+                                    textSize = 12.5f
+                                    setTypeface(null, Typeface.BOLD)
+                                    setTextColor(Color.parseColor(colorHex))
+                                })
+                                addView(TextView(this@TeacherMainActivity).apply {
+                                    text = title
+                                    textSize = 9.5f
+                                    setTypeface(null, Typeface.BOLD)
+                                    setTextColor(Color.parseColor("#475569"))
+                                })
+                                if (sub.isNotEmpty()) {
+                                    addView(TextView(this@TeacherMainActivity).apply {
+                                        text = sub
+                                        textSize = 8.5f
+                                        setTextColor(Color.parseColor("#94A3B8"))
+                                    })
+                                }
+                            }
+                        }
+
+                        statGrid.addView(createMiniStat("Tepat", "${g.tepatWaktu}", "Sesi", "#15803D"))
+                        statGrid.addView(createMiniStat("Terlambat", "${g.terlambat}x", if (g.terlambatMenitTotal > 0) "${g.terlambatMenitTotal}m" else "-", "#D97706"))
+                        statGrid.addView(createMiniStat("Alfa", "${g.alfa}", "Hari", "#DC2626"))
+                        statGrid.addView(createMiniStat("Izin/Skt", "${g.izin + g.sakit}", "I:${g.izin} S:${g.sakit}", "#2563EB"))
+                        tInner.addView(statGrid)
+
+                        // Baris Cuti Disetujui
+                        if (g.cutiCount > 0) {
+                            val cutiBtn = LinearLayout(this@TeacherMainActivity).apply {
+                                orientation = LinearLayout.HORIZONTAL
+                                gravity = Gravity.CENTER_VERTICAL
+                                val gdCuti = android.graphics.drawable.GradientDrawable().apply {
+                                    setColor(Color.parseColor("#EEF2FF"))
+                                    setStroke((1 * resources.displayMetrics.density).toInt(), Color.parseColor("#C7D2FE"))
+                                    cornerRadius = 8f * resources.displayMetrics.density
+                                }
+                                background = gdCuti
+                                val pC = (8 * resources.displayMetrics.density).toInt()
+                                setPadding(pC, (6 * resources.displayMetrics.density).toInt(), pC, (6 * resources.displayMetrics.density).toInt())
+                                val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                                    topMargin = (8 * resources.displayMetrics.density).toInt()
+                                }
+                                layoutParams = lp
+                                isClickable = true
+                                isFocusable = true
+                                setOnClickListener {
+                                    showKurikulumTeacherCutiDetailDialog(g.nama, g.cutiApprovedList ?: emptyList())
+                                }
+                            }
+                            cutiBtn.addView(TextView(this@TeacherMainActivity).apply {
+                                text = "🏖️ Cuti Disetujui: ${g.cutiCount}x (${g.cutiHariTotal} Hari Kerja)"
+                                textSize = 11f
+                                setTypeface(null, Typeface.BOLD)
+                                setTextColor(Color.parseColor("#4338CA"))
+                                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                            })
+                            cutiBtn.addView(TextView(this@TeacherMainActivity).apply {
+                                text = "Lihat Rincian ›"
+                                textSize = 10f
+                                setTypeface(null, Typeface.BOLD)
+                                setTextColor(Color.parseColor("#4F46E5"))
+                            })
+                            tInner.addView(cutiBtn)
+                        }
+
+                        teacherCard.addView(tInner)
+                        contentInner.addView(teacherCard)
+                    }
+                }
+
                 // List Sesi KBM Mode Lengkap
                 contentInner.addView(TextView(this@TeacherMainActivity).apply {
                     text = "📑 LOG DETAIL SESI KBM & KEHADIRAN GURU:"
@@ -7693,6 +7845,85 @@ class TeacherMainActivity : AppCompatActivity() {
                 contentInner.addView(tvErr)
             }
         })
+    }
+
+    private fun showKurikulumTeacherCutiDetailDialog(teacherName: String, cutiList: List<com.school.smartcbt.data.model.KurikulumCutiDetailDto>) {
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val pad = (16 * resources.displayMetrics.density).toInt()
+            setPadding(pad, pad, pad, pad)
+        }
+
+        if (cutiList.isEmpty()) {
+            root.addView(TextView(this).apply {
+                text = "Tidak ada rincian riwayat cuti yang tersimpan."
+                textSize = 12f
+                setTextColor(Color.parseColor("#64748B"))
+                setPadding(10, 20, 10, 20)
+                gravity = Gravity.CENTER
+            })
+        } else {
+            cutiList.forEach { c ->
+                val card = CardView(this).apply {
+                    radius = 8f * resources.displayMetrics.density
+                    cardElevation = 1.5f * resources.displayMetrics.density
+                    setCardBackgroundColor(Color.parseColor("#F8FAFC"))
+                    useCompatPadding = true
+                    layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        bottomMargin = (6 * resources.displayMetrics.density).toInt()
+                    }
+                }
+                val inner = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    val p = (10 * resources.displayMetrics.density).toInt()
+                    setPadding(p, p, p, p)
+                }
+                inner.addView(TextView(this).apply {
+                    text = "🏖️ ${c.kategori ?: "Cuti Pegawai"} (${c.durasiHari} Hari Kerja)"
+                    textSize = 12.5f
+                    setTypeface(null, Typeface.BOLD)
+                    setTextColor(Color.parseColor("#1E1B4B"))
+                })
+                inner.addView(TextView(this).apply {
+                    text = "📅 Periode: ${c.startDate ?: "-"} s.d. ${c.endDate ?: "-"}"
+                    textSize = 11f
+                    setTextColor(Color.parseColor("#334155"))
+                    setPadding(0, 2, 0, 0)
+                })
+                inner.addView(TextView(this).apply {
+                    text = "Alasan: ${c.alasan ?: "-"}"
+                    textSize = 11f
+                    setTextColor(Color.parseColor("#64748B"))
+                    setPadding(0, 2, 0, 0)
+                })
+                inner.addView(TextView(this).apply {
+                    text = "✅ Disahkan Kurikulum: ${c.approvedBy ?: "Waka Kurikulum"}"
+                    textSize = 10f
+                    setTextColor(Color.parseColor("#059669"))
+                    setPadding(0, 4, 0, 0)
+                })
+                if (c.dispositionToPiket && !c.piketNotes.isNullOrEmpty()) {
+                    inner.addView(TextView(this).apply {
+                        text = "📌 Disposisi Piket: ${c.piketNotes}"
+                        textSize = 10f
+                        setTextColor(Color.parseColor("#D97706"))
+                        setPadding(0, 2, 0, 0)
+                    })
+                }
+                card.addView(inner)
+                root.addView(card)
+            }
+        }
+
+        val scroll = ScrollView(this).apply {
+            addView(root)
+        }
+
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("🏖️ Rincian Cuti: $teacherName")
+            .setView(scroll)
+            .setPositiveButton("Tutup", null)
+            .show()
     }
 
     private fun showKurikulumKbmMonitoringDialog() {

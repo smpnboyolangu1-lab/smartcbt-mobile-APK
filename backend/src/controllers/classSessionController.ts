@@ -861,10 +861,66 @@ export const createOperatorSchedule = async (req: Request, res: Response) => {
             return res.status(400).json({ message: 'Hari, Jam Mulai, dan Jam Selesai wajib diisi' });
         }
 
+        const pIndex = Number(periodIndex) || 1;
+
+        // BUG-KUR-14 Fix: Deteksi bentrok jadwal Rombel, Guru, dan Ruang Khusus
+        if (!isBreak) {
+            if (className && className !== '-') {
+                const classClash = await (prisma as any).classPeriodSchedule.findFirst({
+                    where: {
+                        day,
+                        periodIndex: pIndex,
+                        className: { equals: className, mode: 'insensitive' },
+                        isBreak: false
+                    }
+                });
+                if (classClash) {
+                    return res.status(400).json({
+                        success: false,
+                        message: `Bentrok Jadwal: Rombel ${className} sudah memiliki jadwal mapel ${classClash.subjectName} bersama ${classClash.teacherName} pada Hari ${day} Jam ke-${pIndex}.`
+                    });
+                }
+            }
+
+            if (teacherName && teacherName !== '-' && teacherName !== 'Guru') {
+                const teacherClash = await (prisma as any).classPeriodSchedule.findFirst({
+                    where: {
+                        day,
+                        periodIndex: pIndex,
+                        teacherName: { equals: teacherName, mode: 'insensitive' },
+                        isBreak: false
+                    }
+                });
+                if (teacherClash) {
+                    return res.status(400).json({
+                        success: false,
+                        message: `Bentrok Jadwal: Guru ${teacherName} sudah terjadwal mengajar di kelas ${teacherClash.className} (Mapel: ${teacherClash.subjectName}) pada Hari ${day} Jam ke-${pIndex}.`
+                    });
+                }
+            }
+
+            if (roomName && !roomName.includes('Kelas') && roomName !== '-') {
+                const roomClash = await (prisma as any).classPeriodSchedule.findFirst({
+                    where: {
+                        day,
+                        periodIndex: pIndex,
+                        roomName: { equals: roomName, mode: 'insensitive' },
+                        isBreak: false
+                    }
+                });
+                if (roomClash) {
+                    return res.status(400).json({
+                        success: false,
+                        message: `Bentrok Jadwal: Ruangan khusus ${roomName} sudah terpakai oleh kelas ${roomClash.className} pada Hari ${day} Jam ke-${pIndex}.`
+                    });
+                }
+            }
+        }
+
         const schedule = await (prisma as any).classPeriodSchedule.create({
             data: {
                 day,
-                periodIndex: Number(periodIndex) || 1,
+                periodIndex: pIndex,
                 startTime,
                 endTime,
                 className: className || '-',
@@ -892,19 +948,78 @@ export const updateOperatorSchedule = async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
         const data = req.body;
+        const pIndex = Number(data.periodIndex) || 1;
+        const isBreak = Boolean(data.isBreak);
+
+        // BUG-KUR-14 Fix: Deteksi bentrok saat update jadwal
+        if (!isBreak) {
+            if (data.className && data.className !== '-') {
+                const classClash = await (prisma as any).classPeriodSchedule.findFirst({
+                    where: {
+                        id: { not: id },
+                        day: data.day,
+                        periodIndex: pIndex,
+                        className: { equals: data.className, mode: 'insensitive' },
+                        isBreak: false
+                    }
+                });
+                if (classClash) {
+                    return res.status(400).json({
+                        success: false,
+                        message: `Bentrok Jadwal: Rombel ${data.className} sudah memiliki jadwal mapel ${classClash.subjectName} bersama ${classClash.teacherName} pada Hari ${data.day} Jam ke-${pIndex}.`
+                    });
+                }
+            }
+
+            if (data.teacherName && data.teacherName !== '-' && data.teacherName !== 'Guru') {
+                const teacherClash = await (prisma as any).classPeriodSchedule.findFirst({
+                    where: {
+                        id: { not: id },
+                        day: data.day,
+                        periodIndex: pIndex,
+                        teacherName: { equals: data.teacherName, mode: 'insensitive' },
+                        isBreak: false
+                    }
+                });
+                if (teacherClash) {
+                    return res.status(400).json({
+                        success: false,
+                        message: `Bentrok Jadwal: Guru ${data.teacherName} sudah terjadwal mengajar di kelas ${teacherClash.className} pada Hari ${data.day} Jam ke-${pIndex}.`
+                    });
+                }
+            }
+
+            if (data.roomName && !data.roomName.includes('Kelas') && data.roomName !== '-') {
+                const roomClash = await (prisma as any).classPeriodSchedule.findFirst({
+                    where: {
+                        id: { not: id },
+                        day: data.day,
+                        periodIndex: pIndex,
+                        roomName: { equals: data.roomName, mode: 'insensitive' },
+                        isBreak: false
+                    }
+                });
+                if (roomClash) {
+                    return res.status(400).json({
+                        success: false,
+                        message: `Bentrok Jadwal: Ruangan khusus ${data.roomName} sudah terpakai oleh kelas ${roomClash.className} pada Hari ${data.day} Jam ke-${pIndex}.`
+                    });
+                }
+            }
+        }
 
         const updated = await (prisma as any).classPeriodSchedule.update({
             where: { id },
             data: {
                 day: data.day,
-                periodIndex: Number(data.periodIndex),
+                periodIndex: pIndex,
                 startTime: data.startTime,
                 endTime: data.endTime,
                 className: data.className,
                 subjectName: data.subjectName,
                 teacherName: data.teacherName,
                 roomName: data.roomName,
-                isBreak: Boolean(data.isBreak)
+                isBreak
             }
         });
 

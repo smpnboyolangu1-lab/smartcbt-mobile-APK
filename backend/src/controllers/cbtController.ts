@@ -883,8 +883,29 @@ export const downloadQuestions = async (req: any, res: Response) => {
             }
         }
         
+        // Cek apakah siswa sudah punya sesi ujian yang sedang berjalan (Idempotent)
+        let studentExam = await prisma.studentExam.findFirst({
+            where: {
+                examId: exam.id,
+                userId: req.user.id
+            }
+        });
+
+        if (studentExam) {
+            if (studentExam.status === 'SUBMITTED' || studentExam.status === 'COMPLETED' || studentExam.status === 'SELESAI') {
+                return res.status(403).json({ 
+                    success: false, 
+                    alreadyFinished: true,
+                    message: 'Anda sudah menyelesaikan ujian ini dan tidak dapat mengulang kembali!' 
+                });
+            }
+        }
+
         // Verifikasi Status Aktif Sesi Ujian & Token jika ujian mewajibkan token
-        if (exam.isTokenActive) {
+        // BUG-KUR-03 Fix: Peserta yang sudah berstatus ONGOING tidak terblokir oleh rotasi token 15 menit
+        const isOngoingParticipant = studentExam && studentExam.status === 'ONGOING';
+
+        if (exam.isTokenActive && !isOngoingParticipant) {
             if (!exam.token || exam.token === 'OFF') {
                 return res.status(403).json({ 
                     success: false,
@@ -928,29 +949,13 @@ export const downloadQuestions = async (req: any, res: Response) => {
                 }
 
                 return res.status(403).json({ 
-                    success: false,
+                    success: false, 
                     message: 'Token ujian salah atau belum dirilis oleh Pengawas Ruang.' 
                 });
             }
         }
 
-        // Cek apakah siswa sudah punya sesi ujian yang sedang berjalan (Idempotent)
-        let studentExam = await prisma.studentExam.findFirst({
-            where: {
-                examId: exam.id,
-                userId: req.user.id
-            }
-        });
-
-        if (studentExam) {
-            if (studentExam.status === 'SUBMITTED' || studentExam.status === 'COMPLETED' || studentExam.status === 'SELESAI') {
-                return res.status(403).json({ 
-                    success: false, 
-                    alreadyFinished: true,
-                    message: 'Anda sudah menyelesaikan ujian ini dan tidak dapat mengulang kembali!' 
-                });
-            }
-        } else {
+        if (!studentExam) {
             studentExam = await prisma.studentExam.create({
                 data: {
                     examId: exam.id,
@@ -1026,6 +1031,23 @@ export const downloadQuestions = async (req: any, res: Response) => {
             });
         }
 
+        // BUG-KUR-19 Fix: Deterministic seeded randomization untuk pengacakan butir soal per siswa
+        let finalQuestions = formattedQuestions;
+        const studentSeed = `${exam.id}_${req.user.id}`;
+        if (exam.randomizeQuestions) {
+            let hash = 0;
+            for (let i = 0; i < studentSeed.length; i++) {
+                hash = (hash << 5) - hash + studentSeed.charCodeAt(i);
+                hash |= 0;
+            }
+            finalQuestions = [...formattedQuestions];
+            for (let i = finalQuestions.length - 1; i > 0; i--) {
+                hash = (hash * 9301 + 49297) % 233280;
+                const j = Math.abs(hash) % (i + 1);
+                [finalQuestions[i], finalQuestions[j]] = [finalQuestions[j], finalQuestions[i]];
+            }
+        }
+
         res.json({ 
             success: true,
             message: 'Berhasil mengunduh soal.',
@@ -1033,8 +1055,9 @@ export const downloadQuestions = async (req: any, res: Response) => {
             examId: exam.id,
             examTitle: exam.title,
             durationMinutes: exam.durationMinutes,
-            totalQuestions: formattedQuestions.length,
-            questions: formattedQuestions 
+            totalQuestions: finalQuestions.length,
+            randomizeSeed: exam.randomizeQuestions ? studentSeed : null,
+            questions: finalQuestions 
         });
     } catch (error) {
         console.error('Error in downloadQuestions:', error);
@@ -1043,7 +1066,8 @@ export const downloadQuestions = async (req: any, res: Response) => {
 };
 
 export const syncExamData = async (req: any, res: Response) => {
-    const { studentExamId, answersJson, strikeCount, isFinished } = req.body;
+    const { studentExamId, answersJson, strikeCount } = req.body;
+    let isFinished = Boolean(req.body.isFinished);
     try {
         if (!studentExamId) {
             return res.status(400).json({ message: 'studentExamId wajib disertakan.' });
@@ -1063,16 +1087,31 @@ export const syncExamData = async (req: any, res: Response) => {
             return res.status(403).json({ message: 'Akses ditolak. Sesi ujian ini bukan milik akun Anda.' });
         }
 
+        const isStudentRole = req.user?.role === 'STUDENT' || req.user?.role === 'SISWA';
+        const showScoreSetting = Boolean(existingRecord.exam?.showScoreToStudent);
+
         // B-02 & P0: Anti-tamper lock - jika status sudah SUBMITTED/COMPLETED, tolak modifikasi lanjutan
         if (existingRecord.status === 'SUBMITTED' || existingRecord.status === 'COMPLETED' || existingRecord.status === 'SELESAI') {
             return res.json({
                 success: true,
                 message: 'Ujian ini sudah diselesaikan dan lembar jawaban telah terkunci permanen di Meja Proktor.',
-                score: existingRecord.score,
+                score: (isStudentRole && !showScoreSetting) ? null : existingRecord.score,
+                showScoreToStudent: showScoreSetting,
                 status: existingRecord.status,
                 alreadyFinished: true,
                 serverNow: new Date().toISOString()
             });
+        }
+
+        // BUG-KUR-10 Fix: Server-side authoritative timer & duration enforcement
+        if (existingRecord.startTime && existingRecord.exam?.durationMinutes) {
+            const startMs = new Date(existingRecord.startTime).getTime();
+            const durationMs = (existingRecord.exam.durationMinutes || 90) * 60 * 1000;
+            // 2 menit (120.000 ms) batas toleransi latensi jaringan
+            const deadlineMs = startMs + durationMs + 120000;
+            if (Date.now() > deadlineMs && !isFinished) {
+                isFinished = true; // Auto-submit paksa oleh server karena durasi habis
+            }
         }
 
         let calculatedScore: number | null = existingRecord.score;
@@ -1091,12 +1130,15 @@ export const syncExamData = async (req: any, res: Response) => {
                 if (Array.isArray(parsed)) {
                     parsed.forEach((item: any) => {
                         if (item && item.questionId) {
-                            answersObj[String(item.questionId)] = String(item.answer || '').trim();
+                            const ansVal = typeof item.answer === 'object' && item.answer !== null ? item.answer.answer : item.answer;
+                            answersObj[String(item.questionId)] = String(ansVal || '').trim();
                         }
                     });
                 } else if (parsed && typeof parsed === 'object') {
                     Object.keys(parsed).forEach(k => {
-                        answersObj[k] = String(parsed[k] || '').trim();
+                        const val = parsed[k];
+                        const ansVal = typeof val === 'object' && val !== null ? val.answer : val;
+                        answersObj[k] = String(ansVal || '').trim();
                     });
                 }
 
@@ -1129,7 +1171,7 @@ export const syncExamData = async (req: any, res: Response) => {
             }
         }
 
-        // B1: Penggabungan aman (safe merge) jawaban baru dengan jawaban lama untuk mencegah lost update jika koneksi terputus/retry
+        // B1 & BUG-KUR-09 Fix: Safe merge jawaban dengan dukungan sequence check untuk mencegah jawaban lama offline menimpa jawaban baru
         let mergedAnswers: Record<string, any> = {};
         try {
             if (existingRecord.answers) {
@@ -1149,11 +1191,34 @@ export const syncExamData = async (req: any, res: Response) => {
         if (Array.isArray(incomingAnswers)) {
             incomingAnswers.forEach((it: any) => {
                 if (it && it.questionId) {
-                    mergedAnswers[String(it.questionId)] = it.answer;
+                    const qKey = String(it.questionId);
+                    const incomingSeq = Number(it.clientSeq ?? it.seq ?? 0);
+                    const existingEntry = mergedAnswers[qKey];
+                    if (typeof existingEntry === 'object' && existingEntry !== null && existingEntry.seq !== undefined) {
+                        if (incomingSeq >= existingEntry.seq) {
+                            mergedAnswers[qKey] = incomingSeq > 0 ? { answer: it.answer, seq: incomingSeq, answeredAt: it.answeredAt || Date.now() } : it.answer;
+                        }
+                    } else {
+                        mergedAnswers[qKey] = incomingSeq > 0 ? { answer: it.answer, seq: incomingSeq, answeredAt: it.answeredAt || Date.now() } : it.answer;
+                    }
                 }
             });
         } else if (incomingAnswers && typeof incomingAnswers === 'object') {
-            Object.assign(mergedAnswers, incomingAnswers);
+            Object.keys(incomingAnswers).forEach(qKey => {
+                const incomingVal = incomingAnswers[qKey];
+                const existingVal = mergedAnswers[qKey];
+                if (typeof incomingVal === 'object' && incomingVal !== null && incomingVal.seq !== undefined) {
+                    if (typeof existingVal === 'object' && existingVal !== null && existingVal.seq !== undefined) {
+                        if (incomingVal.seq >= existingVal.seq) {
+                            mergedAnswers[qKey] = incomingVal;
+                        }
+                    } else {
+                        mergedAnswers[qKey] = incomingVal;
+                    }
+                } else {
+                    mergedAnswers[qKey] = incomingVal;
+                }
+            });
         }
 
         // Mencegah manipulasi strikeCount oleh klien (hanya boleh sama atau bertambah, tidak boleh dikurangi sepihak)
@@ -1179,10 +1244,19 @@ export const syncExamData = async (req: any, res: Response) => {
         }
 
         // B2: Server sebagai sumber waktu mutlak (authoritative server clock)
+        // BUG-KUR-08 Fix: Masking score ke siswa jika showScoreToStudent nonaktif
+        const studentScoreDisplay = (isStudentRole && !showScoreSetting) ? null : calculatedScore;
+        const studentFinishMsg = isFinished 
+            ? (isStudentRole && !showScoreSetting 
+                ? 'Ujian berhasil diselesaikan! Lembar jawaban diterima Meja Proktor. Nilai akan diumumkan oleh Guru Pengampu setelah review selesai.' 
+                : 'Ujian berhasil diselesaikan! Lembar jawaban diterima Meja Proktor.')
+            : 'Sinkronisasi jawaban berhasil.';
+
         res.json({ 
             success: true,
-            message: isFinished ? 'Ujian berhasil diselesaikan! Lembar jawaban diterima Meja Proktor.' : 'Sinkronisasi jawaban berhasil.',
-            score: calculatedScore,
+            message: studentFinishMsg,
+            score: studentScoreDisplay,
+            showScoreToStudent: showScoreSetting,
             status: updated.status,
             serverNow: new Date().toISOString(),
             waktuSelesai: existingRecord.endTime ? existingRecord.endTime.toISOString() : null,
@@ -1673,6 +1747,7 @@ export const getStudentActiveExams = async (req: Request, res: Response) => {
             fullSchedules.push({
                 id: e.id,
                 title: e.title,
+                examType: e.examType || 'SAS',
                 subject: e.subject?.name || 'Mata Pelajaran',
                 executionDate: execDate,
                 startTimeStr: e.startTimeStr || '07:30',
@@ -1692,6 +1767,7 @@ export const getStudentActiveExams = async (req: Request, res: Response) => {
                     formattedExams.push({
                         id: e.id,
                         title: e.title,
+                        examType: e.examType || 'SAS',
                         subject: e.subject?.name || 'Mata Pelajaran',
                         durationMinutes: e.durationMinutes || 60,
                         isTokenActive: false,
@@ -1713,6 +1789,7 @@ export const getStudentActiveExams = async (req: Request, res: Response) => {
                     formattedExams.push({
                         id: e.id,
                         title: e.title,
+                        examType: e.examType || 'SAS',
                         subject: e.subject?.name || 'Mata Pelajaran',
                         durationMinutes: e.durationMinutes || 60,
                         isTokenActive: e.isTokenActive,
@@ -2762,6 +2839,25 @@ export const proctorResetStudentMultiType = async (req: Request, res: Response) 
 
         if (!examId || !studentId || !resetType) {
             return res.status(400).json({ success: false, message: 'examId, studentId, dan resetType wajib dikirim.' });
+        }
+
+        // BUG-KUR-12 Fix: Wajib alasan reset minimal 5 karakter untuk audit
+        if (!reason || String(reason).trim().length < 5) {
+            return res.status(400).json({
+                success: false,
+                message: 'Alasan reset sesi wajib disertakan secara jelas (minimal 5 karakter) untuk kepatuhan audit ujian.'
+            });
+        }
+
+        // BUG-KUR-12 Fix: Maksimal 3 kali reset mandiri oleh Proktor tanpa otorisasi Kurikulum/Admin
+        const existingResetCount = await (prisma as any).examResetLog.count({
+            where: { examId: String(examId), studentId: String(studentId) }
+        });
+        if (existingResetCount >= 3 && !isKurikulum && user?.role !== 'ADMIN' && user?.role !== 'SUPERADMIN') {
+            return res.status(403).json({
+                success: false,
+                message: 'Batas maksimum reset mandiri oleh Pengawas (3 kali) telah tercapai untuk siswa ini. Reset lanjutan memerlukan persetujuan Tim Kurikulum atau Administrator Sekolah.'
+            });
         }
 
         const student = await prisma.user.findUnique({

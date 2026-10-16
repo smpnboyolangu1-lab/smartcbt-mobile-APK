@@ -31,31 +31,56 @@ export const checkHomeworkLoadBalance = async (req: Request, res: Response) => {
             }
         });
 
+        // BUG-KUR-16 Fix: Harmonisasi beban PR dengan kalender asesmen / ujian sumatif
+        const dateYmd = String(date).split('T')[0];
+        const examClashList = await prisma.exam.findMany({
+            where: {
+                executionDate: dateYmd,
+                OR: [
+                    { assignedClasses: 'ALL' },
+                    { assignedClasses: 'Semua Kelas' },
+                    { assignedClasses: { contains: String(classId) } }
+                ]
+            },
+            select: { id: true, title: true, examType: true }
+        });
+        const hasExamToday = examClashList.length > 0;
+
         // Ambil batas konfigurasi dari database jika ada
         const policy = await (prisma as any).homeworkLoadPolicy.findUnique({
             where: { id: 'default' }
         });
         const maxLimit = policy?.maxHomeworksDay || 3;
 
-        const isOverloaded = existingCount >= maxLimit;
-        const remainingQuota = Math.max(0, maxLimit - existingCount);
+        const isOverloaded = (existingCount >= maxLimit) || hasExamToday;
+        const remainingQuota = hasExamToday ? 0 : Math.max(0, maxLimit - existingCount);
 
         let statusColor = 'GREEN';
-        if (existingCount === maxLimit - 1) statusColor = 'YELLOW';
+        if (hasExamToday) statusColor = 'RED';
+        else if (existingCount === maxLimit - 1) statusColor = 'YELLOW';
         else if (existingCount >= maxLimit) statusColor = 'RED';
+
+        let message = `✅ Jadwal tugas aman: Masih tersedia kuota ${remainingQuota} tugas lagi pada tanggal tersebut.`;
+        if (hasExamToday) {
+            const examNames = examClashList.map(e => e.title).join(', ');
+            message = `⛔ Kebijakan Kurikulum (Harmonisasi Asesmen): Terdapat ${examClashList.length} agenda ujian (${examNames}) untuk kelas ini pada tanggal ${dateYmd}. Siswa tidak diperkenankan dibebani PR tambahan pada hari asesmen.`;
+        } else if (existingCount >= maxLimit) {
+            message = `⚠️ Peringatan Beban Tugas: Kelas ini sudah memiliki ${existingCount} tugas dengan deadline pada tanggal tersebut (Batas maksimum: ${maxLimit}/hari). Siswa berpotensi kelelahan.`;
+        }
 
         res.json({
             success: true,
             classId,
             date,
             existingHomeworksCount: existingCount,
+            examsScheduledCount: examClashList.length,
+            scheduledExams: examClashList,
+            hasExamToday,
             maxLimit,
             remainingQuota,
             isOverloaded,
             statusColor,
-            message: isOverloaded
-                ? `⚠️ Peringatan Beban Tugas: Kelas ini sudah memiliki ${existingCount} tugas dengan deadline pada tanggal tersebut (Batas maksimum: ${maxLimit}/hari). Siswa berpotensi kelelahan.`
-                : `✅ Jadwal tugas aman: Masih tersedia kuota ${remainingQuota} tugas lagi pada tanggal tersebut.`
+            message
         });
     } catch (e: any) {
         res.status(500).json({ success: false, message: e.message });

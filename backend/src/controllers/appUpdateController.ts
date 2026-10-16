@@ -22,32 +22,32 @@ export const getAppVersion = async (req: Request, res: Response) => {
 
         let config = await prisma.appVersionConfig.findUnique({ where: { id: 'latest' } });
         
-        const releaseNotes295 = '⚠️ PEMBARUAN WAJIB SISTEM: Smart CBT v2.9.5 (Build 175)\n' +
-            '1. Kesiapan Sistem 90%+: Lolos audit keamanan menyeluruh, integritas naskah CBT, dan proteksi anti-tamper.\n' +
-            '2. Penghapusan Total RFID: Seluruh pencatatan kehadiran menggunakan QR Dinamis Pengurus Kelas dan Presensi Mandiri GPS.\n' +
-            '3. Penguatan CBT Kiosk: Perlindungan kunci jawaban server-side & penguncian status submit idempoten.\n' +
-            '4. Optimalisasi Kinerja & Privasi: Sesuai standar UU PDP dan ketahanan beban 989 siswa serentak.';
+        const releaseNotes296 = '⚠️ PEMBARUAN SISTEM RESMI: Smart CBT v2.9.6 (Build 176)\n' +
+            '1. Alur Rantai Cuti Guru 360°: Rekap komprehensif kehadiran, keterlambatan (kali & menit), alfa, izin/sakit, dan cuti disetujui kurikulum lengkap dengan rincian hari & disposisi guru piket.\n' +
+            '2. Izin Darurat Siswa (Gatepass BK): Tiket QR Gatepass otomatis muncul langsung di layar siswa setelah persetujuan Guru BK tanpa pemindaian ulang di meja BK, siap dipindai Satpam di gerbang.\n' +
+            '3. Tahfiz Juz 30 Real-Time: Setoran menunggu nilai otomatis muncul di riwayat penyerahan dengan status ustadz penilai; pemutakhiran guru PAI aktif (Munawir, Brian, Eny Astuti).\n' +
+            '4. Integrasi Menu & Navigasi Rapi: Tab "Tugas & Ujian" memadukan tugas harian, PR, dan ulangan harian secara elegan dengan kontrol penuh di portal web kurikulum.';
 
-        const targetGithubUrl = `${GITHUB_RELEASE_BASE}/download/v2.9.5/SmartCBT_v2.9.5.apk`;
+        const targetGithubUrl = `${GITHUB_RELEASE_BASE}/download/v2.9.6/SmartCBT_v2.9.6.apk`;
 
-        if (!config || config.versionCode < 175 || !config.isForceUpdate || config.downloadUrl?.includes('adiprayitno')) {
+        if (!config || config.versionCode < 176 || !config.isForceUpdate || config.downloadUrl?.includes('adiprayitno')) {
             config = await prisma.appVersionConfig.upsert({
                 where: { id: 'latest' },
                 update: {
-                    versionCode: 175,
-                    versionName: '2.9.5',
+                    versionCode: 176,
+                    versionName: '2.9.6',
                     downloadUrl: targetGithubUrl,
                     fileSizeMb: 18.5,
-                    releaseNotes: releaseNotes295,
+                    releaseNotes: releaseNotes296,
                     isForceUpdate: true
                 },
                 create: {
                     id: 'latest',
-                    versionCode: 175,
-                    versionName: '2.9.5',
+                    versionCode: 176,
+                    versionName: '2.9.6',
                     downloadUrl: targetGithubUrl,
                     fileSizeMb: 18.5,
-                    releaseNotes: releaseNotes295,
+                    releaseNotes: releaseNotes296,
                     isForceUpdate: true
                 }
             });
