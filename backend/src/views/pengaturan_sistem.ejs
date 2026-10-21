@@ -289,6 +289,92 @@ https://cbt.smpn1boyolangu.my.id/uploads/smartcbt-latest.apk
                     </div>
                 </div>
 
+                <!-- Card Manajemen Rilis & Pembaruan APK (Staged Rollout & Pengujian Lokal) -->
+                <div class="bg-white rounded-3xl p-6 shadow-sm border border-slate-200 space-y-5">
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 gap-3">
+                        <div class="flex items-center gap-3">
+                            <span class="text-3xl p-2.5 bg-gradient-to-br from-blue-600 to-indigo-700 text-white rounded-2xl shadow-sm">📦</span>
+                            <div>
+                                <h3 class="font-black text-gray-800 text-base flex items-center gap-2">
+                                    <span>Manajemen Pembaruan APK (Staged Rollout)</span>
+                                    <span class="text-[10px] font-extrabold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">Aman untuk 3.000 Siswa</span>
+                                </h3>
+                                <p class="text-xs text-gray-500">Uji coba update APK di HP Admin terlebih dahulu. Seluruh 3.000 siswa tetap memakai versi stabil sampai Admin menyatakan FIX.</p>
+                            </div>
+                        </div>
+                        <button type="button" onclick="loadStagedVersionStatus()" class="self-start sm:self-auto text-xs font-bold text-slate-600 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 px-3.5 py-2 rounded-xl transition flex items-center gap-1.5">
+                            <span>🔄</span> <span>Segarkan Status</span>
+                        </button>
+                    </div>
+
+                    <!-- Banner Penjelasan Alur Uji Coba -->
+                    <div class="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-4 text-xs text-amber-900 space-y-2">
+                        <div class="flex items-start gap-2.5">
+                            <span class="text-lg">🛡️</span>
+                            <div class="leading-relaxed">
+                                <span class="font-bold">Alur Kerja Pengujian Lokal &amp; Peluncuran Aman:</span>
+                                <ol class="list-decimal list-inside space-y-1 mt-1 text-[11.5px] text-amber-900">
+                                    <li><b>Build Lokal:</b> Jalankan <code class="bg-amber-100 px-1.5 py-0.5 rounded text-amber-950 font-mono font-bold">build-local-update.bat</code> di komputer/server sekolah. APK baru disimpan di server lokal tanpa langsung dilempar ke siswa.</li>
+                                    <li><b>Uji Coba di HP Admin:</b> Buka aplikasi Smart CBT di HP Admin. Notifikasi pembaruan <i>hanya akan muncul di HP Admin</i>. Siswa (3.000 siswa) sama sekali tidak terganggu.</li>
+                                    <li><b>Publikasi ke Siswa:</b> Setelah Admin memastikan semua fitur normal di HP Admin, klik tombol <b>"🚀 Publikasikan ke Seluruh Siswa"</b> di bawah ini. Seketika 3.000 siswa akan menerima update tersebut!</li>
+                                </ol>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Dual Status Grid: Siswa vs Admin -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                        <!-- Kolom 1: Versi Publik Siswa -->
+                        <div class="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-3">
+                            <div class="flex items-center justify-between">
+                                <span class="text-xs font-bold px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1.5">
+                                    <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                                    <span>VERSI PUBLIK (3.000 SISWA)</span>
+                                </span>
+                                <span class="text-[11px] font-semibold text-slate-500" id="publicUpdatedTime">-</span>
+                            </div>
+                            <div>
+                                <h4 class="text-xl font-black text-slate-800" id="publicVersionLabel">Memuat...</h4>
+                                <p class="text-xs text-slate-500 mt-0.5" id="publicFileInfo">Berkas: smartcbt-latest.apk</p>
+                            </div>
+                            <div class="p-3 bg-white border border-slate-200 rounded-xl text-[11.5px] text-slate-700 whitespace-pre-line font-mono max-h-32 overflow-y-auto" id="publicReleaseNotes">
+                                -
+                            </div>
+                            <div class="pt-2 flex items-center justify-between">
+                                <span class="text-xs font-bold text-slate-600" id="publicForceStatus">Update Wajib: Ya</span>
+                                <a href="/uploads/smartcbt-latest.apk" download="smartcbt-latest.apk" class="text-xs font-bold text-blue-600 hover:text-blue-700 hover:underline flex items-center gap-1">
+                                    <span>📥</span> <span>Unduh APK Siswa</span>
+                                </a>
+                            </div>
+                        </div>
+
+                        <!-- Kolom 2: Versi Uji Coba Admin (Beta) -->
+                        <div class="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-3" id="adminBetaContainer">
+                            <div class="flex items-center justify-between">
+                                <span class="text-xs font-bold px-3 py-1 rounded-full bg-slate-200 text-slate-700 border border-slate-300" id="betaBadge">
+                                    ⚪ TIDAK ADA UJI COBA
+                                </span>
+                                <span class="text-[11px] font-semibold text-slate-500" id="betaUpdatedTime">-</span>
+                            </div>
+                            <div>
+                                <h4 class="text-xl font-black text-slate-800" id="betaVersionLabel">Belum Ada Versi Uji Coba</h4>
+                                <p class="text-xs text-slate-500 mt-0.5" id="betaFileInfo">Jalankan build-local-update.bat untuk memulai uji coba</p>
+                            </div>
+                            <div class="p-3 bg-white border border-slate-200 rounded-xl text-[11.5px] text-slate-700 whitespace-pre-line font-mono max-h-32 overflow-y-auto" id="betaReleaseNotes">
+                                Belum ada rilis beta aktif.
+                            </div>
+                            <div class="pt-2 flex flex-wrap items-center gap-2 justify-end" id="betaActionButtons">
+                                <button type="button" onclick="handleCancelAdminBeta()" id="btnCancelBeta" class="hidden text-xs font-bold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 px-3 py-2 rounded-xl transition flex items-center gap-1">
+                                    <span>🗑️</span> <span>Tarik / Batalkan Uji Coba</span>
+                                </button>
+                                <button type="button" onclick="handlePublishBetaToStudents()" id="btnPublishBeta" class="hidden bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold text-xs px-4 py-2 rounded-xl shadow-md transition flex items-center gap-1.5">
+                                    <span>🚀</span> <span>Publikasikan ke 3.000 Siswa</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Card Sinkronisasi Kontak Orang Tua ke Google Contacts (Anti-Banned WA) -->
                 <div class="bg-white rounded-3xl p-6 shadow-sm border border-slate-200 space-y-5">
                     <div class="flex items-center justify-between pb-4 border-b border-slate-100">
@@ -478,6 +564,7 @@ https://cbt.smpn1boyolangu.my.id/uploads/smartcbt-latest.apk
         loadSystemSettings();
         loadWhatsAppStatus();
         loadContactStats();
+        loadStagedVersionStatus();
 
         let isWaTokenVisible = false;
 
@@ -698,6 +785,111 @@ https://cbt.smpn1boyolangu.my.id/uploads/smartcbt-latest.apk
             const selectedClass = document.getElementById('selectContactClass').value;
             const url = `/api/whatsapp/export-contacts-csv?className=${encodeURIComponent(selectedClass)}&token=${encodeURIComponent(token)}`;
             window.location.href = url;
+        }
+
+        async function loadStagedVersionStatus() {
+            try {
+                const res = await fetch('/api/admin/app-version/staged-status', {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                if (!res.ok) return;
+                const d = await res.json();
+                if (!d.success) return;
+
+                // 1. Render Public Version
+                if (d.publicVersion) {
+                    document.getElementById('publicVersionLabel').innerText = `Smart CBT v${d.publicVersion.versionName} (Build ${d.publicVersion.versionCode})`;
+                    document.getElementById('publicFileInfo').innerText = `Berkas: ${d.publicVersion.downloadUrl} • ${d.publicVersion.fileSizeMb} MB`;
+                    document.getElementById('publicReleaseNotes').innerText = d.publicVersion.releaseNotes || 'Tidak ada catatan rilis.';
+                    document.getElementById('publicForceStatus').innerText = d.publicVersion.isForceUpdate ? '🔴 Update Wajib (Force Update Aktif)' : '⚪ Update Fleksibel';
+                    document.getElementById('publicUpdatedTime').innerText = 'Diperbarui: ' + new Date(d.publicVersion.updatedAt).toLocaleString('id-ID');
+                }
+
+                // 2. Render Admin Beta Version
+                const betaBadge = document.getElementById('betaBadge');
+                const btnPublish = document.getElementById('btnPublishBeta');
+                const btnCancel = document.getElementById('btnCancelBeta');
+
+                if (d.hasActiveBeta && d.adminBetaVersion) {
+                    betaBadge.className = 'text-xs font-bold px-3 py-1 rounded-full bg-amber-100 text-amber-800 border border-amber-300 flex items-center gap-1.5 animate-pulse';
+                    betaBadge.innerHTML = '<span>🟡 SEDANG DIUJI COBA DI HP ADMIN</span>';
+                    document.getElementById('betaVersionLabel').innerText = `Smart CBT v${d.adminBetaVersion.versionName} (Build ${d.adminBetaVersion.versionCode})`;
+                    document.getElementById('betaFileInfo').innerText = `Berkas: ${d.adminBetaVersion.downloadUrl} • ${d.adminBetaVersion.fileSizeMb} MB (HP Admin Saja)`;
+                    document.getElementById('betaReleaseNotes').innerText = d.adminBetaVersion.releaseNotes || 'Catatan uji coba internal.';
+                    document.getElementById('betaUpdatedTime').innerText = 'Diperbarui: ' + new Date(d.adminBetaVersion.updatedAt).toLocaleString('id-ID');
+
+                    btnPublish.classList.remove('hidden');
+                    btnCancel.classList.remove('hidden');
+                } else {
+                    betaBadge.className = 'text-xs font-bold px-3 py-1 rounded-full bg-slate-200 text-slate-700 border border-slate-300';
+                    betaBadge.innerText = '⚪ TIDAK ADA UJI COBA AKTIF';
+                    document.getElementById('betaVersionLabel').innerText = 'Tidak Ada Uji Coba Internal';
+                    document.getElementById('betaFileInfo').innerText = 'Jalankan build-local-update.bat untuk memulai versi baru';
+                    document.getElementById('betaReleaseNotes').innerText = 'Versi publik saat ini sudah selaras dan stabil di seluruh siswa.';
+                    document.getElementById('betaUpdatedTime').innerText = '-';
+
+                    btnPublish.classList.add('hidden');
+                    btnCancel.classList.add('hidden');
+                }
+            } catch (err) {
+                console.error('Error loading staged status:', err);
+            }
+        }
+
+        async function handlePublishBetaToStudents() {
+            if (!confirm('⚠️ KONFIRMASI PELUNCURAN KE SELURUH SISWA:\n\nApakah Anda yakin versi ini sudah FIX dan stabil di HP Admin?\n\nSetelah dipublikasikan, seluruh 3.000 siswa dan guru akan langsung menerima update ke versi baru ini.')) {
+                return;
+            }
+
+            const btn = document.getElementById('btnPublishBeta');
+            const origText = btn.innerHTML;
+            btn.innerHTML = '<span>⏳</span> <span>Mempublikasikan...</span>';
+            btn.disabled = true;
+
+            try {
+                const res = await fetch('/api/admin/app-version/publish-to-students', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Bearer ' + token,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    alert('🎉 BERHASIL!\n\n' + data.message);
+                    loadStagedVersionStatus();
+                } else {
+                    alert('❌ Gagal mempublikasikan: ' + (data.message || 'Terjadi kesalahan'));
+                }
+            } catch (err) {
+                alert('❌ Kesalahan jaringan saat menghubungi server');
+            } finally {
+                btn.innerHTML = origText;
+                btn.disabled = false;
+            }
+        }
+
+        async function handleCancelAdminBeta() {
+            if (!confirm('Batalkan pengujian versi beta di HP Admin?\n\nHP Admin akan kembali memantau versi rilis publik siswa.')) {
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/admin/app-version/cancel-beta', {
+                    method: 'POST',
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    alert('✅ Uji coba lokal berhasil dibatalkan.');
+                    loadStagedVersionStatus();
+                } else {
+                    alert('❌ Gagal: ' + data.message);
+                }
+            } catch (e) {
+                alert('❌ Kesalahan jaringan.');
+            }
         }
 
         async function loadSystemSettings() {

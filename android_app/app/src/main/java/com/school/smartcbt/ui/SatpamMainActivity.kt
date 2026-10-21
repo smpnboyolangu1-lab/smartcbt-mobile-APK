@@ -3,6 +3,7 @@ package com.school.smartcbt.ui
 import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.Color
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.Handler
@@ -164,8 +165,8 @@ class SatpamMainActivity : AppCompatActivity() {
                     allGatepasses = body.data ?: emptyList()
 
                     val stats = body.stats
-                    val waitingCount = stats?.waitingExit ?: allGatepasses.count { it.status == "APPROVED_BK" }
-                    val outsideCount = stats?.currentlyOutside ?: allGatepasses.count { it.status == "OUTSIDE" }
+                    val waitingCount = stats?.waitingExit ?: allGatepasses.count { it.status == "APPROVED_BK" || it.status == "ACTIVE_APPROVED" }
+                    val outsideCount = stats?.currentlyOutside ?: allGatepasses.count { it.status == "OUTSIDE" || it.status == "COMPLETED" }
                     val returnedCount = stats?.returnedToSchool ?: allGatepasses.count { it.status == "RETURNED" || it.status == "CLOSED" }
                     val totalCount = stats?.totalToday ?: allGatepasses.size
 
@@ -198,8 +199,8 @@ class SatpamMainActivity : AppCompatActivity() {
         container.removeAllViews()
 
         val filtered = when (activeFilter) {
-            "WAITING" -> allGatepasses.filter { it.status == "APPROVED_BK" }
-            "OUTSIDE" -> allGatepasses.filter { it.status == "OUTSIDE" }
+            "WAITING" -> allGatepasses.filter { it.status == "APPROVED_BK" || it.status == "ACTIVE_APPROVED" }
+            "OUTSIDE" -> allGatepasses.filter { it.status == "OUTSIDE" || it.status == "COMPLETED" }
             else -> allGatepasses
         }
 
@@ -254,8 +255,8 @@ class SatpamMainActivity : AppCompatActivity() {
                     setColor(Color.parseColor("#1E293B"))
                     cornerRadius = dp(14).toFloat()
                     val strokeColor = when (item.status) {
-                        "APPROVED_BK" -> "#F59E0B"
-                        "OUTSIDE" -> "#EF4444"
+                        "APPROVED_BK", "ACTIVE_APPROVED" -> "#F59E0B"
+                        "OUTSIDE", "COMPLETED" -> "#EF4444"
                         "RETURNED" -> "#38BDF8"
                         else -> "#334155"
                     }
@@ -299,8 +300,8 @@ class SatpamMainActivity : AppCompatActivity() {
             nameCol.addView(tvMeta)
 
             val (statusLabel, badgeBg, badgeFg) = when (item.status) {
-                "APPROVED_BK" -> Triple("SIAP KELUAR", "#451A03", "#FBBF24")
-                "OUTSIDE" -> Triple("DI LUAR SEKOLAH", "#450A0A", "#F87171")
+                "APPROVED_BK", "ACTIVE_APPROVED" -> Triple("SIAP KELUAR", "#451A03", "#FBBF24")
+                "OUTSIDE", "COMPLETED" -> Triple("DI LUAR SEKOLAH", "#450A0A", "#F87171")
                 "RETURNED" -> Triple("SUDAH KEMBALI", "#082F49", "#38BDF8")
                 "CLOSED" -> Triple("PULANG / SELESAI", "#064E3B", "#34D399")
                 "REJECTED" -> Triple("DITOLAK", "#334155", "#94A3B8")
@@ -324,11 +325,11 @@ class SatpamMainActivity : AppCompatActivity() {
             card.addView(headerRow)
 
             // Reason & Token info
-            val typeReadable = when ((item.leaveCategory ?: "").uppercase()) {
-                "SICK_GO_HOME" -> "🏥 Pulang karena Sakit (UKS/BK)"
-                "PERMIT_TEMPORARY" -> "⏳ Izin Keluar Sementara"
-                "EARLY_LEAVE" -> "🏠 Izin Pulang Lebih Awal"
-                else -> "📋 ${item.leaveCategory ?: ""}"
+            val typeReadable = item.categoryLabel ?: when ((item.leaveCategory ?: "").uppercase()) {
+                "SICK", "SICK_GO_HOME", "SAKIT", "SAKIT_PULANG" -> "🏥 Pulang karena Sakit (UKS/BK)"
+                "DISPENSATION", "DISPENSASI", "DISPENSASI_LOMBA" -> "🎖️ Dispensasi Organisasi / Lomba"
+                "URGENT_FAMILY", "PERMIT_TEMPORARY", "EARLY_LEAVE", "IZIN_PULANG_MENDESAK" -> "🏠 Izin Pulang Kepentingan Mendesak"
+                else -> "📋 ${item.leaveCategory ?: "Dispensasi Siswa"}"
             }
 
             val tvReason = TextView(this).apply {
@@ -349,7 +350,7 @@ class SatpamMainActivity : AppCompatActivity() {
             card.addView(tvTimestamps)
 
             // Quick Action Buttons for Satpam
-            if (item.status == "APPROVED_BK" && !item.singleUseCheckoutToken.isNullOrEmpty()) {
+            if ((item.status == "APPROVED_BK" || item.status == "ACTIVE_APPROVED") && !item.singleUseCheckoutToken.isNullOrEmpty()) {
                 val btnAction = Button(this).apply {
                     text = "🚪 Verifikasi & Izinkan Keluar Gerbang"
                     setTextColor(Color.WHITE)
@@ -364,7 +365,7 @@ class SatpamMainActivity : AppCompatActivity() {
                     }
                 }
                 card.addView(btnAction)
-            } else if (item.status == "OUTSIDE" && !item.singleUseCheckoutToken.isNullOrEmpty()) {
+            } else if ((item.status == "OUTSIDE" || item.status == "COMPLETED") && !item.singleUseCheckoutToken.isNullOrEmpty()) {
                 val btnAction = Button(this).apply {
                     text = "🏫 Konfirmasi Siswa Kembali ke Sekolah"
                     setTextColor(Color.WHITE)
@@ -381,8 +382,135 @@ class SatpamMainActivity : AppCompatActivity() {
                 card.addView(btnAction)
             }
 
+            card.isClickable = true
+            card.isFocusable = true
+            card.setOnClickListener {
+                showStudentGatepassDetailDialog(item)
+            }
+
             container.addView(card)
         }
+    }
+
+    private fun showStudentGatepassDetailDialog(item: GatepassItemData) {
+        val sName = item.student?.name ?: "Siswa #${item.studentId}"
+        val sClass = item.student?.className ?: "-"
+        val sNisn = item.student?.nisn ?: "-"
+        val typeReadable = item.categoryLabel ?: when ((item.leaveCategory ?: "").uppercase()) {
+            "SICK", "SICK_GO_HOME", "SAKIT", "SAKIT_PULANG" -> "🏥 Pulang karena Sakit (UKS/BK)"
+            "DISPENSATION", "DISPENSASI", "DISPENSASI_LOMBA" -> "🎖️ Dispensasi Organisasi / Lomba"
+            "URGENT_FAMILY", "PERMIT_TEMPORARY", "EARLY_LEAVE", "IZIN_PULANG_MENDESAK" -> "🏠 Izin Pulang Kepentingan Mendesak"
+            else -> "📋 ${item.leaveCategory ?: "Dispensasi Siswa"}"
+        }
+
+        val dialogView = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#0F172A"))
+            setPadding(dp(20), dp(20), dp(20), dp(20))
+        }
+
+        val topRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(14)
+            }
+        }
+
+        val avatarTv = TextView(this).apply {
+            text = if (sName.isNotEmpty()) sName.take(1).uppercase() else "S"
+            textSize = 20f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            val sz = dp(48)
+            layoutParams = LinearLayout.LayoutParams(sz, sz).apply { marginEnd = dp(14) }
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.parseColor("#0284C7"))
+            }
+        }
+        topRow.addView(avatarTv)
+
+        val headerCol = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        headerCol.addView(TextView(this).apply {
+            text = sName
+            textSize = 16f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+        })
+        headerCol.addView(TextView(this).apply {
+            text = "Kelas $sClass • NISN: $sNisn"
+            textSize = 12f
+            setTextColor(Color.parseColor("#38BDF8"))
+        })
+        topRow.addView(headerCol)
+        dialogView.addView(topRow)
+
+        val detailCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(14), dp(14), dp(14), dp(14))
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#1E293B"))
+                cornerRadius = dp(12).toFloat()
+            }
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(14)
+            }
+        }
+
+        fun addRow(label: String, value: String, valColor: String = "#F8FAFC") {
+            val r = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(0, dp(4), 0, dp(4))
+            }
+            r.addView(TextView(this).apply {
+                text = label
+                textSize = 10.5f
+                setTextColor(Color.parseColor("#94A3B8"))
+                setTypeface(null, Typeface.BOLD)
+            })
+            r.addView(TextView(this).apply {
+                text = value
+                textSize = 12.5f
+                setTextColor(Color.parseColor(valColor))
+                setTypeface(null, Typeface.BOLD)
+            })
+            detailCard.addView(r)
+        }
+
+        addRow("KATEGORI IZIN / DISPENSASI", typeReadable, "#F59E0B")
+        addRow("ALASAN KELUAR SEKOLAH", item.reason ?: "-", "#E2E8F0")
+        addRow("STATUS GATEPASS", when (item.status) {
+            "APPROVED_BK", "ACTIVE_APPROVED" -> "🟢 DISETUJUI BK (SIAP KELUAR GERBANG)"
+            "OUTSIDE", "COMPLETED" -> "🔴 SEDANG DI LUAR LINGKUNGAN SEKOLAH"
+            "RETURNED" -> "🔵 SUDAH KEMBALI KE SEKOLAH"
+            else -> item.status ?: "-"
+        }, "#38BDF8")
+        addRow("PENJEMPUT", item.pickupBy ?: "Mandiri (Tanpa Penjemput)", "#FDE047")
+        addRow("WAKTU VERIFIKASI", "Keluar: ${formatShortTime(item.exitTimestamp)} • Kembali: ${formatShortTime(item.returnTimestamp ?: item.validUntil)}", "#CBD5E1")
+        addRow("KODE TOKEN DINAMIS", item.singleUseCheckoutToken ?: "-", "#A5B4FC")
+
+        dialogView.addView(detailCard)
+
+        val dialog = AlertDialog.Builder(this)
+            .setView(dialogView)
+            .setPositiveButton("Tutup", null)
+            .create()
+
+        if ((item.status == "APPROVED_BK" || item.status == "ACTIVE_APPROVED") && !item.singleUseCheckoutToken.isNullOrEmpty()) {
+            dialog.setButton(AlertDialog.BUTTON_NEUTRAL, "🚪 Izinkan Keluar") { _, _ ->
+                confirmGatepassAction(item.singleUseCheckoutToken!!, "CHECKOUT", sName)
+            }
+        } else if ((item.status == "OUTSIDE" || item.status == "COMPLETED") && !item.singleUseCheckoutToken.isNullOrEmpty()) {
+            dialog.setButton(AlertDialog.BUTTON_NEUTRAL, "🏫 Konfirmasi Kembali") { _, _ ->
+                confirmGatepassAction(item.singleUseCheckoutToken!!, "RETURN", sName)
+            }
+        }
+        dialog.show()
     }
 
     private fun confirmGatepassAction(qrToken: String, action: String, studentName: String) {

@@ -918,13 +918,19 @@ export const getHomeroomSummary = async (req: Request, res: Response) => {
             }
         }
 
-        // Jika masih null, cek tabel Class jika ada
-        if (!homeroomClass && user.teachingClasses) {
-            const firstCls = user.teachingClasses.split(',')[0]?.trim();
-            if (firstCls) homeroomClass = firstCls;
+        // Jika tidak memiliki rombel binaan resmi, jangan gunakan fallback dummy VII-A
+        if (!homeroomClass) {
+            return res.json({
+                success: true,
+                isHomeroom: false,
+                homeroomClass: null,
+                totalStudents: 0,
+                pendingLeavesCount: 0,
+                approvedLeavesCount: 0,
+                message: 'Guru tidak memiliki rombel binaan wali kelas aktif.'
+            });
         }
 
-        // Ambil seluruh daftar kelas yang ada di database
         const dbClasses = await prisma.class.findMany({
             orderBy: { name: 'asc' },
             select: { name: true }
@@ -935,10 +941,6 @@ export const getHomeroomSummary = async (req: Request, res: Response) => {
             'IX-A', 'IX-B', 'IX-C', 'IX-D', 'IX-E', 'IX-F', 'IX-G', 'IX-H', 'IX-I', 'IX-J', 'IX-K'
         ];
         const availableClasses = dbClasses.length > 0 ? dbClasses.map(c => c.name) : defaultClassList;
-
-        if (!homeroomClass) {
-            homeroomClass = availableClasses[0] || 'VII-A';
-        }
 
         const students = await prisma.user.findMany({
             where: { role: 'STUDENT', className: homeroomClass },

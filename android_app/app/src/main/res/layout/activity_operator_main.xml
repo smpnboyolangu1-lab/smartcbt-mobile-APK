@@ -42,7 +42,7 @@
                     android:id="@+id/tvOpTopTitle"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="âš™ï¸ Dashboard Operator Sekolah"
+                    android:text="⚙️ Dashboard Operator Sekolah"
                     android:textColor="#FFFFFF"
                     android:textSize="16sp"
                     android:textStyle="bold" />
@@ -884,7 +884,7 @@
         android:layout_marginTop="16dp"
         android:layout_marginBottom="24dp"
         android:gravity="center"
-        android:text="Smart CBT v2.8.140 • SMP Negeri 1 Boyolangu"
+        android:text="Smart CBT v1.0.0 • SMP Negeri 1 Boyolangu"
         android:textColor="#94A3B8"
         android:textSize="11sp" />
 </LinearLayout>

@@ -1,6 +1,6 @@
 import prisma from '../utils/db';
 import { reportEmptyClass, getEmptyClassReports, handleEmptyClass, streamEmptyClassMonitor, getEmptyClassStatus, getClassMonitoringStatus, resolveEmptyClass, forwardEmptyClassToKurikulum } from '../controllers/emptyClassController';
-import { getAppVersion, updateAppVersionConfig, checkVersionV1 } from '../controllers/appUpdateController';
+import { getAppVersion, updateAppVersionConfig, checkVersionV1, getStagedVersionStatus, publishBetaToStudents, cancelAdminBeta, registerLocalBuild } from '../controllers/appUpdateController';
 import { getStudents, createStudent, deleteStudent, updateStudent, syncStudentsToLocal, getTeachers, createTeacher, updateTeacher, deleteTeacher, syncTeachersToLocal } from '../controllers/userController';
 import { createParentLeaveRequest, getParentLeaveRequests, getTeacherLeaveRequests, verifyLeaveRequest, deleteLeaveRequest, revokeStudentLeaveRequest } from '../controllers/leaveRequestController';
 import { checkBKKelasAccess } from '../middlewares/checkBKKelasAccess';
@@ -43,7 +43,7 @@ import { getAnnouncements, createAnnouncement, deleteAnnouncement } from '../con
 import { getHomeworks, createHomework, deleteHomework, submitHomework, getHomeworkSubmissions, gradeHomeworkSubmission, duplicateHomework } from '../controllers/homeworkController';
 import { authenticateJWT, requireRole, requireExamBrowser, checkKurikulumAccess, enrichUserRoles } from '../middlewares/authMiddleware';
 import { getStudentProfile, updateStudentProfile, getDetailedAttendance, getLearningAnalytics, getEFiles, uploadStudentEFile, deleteStudentEFile, getSubjectAttendanceSummary, getStudentNotifications, markStudentNotificationRead } from '../controllers/studentController';
-import { saveUserFcmToken } from '../services/fcmService';
+import { saveUserFcmToken, deleteUserFcmToken } from '../services/fcmService';
 import { getPengurusKelasConfig, togglePengurusKelasConfig, getClassmatesRealtimeStatus, submitAssistedScan } from '../controllers/pengurusKelasController';
 import { applyOfficialPasfoto } from '../controllers/biodataSubmissionController';
 
@@ -62,7 +62,7 @@ router.post('/auth/switch-role', authenticateJWT, switchActiveRole);
 router.get('/admin/audit-logs', authenticateJWT, requireRole(['ADMIN']), getAuditLogs);
 router.post('/auth/reset-device', authenticateJWT, requireRole(['ADMIN', 'OPERATOR']), resetDeviceBinding);
 
-// --- Firebase Cloud Messaging (FCM) Token Registration ---
+// --- Firebase Cloud Messaging (FCM) Token Registration & Unbind ---
 router.post('/auth/fcm-token', authenticateJWT, async (req, res) => {
     try {
         const userId = (req as any).user?.id;
@@ -72,6 +72,17 @@ router.post('/auth/fcm-token', authenticateJWT, async (req, res) => {
         }
         await saveUserFcmToken(userId, token, deviceAndroidId, role || (req as any).user?.role);
         res.json({ success: true, message: 'FCM Token berhasil disimpan' });
+    } catch (e: any) {
+        res.status(500).json({ success: false, message: e.message });
+    }
+});
+
+router.post('/auth/fcm-token/unregister', authenticateJWT, async (req, res) => {
+    try {
+        const userId = (req as any).user?.id;
+        const { token, deviceAndroidId } = req.body;
+        await deleteUserFcmToken(userId, token, deviceAndroidId);
+        res.json({ success: true, message: 'FCM Token berhasil dihapus' });
     } catch (e: any) {
         res.status(500).json({ success: false, message: e.message });
     }
@@ -379,7 +390,7 @@ router.delete('/letters/:id', authenticateJWT, requireRole(['ADMIN', 'OPERATOR']
 router.get('/parent/letters', authenticateJWT, getParentLetters);
 router.post('/parent/letters/:id/confirm', authenticateJWT, confirmOfficialLetter);
 
-import { getAllUsers, createUser, updateUserRoleAndStatus, resetUserPassword, unbindUserDevice, forceLogoutUser, deleteUser, bulkDeleteUsers, getSystemSettings, getSchoolInfo, updateSchoolSettings, updateGeminiApiKey, testGeminiApiKey, importStudents, triggerSyncParents, promoteStudentsGrade, getPpdbStatus, togglePpdb, registerPpdbCandidate, unlockStudentBiodata } from '../controllers/adminUserController';
+import { getAllUsers, createUser, updateUserRoleAndStatus, resetUserPassword, unbindUserDevice, forceLogoutUser, deleteUser, bulkDeleteUsers, getSystemSettings, getSchoolInfo, updateSchoolSettings, updateGeminiApiKey, testGeminiApiKey, importStudents, triggerSyncParents, promoteStudentsGrade, getPpdbStatus, togglePpdb, registerPpdbCandidate, unlockStudentBiodata, toggleStudentNoPhoneAdmin } from '../controllers/adminUserController';
 router.get('/admin/users', authenticateJWT, requireRole(['ADMIN', 'COUNSELOR', 'OPERATOR', 'TEACHER']), getAllUsers);
 router.post('/admin/users', authenticateJWT, requireRole(['ADMIN', 'OPERATOR']), createUser);
 router.put('/admin/users/:id', authenticateJWT, requireRole(['ADMIN', 'OPERATOR']), updateUserRoleAndStatus);
@@ -392,6 +403,8 @@ router.get('/admin/students', authenticateJWT, requireRole(['ADMIN', 'OPERATOR',
 router.post('/admin/students/import', authenticateJWT, requireRole(['ADMIN', 'OPERATOR']), importStudents);
 router.post('/admin/students/sync-parents', authenticateJWT, requireRole(['ADMIN', 'OPERATOR']), triggerSyncParents);
 router.post('/admin/students/promote-grade', authenticateJWT, requireRole(['ADMIN', 'OPERATOR']), promoteStudentsGrade);
+router.post('/admin/students/:id/toggle-no-phone', authenticateJWT, requireRole(['ADMIN', 'OPERATOR']), toggleStudentNoPhoneAdmin);
+router.post('/admin/students/toggle-no-phone', authenticateJWT, requireRole(['ADMIN', 'OPERATOR']), toggleStudentNoPhoneAdmin);
 
 // --- System & AI Settings Routes & PPDB ---
 router.get('/school-info', getSchoolInfo);
@@ -421,7 +434,7 @@ router.get('/cbt/proctor-tokens', authenticateJWT, requireRole(['ADMIN', 'OPERAT
 router.post('/cbt/verify-token', authenticateJWT, verifyExamToken);
 router.post('/cbt/regenerate-token', authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'TEACHER']), regenerateExamToken);
 router.post('/cbt/reset-class-token', authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'TEACHER']), resetClassToken);
-router.post('/cbt/assign-class-proctors', authenticateJWT, requireRole(['ADMIN', 'OPERATOR']), assignClassProctors);
+router.post('/cbt/assign-class-proctors', authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'KURIKULUM']), assignClassProctors);
 router.get('/cbt/proctor-class-students', authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'TEACHER']), getProctorClassStudents);
 router.post('/cbt/proctor-reset-lock', authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'TEACHER']), proctorResetStudentLock);
 router.post('/cbt/student-multi-reset', authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'TEACHER']), proctorResetStudentMultiType);
@@ -579,6 +592,43 @@ router.post('/bk/counselors/assign-classes', authenticateJWT, requireRole(['ADMI
 router.get('/student/bk-consultations', authenticateJWT, requireRole(['STUDENT', 'PARENT', 'ADMIN', 'COUNSELOR']), getStudentMyConsultations);
 router.post('/student/bk-report', authenticateJWT, requireRole(['STUDENT', 'PARENT', 'ADMIN', 'COUNSELOR']), createStudentReport);
 router.post('/student/report', authenticateJWT, requireRole(['STUDENT', 'PARENT', 'ADMIN', 'COUNSELOR']), createStudentReport);
+
+// --- Modul Deteksi Dini, Skrining Mental, Anti-Bullying & E-RPL Kemendikbud ---
+import {
+    submitSdqAssessment,
+    getSdqAssessments,
+    saveSociometryAnalysis,
+    getSociometryData,
+    submitAkpdAssessment,
+    submitWhistleblowReport,
+    generateRpl,
+    getRplList,
+    printRplHtml,
+    createBehaviorContract,
+    issueDisciplineReward,
+    submitServiceEvaluation,
+    getBkMonthlyReport,
+    printBkMonthlyReportHtml,
+    submitInformedConsent,
+    getBkAuditLogs
+} from '../controllers/bkAdvancedFeatureController';
+
+router.post('/bk/sdq', authenticateJWT, submitSdqAssessment);
+router.get('/bk/sdq', authenticateJWT, getSdqAssessments);
+router.post('/bk/sociometry', authenticateJWT, requireRole(['ADMIN', 'COUNSELOR', 'OPERATOR']), saveSociometryAnalysis);
+router.get('/bk/sociometry', authenticateJWT, getSociometryData);
+router.post('/bk/akpd', authenticateJWT, submitAkpdAssessment);
+router.post('/bk/whistleblow', authenticateJWT, submitWhistleblowReport);
+router.post('/bk/rpl/generate', authenticateJWT, requireRole(['ADMIN', 'COUNSELOR', 'OPERATOR', 'TEACHER']), generateRpl);
+router.get('/bk/rpl', authenticateJWT, getRplList);
+router.get('/bk/rpl/:id/print', printRplHtml);
+router.post('/bk/behavior-contract', authenticateJWT, requireRole(['ADMIN', 'COUNSELOR', 'OPERATOR']), createBehaviorContract);
+router.post('/bk/discipline/reward', authenticateJWT, requireRole(['ADMIN', 'COUNSELOR', 'OPERATOR', 'TEACHER']), issueDisciplineReward);
+router.post('/bk/evaluations', authenticateJWT, submitServiceEvaluation);
+router.get('/bk/reports/monthly', authenticateJWT, requireRole(['ADMIN', 'COUNSELOR', 'OPERATOR', 'TEACHER']), getBkMonthlyReport);
+router.get('/bk/reports/monthly/print', printBkMonthlyReportHtml);
+router.post('/bk/informed-consent', authenticateJWT, submitInformedConsent);
+router.get('/bk/audit-logs', authenticateJWT, requireRole(['ADMIN', 'COUNSELOR', 'OPERATOR']), getBkAuditLogs);
 
 import { getStudentAttendanceAnalytics, getPortalAttendanceAnalyticsDashboard } from '../controllers/attendanceAnalyticsController';
 
@@ -785,16 +835,20 @@ router.get('/piket/empty-class-reports', getEmptyClassReports); // Bebas diakses
 router.get('/piket/class-monitoring-status', getClassMonitoringStatus); // Status real-time hijau/merah/kuning CCTV 11 kelas
 router.get('/piket/today-duty', getTodayOnDutyTeachers); // Bebas diakses untuk display layar command center
 router.get('/operator/teachers', authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'TEACHER']), getTeachers);
-router.post('/piket/empty-class-reports/:id/handle', authenticateJWT, requireRole(['TEACHER', 'COUNSELOR', 'ADMIN', 'OPERATOR']), handleEmptyClass);
+router.post('/piket/empty-class-reports/:id/handle', authenticateJWT, requireRole(['TEACHER', 'COUNSELOR', 'ADMIN', 'OPERATOR', 'KURIKULUM']), handleEmptyClass);
 router.post('/piket/empty-class-reports/:id/resolve', authenticateJWT, requireRole(['TEACHER', 'COUNSELOR', 'ADMIN', 'OPERATOR', 'KURIKULUM']), resolveEmptyClass);
 router.post('/piket/empty-class-reports/:id/forward-kurikulum', authenticateJWT, requireRole(['TEACHER', 'COUNSELOR', 'ADMIN', 'OPERATOR', 'KURIKULUM']), forwardEmptyClassToKurikulum);
 router.get('/piket/empty-class-stream', streamEmptyClassMonitor);
 router.get('/piket/teacher-inactivity', authenticateJWT, requireRole(['OPERATOR', 'ADMIN', 'TEACHER', 'COUNSELOR']), getTeacherInactivityReport);
 
-// --- In-App Auto Update (OTA) ---
+// --- In-App Auto Update (OTA) & Staged Rollout (Admin Beta vs Student Public) ---
 router.get(['/app/version-check', '/app/version', '/app-update/check', '/version-check'], getAppVersion);
 router.get(['/v1/app/version-check', '/v1/version-check'], checkVersionV1);
 router.post('/admin/app-version', authenticateJWT, requireRole(['ADMIN', 'OPERATOR']), updateAppVersionConfig);
+router.get('/admin/app-version/staged-status', authenticateJWT, requireRole(['ADMIN', 'OPERATOR']), getStagedVersionStatus);
+router.post('/admin/app-version/publish-to-students', authenticateJWT, requireRole(['ADMIN', 'OPERATOR']), publishBetaToStudents);
+router.post('/admin/app-version/cancel-beta', authenticateJWT, requireRole(['ADMIN', 'OPERATOR']), cancelAdminBeta);
+router.post('/admin/app-version/register-local-build', registerLocalBuild);
 
 // --- Presensi Kelas 1-Tap (Guru IN & Siswa OUT per JP) & Master Jadwal Operator ---
 import {
@@ -831,7 +885,7 @@ router.post(['/class-officer/empty-class-reports', '/kelas-kosong/lapor', '/v1/k
 router.get(['/class-officer/empty-class-status', '/kelas-kosong/status'], authenticateJWT, getEmptyClassStatus);
 router.get('/portal/monitoring/classes', getClassMonitoringStatus);
 router.get(['/portal/empty-class-reports', '/kelas-kosong/laporan'], getEmptyClassReports);
-router.post(['/portal/empty-class-reports/:id/follow-up', '/kelas-kosong/:id/follow-up'], authenticateJWT, requireRole(['TEACHER', 'COUNSELOR', 'ADMIN', 'OPERATOR']), handleEmptyClass);
+router.post(['/portal/empty-class-reports/:id/follow-up', '/kelas-kosong/:id/follow-up'], authenticateJWT, requireRole(['TEACHER', 'COUNSELOR', 'ADMIN', 'OPERATOR', 'KURIKULUM']), handleEmptyClass);
 router.post(['/portal/empty-class-reports/:id/resolve', '/kelas-kosong/:id/resolve', '/kelasKosong/:id/resolve'], authenticateJWT, requireRole(['TEACHER', 'COUNSELOR', 'ADMIN', 'OPERATOR', 'KURIKULUM']), resolveEmptyClass);
 
 // Master Jadwal Pelajaran (Role OPERATOR, ADMIN, KURIKULUM)
@@ -875,7 +929,9 @@ router.post('/v1/kurikulum/leaves/:id/approve', authenticateJWT, requireRole(['T
 router.post('/v1/kurikulum/leaves/:id/reject', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR', 'KURIKULUM']), rejectTeacherLeave);
 router.post('/v1/piket/take-duty/:id', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR', 'KURIKULUM']), claimEmptyClassByPiket);
 router.post('/v1/wali-kelas/monthly-report', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR', 'KURIKULUM']), submitMonthlyReportFromWali);
+router.post('/wali-kelas/monthly-report', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR', 'KURIKULUM']), submitMonthlyReportFromWali);
 router.get('/v1/kurikulum/monthly-reports', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR', 'KURIKULUM']), getKurikulumMonthlyReports);
+router.get('/kurikulum/monthly-reports', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR', 'KURIKULUM']), getKurikulumMonthlyReports);
 
 // --- MODUL KURIKULUM SIBOY FRESH (7 FITUR INTI DENGAN DATABASE REAL) ---
 import {
@@ -941,7 +997,9 @@ import {
     paiScanStudentCard,
     triggerPrayerH1Reminder,
     deletePrayerClassSchedule,
-    notifyAbsentPrayerStudentsApi
+    notifyAbsentPrayerStudentsApi,
+    getTeacherPrayerRecap,
+    getBkGlobalPrayerRecap
 } from '../controllers/prayerAttendanceController';
 
 router.get('/prayer/today-schedule', authenticateJWT, getTodayPrayerSchedule);
@@ -957,8 +1015,11 @@ router.post('/prayer/batch-mark', authenticateJWT, requireRole(['TEACHER', 'ADMI
 router.post('/prayer/pai-scan-student-card', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR']), paiScanStudentCard);
 router.post('/prayer/notify-absent', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR', 'COUNSELOR']), notifyAbsentPrayerStudentsApi);
 router.get('/prayer/monitoring-by-class', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR', 'COUNSELOR']), getPaiMonitoringByClass);
+router.get('/prayer/teacher-recap', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR', 'COUNSELOR']), getTeacherPrayerRecap);
+router.get('/prayer/bk-global-recap', authenticateJWT, requireRole(['COUNSELOR', 'TEACHER', 'ADMIN', 'OPERATOR']), getBkGlobalPrayerRecap);
 router.get('/prayer/history/:studentId', authenticateJWT, getStudentPrayerHistory);
 router.get('/prayer/export-pdf', authenticateJWT, exportPrayerAttendancePdf);
+router.get('/prayer/rekap-pdf', authenticateJWT, exportPrayerAttendancePdf);
 
 // --- MODUL E-KANTIN SEHAT SISWA, KONTROL ORANG TUA & KASIR STAND KANTIN ---
 import {
@@ -1448,8 +1509,8 @@ router.get(['/v1/bk/gatepasses', '/bk/gatepasses'], authenticateJWT, requireRole
 router.patch(['/v1/bk/gatepass/:id/status', '/bk/gatepass/:id/status'], authenticateJWT, requireRole(['ADMIN', 'COUNSELOR', 'OPERATOR']), updateGatepassStatusByBk);
 router.post(['/v1/bk/gatepass/:id/status', '/bk/gatepass/:id/status'], authenticateJWT, requireRole(['ADMIN', 'COUNSELOR', 'OPERATOR']), updateGatepassStatusByBk);
 router.post(['/v1/gatepass/verify-by-scan', '/gatepass/verify-by-scan'], authenticateJWT, requireRole(['STUDENT', 'ADMIN', 'OPERATOR']), verifyGatepassByBkScan);
-router.post(['/v1/gatepass/verify-scan', '/gatepass/verify-scan'], authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'SATPAM', 'SECURITY', 'COUNSELOR']), verifyGatepassScan);
-router.post(['/v1/satpam/gatepass/checkout', '/satpam/gatepass/checkout', '/v1/satpam/gatepass/verify-scan', '/satpam/gatepass/verify-scan'], authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'SATPAM', 'SECURITY']), checkoutGatepassBySatpam);
+router.post(['/v1/gatepass/verify-scan', '/gatepass/verify-scan', '/v1/satpam/gatepass/verify-scan', '/satpam/gatepass/verify-scan'], authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'SATPAM', 'SECURITY', 'COUNSELOR']), verifyGatepassScan);
+router.post(['/v1/satpam/gatepass/checkout', '/satpam/gatepass/checkout'], authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'SATPAM', 'SECURITY']), checkoutGatepassBySatpam);
 router.get(['/v1/satpam/gatepass/list', '/satpam/gatepass/list'], authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'SATPAM', 'SECURITY']), getSatpamGatepassList);
 
 // [T-05] Route Revoke Status Izin / Sakit Beralasan (BK & Admin)
@@ -1822,9 +1883,8 @@ router.get('/tahfiz/murojaah', authenticateJWT, getMurojaahList);
 router.post('/tahfiz/murojaah/evaluate', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR']), evaluateMurojaah);
 router.get('/tahfiz/class-progress', authenticateJWT, getClassTahfizProgressMap);
 router.get('/tahfiz/progress-map', authenticateJWT, getClassTahfizProgressMap);
-router.get('/tahfiz/student/:studentId', authenticateJWT, getStudentTahfizDetail);
-router.get('/tahfiz/export-excel', authenticateJWT, exportTahfizExcel);
-router.get('/tahfiz/export/excel', authenticateJWT, exportTahfizExcel);
+router.get(['/tahfiz/student/:studentId', '/tahfiz/students/:studentId'], authenticateJWT, getStudentTahfizDetail);
+router.get(['/tahfiz/export-excel', '/tahfiz/export/excel'], authenticateJWT, exportTahfizExcel);
 
 // --- Activity Logs & Anomali Terpusat Routes ---
 import {
@@ -1872,6 +1932,52 @@ router.post('/whatsapp/restart-session', authenticateJWT, requireRole(['ADMIN', 
 router.get('/whatsapp/contacts-stats', authenticateJWT, requireRole(['ADMIN', 'OPERATOR']), getParentContactsStats);
 router.get('/whatsapp/export-contacts-vcf', authenticateJWT, requireRole(['ADMIN', 'OPERATOR']), exportParentContactsVcf);
 router.get('/whatsapp/export-contacts-csv', authenticateJWT, requireRole(['ADMIN', 'OPERATOR']), exportParentContactsCsv);
+
+// ==========================================
+// SISTEM MANAJEMEN & MONITORING TPP GURU
+// ==========================================
+import {
+  getMyTpp,
+  confirmTeacherTppCair,
+  submitTeacherTppReport,
+  cancelTeacherTppCair,
+  submitTppDispute,
+  getKurikulumTppMonitoring,
+  verifyKurikulumTpp,
+  updateTppStatusByOperator,
+  generateTppBatchRecords,
+  getKurikulumTppRekapPdf
+} from '../controllers/tppController';
+
+// Schedule Engine Controller (#26, #28, #30)
+import {
+  getScheduleToday,
+  getCurrentScheduleSlot,
+  getKurikulumTeacherMonthlyAttendance
+} from '../controllers/scheduleEngineController';
+
+// Schedule Engine Routes (#26, #28)
+router.get(['/schedule/today', '/guru/today-schedule', '/guru/schedule-merged'], authenticateJWT, getScheduleToday);
+router.get('/schedule/current', authenticateJWT, getCurrentScheduleSlot);
+
+// Rekap Presensi Keluar Masuk Kelas Bulanan Kurikulum (#30)
+router.get(['/kurikulum/rekap-presensi-guru', '/kurikulum/rekap-kbm-bulanan'], authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR', 'KURIKULUM']), getKurikulumTeacherMonthlyAttendance);
+
+// 1. Rute Guru (Cek TPP Mandiri, Konfirmasi Cair Sendiri & Sanggahan)
+router.get('/tpp/my-tpp', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR', 'COUNSELOR', 'KURIKULUM']), getMyTpp);
+router.post('/tpp/submit-report', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR', 'COUNSELOR', 'KURIKULUM']), submitTeacherTppReport);
+router.post('/tpp/confirm-cair', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR', 'COUNSELOR', 'KURIKULUM']), confirmTeacherTppCair);
+router.post('/tpp/cancel-cair', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR', 'COUNSELOR', 'KURIKULUM']), cancelTeacherTppCair);
+router.post('/tpp/sanggahan', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR', 'COUNSELOR', 'KURIKULUM']), submitTppDispute);
+
+// 2. Rute Kurikulum & Operator (Rekap TPP, Monitoring Status 33 Rombel & Unduh PDF Resmi)
+router.get(['/tpp/kurikulum/monitoring', '/kurikulum/rekap-tpp', '/tpp/kurikulum/rekap'], authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR', 'KURIKULUM']), getKurikulumTppMonitoring);
+router.get(['/tpp/kurikulum/rekap-pdf', '/kurikulum/tpp/rekap-pdf'], authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR', 'KURIKULUM']), getKurikulumTppRekapPdf);
+router.post('/tpp/kurikulum/verify', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR', 'KURIKULUM']), verifyKurikulumTpp);
+
+// 3. Rute Operator / Admin (Generator Idempoten & Update Status Pencairan)
+router.post('/tpp/admin/generate-records', authenticateJWT, requireRole(['ADMIN', 'OPERATOR']), generateTppBatchRecords);
+router.post('/tpp/operator/update-status', authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'KURIKULUM']), updateTppStatusByOperator);
 
 export default router;
 

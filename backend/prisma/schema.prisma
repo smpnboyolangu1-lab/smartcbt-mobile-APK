@@ -427,6 +427,10 @@ model BkConsultation {
   replyDate    DateTime?
   status       String    @default("PENDING") // PENDING, REPLIED, SCHEDULED, RESOLVED
   isAnonymous  Boolean   @default(false)
+  evidenceUrl  String?   @map("evidence_url")
+  isWhistleblower Boolean @default(false) @map("is_whistleblower")
+  bullySuspect String?   @map("bully_suspect")
+  location     String?
   createdAt    DateTime  @default(now())
 }
 
@@ -3156,4 +3160,251 @@ model TahfizRubrikConfig {
   updatedAt            DateTime @default(now()) @updatedAt @map("updated_at")
 
   @@map("tahfiz_rubrik_config")
+}
+
+model TahfizSetoran {
+  id               String    @id @default(uuid())
+  studentId        String    @map("student_id")
+  studentName      String    @map("student_name")
+  className        String    @map("class_name")
+  surahNumber      Int       @map("surah_number")
+  surahName        String    @map("surah_name")
+  ayatStart        Int       @map("ayat_start")
+  ayatEnd          Int       @map("ayat_end")
+  submissionDate   String?   @map("submission_date")
+  metode           String?
+  scheduledDate    String?   @map("scheduled_date")
+  scheduledSession String?   @map("scheduled_session")
+  meetingLocation  String?   @map("meeting_location")
+  targetGuruId     String?   @map("target_guru_id")
+  targetGuruName   String?   @map("target_guru_name")
+  status           String?   @default("MENUNGGU_VERIFIKASI")
+  audioRecordUrl   String?   @map("audio_record_url")
+  studentNotes     String?   @map("student_notes")
+  teacherNotes     String?   @map("teacher_notes")
+  createdAt        DateTime? @default(now()) @map("created_at")
+  updatedAt        DateTime? @updatedAt @map("updated_at")
+
+  @@map("tahfiz_setoran")
+}
+
+model TahfizPenilaian {
+  id                   String    @id @default(uuid())
+  setoranId            String?   @map("setoran_id")
+  studentId            String    @map("student_id")
+  studentName          String    @map("student_name")
+  className            String    @map("class_name")
+  guruId               String    @map("guru_id")
+  guruName             String    @map("guru_name")
+  surahNumber          Int       @map("surah_number")
+  surahName            String    @map("surah_name")
+  ayatStart            Int       @map("ayat_start")
+  ayatEnd              Int       @map("ayat_end")
+  tanggalPenilaian     String    @map("tanggal_penilaian")
+  nilaiKelancaran      Float     @map("nilai_kelancaran")
+  bobotKelancaran      Float     @map("bobot_kelancaran")
+  nilaiKetepatanAyat   Float     @map("nilai_ketepatan_ayat")
+  bobotKetepatanAyat   Float     @map("bobot_ketepatan_ayat")
+  nilaiTajwid          Float     @map("nilai_tajwid")
+  bobotTajwid          Float     @map("bobot_tajwid")
+  nilaiMakharijulHuruf Float     @map("nilai_makharijul_huruf")
+  bobotMakharijulHuruf Float     @map("bobot_makharijul_huruf")
+  nilaiKemandirian     Float     @map("nilai_kemandirian")
+  bobotKemandirian     Float     @map("bobot_kemandirian")
+  nilaiAkhir           Float     @map("nilai_akhir")
+  statusHafalan        String    @map("status_hafalan")
+  catatanGuru          String?   @map("catatan_guru")
+  createdAt            DateTime? @default(now()) @map("created_at")
+  updatedAt            DateTime? @updatedAt @map("updated_at")
+
+  @@map("tahfiz_penilaian")
+}
+
+model BkSdqAssessment {
+  id                     String    @id @default(uuid())
+  studentId              String    @map("student_id")
+  studentName            String    @map("student_name")
+  className              String    @map("class_name")
+  counselorId            String?   @map("counselor_id")
+  counselorName          String?   @map("counselor_name")
+  scoreEmotional         Int       @default(0) @map("score_emotional")
+  scoreConduct           Int       @default(0) @map("score_conduct")
+  scoreHyperactivity     Int       @default(0) @map("score_hyperactivity")
+  scorePeer              Int       @default(0) @map("score_peer")
+  scoreProsocial         Int       @default(0) @map("score_prosocial")
+  totalDifficultiesScore Int       @default(0) @map("total_difficulties_score")
+  interpretation         String    @default("NORMAL")
+  answersJson            String?   @map("answers_json")
+  recommendations        String?
+  createdAt              DateTime  @default(now()) @map("created_at")
+
+  @@index([studentId])
+  @@index([className])
+  @@map("bk_sdq_assessments")
+}
+
+model BkSociometry {
+  id               String    @id @default(uuid())
+  className        String    @map("class_name")
+  academicYear     String    @default("2026/2027") @map("academic_year")
+  semester         String    @default("GANJIL")
+  criteria         String    @default("BELAJAR_KELOMPOK")
+  matrixJson       String?   @map("matrix_json")
+  isolatedStudents String?   @map("isolated_students")
+  starStudents     String?   @map("star_students")
+  cliquesJson      String?   @map("cliques_json")
+  totalResponses   Int       @default(0) @map("total_responses")
+  status           String    @default("AKTIF")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  @@index([className])
+  @@map("bk_sociometries")
+}
+
+model BkAkpdAssessment {
+  id                  String    @id @default(uuid())
+  studentId           String    @map("student_id")
+  studentName         String    @map("student_name")
+  className           String    @map("class_name")
+  scorePribadi        Float     @default(0.0) @map("score_pribadi")
+  scoreSosial         Float     @default(0.0) @map("score_sosial")
+  scoreBelajar        Float     @default(0.0) @map("score_belajar")
+  scoreKarir          Float     @default(0.0) @map("score_karir")
+  topProblemAreasJson String?   @map("top_problem_areas_json")
+  answersJson         String?   @map("answers_json")
+  createdAt           DateTime  @default(now()) @map("created_at")
+
+  @@index([studentId])
+  @@index([className])
+  @@map("bk_akpd_assessments")
+}
+
+model BkRplRecord {
+  id                     String    @id @default(uuid())
+  guruBkId               String    @map("guru_bk_id")
+  guruBkName             String    @map("guru_bk_name")
+  jenisLayanan           String    @map("jenis_layanan")
+  topik                  String
+  bidangBimbingan        String    @map("bidang_bimbingan")
+  kelasTarget            String    @map("kelas_target")
+  alokasiWaktu           String    @default("1 x 40 Menit") @map("alokasi_waktu")
+  tujuanLayanan          String    @map("tujuan_layanan")
+  metodeDanTeknik        String    @map("metode_dan_teknik")
+  mediaAlat              String    @map("media_alat")
+  langkahKegiatanJson    String?   @map("langkah_kegiatan_json")
+  evaluasiProsesDanHasil String?   @map("evaluasi_proses_dan_hasil")
+  tahunAjaran            String    @default("2026/2027") @map("tahun_ajaran")
+  semester               String    @default("GANJIL")
+  createdAt              DateTime  @default(now()) @map("created_at")
+
+  @@index([guruBkId])
+  @@map("bk_rpl_records")
+}
+
+model BkServiceEvaluation {
+  id                 String    @id @default(uuid())
+  serviceType        String    @map("service_type")
+  referenceId        String?   @map("reference_id")
+  evalType           String    @default("LAISEG") @map("eval_type")
+  studentId          String    @map("student_id")
+  studentName        String    @map("student_name")
+  guruBkId           String    @map("guru_bk_id")
+  understandingScore Int       @default(4) @map("understanding_score")
+  comfortScore       Int       @default(4) @map("comfort_score")
+  actionPlanScore    Int       @default(4) @map("action_plan_score")
+  notes              String?
+  createdAt          DateTime  @default(now()) @map("created_at")
+
+  @@index([studentId])
+  @@index([guruBkId])
+  @@map("bk_service_evaluations")
+}
+
+model BkInformedConsent {
+  id               String    @id @default(uuid())
+  studentId        String    @map("student_id")
+  studentName      String    @map("student_name")
+  parentUserId     String?   @map("parent_user_id")
+  guruBkId         String    @map("guru_bk_id")
+  guruBkName       String    @map("guru_bk_name")
+  serviceType      String    @map("service_type")
+  purpose          String
+  isAgreedStudent  Boolean   @default(false) @map("is_agreed_student")
+  isAgreedParent   Boolean   @default(false) @map("is_agreed_parent")
+  signedAtStudent  DateTime? @map("signed_at_student")
+  signedAtParent   DateTime? @map("signed_at_parent")
+  signatureDigital String?   @map("signature_digital")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  @@index([studentId])
+  @@map("bk_informed_consents")
+}
+
+model BkBehaviorContract {
+  id                  String    @id @default(uuid())
+  studentId           String    @map("student_id")
+  studentName         String    @map("student_name")
+  className           String    @map("class_name")
+  guruBkId            String    @map("guru_bk_id")
+  guruBkName          String    @map("guru_bk_name")
+  targetBehaviorsJson String    @map("target_behaviors_json")
+  rewardsJson         String?   @map("rewards_json")
+  consequencesJson    String?   @map("consequences_json")
+  startDate           DateTime  @map("start_date")
+  endDate             DateTime  @map("end_date")
+  status              String    @default("AKTIF")
+  notes               String?
+  createdAt           DateTime  @default(now()) @map("created_at")
+
+  @@index([studentId])
+  @@map("bk_behavior_contracts")
+}
+
+model BkAuditLog {
+  id              String    @id @default(uuid())
+  actorId         String    @map("actor_id")
+  actorName       String    @map("actor_name")
+  actorRole       String    @map("actor_role")
+  action          String
+  targetStudentId String?   @map("target_student_id")
+  targetCaseId    String?   @map("target_case_id")
+  ipAddress       String?   @map("ip_address")
+  userAgent       String?   @map("user_agent")
+  timestamp       DateTime  @default(now())
+
+  @@index([actorId])
+  @@index([targetStudentId])
+  @@map("bk_audit_logs")
+}
+
+model TeacherTppRecord {
+  id                        String    @id @default(uuid())
+  teacherId                 String    @map("teacher_id")
+  nip                       String?
+  teacherName               String    @map("teacher_name")
+  tahun                     Int
+  bulan                     Int       // 1 - 12
+  triwulan                  Int       // 1 - 4
+  nominal                   Float?    @default(0)
+  potongan                  Float?    @default(0)
+  nominalBersih             Float?    @default(0) @map("nominal_bersih")
+  status                    String    @default("BELUM_DIPROSES") // BELUM_DIPROSES, DALAM_VERIFIKASI, DIAJUKAN, DALAM_PROSES, SUDAH_CAIR, DITUNDA, SANGGAHAN, TIDAK_BERHAK
+  tanggalCair               DateTime? @map("tanggal_cair")
+  tanggalCairStr            String?   @map("tanggal_cair_str")
+  noReferensi               String?   @map("no_referensi")
+  catatan                   String?
+  catatanKurikulum          String?   @map("catatan_kurikulum")
+  statusVerifikasiKurikulum String    @default("BELUM") @map("status_verifikasi_kurikulum") // BELUM, TERVERIFIKASI, PERLU_KOREKSI
+  tanggalVerifikasi         DateTime? @map("tanggal_verifikasi")
+  sanggahanGuru             String?   @map("sanggahan_guru")
+  statusSanggahan           String?   @map("status_sanggahan") // MENUNGGU, DITERIMA, DITOLAK
+  updatedBy                 String?   @map("updated_by")
+  createdAt                 DateTime  @default(now()) @map("created_at")
+  updatedAt                 DateTime  @updatedAt @map("updated_at")
+
+  @@unique([teacherId, tahun, bulan], name: "teacher_tpp_unique_period")
+  @@index([teacherId])
+  @@index([tahun, triwulan])
+  @@index([status])
+  @@map("teacher_tpp_records")
 }

@@ -39,6 +39,24 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
         super.onMessageReceived(remoteMessage)
         Log.d(TAG, "From: ${remoteMessage.from}")
 
+        // 0. Validasi kepemilikan akun penerima (mencegah notifikasi dari akun lama yang sudah logout/ganti akun)
+        val targetRecipientId = remoteMessage.data["recipientUserId"]
+        val sessionManager = SessionManager(applicationContext)
+        val currentUserId = sessionManager.getUserId()
+
+        if (!targetRecipientId.isNullOrEmpty()) {
+            if (!sessionManager.isLoggedIn() || currentUserId.isEmpty()) {
+                Log.w(TAG, "Notifikasi diabaikan: Pengguna sudah logout, mengabaikan notif user $targetRecipientId")
+                com.school.smartcbt.utils.FcmHelper.clearFcmRegistration(applicationContext)
+                return
+            }
+            if (currentUserId != targetRecipientId) {
+                Log.w(TAG, "Notifikasi diabaikan: Ditujukan untuk user $targetRecipientId namun sesi aktif adalah $currentUserId")
+                com.school.smartcbt.utils.FcmHelper.syncFcmToken(applicationContext, force = true)
+                return
+            }
+        }
+
         // 1. Ambil data payload / notification payload
         val title = remoteMessage.notification?.title 
             ?: remoteMessage.data["title"] 

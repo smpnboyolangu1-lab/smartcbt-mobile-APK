@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/db';
 import { formatTimeWib } from '../utils/dateUtils';
+import { generateQuestionsWithGemini } from '../services/aiExamService';
 
 // Helper untuk token acak 6 karakter
 function generateUhToken(): string {
@@ -139,10 +140,56 @@ export const mulaiUlanganHarian = async (req: Request, res: Response) => {
       });
     }
 
+    // Validasi ketat kelas ampu guru (Hanya izinkan kelas yang diampu)
+    if (user && user.role === 'TEACHER' && user.teachingClasses) {
+      let allowed: string[] = [];
+      try {
+        allowed = user.teachingClasses.startsWith('[')
+          ? JSON.parse(user.teachingClasses)
+          : user.teachingClasses.split(',').map((c: string) => c.trim().replace(/^["']|["']$/g, '')).filter(Boolean);
+      } catch (e) {
+        allowed = user.teachingClasses.split(',').map((c: string) => c.trim());
+      }
+      if (allowed.length > 0 && !allowed.includes(String(kelasId))) {
+        return res.status(403).json({
+          success: false,
+          message: `Akses ditolak! Anda hanya diizinkan menjadwalkan Ulangan Harian untuk kelas ampu Anda: ${allowed.join(', ')}`
+        });
+      }
+    }
+
     let finalSoalList: any[] = [];
 
     if (sumberSoal === 'MANUAL' && Array.isArray(soalList) && soalList.length > 0) {
       finalSoalList = soalList;
+    } else if (sumberSoal === 'AI_GEMINI') {
+      try {
+        const aiQuestions = await generateQuestionsWithGemini({
+          subject: String(mapelId),
+          topic: String(topik),
+          grade: kelasId ? (kelasId.startsWith('VIII') ? 'Kelas VIII' : kelasId.startsWith('IX') ? 'Kelas IX' : 'Kelas VII') : 'Kelas VII',
+          count: Number(totalSoal) || (mode === 'KILAT' ? 5 : 10),
+          difficulty: mode === 'KILAT' ? 'Mudah' : 'Sedang',
+          type: 'MULTIPLE_CHOICE'
+        });
+        if (Array.isArray(aiQuestions) && aiQuestions.length > 0) {
+          finalSoalList = aiQuestions.map((q, idx) => {
+            const opts = q.options ? [q.options.A || '', q.options.B || '', q.options.C || '', q.options.D || ''].filter(Boolean) : [];
+            return {
+              id: `ai_${idx + 1}`,
+              number: idx + 1,
+              type: q.type || 'PG',
+              content: q.content,
+              options: opts.length > 0 ? opts : ['A', 'B', 'C', 'D'],
+              correctOption: q.correctOption || 'A',
+              explanation: q.explanation || 'Pembahasan terstruktur AI Kurikulum Merdeka.',
+              points: Math.round((Number(bobotNilai) || 100) / aiQuestions.length)
+            };
+          });
+        }
+      } catch (aiErr) {
+        console.warn('AI question generation fallback:', aiErr);
+      }
     } else if (sumberSoal === 'BANK_SOAL') {
       const bankSoalDb = await prisma.bankSoal.findMany({
         where: {
@@ -1522,7 +1569,9 @@ export const mulaiKerjakanUhSiswa = async (req: Request, res: Response) => {
       type: s.type || 'PG',
       content: s.content,
       options: s.options,
-      points: s.points
+      points: s.points,
+      imageUrl: s.imageUrl || null,
+      audioUrl: s.audioUrl || null
     }));
 
     const now = new Date();

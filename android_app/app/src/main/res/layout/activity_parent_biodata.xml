@@ -77,7 +77,7 @@
             android:id="@+id/tvStatusNoticeIcon"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="â³"
+            android:text="⏳"
             android:textSize="18sp" />
 
         <LinearLayout
@@ -1881,7 +1881,7 @@
             android:layout_marginTop="16dp"
             android:layout_marginBottom="24dp"
             android:gravity="center"
-            android:text="Smart CBT v2.8.140 • SMP Negeri 1 Boyolangu"
+            android:text="Smart CBT v1.0.0 • SMP Negeri 1 Boyolangu"
             android:textColor="#94A3B8"
             android:textSize="11sp" />
 </LinearLayout>

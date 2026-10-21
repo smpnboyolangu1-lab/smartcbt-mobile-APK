@@ -203,8 +203,30 @@ async function syncStudentsInternal(): Promise<number> {
 // Ambil semua siswa dari Database Lokal (SQLite)
 export const getStudents = async (req: Request, res: Response) => {
     try {
+        const noPhoneSetting = await prisma.settings.findUnique({ where: { key: 'NO_SMARTPHONE_STUDENT_IDS' } });
+        let noPhoneIds: string[] = [];
+        if (noPhoneSetting && noPhoneSetting.value) {
+            try { noPhoneIds = JSON.parse(noPhoneSetting.value); } catch {}
+        }
+
         let localStudents = await prisma.user.findMany({
             where: { role: 'STUDENT' },
+            include: {
+                devices: {
+                    select: {
+                        id: true,
+                        deviceName: true,
+                        deviceModel: true,
+                        deviceBrand: true,
+                        status: true,
+                        lastSeen: true,
+                        appVersion: true,
+                        batteryLevel: true
+                    },
+                    orderBy: { lastSeen: 'desc' },
+                    take: 1
+                }
+            },
             orderBy: [
                 { className: 'asc' },
                 { name: 'asc' }
@@ -216,6 +238,22 @@ export const getStudents = async (req: Request, res: Response) => {
             await syncStudentsInternal();
             localStudents = await prisma.user.findMany({
                 where: { role: 'STUDENT' },
+                include: {
+                    devices: {
+                        select: {
+                            id: true,
+                            deviceName: true,
+                            deviceModel: true,
+                            deviceBrand: true,
+                            status: true,
+                            lastSeen: true,
+                            appVersion: true,
+                            batteryLevel: true
+                        },
+                        orderBy: { lastSeen: 'desc' },
+                        take: 1
+                    }
+                },
                 orderBy: [
                     { className: 'asc' },
                     { name: 'asc' }
@@ -224,39 +262,56 @@ export const getStudents = async (req: Request, res: Response) => {
         }
 
         // Format data sesuai ekspektasi front-end (baik camelCase maupun snake_case)
-        const mapped = localStudents.map(s => ({
-            id: s.id,
-            name: s.name,
-            nama: s.name,
-            username: s.username,
-            nis: s.nis || '',
-            nisn: s.nisn || (s.username.startsWith('siswa_') ? '' : s.username),
-            className: s.className || '',
-            kelas: s.className || '',
-            gender: s.gender || '',
-            jenis_kelamin: s.gender || '',
-            religion: s.religion || '',
-            agama: s.religion || '',
-            pob: s.pob || '',
-            tempat_lahir: s.pob || '',
-            dob: s.dob || '',
-            tanggal_lahir: s.dob || '',
-            parentPhone: s.parentPhone || '',
-            no_hp: s.parentPhone || '',
-            address: s.address || '',
-            alamat: s.address || '',
-            fatherName: s.fatherName || '',
-            nama_ayah: s.fatherName || '',
-            motherName: s.motherName || '',
-            nama_ibu: s.motherName || '',
-            deviceBindingId: s.deviceBindingId || null,
-            classRole: s.classRole || null,
-            profilePicUrl: s.profilePicUrl || null,
-            role: s.role,
-            isActive: s.isActive,
-            status_siswa: s.isActive ? 'Aktif' : 'Nonaktif',
-            createdAt: s.createdAt
-        }));
+        const mapped = localStudents.map(s => {
+            const isNoPhone = Boolean(s.hasNoSmartphone || noPhoneIds.includes(s.id));
+            const activeDevice = (s.devices && s.devices.length > 0) ? s.devices[0] : null;
+            const isConnected = !isNoPhone && Boolean(activeDevice || s.deviceBindingId);
+
+            let phoneStatus: 'CONNECTED' | 'NOT_CONNECTED' | 'NO_PHONE' = 'NOT_CONNECTED';
+            if (isNoPhone) {
+                phoneStatus = 'NO_PHONE';
+            } else if (isConnected) {
+                phoneStatus = 'CONNECTED';
+            }
+
+            return {
+                id: s.id,
+                name: s.name,
+                nama: s.name,
+                username: s.username,
+                nis: s.nis || '',
+                nisn: s.nisn || (s.username.startsWith('siswa_') ? '' : s.username),
+                className: s.className || '',
+                kelas: s.className || '',
+                gender: s.gender || '',
+                jenis_kelamin: s.gender || '',
+                religion: s.religion || '',
+                agama: s.religion || '',
+                pob: s.pob || '',
+                tempat_lahir: s.pob || '',
+                dob: s.dob || '',
+                tanggal_lahir: s.dob || '',
+                parentPhone: s.parentPhone || '',
+                no_hp: s.parentPhone || '',
+                address: s.address || '',
+                alamat: s.address || '',
+                fatherName: s.fatherName || '',
+                nama_ayah: s.fatherName || '',
+                motherName: s.motherName || '',
+                nama_ibu: s.motherName || '',
+                deviceBindingId: s.deviceBindingId || null,
+                hasNoSmartphone: isNoPhone,
+                phoneStatus,
+                activeDevice,
+                devices: s.devices || [],
+                classRole: s.classRole || null,
+                profilePicUrl: s.profilePicUrl || null,
+                role: s.role,
+                isActive: s.isActive,
+                status_siswa: s.isActive ? 'Aktif' : 'Nonaktif',
+                createdAt: s.createdAt
+            };
+        });
 
         res.json(mapped);
     } catch (error) {

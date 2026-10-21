@@ -54,6 +54,33 @@ export const createTeacherLeave = async (req: Request, res: Response) => {
             }
         });
 
+        // Sinkronisasi otomatis ke model IzinGuru (agar terbaca di Kurikulum Portal & Rekap)
+        try {
+            await (prisma as any).izinGuru.upsert({
+                where: { id: leave.id },
+                create: {
+                    id: leave.id,
+                    guruId: user.id,
+                    guruNama: user.name || 'Guru',
+                    jenis: category.toUpperCase(),
+                    tanggalMulai: new Date(startDate),
+                    tanggalSelesai: endDate ? new Date(endDate) : new Date(startDate),
+                    alasan: reason,
+                    lampiranUrl: finalAttachmentUrl,
+                    status: 'PENDING',
+                    jadwalTerdampak: typeof affectedSchedules === 'object' ? JSON.stringify(affectedSchedules) : affectedSchedules
+                },
+                update: {
+                    jenis: category.toUpperCase(),
+                    tanggalMulai: new Date(startDate),
+                    tanggalSelesai: endDate ? new Date(endDate) : new Date(startDate),
+                    alasan: reason,
+                    lampiranUrl: finalAttachmentUrl,
+                    status: 'PENDING'
+                }
+            });
+        } catch (syncErr) {}
+
         // Notifikasi ke seluruh Kurikulum dan Operator sekolah (SIBOY A1 & A5)
         try {
             const kurikulumUsers = await (prisma as any).user.findMany({
@@ -134,8 +161,9 @@ export const getAllTeacherLeaves = async (req: Request, res: Response) => {
 export const approveTeacherLeave = async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
-        const { approvalNotes, piketNotes } = req.body;
+        const { approvalNotes, piketNotes, notes } = req.body;
         const user = (req as any).user;
+        const finalApprovalNotes = approvalNotes || notes || 'Disetujui dan diteruskan ke Guru Piket';
 
         const leave = await (prisma as any).teacherLeaveRequest.findUnique({ where: { id } });
         if (!leave) {
@@ -147,12 +175,24 @@ export const approveTeacherLeave = async (req: Request, res: Response) => {
             data: {
                 status: 'APPROVED',
                 approvedBy: user.name || 'Operator Sekolah',
-                approvalNotes: approvalNotes || 'Disetujui dan diteruskan ke Guru Piket',
+                approvalNotes: finalApprovalNotes,
                 approvedAt: new Date(),
                 dispositionToPiket: true,
                 piketNotes: piketNotes || `Tugas Mandiri: ${leave.assignmentDetails || 'Siswa belajar mandiri'}`
             }
         });
+
+        try {
+            await (prisma as any).izinGuru.update({
+                where: { id },
+                data: {
+                    status: 'APPROVED',
+                    approvedBy: user.name || 'Operator Sekolah',
+                    approvedAt: new Date(),
+                    catatanKurikulum: finalApprovalNotes
+                }
+            });
+        } catch (syncErr) {}
 
         // Parse jadwal kelas yang ditinggalkan dan buat entri otomatis di EmptyClassReport
         if (leave.affectedSchedules) {
@@ -252,8 +292,9 @@ export const approveTeacherLeave = async (req: Request, res: Response) => {
 export const rejectTeacherLeave = async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
-        const { rejectionReason } = req.body;
+        const { rejectionReason, reason } = req.body;
         const user = (req as any).user;
+        const finalRejectionReason = rejectionReason || reason || 'Permohonan izin ditolak. Harap koordinasi langsung dengan pimpinan/operator.';
 
         const leave = await (prisma as any).teacherLeaveRequest.findUnique({ where: { id } });
         if (!leave) {
@@ -265,10 +306,22 @@ export const rejectTeacherLeave = async (req: Request, res: Response) => {
             data: {
                 status: 'REJECTED',
                 approvedBy: user.name || 'Operator Sekolah',
-                approvalNotes: rejectionReason || 'Permohonan izin ditolak. Harap koordinasi langsung dengan pimpinan/operator.',
+                approvalNotes: finalRejectionReason,
                 approvedAt: new Date()
             }
         });
+
+        try {
+            await (prisma as any).izinGuru.update({
+                where: { id },
+                data: {
+                    status: 'REJECTED',
+                    approvedBy: user.name || 'Operator Sekolah',
+                    approvedAt: new Date(),
+                    catatanKurikulum: finalRejectionReason
+                }
+            });
+        } catch (syncErr) {}
 
         // Notifikasi ke Guru
         try {
@@ -508,9 +561,76 @@ export const getKurikulumMonthlyReports = async (req: Request, res: Response) =>
     try {
         const reports = await (prisma as any).notificationMessage.findMany({
             where: { category: 'KURIKULUM_REPORT' },
-            orderBy: { createdAt: 'desc' },
+            orderBy: { sentAt: 'desc' },
             take: 50
         });
+
+        if (req.query.export === 'pdf') {
+            const printHtml = `
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="utf-8">
+    <title>Rekapitulasi KBM Bulanan 33 Rombel - SMPN 1 Boyolangu</title>
+    <style>
+        body { font-family: 'Times New Roman', serif; margin: 30px; color: #111; }
+        .header { text-align: center; border-bottom: 3px double #000; padding-bottom: 12px; margin-bottom: 20px; }
+        .title { font-size: 16pt; font-weight: bold; margin-bottom: 4px; }
+        .subtitle { font-size: 11pt; color: #333; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 10pt; }
+        th, td { border: 1px solid #333; padding: 6px 8px; text-align: center; }
+        th { background: #f1f5f9; font-weight: bold; }
+        td.left { text-align: left; }
+        .footer { margin-top: 40px; display: flex; justify-content: space-between; font-size: 11pt; }
+        @media print { .no-print { display: none; } }
+    </style>
+</head>
+<body>
+    <div class="no-print" style="margin-bottom: 20px; text-align: right;">
+        <button onclick="window.print()" style="padding: 8px 16px; background: #0f766e; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold;">🖨️ Cetak / Simpan PDF</button>
+    </div>
+    <div class="header">
+        <div class="title">PEMERINTAH KABUPATEN TULUNGAGUNG</div>
+        <div class="title">DINAS PENDIDIKAN - SMP NEGERI 1 BOYOLANGU</div>
+        <div class="subtitle">Jl. Ki Mangunsarkoro No. 101, Boyolangu, Tulungagung • Website: cbt.smpn1boyolangu.my.id</div>
+    </div>
+    <h3 style="text-align: center; margin: 0 0 10px 0;">REKAPITULASI LAPORAN BULANAN KBM 33 ROMBEL</h3>
+    <div style="font-size: 10.5pt; margin-bottom: 15px;">Dicetak pada: ${new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</div>
+    <table>
+        <thead>
+            <tr>
+                <th style="width: 40px;">No</th>
+                <th>Rombel / Kelas</th>
+                <th>Judul Laporan</th>
+                <th>Catatan &amp; Ringkasan Wali Kelas</th>
+                <th>Waktu Pengiriman</th>
+            </tr>
+        </thead>
+        <tbody>
+            ${reports.length > 0 ? reports.map((r: any, i: number) => `<tr>
+                <td>${i + 1}</td>
+                <td style="font-weight: bold;">${r.className || '-'}</td>
+                <td class="left">${r.title}</td>
+                <td class="left">${r.message}</td>
+                <td>${new Date(r.createdAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}</td>
+            </tr>`).join('') : '<tr><td colspan="5">Belum ada laporan bulanan wali kelas yang masuk.</td></tr>'}
+        </tbody>
+    </table>
+    <div class="footer">
+        <div>
+            Mengetahui,<br>Kepala SMPN 1 Boyolangu<br><br><br><br>
+            <strong>MUGI PRAYITNO, S.Pd., M.M.</strong><br>NIP. 196803201995121002
+        </div>
+        <div>
+            Tulungagung, ${new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}<br>Tim Pengembang Kurikulum<br><br><br><br>
+            <strong>WAKA KURIKULUM</strong><br>NIP. -
+        </div>
+    </div>
+</body>
+</html>`;
+            res.setHeader('Content-Type', 'text/html; charset=utf-8');
+            return res.send(printHtml);
+        }
 
         res.json({
             success: true,

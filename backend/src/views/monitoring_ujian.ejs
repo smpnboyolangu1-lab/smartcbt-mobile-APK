@@ -187,7 +187,7 @@
                 </span>
                 <div class="overflow-hidden flex-1">
                     <p class="text-xs text-slate-300 font-mono truncate" id="tickerText">
-                        [08:14:20] MERRI ROSA AMELIA (VII-A) telah menyelesaikan soal nomor 24 • [08:13:55] Faris Choki (VII-A) submit ujian (Nilai: 90) • [08:12:10] Sistem Exambrow aktif normal di seluruh 30 perangkat
+                        Menghubungkan telemetri live ujian...
                     </p>
                 </div>
             </div>
@@ -198,7 +198,7 @@
             <div class="flex flex-wrap justify-between items-center mb-4 pb-3 border-b border-slate-700 gap-3">
                 <div class="flex items-center gap-3">
                     <h3 class="font-bold text-sm text-white flex items-center gap-2">
-                        <span>👥</span> Grid Status Peserta Ujian (<span id="totalStudentsCountBadge">30 Siswa</span>)
+                        <span>👥</span> Grid Status Peserta Ujian (<span id="totalStudentsCountBadge">0 Siswa</span>)
                     </h3>
                     <span class="text-xs text-slate-400">Pembaruan otomatis tiap 3 detik</span>
                 </div>
@@ -212,7 +212,7 @@
                         </button>
                         <button id="btnViewCCTV" onclick="setMonitoringViewMode('CCTV')" 
                                 class="px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all bg-blue-600 text-white shadow flex items-center gap-1.5">
-                            <span>🎛️</span> <span>CCTV Matrix (30 Siswa)</span>
+                            <span>🎛️</span> <span>CCTV Matrix (<span id="cctvCountBadge">0 Siswa</span>)</span>
                         </button>
                     </div>
                 </div>
@@ -333,12 +333,12 @@
                 <table class="w-full text-xs mb-6 border-collapse">
                     <tr><td class="w-48 py-1 font-bold">Mata Pelajaran</td><td>: <span id="repSubject">Matematika Terpadu</span></td></tr>
                     <tr><td class="py-1 font-bold">Nama Asesmen / Ujian</td><td>: <span id="repExamTitle">Penilaian Akhir Semester (PAS) Ganjil</span></td></tr>
-                    <tr><td class="py-1 font-bold">Tingkat / Kelas</td><td>: <span id="repClass">Tingkat VII (Kelas VII-A s.d VII-K)</span></td></tr>
-                    <tr><td class="py-1 font-bold">Sesi / Ruang Ujian</td><td>: <span id="repSession">Sesi 1 (Pagi) • Ruang 7A & Lab Komputer 1</span></td></tr>
-                    <tr><td class="py-1 font-bold">Jumlah Peserta Terdaftar</td><td>: <span class="font-bold">30 Siswa</span></td></tr>
-                    <tr><td class="py-1 font-bold">Jumlah Peserta Hadir</td><td>: <span class="font-bold text-emerald-700">29 Siswa</span></td></tr>
-                    <tr><td class="py-1 font-bold">Jumlah Peserta Tidak Hadir</td><td>: <span class="font-bold text-red-600">1 Siswa (Bagas Ardiansah - Sakit)</span></td></tr>
-                    <tr><td class="py-1 font-bold">Token Akses Ujian Digunakan</td><td>: <span class="font-mono font-bold bg-gray-100 px-2 py-0.5 rounded" id="repTokenUsed">MTH726</span></td></tr>
+                    <tr><td class="py-1 font-bold">Tingkat / Kelas</td><td>: <span id="repClass">Semua Kelas</span></td></tr>
+                    <tr><td class="py-1 font-bold">Sesi / Ruang Ujian</td><td>: <span id="repSession">Sesi 1 • Ruang CBT</span></td></tr>
+                    <tr><td class="py-1 font-bold">Jumlah Peserta Terdaftar</td><td>: <span class="font-bold" id="repRegisteredCount">0 Siswa</span></td></tr>
+                    <tr><td class="py-1 font-bold">Jumlah Peserta Hadir</td><td>: <span class="font-bold text-emerald-700" id="repPresentCount">0 Siswa</span></td></tr>
+                    <tr><td class="py-1 font-bold">Jumlah Peserta Tidak Hadir</td><td>: <span class="font-bold text-red-600" id="repAbsentCount">0 Siswa</span></td></tr>
+                    <tr><td class="py-1 font-bold">Token Akses Ujian Digunakan</td><td>: <span class="font-mono font-bold bg-gray-100 px-2 py-0.5 rounded" id="repTokenUsed">---</span></td></tr>
                 </table>
 
                 <div class="mb-6">
@@ -505,7 +505,13 @@
     </div>
 
     <script>
-        const token = localStorage.getItem('token');
+        function getCookie(name) {
+            const v = document.cookie.match('(^|;) ?' + name + '=([^;]*)(;|$)');
+            return v ? v[2] : null;
+        }
+        const serverToken = '<%= typeof token !== "undefined" && token ? token : "" %>';
+        const token = serverToken || localStorage.getItem('token') || localStorage.getItem('jwt_token') || getCookie('token') || getCookie('admin_token') || '';
+        const serverClasses = <%- JSON.stringify(typeof classes !== 'undefined' ? classes : []) %>;
         let chartPieInstance = null;
         let chartBarInstance = null;
         let currentViewMode = localStorage.getItem('cbt_view_mode') || 'CCTV'; // Default CCTV Matrix for proctor
@@ -746,6 +752,14 @@
                 renderStudentCards(data.students);
             }
 
+            if (data.recentActivities && data.recentActivities.length > 0) {
+                const tickerEl = document.getElementById('tickerText');
+                if (tickerEl) tickerEl.innerText = data.recentActivities.join(' • ');
+            } else if (data.exam === null) {
+                const tickerEl = document.getElementById('tickerText');
+                if (tickerEl) tickerEl.innerText = 'Tidak ada ujian aktif. Aktifkan token ujian pada Bank Soal CBT untuk memulai monitoring.';
+            }
+
             if (chartBarInstance && data.roomDensity) {
                 if (data.roomDensity.length > 0) {
                     chartBarInstance.data.labels = data.roomDensity.map(r => r.room);
@@ -810,6 +824,8 @@
 
             const badgeCount = document.getElementById('totalStudentsCountBadge');
             if (badgeCount) badgeCount.innerText = (students?.length || 0) + ' Siswa';
+            const cctvBadge = document.getElementById('cctvCountBadge');
+            if (cctvBadge) cctvBadge.innerText = (students?.length || 0) + ' Siswa';
 
             if (!students || students.length === 0) {
                 container.className = "w-full";
@@ -849,7 +865,7 @@
                         progColor = 'bg-blue-500';
                     }
 
-                    const progressPct = Math.min(100, Math.round(((s.currentQ || 0) / (s.totalQ || 30)) * 100));
+                    const progressPct = Math.min(100, Math.round(((s.currentQ || 0) / (s.totalQ || 1)) * 100));
                     const deskNo = String(idx + 1).padStart(2, '0');
                     const jsonStr = encodeURIComponent(JSON.stringify(s));
 
@@ -865,11 +881,11 @@
                                     </div>
                                 </div>
                                 <p class="font-bold text-xs text-white truncate" title="${s.name}">${s.name}</p>
-                                <p class="text-[10px] text-slate-400 font-mono truncate">${s.class || 'VII-A'} &bull; ${s.ip || '192.168.1.1'}</p>
+                                <p class="text-[10px] text-slate-400 font-mono truncate">${s.class || '-'} &bull; ${s.ip || '-'}</p>
                             </div>
                             <div class="mt-2 pt-1.5 border-t border-slate-800/80">
                                 <div class="flex justify-between items-center text-[10px] font-mono mb-1">
-                                    <span class="text-slate-300">Q: <b>${s.currentQ || 0}/${s.totalQ || 30}</b></span>
+                                    <span class="text-slate-300">Q: <b>${s.currentQ !== undefined ? s.currentQ : 0}/${s.totalQ || 0}</b></span>
                                     <span class="text-amber-400 font-bold">${s.timeLeft || '00:00'}</span>
                                 </div>
                                 <div class="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
@@ -904,7 +920,7 @@
                         progColor = 'bg-blue-500';
                     }
 
-                    const progressPct = Math.min(100, Math.round(((s.currentQ || 0) / (s.totalQ || 30)) * 100));
+                    const progressPct = Math.min(100, Math.round(((s.currentQ || 0) / (s.totalQ || 1)) * 100));
                     const deskNo = String(idx + 1).padStart(2, '0');
 
                     return `
@@ -916,7 +932,7 @@
                                             <span class="text-[10px] font-mono font-bold text-blue-400 bg-blue-950 px-1.5 py-0.5 rounded border border-blue-800">#${deskNo}</span>
                                             <p class="font-bold text-xs text-white truncate max-w-[130px]" title="${s.name}">${s.name}</p>
                                         </div>
-                                        <p class="text-[10px] text-slate-400 font-mono mt-0.5">NISN: ${s.nisn || s.username} &bull; ${s.class || 'VII-A'}</p>
+                                        <p class="text-[10px] text-slate-400 font-mono mt-0.5">NISN: ${s.nisn || s.username || '-'} &bull; ${s.class || '-'}</p>
                                     </div>
                                     <div class="flex flex-col items-end gap-1">
                                         ${badge}
@@ -924,8 +940,8 @@
                                     </div>
                                 </div>
                                 <div class="flex items-center justify-between text-[11px] mt-2 pt-2 border-t border-slate-800">
-                                    <span class="text-slate-300">Soal: <b>${s.currentQ || 24}/${s.totalQ || 30}</b></span>
-                                    <span class="text-amber-400 font-mono">Sisa: ${s.timeLeft || '00:45'}</span>
+                                    <span class="text-slate-300">Soal: <b>${s.currentQ !== undefined ? s.currentQ : 0}/${s.totalQ || 0}</b></span>
+                                    <span class="text-amber-400 font-mono">Sisa: ${s.timeLeft || '00:00'}</span>
                                 </div>
                                 <div class="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden mt-1.5">
                                     <div class="${progColor} h-1.5 rounded-full" style="width: ${progressPct}%"></div>
@@ -958,13 +974,13 @@
             try {
                 const s = JSON.parse(decodeURIComponent(jsonEncodedStr));
                 document.getElementById('modalStudentName').innerText = `#${deskNo || ''} ${s.name}`;
-                document.getElementById('modalStudentNisn').innerText = `NISN: ${s.nisn || s.username || '-'} • Kelas: ${s.class || 'VII-A'}`;
+                document.getElementById('modalStudentNisn').innerText = `NISN: ${s.nisn || s.username || '-'} • Kelas: ${s.class || '-'}`;
                 document.getElementById('modalStudentBattery').innerHTML = getBatteryBadge(s.battery);
                 document.getElementById('modalStudentStatus').innerText = s.status || 'NORMAL';
-                document.getElementById('modalStudentProgress').innerText = `${s.currentQ || 0} / ${s.totalQ || 30} Butir Soal`;
+                document.getElementById('modalStudentProgress').innerText = `${s.currentQ !== undefined ? s.currentQ : 0} / ${s.totalQ || 0} Butir Soal`;
                 document.getElementById('modalStudentStrikes').innerText = `${s.strikes || 0} / 3 Kali`;
                 document.getElementById('modalStudentDevice').innerText = s.device || 'SmartSchool ExamBrowser (Android)';
-                document.getElementById('modalStudentIp').innerText = s.ip || '192.168.1.1';
+                document.getElementById('modalStudentIp').innerText = s.ip || '192.168.101.x';
 
                 // Update BAP Student metadata automatically
                 const bapStudentEl = document.getElementById('bapStudentName');
@@ -1055,15 +1071,26 @@
                     });
                     if (rRes.ok) {
                         const rData = await rRes.json();
-                        if (rData.headmasterName) {
-                            document.getElementById('bapHeadmasterName').innerText = rData.headmasterName;
+                        if (rData.date) document.getElementById('repDayDate').innerText = rData.date;
+                        if (rData.subjectName) document.getElementById('repSubject').innerText = rData.subjectName;
+                        if (rData.examTitle) document.getElementById('repExamTitle').innerText = rData.examTitle;
+                        if (rData.targetClasses) document.getElementById('repClass').innerText = rData.targetClasses;
+                        if (rData.sessionName) document.getElementById('repSession').innerText = `${rData.sessionName} • ${rData.roomName || 'Ruang CBT'}`;
+                        if (rData.registeredCount !== undefined) document.getElementById('repRegisteredCount').innerText = `${rData.registeredCount} Siswa`;
+                        if (rData.presentCount !== undefined) document.getElementById('repPresentCount').innerText = `${rData.presentCount} Siswa`;
+                        if (rData.absentCount !== undefined) {
+                            const absentDetail = rData.absentList && rData.absentList.length > 0 
+                                ? ` (${rData.absentList.map(a => a.name).join(', ')})`
+                                : '';
+                            document.getElementById('repAbsentCount').innerText = `${rData.absentCount} Siswa${absentDetail}`;
                         }
-                        if (rData.headmasterNip) {
-                            document.getElementById('bapHeadmasterNip').innerText = rData.headmasterNip;
-                        }
-                        if (rData.schoolName) {
-                            document.getElementById('bapHeadmasterTitle').innerText = 'Kepala ' + rData.schoolName;
-                        }
+                        if (rData.tokenUsed) document.getElementById('repTokenUsed').innerText = rData.tokenUsed;
+                        if (rData.incidentNotes) document.getElementById('repIncidentNotes').innerText = rData.incidentNotes;
+                        if (rData.invigilatorName) document.getElementById('bapPengawasName').innerText = rData.invigilatorName;
+                        if (rData.proctorName) document.getElementById('bapProktorName').innerText = rData.proctorName;
+                        if (rData.headmasterName) document.getElementById('bapHeadmasterName').innerText = rData.headmasterName;
+                        if (rData.headmasterNip) document.getElementById('bapHeadmasterNip').innerText = rData.headmasterNip;
+                        if (rData.headmasterTitle) document.getElementById('bapHeadmasterTitle').innerText = rData.headmasterTitle;
                     }
                 } else {
                     const scRes = await fetch('/api/school-info');
@@ -1081,7 +1108,7 @@
                     }
                 }
             } catch (e) {
-                console.warn('Gagal memuat ttd kepala sekolah:', e);
+                console.warn('Gagal memuat berita acara ujian:', e);
             }
             document.getElementById('modalOfficialReport').classList.remove('hidden');
         }
@@ -1298,11 +1325,16 @@
 
         function populateClassesToFilter(selectId) {
             const sel = document.getElementById(selectId);
-            if (!sel || !cachedStudents) return;
-            const uniqueClasses = Array.from(new Set(cachedStudents.map(s => s.class).filter(Boolean)));
-            if (uniqueClasses.length > 0) {
-                sel.innerHTML = '<option value="ALL">Semua Kelas</option>' +
-                    uniqueClasses.map(c => `<option value="${c}">Kelas ${c}</option>`).join('');
+            if (!sel) return;
+            let classesList = [];
+            if (Array.isArray(serverClasses) && serverClasses.length > 0) {
+                classesList = serverClasses;
+            } else if (cachedStudents && cachedStudents.length > 0) {
+                classesList = Array.from(new Set(cachedStudents.map(s => s.class).filter(Boolean)));
+            }
+            if (classesList.length > 0) {
+                sel.innerHTML = '<option value="ALL">Semua Kelas Peserta</option>' +
+                    classesList.map(c => `<option value="${c}">Kelas ${c}</option>`).join('');
             }
         }
 

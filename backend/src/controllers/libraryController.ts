@@ -202,7 +202,7 @@ export const checkBookOwnerByBarcode = async (req: Request, res: Response) => {
             return res.status(400).json({ message: 'Barcode buku wajib disertakan.' });
         }
 
-        // Cari eksemplar buku
+        // Cari eksemplar buku di BookCopy
         const copy = await prisma.bookCopy.findUnique({
             where: { barcodeCode: barcode },
             include: {
@@ -211,6 +211,72 @@ export const checkBookOwnerByBarcode = async (req: Request, res: Response) => {
         });
 
         if (!copy) {
+            // Cek di PackageBookCopy (Buku Paket Kurikulum)
+            const pkgCopy = await (prisma as any).packageBookCopy.findUnique({
+                where: { barcodeCode: barcode },
+                include: {
+                    packageBook: true,
+                    assignments: {
+                        where: { status: 'APPROVED' },
+                        include: { student: true }
+                    }
+                }
+            }).catch(() => null);
+
+            if (pkgCopy) {
+                const activeAssignment = pkgCopy.assignments?.[0];
+                const borrowerStudent = activeAssignment?.student;
+                const isMyBook = Boolean(user && borrowerStudent && borrowerStudent.id === user.id);
+
+                return res.json({
+                    success: true,
+                    found: true,
+                    isRegistered: true,
+                    isCopy: true,
+                    barcode: pkgCopy.barcodeCode,
+                    copyNumber: pkgCopy.nomorEksemplar,
+                    condition: pkgCopy.kondisi,
+                    status: pkgCopy.status === 'DIPINJAM' ? 'BORROWED' : 'AVAILABLE',
+                    isMyBook,
+                    message: isMyBook
+                        ? `Buku Paket "${pkgCopy.packageBook.judul}" adalah buku paket milik Anda.`
+                        : (borrowerStudent
+                            ? `Buku Paket "${pkgCopy.packageBook.judul}" sedang dipinjam oleh ${borrowerStudent.name} (Kelas ${borrowerStudent.className || '-'}).`
+                            : `Buku Paket "${pkgCopy.packageBook.judul}" terdaftar resmi (Eksemplar #${pkgCopy.nomorEksemplar}).`),
+                    book: {
+                        id: pkgCopy.packageBook.id,
+                        title: pkgCopy.packageBook.judul,
+                        author: 'Kemendikbudristek',
+                        subject: pkgCopy.packageBook.mataPelajaran,
+                        publisher: 'Kemendikbudristek',
+                        isTextbook: true,
+                        targetClass: pkgCopy.packageBook.tingkatKelas,
+                        gradeClass: pkgCopy.packageBook.tingkatKelas,
+                        ebookUrl: pkgCopy.packageBook.filePdfUrl
+                    },
+                    copy: {
+                        id: pkgCopy.id,
+                        copyBarcode: pkgCopy.barcodeCode,
+                        copyNumber: pkgCopy.nomorEksemplar,
+                        status: pkgCopy.status === 'DIPINJAM' ? 'BORROWED' : 'AVAILABLE',
+                        borrowedAt: activeAssignment?.approvedAt ? activeAssignment.approvedAt.toISOString() : null
+                    },
+                    borrower: borrowerStudent ? {
+                        id: borrowerStudent.id,
+                        name: borrowerStudent.name,
+                        className: borrowerStudent.className,
+                        nisn: borrowerStudent.nisn,
+                        borrowedAt: activeAssignment?.approvedAt ? activeAssignment.approvedAt.toISOString().split('T')[0] : null
+                    } : null,
+                    currentViewer: user ? {
+                        id: user.id,
+                        name: user.name,
+                        className: user.className,
+                        nisn: user.nisn
+                    } : null
+                });
+            }
+
             // Cek apakah barcode judul buku utama
             const parentBook = await prisma.libraryBook.findUnique({
                 where: { barcodeCode: barcode }
@@ -219,44 +285,92 @@ export const checkBookOwnerByBarcode = async (req: Request, res: Response) => {
                 return res.json({
                     success: true,
                     found: true,
+                    isRegistered: true,
                     isCopy: false,
+                    isMyBook: false,
                     message: `Judul Buku: ${parentBook.title}`,
-                    book: parentBook
+                    book: {
+                        id: parentBook.id,
+                        title: parentBook.title,
+                        author: parentBook.author,
+                        subject: parentBook.subject,
+                        publisher: (parentBook as any).publisher || null,
+                        isTextbook: (parentBook as any).isTextbook ?? false,
+                        targetClass: parentBook.gradeClass,
+                        gradeClass: parentBook.gradeClass,
+                        ebookUrl: parentBook.ebookUrl
+                    },
+                    copy: null,
+                    borrower: null,
+                    currentViewer: user ? {
+                        id: user.id,
+                        name: user.name,
+                        className: user.className,
+                        nisn: user.nisn
+                    } : null
                 });
             }
 
-            return res.status(404).json({
+            return res.status(200).json({
                 success: false,
                 found: false,
-                message: `Barcode "${barcode}" tidak terdaftar dalam sistem perpustakaan sekolah.`
+                isRegistered: false,
+                isMyBook: false,
+                message: `Barcode "${barcode}" tidak terdaftar dalam sistem perpustakaan sekolah.`,
+                book: null,
+                copy: null,
+                borrower: null,
+                currentViewer: user ? { id: user.id, name: user.name, className: user.className } : null
             });
         }
 
-        const isMyBook = user && copy.currentBorrowerId === user.id;
+        const isMyBook = Boolean(user && copy.currentBorrowerId === user.id);
 
         res.json({
             success: true,
             found: true,
+            isRegistered: true,
             isCopy: true,
             barcode: copy.barcodeCode,
             copyNumber: copy.copyNumber,
             condition: copy.condition,
             status: copy.status, // AVAILABLE, BORROWED, LOST
             isMyBook,
+            message: isMyBook
+                ? `Buku "${copy.book.title}" adalah buku milik Anda.`
+                : (copy.status === 'BORROWED' && copy.currentBorrowerName
+                    ? `Buku "${copy.book.title}" sedang dipinjam oleh ${copy.currentBorrowerName} (Kelas ${copy.currentBorrowerClass || '-'}).`
+                    : `Buku "${copy.book.title}" terdaftar resmi di perpustakaan (Status: ${copy.status}).`),
             book: {
                 id: copy.book.id,
                 title: copy.book.title,
                 author: copy.book.author,
                 subject: copy.book.subject,
+                publisher: (copy.book as any).publisher || null,
+                isTextbook: (copy.book as any).isTextbook ?? true,
+                targetClass: copy.book.gradeClass,
                 gradeClass: copy.book.gradeClass,
                 ebookUrl: copy.book.ebookUrl
             },
-            borrower: copy.status === 'BORROWED' ? {
+            copy: {
+                id: copy.id,
+                copyBarcode: copy.barcodeCode,
+                copyNumber: copy.copyNumber,
+                status: copy.status,
+                borrowedAt: copy.borrowedAt ? copy.borrowedAt.toISOString() : null
+            },
+            borrower: copy.status === 'BORROWED' && copy.currentBorrowerId ? {
                 id: copy.currentBorrowerId,
                 name: copy.currentBorrowerName,
                 className: copy.currentBorrowerClass,
                 nisn: copy.currentBorrowerNisn,
                 borrowedAt: copy.borrowedAt ? copy.borrowedAt.toISOString().split('T')[0] : null
+            } : null,
+            currentViewer: user ? {
+                id: user.id,
+                name: user.name,
+                className: user.className,
+                nisn: user.nisn
             } : null
         });
     } catch (error) {

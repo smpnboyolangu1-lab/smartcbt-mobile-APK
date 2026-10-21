@@ -3,7 +3,7 @@ import { getWibDayBounds } from '../utils/dateUtils';
 import { broadcastMonitoringEvent, resetExamTokenTimer, setClassExamToken } from '../controllers/cbtController';
 import { autoNotifyUnscannedGateOutStudents } from '../controllers/attendanceController';
 import { sendFcmToUser } from './fcmService';
-import { sendSingleWhatsApp } from './whatsappBlastService';
+import { sendSingleWhatsApp, WHATSAPP_NOTIFICATION_POLICY } from './whatsappBlastService';
 import { runDatabaseBackup } from './backupService';
 
 let schedulerInterval: NodeJS.Timeout | null = null;
@@ -248,8 +248,8 @@ export async function processEmptyClassMonitoring(now: Date) {
             const startTotal = sH * 60 + sM;
             const endTotal = eH * 60 + eM;
 
-            // Jika saat ini KBM sudah berjalan minimal 5 menit dan belum selesai
-            if (currentTotalMinutes >= startTotal + 5 && currentTotalMinutes <= endTotal) {
+            // Jika saat ini KBM sudah berjalan minimal 10 menit (melewati toleransi wajar) dan belum selesai
+            if (currentTotalMinutes >= startTotal + 10 && currentTotalMinutes <= endTotal) {
                 const clsName = sch.className;
                 
                 // Cek apakah guru sudah check-in di kelas ini
@@ -273,21 +273,21 @@ export async function processEmptyClassMonitoring(now: Date) {
                             periodLesson: periodLabel,
                             subjectName: sch.subjectName || 'Mata Pelajaran',
                             scheduledTeacher: sch.teacherName || 'Guru Pengampu',
-                            teacherStatus: 'BELUM_HADIR',
+                            teacherStatus: 'BELUM_TERKONFIRMASI',
                             hasAssignment: false,
-                            status: 'PENDING',
-                            reporterName: 'Scheduler 5 Menit SIBOY'
+                            status: 'BELUM_TERKONFIRMASI',
+                            reporterName: 'Scheduler 10 Menit SIBOY'
                         }
                     });
 
-                    // Notifikasi ke setiap Guru Piket yang bertugas hari ini
+                    // Notifikasi ke setiap Guru Piket dan Tim Kurikulum yang bertugas
                     for (const piket of piketTeachers) {
                         await (prisma as any).notificationMessage.create({
                             data: {
                                 recipientId: piket.teacherId,
                                 recipientRole: 'TEACHER',
-                                title: `⚠️ KELAS KOSONG: ${clsName} (>5 Menit)`,
-                                message: `Kelas ${clsName} pada ${periodLabel} (Mapel: ${sch.subjectName}) belum dihadiri oleh ${sch.teacherName}. Waktu berlalu: ${elapsed} menit. Segera buka Posko Piket di APK untuk dampingi kelas.`,
+                                title: `⚠️ KBM BELUM DIBUKA: ${clsName} (>10 Menit)`,
+                                message: `Kelas ${clsName} pada ${periodLabel} (Mapel: ${sch.subjectName}) belum dibuka sesi KBM oleh ${sch.teacherName} (Waktu berlalu: ${elapsed} menit). Harap pastikan kehadiran guru di kelas atau koordinasikan ke Tim Kurikulum.`,
                                 category: 'EMPTY_CLASS'
                             }
                         });
@@ -300,7 +300,7 @@ export async function processEmptyClassMonitoring(now: Date) {
                             report: newReport
                         });
                     }
-                    console.log(`🚨 [Scheduler] Terdeteksi KELAS KOSONG: ${clsName} pada ${periodLabel}. Notifikasi dikirim ke ${piketTeachers.length} Guru Piket.`);
+                    console.log(`⏰ [Scheduler] Sesi KBM BELUM TERKONFIRMASI: ${clsName} pada ${periodLabel} (>10 Menit). Notifikasi dikirim ke ${piketTeachers.length} Guru Piket & Kurikulum.`);
                 }
             }
         }
@@ -512,7 +512,7 @@ export async function sendPrayerH1NotificationForDate(
         for (const st of students) {
             totalStudentsNotified++;
             const titleSiswa = `🕌 Pengingat: Besok (${tomorrowDayName}) Jadwal Sholat ${pType} Berjamaah`;
-            const msgSiswa = `Hai ${st.name}, besok kelas ${st.className || '-'} terjadwal Sholat ${pType} Berjamaah (Pukul ${scanStartTime} WIB) di Masjid/Mushola Sekolah. Harap membawa perlengkapan sholat pribadi (mukena / sarung / sajadah).`;
+            const msgSiswa = `Hai ${st.name}, besok (${tomorrowDayName}) kelas ${st.className || '-'} terjadwal Sholat ${pType} Berjamaah (Pukul ${scanStartTime} WIB) di Masjid/Mushola Sekolah. ⚠️ PENTING: Harap membawa perlengkapan & alat sholat lengkap dari rumah (sarung/peci bagi putra, mukena bersih bagi putri, serta sajadah pribadi). Bagi siswi yang berhalangan/uzur syar'i tetap hadir di ruang keputrian.`;
 
             // 1. In-App Notification Siswa
             await (prisma as any).notificationMessage.create({
@@ -537,7 +537,7 @@ export async function sendPrayerH1NotificationForDate(
 
             // 3. In-App Notification & FCM Orang Tua
             const titleOrtu = `🕌 Jadwal Sholat Berjamaah Besok: ${st.name} (Kelas ${st.className || '-'})`;
-            const msgOrtu = `Bapak/Ibu Orang Tua/Wali, besok (${tomorrowDayName}, ${tomorrowYmd}) ananda ${st.name} memiliki jadwal Sholat ${pType} Berjamaah di Mushola/Masjid SMPN 1 Boyolangu pukul ${scanStartTime} WIB. Mohon memastikan ananda membawa perlengkapan sholat dari rumah.`;
+            const msgOrtu = `Bapak/Ibu Orang Tua/Wali, besok (${tomorrowDayName}, ${tomorrowYmd}) ananda ${st.name} memiliki jadwal Sholat ${pType} Berjamaah di Mushola/Masjid SMPN 1 Boyolangu pukul ${scanStartTime} WIB. ⚠️ MOHON DIPERHATIKAN: Mohon memastikan ananda membawa alat/perlengkapan sholat dari rumah (mukena untuk putri / sarung & peci untuk putra, serta sajadah). Terima kasih.`;
 
             await (prisma as any).notificationMessage.create({
                 data: {
@@ -572,7 +572,14 @@ export async function sendPrayerH1NotificationForDate(
                 totalParentsNotified++;
             }
 
-            // [D13] WhatsApp ke orang tua HANYA untuk siswa terlambat. Notifikasi sholat menggunakan In-App & FCM Push.
+            // 4. WhatsApp ke orang tua jika ada nomor HP dan dipicu manual atau force
+            if (st.parentPhone && (triggerType === 'MANUAL' || force)) {
+                try {
+                    const waText = `*PENGINGAT JADWAL SHOLAT BERJAMAAH & MEMBAWA ALAT SHOLAT*\nSMP NEGERI 1 BOYOLANGU\n\n${msgOrtu}`;
+                    const waRes = await sendSingleWhatsApp(st.parentPhone, waText);
+                    if (waRes?.success) totalWaNotified++;
+                } catch (waErr) {}
+            }
         }
     }
 
@@ -976,6 +983,30 @@ export async function sendDailyAlpaPushNotifications(referenceDate: Date = new D
                     studentId: st.id,
                     studentName: st.name
                 }).catch(() => {});
+            }
+
+            // ============================================================
+            // KEBIJAKAN RESMI WHATSAPP: HANYA SISWA TERLAMBAT ATAU ALPA (FLAG AKTIF)
+            // Siswa ALPA dikirimkan notifikasi WhatsApp resmi ke nomor HP orang tua yang terdaftar.
+            // ============================================================
+            if (WHATSAPP_NOTIFICATION_POLICY.isDispatchAllowed('ALPA') && st.parentPhone) {
+                const todayFormatted = new Date().toLocaleDateString('id-ID', {
+                    weekday: 'long',
+                    day: 'numeric',
+                    month: 'long',
+                    year: 'numeric'
+                });
+
+                const waAlpaNotice = `*PEMBERITAHUAN KETIDAKHADIRAN SISWA (ALPA)*\n` +
+                    `*SMP NEGERI 1 BOYOLANGU*\n\n` +
+                    `Yth. Bapak/Ibu Orang Tua / Wali Murid dari ananda *${st.name}* (Kelas ${st.className || '-'}),\n\n` +
+                    `Kami menginformasikan bahwa hingga pukul 15:00 WIB hari ini, *${todayFormatted}*, ananda tercatat *TIDAK HADIR di sekolah tanpa keterangan (Alpa)*.\n\n` +
+                    `Apabila ananda berhalangan hadir dikarenakan sakit atau keperluan keluarga, mohon segera mengirimkan surat permohonan izin melalui aplikasi SIBOY atau menghubungi Wali Kelas.\n\n` +
+                    `Laporan kedisiplinan ini dikirimkan secara otomatis oleh Sistem Informasi Akademik SMPN 1 Boyolangu. Terima kasih atas kerja samanya.`;
+
+                sendSingleWhatsApp(st.parentPhone, waAlpaNotice).catch(waErr => {
+                    console.warn(`[WA Alpa Alert] Gagal kirim pesan ke ${st.parentPhone}:`, waErr.message);
+                });
             }
 
             sentCount++;

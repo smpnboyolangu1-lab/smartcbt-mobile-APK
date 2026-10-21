@@ -1,4 +1,4 @@
-plugins {
+﻿plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("com.google.devtools.ksp")
@@ -13,8 +13,8 @@ android {
         applicationId = "com.school.smartcbt"
         minSdk = 24
         targetSdk = 34
-        versionCode = 177
-        versionName = "2.9.7"
+        versionCode = 184
+        versionName = "2.9.14"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -107,4 +107,15 @@ dependencies {
     implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
     implementation("com.google.firebase:firebase-messaging-ktx")
 }
+
+
+
+
+
+
+
+
+
+
+
 

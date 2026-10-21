@@ -53,14 +53,14 @@ export const DEFAULT_CAMPUS_ZONES = [
     description: 'Aula pertemuan sekolah dan lab komputer'
   },
   {
-    roomName: 'Masjid Baitul Ilmi',
-    latCenter: -8.125600,
-    longCenter: 111.893700,
-    radiusMeters: 40.0,
+    roomName: 'Masjid Baitul Ilmi (Mushola)',
+    latCenter: -8.1249085,
+    longCenter: 111.8934869,
+    radiusMeters: 60.0,
     bufferMeters: 30.0,
     zonePriority: 3,
     zoneType: 'MASJID',
-    description: 'Masjid sekolah untuk ibadah sholat berjamaah'
+    description: 'Titik koordinat resmi Mushola SMPN 1 Boyolangu untuk presensi sholat'
   }
 ];
 
@@ -216,6 +216,30 @@ export const updateZone = async (req: Request, res: Response) => {
       where: { id },
       data
     });
+
+    if (updated.zoneType === 'MASJID' || updated.roomName.toLowerCase().includes('masjid') || updated.roomName.toLowerCase().includes('mushola')) {
+      if (updated.latCenter != null) {
+        await prisma.systemSetting.upsert({
+          where: { key: 'gps.mushola.lat' },
+          create: { key: 'gps.mushola.lat', value: String(updated.latCenter), type: 'string' },
+          update: { value: String(updated.latCenter) }
+        }).catch(() => {});
+      }
+      if (updated.longCenter != null) {
+        await prisma.systemSetting.upsert({
+          where: { key: 'gps.mushola.lng' },
+          create: { key: 'gps.mushola.lng', value: String(updated.longCenter), type: 'string' },
+          update: { value: String(updated.longCenter) }
+        }).catch(() => {});
+      }
+      if (updated.radiusMeters != null) {
+        await prisma.systemSetting.upsert({
+          where: { key: 'gps.mushola.radius' },
+          create: { key: 'gps.mushola.radius', value: String(updated.radiusMeters), type: 'string' },
+          update: { value: String(updated.radiusMeters) }
+        }).catch(() => {});
+      }
+    }
 
     return res.json({
       success: true,

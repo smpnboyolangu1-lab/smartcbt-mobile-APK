@@ -165,14 +165,14 @@ class HiddenAdminActivity : AppCompatActivity() {
 
         AlertDialog.Builder(this)
             .setTitle("🌐 Konfigurasi Server Remote")
-            .setMessage("Pilih / ubah alamat server backend:\n\n• Server Online VPS: https://cbt.smpn1boyolangu.my.id\n• Server Lokal: http://192.168.101.46:3000")
+            .setMessage("Alamat server resmi CBT:\n\n• Server CBT Cloud: https://cbt.smpn1boyolangu.my.id")
             .setView(input)
             .setPositiveButton("Simpan") { _, _ ->
                 val newIp = input.text.toString().trim()
                 if (newIp.isNotEmpty()) {
                     sessionManager.setServerIp(newIp)
                     ApiClient.resetClient()
-                    Toast.makeText(this, "✅ Alamat server diubah: $newIp", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "✅ Alamat server diubah: ${sessionManager.getServerIp()}", Toast.LENGTH_SHORT).show()
                     loadDevices()
                 }
             }

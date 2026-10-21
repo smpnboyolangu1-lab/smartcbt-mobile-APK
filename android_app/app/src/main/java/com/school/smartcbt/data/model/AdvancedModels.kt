@@ -81,7 +81,11 @@ data class AttendanceHistoryDto(
     val isLate: Boolean = false,
     val isSunday: Boolean = false,
     val isMissingGateOut: Boolean = false,
-    val note: String? = null
+    val note: String? = null,
+    val prayerNotice: String? = null,
+    val prayerScheduleTime: String? = null,
+    val prayerScanTime: String? = null,
+    val prayerStatus: String? = null
 )
 
 data class LearningAnalyticsResponse(
@@ -648,6 +652,7 @@ data class PiketEmptyClassDto(
     val subjectName: String?,
     val absentTeacherName: String?,
     val period: String?,
+    val periodLesson: String? = null,
     val reason: String?,
     val status: String?
 )
@@ -869,11 +874,21 @@ data class EmptyClassReportDto(
 data class PrayerScheduleResponse(
     val success: Boolean,
     val dayName: String? = null,
+    @com.google.gson.annotations.SerializedName("dayOfWeek")
+    val dayOfWeekNumber: Int? = null,
     val schedule: PrayerClassScheduleDto? = null,
-    val message: String? = null
+    val availablePrayers: List<PrayerClassScheduleDto>? = null,
+    val message: String? = null,
+    @com.google.gson.annotations.SerializedName("scheduledClasses")
+    val serverScheduledClasses: List<String>? = null,
+    @com.google.gson.annotations.SerializedName("allScheduledClassesToday")
+    val allScheduledClassesToday: List<String>? = null
 ) {
     val dayOfWeek: String get() = dayName ?: schedule?.dayName ?: "HARI INI"
-    val scheduledClasses: List<String> get() = schedule?.classNames?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() } ?: emptyList()
+    val scheduledClasses: List<String> get() {
+        if (!serverScheduledClasses.isNullOrEmpty()) return serverScheduledClasses
+        return schedule?.classNames?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() && it != "ALL" && it != "ALL_MALE" && it != "ALL_FEMALE" && it != "-" } ?: emptyList()
+    }
 }
 
 data class PrayerClassScheduleDto(
@@ -908,10 +923,16 @@ data class PrayerMonitoringResponse(
 data class PrayerSummaryDto(
     val totalStudents: Int = 0,
     val sholatCount: Int = 0,
+    val keputrianCount: Int = 0,
     val haidCount: Int = 0,
-    val belumCount: Int = 0
+    val belumCount: Int = 0,
+    val sholatPercent: String? = null,
+    val keputrianPercent: String? = null,
+    val haidPercent: String? = null,
+    val belumPercent: String? = null
 ) {
     val berjamaah: Int get() = sholatCount
+    val keputrian: Int get() = keputrianCount
     val haid: Int get() = haidCount
     val belum: Int get() = belumCount
 }
@@ -1236,9 +1257,12 @@ data class WaliKelasStudentItemDto(
     val profilePicUrl: String? = null,
     val kkFileUrl: String? = null,
     val aktaFileUrl: String? = null,
+    val biodataPdfUrl: String? = null,
     val isNoSmartphone: Boolean? = false,
     val classRole: String? = null,
     val classRoleDisplay: String? = null,
+    val academicAvgScore: Double? = null,
+    val completedExamsCount: Int? = 0,
     val todayAttendance: WaliKelasStudentAttendanceDto? = null
 )
 
@@ -1517,3 +1541,266 @@ data class TeacherPersonalRecapDto(
     val hadirTotal: Int = 0,
     val persentaseKehadiran: Double = 0.0
 )
+
+// ==========================================
+// DATA MODELS: BK KEMENDIKBUD ADVANCED
+// ==========================================
+
+data class BkSdqRequest(
+    val studentId: String? = null,
+    val scoreEmotional: Int = 0,
+    val scoreConduct: Int = 0,
+    val scoreHyperactivity: Int = 0,
+    val scorePeer: Int = 0,
+    val scoreProsocial: Int = 0,
+    val answers: Map<String, Any>? = null,
+    val recommendations: String? = null
+)
+
+data class BkSdqItemDto(
+    val id: String,
+    val studentId: String,
+    val studentName: String,
+    val className: String,
+    val counselorName: String? = null,
+    val scoreEmotional: Int = 0,
+    val scoreConduct: Int = 0,
+    val scoreHyperactivity: Int = 0,
+    val scorePeer: Int = 0,
+    val scoreProsocial: Int = 0,
+    val totalDifficultiesScore: Int = 0,
+    val interpretation: String = "NORMAL",
+    val recommendations: String? = null,
+    val createdAt: String? = null
+)
+
+data class BkSdqListResponse(
+    val success: Boolean = true,
+    val total: Int = 0,
+    val data: List<BkSdqItemDto> = emptyList(),
+    val message: String? = null
+)
+
+data class BkSociometryRequest(
+    val className: String,
+    val criteria: String = "BELAJAR_KELOMPOK",
+    val choices: List<Map<String, Any>> = emptyList()
+)
+
+data class BkSociometryDataDto(
+    val className: String? = null,
+    val popularStudents: List<String>? = emptyList(),
+    val isolatedStudents: List<String>? = emptyList(),
+    val cliques: List<String>? = emptyList()
+)
+
+data class BkSociometryResponse(
+    val success: Boolean = true,
+    val message: String? = null,
+    val data: BkSociometryDataDto? = null
+)
+
+data class BkAkpdRequest(
+    val studentId: String? = null,
+    val scorePribadi: Float = 0f,
+    val scoreSosial: Float = 0f,
+    val scoreBelajar: Float = 0f,
+    val scoreKarir: Float = 0f,
+    val topProblemAreas: List<String> = emptyList(),
+    val answers: Map<String, Any>? = null
+)
+
+data class BkWhistleblowRequest(
+    val subject: String,
+    val message: String,
+    val category: String = "BULLYING",
+    val bullySuspect: String? = null,
+    val location: String? = null,
+    val evidenceUrl: String? = null,
+    val isAnonymous: Boolean = true
+)
+
+data class BkRplGenerateRequest(
+    val jenisLayanan: String,
+    val topik: String,
+    val bidangBimbingan: String,
+    val kelasTarget: String,
+    val alokasiWaktu: String = "1 x 40 Menit",
+    val tujuanLayanan: String? = null,
+    val metodeDanTeknik: String? = null,
+    val mediaAlat: String? = null
+)
+
+data class BkRplItemDto(
+    val id: String,
+    val guruBkName: String,
+    val jenisLayanan: String,
+    val topik: String,
+    val bidangBimbingan: String,
+    val kelasTarget: String,
+    val alokasiWaktu: String,
+    val tujuanLayanan: String,
+    val metodeDanTeknik: String,
+    val mediaAlat: String,
+    val createdAt: String
+)
+
+data class BkRplListResponse(
+    val success: Boolean = true,
+    val data: List<BkRplItemDto> = emptyList()
+)
+
+data class BkBehaviorContractRequest(
+    val studentId: String,
+    val targetBehaviors: List<String>,
+    val rewards: List<String>,
+    val consequences: List<String>,
+    val startDate: String? = null,
+    val endDate: String? = null,
+    val notes: String? = null
+)
+
+data class BkDisciplineRewardRequest(
+    val studentId: String,
+    val achievementTitle: String,
+    val rewardPoints: Int = 5,
+    val notes: String? = null
+)
+
+data class BkMonthlyReportSummaryDto(
+    val totalKasus: Int = 0,
+    val kasusSelesai: Int = 0,
+    val jadwalTatapMuka: Int = 0,
+    val kasusMenunggu: Int = 0,
+    val totalPelanggaran: Int = 0,
+    val totalRewardPrestasi: Int = 0,
+    val totalSpDiterbitkan: Int = 0,
+    val totalRplTersusun: Int = 0,
+    val distribusiKategori: Map<String, Int> = emptyMap()
+)
+
+data class BkMonthlyReportResponse(
+    val success: Boolean = true,
+    val period: String? = null,
+    val summary: BkMonthlyReportSummaryDto? = null
+)
+
+data class BkInformedConsentRequest(
+    val studentId: String? = null,
+    val serviceType: String = "KONSELING_INDIVIDUAL_MENDALAM",
+    val purpose: String? = null,
+    val signatureDigital: String? = null
+)
+
+// ==================== REKAP PRESENSI SHOLAT GURU & BK ====================
+data class TeacherPrayerRecapResponse(
+    val success: Boolean,
+    val date: String? = null,
+    val prayerType: String? = null,
+    val selectedClass: String? = null,
+    val accessibleClasses: List<String>? = null,
+    val summary: PrayerRecapSummaryDto? = null,
+    val classSummaries: List<ClassPrayerSummaryDto>? = null,
+    val students: List<StudentPrayerDetailDto>? = null,
+    val message: String? = null
+)
+
+data class PrayerRecapSummaryDto(
+    val totalStudents: Int = 0,
+    val sholatCount: Int = 0,
+    val keputrianCount: Int = 0,
+    val haidCount: Int = 0,
+    val alpaCount: Int = 0,
+    val percentage: Int = 0
+)
+
+data class ClassPrayerSummaryDto(
+    val className: String,
+    val total: Int = 0,
+    val sholat: Int = 0,
+    val keputrian: Int = 0,
+    val haid: Int = 0,
+    val alpa: Int = 0,
+    val percentage: Int = 0
+)
+
+data class StudentPrayerDetailDto(
+    val id: String,
+    val name: String,
+    val nisn: String? = null,
+    val gender: String? = null,
+    val className: String? = null,
+    val isFemale: Boolean = false,
+    val prayerStatus: String = "BELUM_PRESENSI",
+    val method: String? = null,
+    val scanTime: String? = null,
+    val notes: String? = null
+)
+
+data class BkGlobalPrayerRecapResponse(
+    val success: Boolean,
+    val date: String? = null,
+    val prayerType: String? = null,
+    val dayName: String? = null,
+    val scheduleNotes: String? = null,
+    val wudhuTime: String? = null,
+    val scanStartTime: String? = null,
+    val scanEndTime: String? = null,
+    val scheduledClasses: List<String>? = null,
+    val macroStats: BkMacroPrayerStatsDto? = null,
+    val classBreakdown: List<BkClassPrayerBreakdownDto>? = null,
+    val alpaStudents: List<BkAlpaPrayerStudentDto>? = null,
+    val message: String? = null
+)
+
+data class BkMacroPrayerStatsDto(
+    val totalSchoolStudents: Int = 0,
+    val totalScheduledStudents: Int = 0,
+    val totalSholat: Int = 0,
+    val totalKeputrian: Int = 0,
+    val totalUzur: Int = 0,
+    val totalAlpa: Int = 0,
+    val overallPercentage: Int = 0
+)
+
+data class BkClassPrayerBreakdownDto(
+    val className: String,
+    val isScheduledToday: Boolean = false,
+    val totalStudents: Int = 0,
+    val sholatCount: Int = 0,
+    val keputrianCount: Int = 0,
+    val uzurCount: Int = 0,
+    val alpaCount: Int = 0,
+    val percentage: Int = 0
+)
+
+data class BkAlpaPrayerStudentDto(
+    val studentId: String,
+    val studentName: String,
+    val nisn: String? = null,
+    val className: String? = null,
+    val gender: String? = null,
+    val parentPhone: String? = null,
+    val status: String? = null,
+    val date: String? = null,
+    val prayerType: String? = null
+)
+
+data class PaiCardScanResponse(
+    val success: Boolean,
+    val message: String? = null,
+    val student: PaiCardScanStudentDto? = null
+)
+
+data class PaiCardScanStudentDto(
+    val id: String? = null,
+    val name: String? = null,
+    val nisn: String? = null,
+    val className: String? = null,
+    val prayerType: String? = null,
+    val time: String? = null,
+    val gateInRecorded: Boolean? = false,
+    val gateOutRecorded: Boolean? = false
+)
+
+

@@ -1,9 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/gray_bg">
+
+    <ScrollView
+        android:id="@+id/scrollTeacherContent"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_marginBottom="60dp"
+        android:background="@color/gray_bg">
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -1046,7 +1053,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="4dp"
                         android:gravity="center"
-                        android:text="Verifikasi otomatis via GPS sekolah â€¢ Tanpa perlu scan kamera"
+                        android:text="Verifikasi otomatis via GPS sekolah • Tanpa perlu scan kamera"
                         android:textColor="#64748B"
                         android:textSize="10.5sp" />
                 </LinearLayout>
@@ -1142,7 +1149,7 @@
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="âš ï¸ 0 Laporan Kelas Kosong"
+                            android:text="⚠️ 0 Laporan Kelas Kosong"
                             android:textColor="#94A3B8"
                             android:textSize="11sp" />
 
@@ -1152,7 +1159,7 @@
                             android:layout_height="34dp"
                             android:background="@drawable/bg_btn_amber_rounded"
                             android:paddingHorizontal="14dp"
-                            android:text="Buka Panel Piket â†—"
+                            android:text="Buka Panel Piket ↗"
                             android:textColor="#0F172A"
                             android:textSize="11sp"
                             android:textStyle="bold" />
@@ -1253,7 +1260,7 @@
                             android:background="@drawable/bg_btn_amber_rounded"
                             android:paddingHorizontal="8dp"
                             android:paddingVertical="4dp"
-                            android:text="â³ 15:00"
+                            android:text="⏳ 15:00"
                             android:textColor="#92400E"
                             android:textSize="11sp"
                             android:fontFamily="monospace"
@@ -1617,7 +1624,7 @@
                     <LinearLayout
                         android:layout_width="52dp"
                         android:layout_height="52dp"
-                        android:background="@drawable/bg_icon_purple"
+                        android:background="@drawable/bg_icon_blue"
                         android:gravity="center">
                         <ImageView
                             android:layout_width="26dp"
@@ -1673,7 +1680,7 @@
                 </LinearLayout>
             </LinearLayout>
 
-            <!-- Row 3: Izin Guru, Guru Piket, Pengumuman, Pusat Manajemen (4 Kolom Penuh 100%) -->
+            <!-- Row 3: Izin Guru, Pengumuman, Wali Kelas, Pembina PAI (4 Kolom Rata & Simetris) -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -1716,42 +1723,7 @@
                         android:textStyle="bold" />
                 </LinearLayout>
 
-                <!-- Menu 10: Guru Piket -->
-                <LinearLayout
-                    android:id="@+id/gridTeacherPiket"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:gravity="center"
-                    android:orientation="vertical"
-                    android:padding="4dp">
-
-                    <LinearLayout
-                        android:layout_width="52dp"
-                        android:layout_height="52dp"
-                        android:background="@drawable/bg_icon_amber"
-                        android:gravity="center">
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="📋"
-                            android:textSize="22sp" />
-                    </LinearLayout>
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="6dp"
-                        android:gravity="center"
-                        android:text="Guru Piket"
-                        android:textColor="#1E293B"
-                        android:textSize="11sp"
-                        android:textStyle="bold" />
-                </LinearLayout>
-
-                <!-- Menu 11: Pengumuman Sekolah -->
+                <!-- Menu 10: Pengumuman Sekolah -->
                 <LinearLayout
                     android:id="@+id/gridTeacherAnnouncement"
                     android:layout_width="0dp"
@@ -1786,9 +1758,90 @@
                         android:textStyle="bold" />
                 </LinearLayout>
 
-                <!-- Menu 12: Pusat Manajemen Terpadu -->
+                <!-- Menu 15: Layanan TPP Guru (Tambahan Penghasilan Pegawai) -->
                 <LinearLayout
-                    android:id="@+id/gridTeacherManagement"
+                    android:id="@+id/gridTeacherTpp"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:padding="4dp">
+
+                    <LinearLayout
+                        android:layout_width="52dp"
+                        android:layout_height="52dp"
+                        android:background="@drawable/bg_icon_amber"
+                        android:gravity="center">
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="💰"
+                            android:textSize="22sp" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:gravity="center"
+                        android:text="TPP"
+                        android:textColor="#B45309"
+                        android:textSize="11sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <!-- Menu 12: Pembina PAI & Sholat Berjamaah -->
+                <LinearLayout
+                    android:id="@+id/gridTeacherPrayer"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:padding="4dp">
+
+                    <LinearLayout
+                        android:layout_width="52dp"
+                        android:layout_height="52dp"
+                        android:background="@drawable/bg_icon_green"
+                        android:gravity="center">
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="🕌"
+                            android:textSize="22sp" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:id="@+id/tvGridTeacherPrayerTitle"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:gravity="center"
+                        android:text="Pembina PAI"
+                        android:textColor="#065F46"
+                        android:textSize="11sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- Row 4: Tim Kurikulum & Cek Update (Rapi Sesuai Peran) -->
+            <LinearLayout
+                android:id="@+id/rowTeacherSpecialRoles"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:orientation="horizontal"
+                android:weightSum="4">
+
+                <!-- Menu 13: Tim Kurikulum -->
+                <LinearLayout
+                    android:id="@+id/gridTeacherKurikulum"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
@@ -1815,23 +1868,48 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="6dp"
                         android:gravity="center"
-                        android:text="Manajemen"
-                        android:textColor="#4338CA"
+                        android:text="Kurikulum"
+                        android:textColor="#2563EB"
                         android:textSize="11sp"
                         android:textStyle="bold" />
                 </LinearLayout>
-            </LinearLayout>
 
-            <!-- Row 4: Wali Kelas, Pembina PAI, Tim Kurikulum, Cek Update (4 Kolom Penuh 100%) -->
-            <LinearLayout
-                android:id="@+id/rowTeacherSpecialRoles"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
-                android:orientation="horizontal"
-                android:weightSum="4">
+                <!-- Menu 14: Cek Update Aplikasi -->
+                <LinearLayout
+                    android:id="@+id/gridTeacherUpdate"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:padding="4dp">
 
-                <!-- Menu 13: Wali Kelas -->
+                    <LinearLayout
+                        android:layout_width="52dp"
+                        android:layout_height="52dp"
+                        android:background="@drawable/bg_icon_teal"
+                        android:gravity="center">
+                        <ImageView
+                            android:layout_width="26dp"
+                            android:layout_height="26dp"
+                            android:src="@drawable/ic_system_update"
+                            app:tint="#FFFFFF" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:gravity="center"
+                        android:text="Cek Update"
+                        android:textColor="#1E293B"
+                        android:textSize="11sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <!-- Menu 11: Wali Kelas -->
                 <LinearLayout
                     android:id="@+id/gridTeacherWaliKelas"
                     android:layout_width="0dp"
@@ -1866,110 +1944,11 @@
                         android:textStyle="bold" />
                 </LinearLayout>
 
-                <!-- Menu 14: Pembina PAI & Sholat Berjamaah -->
-                <LinearLayout
-                    android:id="@+id/gridTeacherPrayer"
+                <!-- Spacer untuk mengisi 4 kolom simetris -->
+                <View
                     android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:gravity="center"
-                    android:orientation="vertical"
-                    android:padding="4dp">
-
-                    <LinearLayout
-                        android:layout_width="52dp"
-                        android:layout_height="52dp"
-                        android:background="@drawable/bg_icon_green"
-                        android:gravity="center">
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="🕌"
-                            android:textSize="22sp" />
-                    </LinearLayout>
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="6dp"
-                        android:gravity="center"
-                        android:text="Pembina PAI"
-                        android:textColor="#065F46"
-                        android:textSize="11sp"
-                        android:textStyle="bold" />
-                </LinearLayout>
-
-                <!-- Menu 15: Tim Kurikulum -->
-                <LinearLayout
-                    android:id="@+id/gridTeacherKurikulum"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:gravity="center"
-                    android:orientation="vertical"
-                    android:padding="4dp">
-
-                    <LinearLayout
-                        android:layout_width="52dp"
-                        android:layout_height="52dp"
-                        android:background="@drawable/bg_icon_purple"
-                        android:gravity="center">
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="🏛️"
-                            android:textSize="22sp" />
-                    </LinearLayout>
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="6dp"
-                        android:gravity="center"
-                        android:text="Kurikulum"
-                        android:textColor="#2563EB"
-                        android:textSize="11sp"
-                        android:textStyle="bold" />
-                </LinearLayout>
-
-                <!-- Menu 16: Cek Update Aplikasi -->
-                <LinearLayout
-                    android:id="@+id/gridTeacherUpdate"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:gravity="center"
-                    android:orientation="vertical"
-                    android:padding="4dp">
-
-                    <LinearLayout
-                        android:layout_width="52dp"
-                        android:layout_height="52dp"
-                        android:background="@drawable/bg_icon_teal"
-                        android:gravity="center">
-                        <ImageView
-                            android:layout_width="26dp"
-                            android:layout_height="26dp"
-                            android:src="@drawable/ic_system_update"
-                            app:tint="#FFFFFF" />
-                    </LinearLayout>
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="6dp"
-                        android:gravity="center"
-                        android:text="Cek Update"
-                        android:textColor="#1E293B"
-                        android:textSize="11sp"
-                        android:textStyle="bold" />
-                </LinearLayout>
+                    android:layout_height="0dp"
+                    android:layout_weight="1" />
             </LinearLayout>
 
             <!-- Hidden compatibility containers (Kept for ViewBinding without layout clutter) -->
@@ -1977,6 +1956,8 @@
                 android:layout_width="0dp"
                 android:layout_height="0dp"
                 android:visibility="gone">
+                <LinearLayout android:id="@+id/gridTeacherPiket" android:layout_width="0dp" android:layout_height="0dp" />
+                <LinearLayout android:id="@+id/gridTeacherManagement" android:layout_width="0dp" android:layout_height="0dp" />
                 <LinearLayout android:id="@+id/gridTeacherHelpdesk" android:layout_width="0dp" android:layout_height="0dp" />
                 <LinearLayout android:id="@+id/gridTeacherPanduan" android:layout_width="0dp" android:layout_height="0dp" />
                 <LinearLayout android:id="@+id/gridTeacherBk" android:layout_width="0dp" android:layout_height="0dp" />
@@ -2081,6 +2062,17 @@
                                 android:textSize="10.5sp"
                                 android:textStyle="bold" />
                         </LinearLayout>
+
+                        <Button
+                            android:id="@+id/btnTabRecapPrayerNotice"
+                            android:layout_width="match_parent"
+                            android:layout_height="40dp"
+                            android:layout_marginTop="8dp"
+                            android:backgroundTint="#065F46"
+                            android:text="🕌 REKAP PRESENSI SHOLAT SISWA"
+                            android:textColor="#FFFFFF"
+                            android:textSize="11sp"
+                            android:textStyle="bold" />
                     </LinearLayout>
                 </androidx.cardview.widget.CardView>
 
@@ -2162,18 +2154,182 @@
                 </androidx.cardview.widget.CardView>
             </LinearLayout>
 
-            <!-- Standard CBT Footer -->
+            <!-- Standard CBT Footer (Hidden per Temuan #29 - Dynamic Version in Server Status Chip) -->
             <TextView
                 android:id="@+id/tvFooter"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="20dp"
-                android:layout_marginBottom="24dp"
-                android:gravity="center"
-                android:text="Smart CBT v2.8.137 â€¢ SMP Negeri 1 Boyolangu"
-                android:textColor="#94A3B8"
-                android:textSize="11sp" />
+                android:visibility="gone"
+                android:text="Smart CBT • SMP Negeri 1 Boyolangu" />
 
         </LinearLayout>
     </LinearLayout>
-</ScrollView>
+    </ScrollView>
+
+    <!-- ================= MODERN BOTTOM NAVIGATION BAR GURU ================= -->
+    <LinearLayout
+        android:id="@+id/teacherBottomBar"
+        android:layout_width="match_parent"
+        android:layout_height="60dp"
+        android:layout_gravity="bottom"
+        android:background="#FFFFFF"
+        android:elevation="8dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingHorizontal="4dp">
+
+        <!-- TAB 1: KBM / BERANDA -->
+        <LinearLayout
+            android:id="@+id/btnNavTeacherHome"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:orientation="vertical">
+
+            <ImageView
+                android:id="@+id/ivNavTeacherHome"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:src="@drawable/ic_nav_home"
+                app:tint="#059669" />
+
+            <TextView
+                android:id="@+id/tvLabelTeacherHome"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="Beranda"
+                android:textColor="#059669"
+                android:textSize="10sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <!-- TAB 2: REKAP MAPEL -->
+        <LinearLayout
+            android:id="@+id/btnNavTeacherRecap"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:orientation="vertical">
+
+            <ImageView
+                android:id="@+id/ivNavTeacherRecap"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:src="@drawable/ic_homework"
+                app:tint="#64748B" />
+
+            <TextView
+                android:id="@+id/tvLabelTeacherRecap"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="Rekap Mapel"
+                android:textColor="#64748B"
+                android:textSize="10sp" />
+        </LinearLayout>
+
+        <!-- CENTER PLACEHOLDER FOR SCANNER -->
+        <View
+            android:layout_width="56dp"
+            android:layout_height="match_parent" />
+
+        <!-- TAB 3: SHOLAT PAI -->
+        <LinearLayout
+            android:id="@+id/btnNavTeacherPrayer"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:orientation="vertical">
+
+            <ImageView
+                android:id="@+id/ivNavTeacherPrayer"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:src="@drawable/ic_menu_sholat"
+                app:tint="#64748B" />
+
+            <TextView
+                android:id="@+id/tvLabelTeacherPrayer"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="Sholat PAI"
+                android:textColor="#64748B"
+                android:textSize="10sp" />
+        </LinearLayout>
+
+        <!-- TAB 4: WALI KELAS / PROFIL -->
+        <LinearLayout
+            android:id="@+id/btnNavTeacherProfile"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:orientation="vertical">
+
+            <ImageView
+                android:id="@+id/ivNavTeacherProfile"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:src="@drawable/ic_nav_profile"
+                app:tint="#64748B" />
+
+            <TextView
+                android:id="@+id/tvLabelTeacherProfile"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="Profil Guru"
+                android:textColor="#64748B"
+                android:textSize="10sp" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- CENTER CLEAN SCANNER BUTTON WITH "Scan QR" LABEL -->
+    <LinearLayout
+        android:id="@+id/btnCenterScan"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="4dp"
+        android:clickable="true"
+        android:elevation="12dp"
+        android:focusable="true"
+        android:gravity="center_horizontal"
+        android:orientation="vertical">
+
+        <LinearLayout
+            android:layout_width="46dp"
+            android:layout_height="46dp"
+            android:background="@drawable/bg_fab_clean"
+            android:gravity="center">
+
+            <ImageView
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:src="@drawable/ic_camera_scan" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="1dp"
+            android:text="Scan QR"
+            android:textColor="#059669"
+            android:textSize="9sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

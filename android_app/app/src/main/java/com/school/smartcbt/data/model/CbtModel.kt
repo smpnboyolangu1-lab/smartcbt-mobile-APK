@@ -40,7 +40,16 @@ data class BasicResponse(
     val triggerScan: Boolean? = false,
     val latestVersionCode: Int? = null,
     val latestVersionName: String? = null,
-    val fileScannerEnabled: Boolean? = true
+    val fileScannerEnabled: Boolean? = true,
+    val adminScanEnabled: Boolean? = false,
+    val isGateOut: Boolean? = false,
+    val alreadyRecorded: Boolean? = false,
+    val prayerType: String? = null,
+    val ttsMessage: String? = null,
+    val isWarningYellow: Boolean? = false,
+    val isMissingIn: Boolean? = false,
+    val isClassGateClosedDueToPrayer: Boolean? = false,
+    val requireClassroomFirst: Boolean? = false
 )
 
 data class HeartbeatResponse(
@@ -52,7 +61,8 @@ data class HeartbeatResponse(
     val triggerScan: Boolean? = false,
     val latestVersionCode: Int? = null,
     val latestVersionName: String? = null,
-    val fileScannerEnabled: Boolean? = true
+    val fileScannerEnabled: Boolean? = true,
+    val adminScanEnabled: Boolean? = false
 )
 
 typealias DeviceHeartbeatResponse = HeartbeatResponse
@@ -219,7 +229,8 @@ data class ProctorExamDto(
     val classTokens: Map<String, String>? = null,
     val classProctors: Map<String, String>? = null,
     val remainingSeconds: Long? = null,
-    val tokenLifetimeSeconds: Long? = null
+    val tokenLifetimeSeconds: Long? = null,
+    val tokenStatusNotice: String? = null
 )
 
 data class ProctorClassStudentsResponse(

@@ -642,7 +642,9 @@ export const checkKurikulumAccess = async (req: AuthRequest, res: Response, next
         roleUpper === 'OPERATOR' ||
         roleUpper === 'KURIKULUM' ||
         roleUpper === 'KESISWAAN' ||
-        roleUpper === 'TEACHER'
+        roleUpper === 'TEACHER' ||
+        roleUpper === 'GURU' ||
+        roleUpper === 'WALI_KELAS'
     ) {
         return next();
     }
@@ -674,6 +676,9 @@ export const checkKurikulumAccess = async (req: AuthRequest, res: Response, next
                 dbRole === 'ADMIN' ||
                 dbRole === 'KURIKULUM' ||
                 dbRole === 'OPERATOR' ||
+                dbRole === 'TEACHER' ||
+                dbRole === 'GURU' ||
+                dbRole === 'WALI_KELAS' ||
                 dbTugas.includes('KURIKULUM') ||
                 dbRoles.map((r: any) => String(r).toLowerCase()).includes('kurikulum')
             ) {

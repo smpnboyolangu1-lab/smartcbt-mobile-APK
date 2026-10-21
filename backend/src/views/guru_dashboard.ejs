@@ -147,6 +147,12 @@
                 </span>
                 <span id="badgeProctorActive" class="bg-amber-400 text-slate-900 text-[10px] font-black px-2 py-0.5 rounded-full">PROKTOR</span>
             </button>
+            <button onclick="switchTab('tpp')" id="nav-tpp" class="tab-btn w-full text-left px-3.5 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-slate-800 transition-all flex items-center justify-between text-[13.5px]">
+                <span class="flex items-center gap-2.5">
+                    <span class="text-lg">💰</span> <span>Layanan TPP Guru</span>
+                </span>
+                <span class="bg-emerald-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full">TPP</span>
+            </button>
 
             <!-- PORTAL OPERATOR UNTUK KURIKULUM (AKADEMIK SAJA) -->
             <div id="sectionKurikulumPortal" class="pt-2 border-t border-slate-800/80 <%= (typeof isKurikulum !== 'undefined' && isKurikulum) ? '' : 'hidden' %>">
@@ -1282,14 +1288,20 @@
                     <p class="text-xs text-emerald-100 mt-1">Monitoring kehadiran Sholat Dhuhur &amp; Sholat Jumat di Masjid SMPN 1 Boyolangu, pendataan siswi berhalangan syar'i (haid/keputrian), dan rotasi jadwal rombel.</p>
                 </div>
                 <div class="flex flex-wrap items-center gap-2.5">
-                    <button onclick="togglePrayerScheduleForm()" class="bg-amber-500 hover:bg-amber-600 text-slate-900 font-bold px-4 py-2.5 rounded-xl text-xs shadow flex items-center gap-2 transition-all">
+                    <button onclick="triggerPaiH1ReminderWeb()" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-3.5 py-2.5 rounded-xl text-xs shadow flex items-center gap-1.5 transition-all">
+                        <span>📢</span> <span>Kirim Pengingat Besok (H-1)</span>
+                    </button>
+                    <button onclick="togglePrayerScheduleForm()" class="bg-amber-500 hover:bg-amber-600 text-slate-900 font-bold px-3.5 py-2.5 rounded-xl text-xs shadow flex items-center gap-1.5 transition-all">
                         <span>⚙️</span> <span>Atur Jadwal Rombel</span>
                     </button>
-                    <a href="/admin/kelas/print-barcodes?filter=MUSHOLA" target="_blank" class="bg-white/10 hover:bg-white/20 text-white font-bold px-3.5 py-2.5 rounded-xl text-xs border border-white/20 flex items-center gap-1.5 transition-all">
+                    <a href="/admin/kelas/print-barcodes?filter=MUSHOLA" target="_blank" class="bg-white/10 hover:bg-white/20 text-white font-bold px-3 py-2.5 rounded-xl text-xs border border-white/20 flex items-center gap-1.5 transition-all">
                         <span>🖨️</span> <span>Cetak Barcode Masjid</span>
                     </a>
-                    <button onclick="loadPaiPrayerWeb()" class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-2.5 rounded-xl text-xs shadow flex items-center gap-2 transition-all">
+                    <button onclick="loadPaiPrayerWeb()" class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3.5 py-2.5 rounded-xl text-xs shadow flex items-center gap-1.5 transition-all">
                         <span>🔄</span> <span>Segarkan</span>
+                    </button>
+                    <button onclick="openPaiScanCardModal()" class="bg-blue-600 hover:bg-blue-500 text-white font-bold px-3.5 py-2.5 rounded-xl text-xs shadow flex items-center gap-1.5 transition-all border border-blue-300/40">
+                        <span>🪪</span> <span>Scan Kartu Siswa (Tanpa HP)</span>
                     </button>
                 </div>
             </div>
@@ -1317,6 +1329,56 @@
                     <div class="text-right">
                         <span class="text-[11px] text-slate-400 font-bold block">KODE BARCODE MASJID:</span>
                         <code class="text-xs font-mono font-bold bg-slate-100 text-slate-800 px-2.5 py-1 rounded-lg border border-slate-200" id="paiActiveBarcodeCode">BARCODE_SHOLAT_DHUHUR_MASJID</code>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ===== PANEL SOLUSI SISWA TANPA HP ===== -->
+            <div class="bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-200 p-5 rounded-2xl shadow-sm">
+                <div class="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+                    <div class="flex items-start gap-3.5">
+                        <div class="w-11 h-11 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center text-xl font-black border border-blue-200 flex-shrink-0">🪪</div>
+                        <div>
+                            <h4 class="text-sm font-extrabold text-blue-900 flex items-center gap-2">
+                                Solusi Presensi Sholat: Siswa Tanpa HP
+                                <span class="text-[10px] bg-blue-600 text-white px-2 py-0.5 rounded-full font-bold">PENTING</span>
+                            </h4>
+                            <p class="text-xs text-blue-700 mt-1 leading-relaxed">
+                                Bagi siswa yang <strong>tidak membawa / tidak memiliki HP</strong>, Guru PAI dapat mencatat kehadiran melalui 3 cara berikut:
+                            </p>
+                            <div class="mt-2.5 grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+                                <div class="bg-white rounded-xl border border-blue-200 p-3 flex items-start gap-2.5 shadow-sm">
+                                    <span class="text-lg flex-shrink-0">🔍</span>
+                                    <div>
+                                        <p class="font-black text-blue-900 text-[11px] uppercase tracking-wide">Cara 1: Scan Kartu Pelajar</p>
+                                        <p class="text-blue-600 mt-0.5 leading-snug">Guru scan barcode di kartu pelajar fisik siswa menggunakan HP guru / barcode scanner USB.</p>
+                                        <button onclick="openPaiScanCardModal()" class="mt-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[10px] font-extrabold flex items-center gap-1 shadow transition-all cursor-pointer">
+                                            🪪 Buka Scan Kartu
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="bg-white rounded-xl border border-emerald-200 p-3 flex items-start gap-2.5 shadow-sm">
+                                    <span class="text-lg flex-shrink-0">✍️</span>
+                                    <div>
+                                        <p class="font-black text-emerald-900 text-[11px] uppercase tracking-wide">Cara 2: Tandai Manual per Siswa</p>
+                                        <p class="text-emerald-700 mt-0.5 leading-snug">Klik tombol <strong>✅ Sholat</strong> di kolom "Aksi Cepat Guru PAI" pada tabel daftar siswa di bawah.</p>
+                                        <button onclick="setPaiStatusPill('BELUM'); document.getElementById('paiStudentsTableBody')?.scrollIntoView({behavior:'smooth'})" class="mt-2 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-extrabold flex items-center gap-1 shadow transition-all cursor-pointer">
+                                            📋 Lihat Daftar Siswa
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="bg-white rounded-xl border border-amber-200 p-3 flex items-start gap-2.5 shadow-sm">
+                                    <span class="text-lg flex-shrink-0">⚡</span>
+                                    <div>
+                                        <p class="font-black text-amber-900 text-[11px] uppercase tracking-wide">Cara 3: Tandai Massal 1-Kelas</p>
+                                        <p class="text-amber-700 mt-0.5 leading-snug">Gunakan tombol <strong>⚡ Tandai Semua Sholat</strong> untuk mencatat seluruh siswa satu kelas sekaligus.</p>
+                                        <button onclick="batchMarkAllPaiPrayer()" class="mt-2 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-900 rounded-lg text-[10px] font-extrabold flex items-center gap-1 shadow transition-all cursor-pointer">
+                                            ⚡ Tandai Massal
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1440,33 +1502,40 @@
             </div>
 
             <!-- Ringkasan Statistik Presensi Sholat Hari Ini -->
-            <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                <div class="bg-white p-4 rounded-2xl border shadow-sm flex items-center gap-3.5">
-                    <div class="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center text-xl font-black">👥</div>
+            <div class="grid grid-cols-2 sm:grid-cols-5 gap-3.5">
+                <div class="bg-white p-4 rounded-2xl border shadow-sm flex items-center gap-3">
+                    <div class="w-11 h-11 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center text-lg font-black">👥</div>
                     <div>
-                        <p class="text-[11px] font-bold text-gray-500 uppercase">Total Siswa Kelas</p>
-                        <p class="text-xl font-black text-gray-800" id="paiStatTotal">0</p>
+                        <p class="text-[10.5px] font-bold text-gray-500 uppercase">Total Siswa</p>
+                        <p class="text-lg font-black text-gray-800" id="paiStatTotal">0</p>
                     </div>
                 </div>
-                <div class="bg-white p-4 rounded-2xl border shadow-sm flex items-center gap-3.5">
-                    <div class="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-xl font-black">🕌</div>
+                <div class="bg-white p-4 rounded-2xl border shadow-sm flex items-center gap-3">
+                    <div class="w-11 h-11 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-lg font-black">🕌</div>
                     <div>
-                        <p class="text-[11px] font-bold text-gray-500 uppercase">Sudah Sholat</p>
-                        <p class="text-xl font-black text-emerald-700" id="paiStatSholat">0</p>
+                        <p class="text-[10.5px] font-bold text-gray-500 uppercase">Sholat Berjamaah</p>
+                        <p class="text-lg font-black text-emerald-700" id="paiStatSholat">0</p>
                     </div>
                 </div>
-                <div class="bg-white p-4 rounded-2xl border shadow-sm flex items-center gap-3.5">
-                    <div class="w-12 h-12 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center text-xl font-black">🌸</div>
+                <div class="bg-white p-4 rounded-2xl border shadow-sm flex items-center gap-3">
+                    <div class="w-11 h-11 rounded-xl bg-pink-50 text-pink-600 flex items-center justify-center text-lg font-black">🌸</div>
                     <div>
-                        <p class="text-[11px] font-bold text-gray-500 uppercase">Berhalangan (Haid)</p>
-                        <p class="text-xl font-black text-rose-700" id="paiStatHaid">0</p>
+                        <p class="text-[10.5px] font-bold text-gray-500 uppercase">Hadir Keputrian</p>
+                        <p class="text-lg font-black text-pink-700" id="paiStatKeputrian">0</p>
                     </div>
                 </div>
-                <div class="bg-white p-4 rounded-2xl border shadow-sm flex items-center gap-3.5">
-                    <div class="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center text-xl font-black">⚠️</div>
+                <div class="bg-white p-4 rounded-2xl border shadow-sm flex items-center gap-3">
+                    <div class="w-11 h-11 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center text-lg font-black">🩸</div>
                     <div>
-                        <p class="text-[11px] font-bold text-gray-500 uppercase">Belum Sholat</p>
-                        <p class="text-xl font-black text-amber-700" id="paiStatBelum">0</p>
+                        <p class="text-[10.5px] font-bold text-gray-500 uppercase">Berhalangan (Haid)</p>
+                        <p class="text-lg font-black text-rose-700" id="paiStatHaid">0</p>
+                    </div>
+                </div>
+                <div class="bg-white p-4 rounded-2xl border shadow-sm flex items-center gap-3">
+                    <div class="w-11 h-11 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center text-lg font-black">⚠️</div>
+                    <div>
+                        <p class="text-[10.5px] font-bold text-gray-500 uppercase">Belum / Alpha</p>
+                        <p class="text-lg font-black text-amber-700" id="paiStatBelum">0</p>
                     </div>
                 </div>
             </div>
@@ -1482,14 +1551,18 @@
                     </div>
                     <!-- Filter Controls -->
                     <div class="flex flex-wrap items-center gap-2.5">
-                        <select id="selectPaiMonitoringPrayerType" onchange="loadPaiClassMonitoring()" class="bg-amber-50 border border-amber-300 text-amber-900 rounded-xl px-3 py-2 text-xs font-bold focus:outline-none">
+                        <select id="selectPaiMonitoringPrayerType" onchange="onPaiPrayerTypeChanged()" class="bg-amber-50 border border-amber-300 text-amber-900 rounded-xl px-3 py-2 text-xs font-bold focus:outline-none">
                             <option value="DHUHUR">☀️ Sholat Dhuhur</option>
                             <option value="DHUHA">🌅 Sholat Dhuha</option>
                             <option value="JUMAT">🕌 Sholat Jumat</option>
                         </select>
-                        <select id="selectPaiClassFilter" onchange="loadPaiClassMonitoring()" class="bg-slate-50 border border-slate-300 text-slate-800 rounded-xl px-3 py-2 text-xs font-bold focus:outline-none">
-                            <!-- Populated dynamically: VII-A s/d IX-K -->
+                        <select id="selectPaiClassFilter" onchange="loadPaiClassMonitoring()" class="bg-emerald-50 border-2 border-emerald-400 text-emerald-950 rounded-xl px-3 py-2 text-xs font-black focus:outline-none shadow-sm">
+                            <!-- Populated dynamically: Hanya kelas terjadwal hari ini -->
                         </select>
+                        <label class="inline-flex items-center gap-1.5 text-[11px] font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 px-2.5 py-2 rounded-xl cursor-pointer select-none border border-slate-300">
+                            <input type="checkbox" id="checkShowAllClassesPai" onchange="togglePaiClassFilterMode()" class="rounded text-emerald-600">
+                            <span>Semua Rombel</span>
+                        </label>
                         <input type="date" id="inputPaiDateFilter" onchange="loadPaiClassMonitoring()" class="bg-slate-50 border border-slate-300 text-slate-800 rounded-xl px-3 py-1.5 text-xs font-bold focus:outline-none">
                         <input type="text" id="searchPaiStudentInput" oninput="filterPaiStudentRows()" placeholder="Cari Nama / NISN..." class="bg-slate-50 border border-slate-300 text-slate-800 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none w-36 sm:w-44">
                         <button onclick="openDownloadPrayerPdfModal()" class="bg-purple-600 hover:bg-purple-700 text-white font-bold px-3.5 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow transition-all cursor-pointer">
@@ -2170,6 +2243,154 @@
             </div>
         </div>
     </div>
+
+    <!-- TAB TPP GURU: LAYANAN LAPORAN & MONITORING TPP (TRIWULAN SELECTOR & LOCK HIJAU) -->
+    <div id="section-tpp" class="space-y-6 hidden">
+        <!-- Header Card -->
+        <div class="bg-gradient-to-r from-emerald-900 via-teal-900 to-slate-900 rounded-3xl p-6 sm:p-8 text-white shadow-lg relative overflow-hidden">
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 relative z-10">
+                <div>
+                    <span class="bg-emerald-500/30 text-emerald-300 text-xs uppercase px-3 py-1 rounded-full font-black border border-emerald-400/30">
+                        LAYANAN TPP GURU SMPN 1 BOYOLANGU
+                    </span>
+                    <h2 class="text-xl sm:text-2xl font-black mt-2">Laporan &amp; Monitoring Pencairan TPP</h2>
+                    <p class="text-emerald-100 text-xs sm:text-sm mt-1 max-w-2xl leading-relaxed">
+                        Pilih Triwulan (TW 1 – TW 4) untuk menampilkan daftar bulan terkait. Saat status telah <b>SUDAH CAIR</b>, sistem otomatis menerapkan <b>🔒 Kunci Hijau (Lock Hijau)</b> agar integritas data resmi terjaga.
+                    </p>
+                </div>
+                <div class="flex items-center gap-3 bg-slate-900/80 p-3 rounded-2xl border border-emerald-500/30">
+                    <div>
+                        <label class="block text-[10px] font-bold text-slate-400 uppercase">Tahun Anggaran:</label>
+                        <select id="tppTahunSelect" onchange="loadTeacherTppData()" class="bg-slate-800 text-emerald-300 border border-slate-700 rounded-xl px-3 py-1.5 font-black text-sm focus:outline-none focus:border-emerald-500">
+                            <option value="2026" selected>Tahun 2026</option>
+                            <option value="2025">Tahun 2025</option>
+                            <option value="2024">Tahun 2024</option>
+                        </select>
+                    </div>
+                    <button type="button" onclick="loadTeacherTppData()" class="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow transition-all cursor-pointer">
+                        <span>🔄</span> Refresh
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Ringkasan TPP Guru -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+                <div>
+                    <span class="text-slate-500 text-xs font-semibold">Total Sudah Cair</span>
+                    <p class="text-2xl font-black text-emerald-600 mt-1" id="tppStatSudahCair">0 / 12 Bulan</p>
+                    <span class="text-[10px] text-emerald-700 font-bold">🔒 Terkunci Resmi</span>
+                </div>
+                <div class="w-12 h-12 rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center text-xl font-bold">
+                    🔒
+                </div>
+            </div>
+
+            <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+                <div>
+                    <span class="text-slate-500 text-xs font-semibold">Total Belum Cair</span>
+                    <p class="text-2xl font-black text-amber-600 mt-1" id="tppStatBelumCair">12 Bulan</p>
+                    <span class="text-[10px] text-amber-700 font-bold">Menunggu Laporan</span>
+                </div>
+                <div class="w-12 h-12 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center text-xl font-bold">
+                    ⏳
+                </div>
+            </div>
+
+            <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+                <div>
+                    <span class="text-slate-500 text-xs font-semibold">Triwulan Aktif</span>
+                    <p class="text-2xl font-black text-slate-800 mt-1" id="tppStatTwAktif">TW 1</p>
+                    <span class="text-[10px] text-slate-500 font-bold" id="tppStatTwBulan">Januari – Maret</span>
+                </div>
+                <div class="w-12 h-12 rounded-2xl bg-blue-100 text-blue-700 flex items-center justify-center text-xl font-bold">
+                    📅
+                </div>
+            </div>
+
+            <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+                <div>
+                    <span class="text-slate-500 text-xs font-semibold">Verifikasi Kurikulum</span>
+                    <p class="text-base font-black text-teal-700 mt-1" id="tppStatVerifikasi">Tersinkronisasi</p>
+                    <span class="text-[10px] text-teal-600 font-bold">Terhubung ke Portal</span>
+                </div>
+                <div class="w-12 h-12 rounded-2xl bg-teal-100 text-teal-700 flex items-center justify-center text-xl font-bold">
+                    🏛️
+                </div>
+            </div>
+        </div>
+
+        <!-- TRIWULAN SELECTOR: Hanya Menampilkan Bulan untuk TW yang Dipilih -->
+        <div class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-5">
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-slate-100 pb-4">
+                <div>
+                    <h3 class="font-black text-base text-slate-800 flex items-center gap-2">
+                        <span>📑</span> Pilih Periode Triwulan
+                    </h3>
+                    <p class="text-xs text-slate-500 mt-0.5">Klik tombol Triwulan di bawah. Sistem hanya memunculkan bulan-bulan pada Triwulan yang dipilih.</p>
+                </div>
+                <span id="tppActiveTwIndicator" class="px-3.5 py-1.5 bg-emerald-100 border border-emerald-300 text-emerald-900 rounded-xl text-xs font-black">
+                    Sedang Ditampilkan: Triwulan 1 (Januari – Maret)
+                </span>
+            </div>
+
+            <!-- 4 Tombol Pilihan Triwulan -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <button type="button" onclick="selectTppTriwulan(1)" id="btnTppTw1" class="tpp-tw-btn px-4 py-3.5 rounded-2xl border-2 font-black text-xs text-left transition-all cursor-pointer flex flex-col justify-between border-emerald-600 bg-emerald-50 text-emerald-900 shadow-sm">
+                    <div class="flex items-center justify-between">
+                        <span class="text-sm font-extrabold">Triwulan 1 (TW 1)</span>
+                        <span id="badgeTw1Status" class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-600 text-white">TW 1</span>
+                    </div>
+                    <span class="text-[11px] text-emerald-700 font-semibold mt-1">Januari, Februari, Maret</span>
+                </button>
+
+                <button type="button" onclick="selectTppTriwulan(2)" id="btnTppTw2" class="tpp-tw-btn px-4 py-3.5 rounded-2xl border border-slate-200 font-black text-xs text-left transition-all cursor-pointer flex flex-col justify-between hover:bg-slate-50 text-slate-700">
+                    <div class="flex items-center justify-between">
+                        <span class="text-sm font-extrabold">Triwulan 2 (TW 2)</span>
+                        <span id="badgeTw2Status" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-200 text-slate-700">TW 2</span>
+                    </div>
+                    <span class="text-[11px] text-slate-500 font-semibold mt-1">April, Mei, Juni</span>
+                </button>
+
+                <button type="button" onclick="selectTppTriwulan(3)" id="btnTppTw3" class="tpp-tw-btn px-4 py-3.5 rounded-2xl border border-slate-200 font-black text-xs text-left transition-all cursor-pointer flex flex-col justify-between hover:bg-slate-50 text-slate-700">
+                    <div class="flex items-center justify-between">
+                        <span class="text-sm font-extrabold">Triwulan 3 (TW 3)</span>
+                        <span id="badgeTw3Status" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-200 text-slate-700">TW 3</span>
+                    </div>
+                    <span class="text-[11px] text-slate-500 font-semibold mt-1">Juli, Agustus, September</span>
+                </button>
+
+                <button type="button" onclick="selectTppTriwulan(4)" id="btnTppTw4" class="tpp-tw-btn px-4 py-3.5 rounded-2xl border border-slate-200 font-black text-xs text-left transition-all cursor-pointer flex flex-col justify-between hover:bg-slate-50 text-slate-700">
+                    <div class="flex items-center justify-between">
+                        <span class="text-sm font-extrabold">Triwulan 4 (TW 4)</span>
+                        <span id="badgeTw4Status" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-200 text-slate-700">TW 4</span>
+                    </div>
+                    <span class="text-[11px] text-slate-500 font-semibold mt-1">Oktober, November, Desember</span>
+                </button>
+            </div>
+
+            <!-- Kontainer Daftar Bulan Khusus TW Terpilih -->
+            <div class="pt-2">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-4">
+                    <h4 class="text-xs font-black uppercase text-slate-700 tracking-wider flex items-center gap-2">
+                        <span>🗓️</span> <span id="tppMonthsTitle">DAFTAR BULAN PADA TRIWULAN 1</span>
+                    </h4>
+                    <span class="text-[11px] font-semibold text-slate-500">
+                        Status SUDAH CAIR langsung terkunci secara permanen 🔒 (Lock Hijau)
+                    </span>
+                </div>
+
+                <!-- 3 Cards for the 3 Months -->
+                <div id="tppMonthsContainer" class="grid grid-cols-1 md:grid-cols-3 gap-5">
+                    <div class="col-span-3 text-center py-10 text-slate-400">
+                        <div class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-emerald-600 border-t-transparent mb-2"></div>
+                        <p class="font-bold text-xs">Memuat data TPP Triwulan...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
     </main>
 
     <!-- MODAL PROYEKTOR LAYAR PENUH & QR CODE PENGAWAS -->
@@ -2584,6 +2805,7 @@
         let activeQrSubject = 'Matematika Terpadu';
         let allLeaveRequestsTeacher = [];
         let currentHomeroomStudents = [];
+        let userPayload = null;
 
         // Initialize
         checkHomeroomStatus();
@@ -2601,7 +2823,7 @@
             const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
                 return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
             }).join(''));
-            const userPayload = JSON.parse(jsonPayload);
+            userPayload = JSON.parse(jsonPayload);
             
             if (userPayload.name) {
                 const elName = document.getElementById('teacherName');
@@ -2621,10 +2843,10 @@
 
             const navSholat = document.getElementById('nav-sholat');
             if (navSholat) {
-                if (isPaiTeacher) {
-                    navSholat.classList.remove('hidden');
-                } else {
-                    navSholat.classList.add('hidden');
+                navSholat.classList.remove('hidden');
+                const badge = navSholat.querySelector('span.bg-emerald-500');
+                if (badge) {
+                    badge.textContent = isPaiTeacher ? 'PAI' : 'REKAP';
                 }
             }
 
@@ -2656,6 +2878,78 @@
             const ps = document.getElementById('pageSubtitle');
             if (ps) ps.innerText = 'Pusat Koordinasi Pembelajaran, Bank Soal, Jadwal & Presensi Siswa';
         }
+
+        // ==============================================================
+        // SINKRONISASI KELAS AMPUAN GURU SECARA REALTIME (UH, TUGAS, BROADCAST)
+        // ==============================================================
+        async function populateTeacherTeachingClasses() {
+            let classesToUse = [];
+            let teacherSubject = '';
+            try {
+                const res = await authFetch('/api/guru/my-classes');
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.teacher) {
+                        if (Array.isArray(data.teacher.assignedClasses) && data.teacher.assignedClasses.length > 0) {
+                            classesToUse = data.teacher.assignedClasses;
+                        }
+                        if (data.teacher.subject && data.teacher.subject !== 'Semua Mata Pelajaran') {
+                            teacherSubject = data.teacher.subject;
+                        }
+                    }
+                    if (classesToUse.length === 0 && Array.isArray(data.allClasses)) {
+                        classesToUse = data.allClasses.map(c => c.name);
+                    }
+                }
+            } catch (e) {
+                console.warn('Gagal memuat kelas ampu guru dari API:', e);
+            }
+
+            if (classesToUse.length === 0 && userPayload && userPayload.teachingClasses) {
+                try {
+                    classesToUse = userPayload.teachingClasses.startsWith('[')
+                        ? JSON.parse(userPayload.teachingClasses)
+                        : userPayload.teachingClasses.split(',').map(c => c.trim().replace(/^["']|["']$/g, '')).filter(Boolean);
+                } catch (e) {
+                    classesToUse = userPayload.teachingClasses.split(',').map(c => c.trim()).filter(Boolean);
+                }
+            }
+
+            if (classesToUse.length === 0 && userPayload && userPayload.className) {
+                classesToUse = [userPayload.className];
+            }
+
+            if (!teacherSubject && userPayload && userPayload.teachingSubject) {
+                teacherSubject = userPayload.teachingSubject;
+            }
+
+            // 1. Target Kelas Ulangan Harian (uhKelasId)
+            const elUhKelas = document.getElementById('uhKelasId');
+            if (elUhKelas && classesToUse.length > 0) {
+                elUhKelas.innerHTML = classesToUse.map(cls => `<option value="${cls}">Kelas ${cls} (Kelas Ampuan)</option>`).join('');
+            }
+
+            // 2. Target Kelas Tugas & PR (chHwClass)
+            const elHwClass = document.getElementById('chHwClass');
+            if (elHwClass && classesToUse.length > 0) {
+                elHwClass.innerHTML = classesToUse.map(cls => `<option value="${cls}">Kelas ${cls} (Kelas Ampuan)</option>`).join('');
+            }
+
+            // 3. Target Kelas Broadcast Pengumuman (broadcastClass)
+            const elBcastClass = document.getElementById('broadcastClass');
+            if (elBcastClass && classesToUse.length > 0) {
+                elBcastClass.innerHTML = classesToUse.map(cls => `<option value="${cls}">Kelas ${cls} (Kelas Ampuan)</option>`).join('');
+            }
+
+            // 4. Auto-fill mata pelajaran jika tersedia
+            if (teacherSubject) {
+                const elUhMapel = document.getElementById('uhMapelId');
+                if (elUhMapel) elUhMapel.value = teacherSubject;
+                const elHwSubject = document.getElementById('chHwSubject');
+                if (elHwSubject) elHwSubject.value = teacherSubject;
+            }
+        }
+        populateTeacherTeachingClasses();
 
 
         const tabHeaders = {
@@ -2718,6 +3012,11 @@
                 icon: '📖',
                 title: 'Tahfiz & Murojaah Juz 30 (SMPN 1 Boyolangu)',
                 sub: 'Monitoring Perkembangan Hafalan 37 Surat Juz 30, Penilaian 5 Rubrik, Target Semester, & Rekapitulasi Prestasi'
+            },
+            'tpp': {
+                icon: '💰',
+                title: 'Layanan Laporan & Monitoring TPP Guru',
+                sub: 'Pilih Triwulan (TW 1 – TW 4) untuk melihat status pencairan TPP Anda. Status pencairan yang SUDAH CAIR otomatis terkunci secara resmi (🔒 Lock Hijau).'
             }
         };
 
@@ -3702,7 +4001,7 @@
                 if (expandBtn) expandBtn.classList.remove('hidden');
             }
 
-            const tabs = ['jadwal', 'soal', 'tugas', 'jurnal', 'broadcast', 'ulangan-harian', 'izin', 'izin-guru', 'walikelas', 'sholat', 'pengawas', 'tahfiz'];
+            const tabs = ['jadwal', 'soal', 'tugas', 'jurnal', 'broadcast', 'ulangan-harian', 'izin', 'izin-guru', 'walikelas', 'sholat', 'pengawas', 'tahfiz', 'tpp'];
             tabs.forEach(t => {
                 const nav = document.getElementById('nav-' + t);
                 const sec = document.getElementById('section-' + t);
@@ -3721,7 +4020,9 @@
             document.getElementById('pageTitle').innerHTML = `<span>${headerInfo.icon}</span> ${headerInfo.title}`;
             document.getElementById('pageSubtitle').innerText = headerInfo.sub;
 
-            if (tabId === 'izin') {
+            if (tabId === 'tpp') {
+                loadTeacherTppData();
+            } else if (tabId === 'izin') {
                 loadLeaveRequestsTeacher();
             } else if (tabId === 'izin-guru') {
                 loadMyTeacherLeaves();
@@ -4368,22 +4669,82 @@
         let currentPaiPrayerSchedule = null;
         let currentPaiPrayerStudents = [];
         let activePaiFilterPill = 'ALL';
+        let paiShowAllClasses = false;
+        let todayScheduledClassesList = [];
+        let allTodayPrayerSchedulesList = [];
 
-        function initPaiClassesDropdown() {
+        function togglePaiClassFilterMode() {
+            paiShowAllClasses = document.getElementById('checkShowAllClassesPai')?.checked || false;
+            populatePaiClassesDropdown();
+            loadPaiClassMonitoring();
+        }
+
+        function onPaiPrayerTypeChanged() {
+            const pType = document.getElementById('selectPaiMonitoringPrayerType')?.value || 'DHUHUR';
+            switchTodayPrayerSession(pType);
+        }
+
+        function populatePaiClassesDropdown() {
             const select = document.getElementById('selectPaiClassFilter');
-            if (!select || select.children.length > 0) return;
+            if (!select) return;
 
-            const classes = [
+            const allMasterClasses = [
                 'VII-A', 'VII-B', 'VII-C', 'VII-D', 'VII-E', 'VII-F', 'VII-G', 'VII-H', 'VII-I', 'VII-J', 'VII-K',
                 'VIII-A', 'VIII-B', 'VIII-C', 'VIII-D', 'VIII-E', 'VIII-F', 'VIII-G', 'VIII-H', 'VIII-I', 'VIII-J', 'VIII-K',
                 'IX-A', 'IX-B', 'IX-C', 'IX-D', 'IX-E', 'IX-F', 'IX-G', 'IX-H', 'IX-I', 'IX-J', 'IX-K'
             ];
-            classes.forEach(c => {
-                const opt = document.createElement('option');
-                opt.value = c;
-                opt.textContent = `Kelas ${c}`;
-                select.appendChild(opt);
-            });
+
+            const currentVal = select.value;
+            select.innerHTML = '';
+
+            // Ekstrak rombel jadwal sholat yang sedang aktif
+            let targetClasses = [];
+            if (currentPaiPrayerSchedule?.classNames && currentPaiPrayerSchedule.classNames !== 'ALL_MALE' && currentPaiPrayerSchedule.classNames !== 'ALL') {
+                targetClasses = currentPaiPrayerSchedule.classNames.split(',').map(c => c.trim()).filter(Boolean);
+            }
+
+            if (!paiShowAllClasses && targetClasses.length > 0) {
+                // HANYA rombel terjadwal sholat hari ini
+                const optGroup = document.createElement('optgroup');
+                optGroup.label = `🎯 Rombel Terjadwal Hari Ini (${targetClasses.length} Kelas)`;
+                targetClasses.forEach(c => {
+                    const opt = document.createElement('option');
+                    opt.value = c;
+                    opt.textContent = `Kelas ${c} (Jadwal Sholat)`;
+                    optGroup.appendChild(opt);
+                });
+                select.appendChild(optGroup);
+            } else {
+                // Tampilkan semua kelas master dengan penanda rombel terjadwal
+                const optGroupSched = document.createElement('optgroup');
+                optGroupSched.label = `🎯 Terjadwal Hari Ini`;
+                const optGroupOther = document.createElement('optgroup');
+                optGroupOther.label = `🏫 Rombel Lainnya`;
+
+                allMasterClasses.forEach(c => {
+                    const isSched = targetClasses.includes(c);
+                    const opt = document.createElement('option');
+                    opt.value = c;
+                    opt.textContent = isSched ? `Kelas ${c} ⭐ (Terjadwal)` : `Kelas ${c}`;
+                    if (isSched) {
+                        optGroupSched.appendChild(opt);
+                    } else {
+                        optGroupOther.appendChild(opt);
+                    }
+                });
+
+                if (optGroupSched.children.length > 0) select.appendChild(optGroupSched);
+                select.appendChild(optGroupOther);
+            }
+
+            // Restore selection jika masih valid, atau pilih rombel pertama terjadwal
+            if (currentVal && Array.from(select.options).some(o => o.value === currentVal)) {
+                select.value = currentVal;
+            } else if (targetClasses.length > 0 && Array.from(select.options).some(o => o.value === targetClasses[0])) {
+                select.value = targetClasses[0];
+            } else if (select.options.length > 0) {
+                select.selectedIndex = 0;
+            }
 
             // Set tanggal hari ini pada input
             const dateInput = document.getElementById('inputPaiDateFilter');
@@ -4395,16 +4756,24 @@
         let weeklyPrayerSchedules = [];
 
         async function loadPaiPrayerWeb() {
-            initPaiClassesDropdown();
             initPaiClassChips();
             try {
-                // 1. Ambil Jadwal Sholat Hari Ini
-                const resSched = await authFetch('/api/prayer/today-schedule');
+                // 1. Deteksi waktu sekarang (WIB): Pagi < jam 10 otomatis seleksi Dhuha, Siang >= jam 10 otomatis seleksi Dhuhur
+                const nowWib = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Jakarta' }));
+                const currentHourWIB = nowWib.getHours();
+                const isMorningDhuha = currentHourWIB < 10;
+                const reqParam = isMorningDhuha ? '?prayerType=DHUHA' : '';
+
+                // Ambil Jadwal Sholat Hari Ini
+                const resSched = await authFetch(`/api/prayer/today-schedule${reqParam}`);
                 const schedData = await resSched.json();
                 if (schedData.success && schedData.schedule) {
                     currentPaiPrayerSchedule = schedData.schedule;
+                    allTodayPrayerSchedulesList = schedData.availablePrayers || [];
+                    todayScheduledClassesList = schedData.scheduledClasses || [];
                     renderPrayerScheduleInfo(schedData);
                 }
+                populatePaiClassesDropdown();
 
                 // 2. Ambil Seluruh Jadwal Sepanjang Pekan (Senin - Sabtu)
                 try {
@@ -4707,7 +5076,10 @@
                 const data = await res.json();
                 if (data.success) {
                     currentPaiPrayerSchedule = data.schedule;
+                    allTodayPrayerSchedulesList = data.availablePrayers || [];
+                    todayScheduledClassesList = data.scheduledClasses || [];
                     renderPrayerScheduleInfo(data);
+                    populatePaiClassesDropdown();
                     loadPaiClassMonitoring();
                 }
             } catch (e) {
@@ -4829,7 +5201,9 @@
         }
 
         async function loadPaiClassMonitoring() {
-            initPaiClassesDropdown();
+            if (!document.getElementById('selectPaiClassFilter')?.children?.length) {
+                populatePaiClassesDropdown();
+            }
             const selectClass = document.getElementById('selectPaiClassFilter');
             const dateInput = document.getElementById('inputPaiDateFilter');
             const monTypeSelect = document.getElementById('selectPaiMonitoringPrayerType');
@@ -4848,10 +5222,17 @@
                 if (data.success) {
                     currentPaiPrayerStudents = data.students || [];
                     const sum = data.summary || {};
-                    document.getElementById('paiStatTotal').innerText = sum.totalStudents || currentPaiPrayerStudents.length;
-                    document.getElementById('paiStatSholat').innerText = sum.sholatCount || 0;
-                    document.getElementById('paiStatHaid').innerText = sum.haidCount || 0;
-                    document.getElementById('paiStatBelum').innerText = sum.belumCount || 0;
+                    const totalSt = sum.totalStudents || currentPaiPrayerStudents.length;
+                    const sholatPct = sum.sholatPercent !== undefined ? sum.sholatPercent : (totalSt > 0 ? ((sum.sholatCount || 0) * 100 / totalSt).toFixed(1) : '0');
+                    const keputrianPct = sum.keputrianPercent !== undefined ? sum.keputrianPercent : (totalSt > 0 ? ((sum.keputrianCount || 0) * 100 / totalSt).toFixed(1) : '0');
+                    const haidPct = sum.haidPercent !== undefined ? sum.haidPercent : (totalSt > 0 ? ((sum.haidCount || 0) * 100 / totalSt).toFixed(1) : '0');
+                    const belumPct = sum.belumPercent !== undefined ? sum.belumPercent : (totalSt > 0 ? ((sum.belumCount || 0) * 100 / totalSt).toFixed(1) : '0');
+
+                    if (document.getElementById('paiStatTotal')) document.getElementById('paiStatTotal').innerText = totalSt;
+                    if (document.getElementById('paiStatSholat')) document.getElementById('paiStatSholat').innerHTML = `${sum.sholatCount || 0} <span class="text-xs font-bold text-emerald-600 block sm:inline">(${sholatPct}%)</span>`;
+                    if (document.getElementById('paiStatKeputrian')) document.getElementById('paiStatKeputrian').innerHTML = `${sum.keputrianCount || 0} <span class="text-xs font-bold text-pink-600 block sm:inline">(${keputrianPct}%)</span>`;
+                    if (document.getElementById('paiStatHaid')) document.getElementById('paiStatHaid').innerHTML = `${sum.haidCount || 0} <span class="text-xs font-bold text-rose-600 block sm:inline">(${haidPct}%)</span>`;
+                    if (document.getElementById('paiStatBelum')) document.getElementById('paiStatBelum').innerHTML = `${sum.belumCount || 0} <span class="text-xs font-bold text-amber-600 block sm:inline">(${belumPct}%)</span>`;
 
                     renderPaiStudentsTable(currentPaiPrayerStudents);
                 } else {
@@ -5104,6 +5485,261 @@
 
         function closeHomeroomStudentDetail() {
             document.getElementById('modalHomeroomStudentDetail')?.classList.add('hidden');
+        }
+
+        // ==================== MODAL SCAN KARTU PELAJAR (SISWA TANPA HP) ====================
+        let paiScanSessionHistory = [];
+
+        function openPaiScanCardModal() {
+            const modal = document.getElementById('modalPaiScanCard');
+            if (!modal) return;
+
+            const prayerType = document.getElementById('selectPaiMonitoringPrayerType')?.value || currentPaiPrayerSchedule?.prayerType || 'DHUHUR';
+            const sel = document.getElementById('modalScanPrayerType');
+            if (sel) sel.value = prayerType;
+
+            const input = document.getElementById('inputScanCardBarcode');
+            if (input) {
+                input.value = '';
+                setTimeout(() => input.focus(), 200);
+            }
+
+            modal.classList.remove('hidden');
+        }
+
+        function closePaiScanCardModal() {
+            document.getElementById('modalPaiScanCard')?.classList.add('hidden');
+        }
+
+        async function handlePaiScanCardSubmit(e) {
+            e.preventDefault();
+            const input = document.getElementById('inputScanCardBarcode');
+            const barcode = input?.value?.trim();
+            if (!barcode) return;
+
+            const prayerType = document.getElementById('modalScanPrayerType')?.value || 'DHUHUR';
+            const resultBox = document.getElementById('paiScanLastResult');
+
+            if (resultBox) {
+                resultBox.className = 'rounded-2xl border p-4 bg-blue-50 border-blue-200 text-blue-900 flex items-center gap-3 animate-pulse';
+                resultBox.innerHTML = `<span>⏳</span> <span>Memproses scan kartu "${barcode}"...</span>`;
+                resultBox.classList.remove('hidden');
+            }
+
+            try {
+                const res = await authFetch('/api/prayer/pai-scan-student-card', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        barcode,
+                        prayerType,
+                        status: 'SHOLAT_BERJAMAAH'
+                    })
+                });
+                const data = await res.json();
+
+                if (data.success && data.student) {
+                    const st = data.student;
+                    paiScanSessionHistory.unshift({
+                        name: st.name,
+                        nisn: st.nisn,
+                        className: st.className,
+                        time: st.time || new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
+                        prayerType: st.prayerType,
+                        gateIn: st.gateInRecorded,
+                        gateOut: st.gateOutRecorded
+                    });
+
+                    renderPaiScanRecentList();
+
+                    if (resultBox) {
+                        resultBox.className = 'rounded-2xl border p-4 bg-emerald-50 border-emerald-300 text-emerald-950 space-y-2';
+                        resultBox.innerHTML = `
+                            <div class="flex items-center justify-between">
+                                <span class="font-black text-sm flex items-center gap-1.5 text-emerald-800">
+                                    <span>✅</span> ${st.name}
+                                </span>
+                                <span class="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-200 text-emerald-900 uppercase">
+                                    ${st.prayerType} HADIR
+                                </span>
+                            </div>
+                            <div class="grid grid-cols-2 gap-2 text-[11px] pt-1 border-t border-emerald-200">
+                                <p><span class="text-slate-500 font-bold">Kelas:</span> <b>${st.className || '-'}</b></p>
+                                <p><span class="text-slate-500 font-bold">NISN:</span> <b class="font-mono">${st.nisn || '-'}</b></p>
+                                <p><span class="text-slate-500 font-bold">Waktu:</span> <b>${st.time || '-'} WIB</b></p>
+                                <p><span class="text-slate-500 font-bold">Gate:</span> <b class="text-emerald-700">Otomatis Terhubung</b></p>
+                            </div>
+                            <p class="text-[10.5px] text-emerald-700 font-semibold italic">🎉 ${data.message}</p>
+                        `;
+                    }
+
+                    // Refresh table monitoring jika kelas yang dibuka sama
+                    const curClass = document.getElementById('selectPaiClassFilter')?.value;
+                    if (curClass === st.className) {
+                        loadPaiClassMonitoring();
+                    }
+                } else {
+                    if (resultBox) {
+                        resultBox.className = 'rounded-2xl border p-4 bg-rose-50 border-rose-300 text-rose-950 space-y-1';
+                        resultBox.innerHTML = `
+                            <p class="font-black text-sm flex items-center gap-1.5 text-rose-800">
+                                <span>❌</span> Gagal Scan Kartu
+                            </p>
+                            <p class="text-[11.5px]">${data.message || 'Siswa tidak ditemukan'}</p>
+                        `;
+                    }
+                }
+            } catch (err) {
+                if (resultBox) {
+                    resultBox.className = 'rounded-2xl border p-4 bg-rose-50 border-rose-300 text-rose-950';
+                    resultBox.innerHTML = `<p class="font-bold">Koneksi terputus: ${err.message}</p>`;
+                }
+            }
+
+            if (input) {
+                input.value = '';
+                input.focus();
+            }
+        }
+
+        function renderPaiScanRecentList() {
+            const listEl = document.getElementById('paiScanRecentList');
+            const countEl = document.getElementById('paiScanSessionCount');
+            if (countEl) countEl.innerText = `${paiScanSessionHistory.length} Siswa`;
+
+            if (!listEl) return;
+            if (paiScanSessionHistory.length === 0) {
+                listEl.innerHTML = '<p class="text-center text-slate-400 py-3 text-[11px]">Belum ada kartu siswa yang discan.</p>';
+                return;
+            }
+
+            listEl.innerHTML = paiScanSessionHistory.map((item, idx) => `
+                <div class="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs hover:bg-slate-100 transition-colors">
+                    <div class="flex items-center gap-2">
+                        <span class="w-6 h-6 rounded-full bg-blue-100 text-blue-700 font-black text-[11px] flex items-center justify-center">${idx + 1}</span>
+                        <div>
+                            <p class="font-bold text-slate-900">${item.name}</p>
+                            <p class="text-[10px] text-slate-500 font-mono">Kelas ${item.className} • NISN: ${item.nisn || '-'}</p>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <span class="px-2 py-0.5 rounded-md text-[10px] font-black bg-emerald-100 text-emerald-800">✅ Hadir</span>
+                        <p class="text-[9.5px] text-slate-400 font-mono mt-0.5">${item.time} WIB</p>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // ==================== MODAL PENGINGAT SHOLAT BESOK (H-1) ====================
+        async function triggerPaiH1ReminderWeb() {
+            const modal = document.getElementById('modalPaiH1Reminder');
+            if (!modal) return;
+
+            // Hitung hari esok
+            const dayNames = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+            const today = new Date();
+            const tomorrow = new Date(today.getTime() + 24 * 3600 * 1000);
+            const tomorrowDay = tomorrow.getDay();
+            const tomorrowDayName = dayNames[tomorrowDay];
+            const tomorrowYmd = tomorrow.toISOString().substring(0, 10);
+
+            document.getElementById('h1ModalTomorrowDay').innerText = `${tomorrowDayName}, ${tomorrowYmd}`;
+
+            // Cari jadwal untuk besok dari weeklyPrayerSchedules
+            const schedsTomorrow = weeklyPrayerSchedules.filter(s => s.dayOfWeek === tomorrowDay);
+            let classListStr = 'Tidak ada jadwal sholat';
+            if (schedsTomorrow.length > 0) {
+                classListStr = schedsTomorrow.map(s => `${s.prayerType}: ${s.classNames}`).join(' | ');
+            } else if (tomorrowDay === 1) {
+                classListStr = 'DHUHUR: VII-F, VII-G, VIII-A, IX-A, IX-B';
+            } else if (tomorrowDay === 2) {
+                classListStr = 'DHUHUR: VII-B, VII-C, VIII-B, VIII-C, IX-C, IX-D';
+            } else if (tomorrowDay === 3) {
+                classListStr = 'DHUHUR: VII-D, VII-E, VII-H, IX-E, IX-H';
+            } else if (tomorrowDay === 4) {
+                classListStr = 'DHUHUR: VII-A, VIII-F, VIII-G, IX-I';
+            } else if (tomorrowDay === 5) {
+                classListStr = 'DHUHA: VII-I, VIII-H, VIII-I, IX-F, IX-J | JUMAT: Seluruh Putra (ALL_MALE)';
+            } else if (tomorrowDay === 6) {
+                classListStr = 'DHUHA: IX-K | DHUHUR: VII-J, VII-K, VIII-J, VIII-K, IX-G';
+            }
+            document.getElementById('h1ModalTomorrowClasses').innerText = classListStr;
+
+            document.getElementById('h1ResultAlert').classList.add('hidden');
+            const btn = document.getElementById('btnConfirmSendH1');
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<span>🚀</span> <span>Kirim Pengingat Sekarang</span>';
+            }
+
+            modal.classList.remove('hidden');
+        }
+
+        function closePaiH1ReminderModal() {
+            document.getElementById('modalPaiH1Reminder')?.classList.add('hidden');
+        }
+
+        async function executePaiH1ReminderDispatch() {
+            const btn = document.getElementById('btnConfirmSendH1');
+            const alertBox = document.getElementById('h1ResultAlert');
+
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<span>⏳</span> <span>Mengirim Notifikasi...</span>';
+            }
+
+            try {
+                const res = await authFetch('/api/prayer/trigger-reminder-1900', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ force: true })
+                });
+                const data = await res.json();
+
+                if (alertBox) {
+                    alertBox.classList.remove('hidden');
+                    if (data.success) {
+                        const d = data.data || {};
+                        alertBox.className = 'rounded-2xl p-4 bg-emerald-50 border border-emerald-300 text-emerald-950 space-y-2';
+                        alertBox.innerHTML = `
+                            <p class="font-black text-sm flex items-center gap-1.5 text-emerald-800">
+                                <span>🎉</span> Notifikasi Pengingat Berhasil Terkirim!
+                            </p>
+                            <div class="grid grid-cols-3 gap-2 text-center pt-2">
+                                <div class="bg-white p-2 rounded-xl border border-emerald-200">
+                                    <p class="text-[10px] text-slate-500 font-bold uppercase">Siswa Diberitahu</p>
+                                    <p class="text-base font-black text-emerald-700">${d.sentStudents || 0}</p>
+                                </div>
+                                <div class="bg-white p-2 rounded-xl border border-emerald-200">
+                                    <p class="text-[10px] text-slate-500 font-bold uppercase">Orang Tua Diberitahu</p>
+                                    <p class="text-base font-black text-blue-700">${d.sentParents || 0}</p>
+                                </div>
+                                <div class="bg-white p-2 rounded-xl border border-emerald-200">
+                                    <p class="text-[10px] text-slate-500 font-bold uppercase">WhatsApp Terkirim</p>
+                                    <p class="text-base font-black text-purple-700">${d.sentWa || 0}</p>
+                                </div>
+                            </div>
+                            <p class="text-[11px] text-emerald-700 font-semibold pt-1">
+                                Siswa dan orang tua dari rombel terjadwal telah menerima instruksi membawa alat sholat pribadi (mukena / sarung & peci, serta sajadah).
+                            </p>
+                        `;
+                    } else {
+                        alertBox.className = 'rounded-2xl p-4 bg-rose-50 border border-rose-300 text-rose-950';
+                        alertBox.innerHTML = `<p class="font-bold">❌ Gagal mengirim: ${data.message}</p>`;
+                    }
+                }
+            } catch (err) {
+                if (alertBox) {
+                    alertBox.classList.remove('hidden');
+                    alertBox.className = 'rounded-2xl p-4 bg-rose-50 border border-rose-300 text-rose-950';
+                    alertBox.innerHTML = `<p class="font-bold">Koneksi terputus: ${err.message}</p>`;
+                }
+            }
+
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<span>🔄</span> <span>Kirim Ulang</span>';
+            }
         }
 
 
@@ -6186,6 +6822,7 @@
         }
 
         function openCreateHomeworkModal() {
+            populateTeacherTeachingClasses();
             document.getElementById('modalCreateHomework')?.classList.remove('hidden');
         }
 
@@ -6506,6 +7143,252 @@
             }
         }
 
+        // ==========================================
+        // LAYANAN TPP GURU: TRIWULAN SELECTOR & LOCK HIJAU
+        // ==========================================
+        let currentTppData = null;
+        let selectedTppTriwulan = 1;
+
+        async function loadTeacherTppData() {
+            const tahunSelect = document.getElementById('tppTahunSelect');
+            const targetYear = tahunSelect ? tahunSelect.value : new Date().getFullYear();
+            const container = document.getElementById('tppMonthsContainer');
+            if (container) {
+                container.innerHTML = `
+                    <div class="col-span-3 text-center py-10 text-slate-400">
+                        <div class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-emerald-600 border-t-transparent mb-2"></div>
+                        <p class="font-bold text-xs">Memuat data TPP Triwulan ${selectedTppTriwulan}...</p>
+                    </div>
+                `;
+            }
+
+            try {
+                const res = await authFetch(`/api/tpp/my-tpp?tahun=${targetYear}`);
+                const data = await res.json();
+                if (data.success) {
+                    currentTppData = data;
+                    // Update stats
+                    const totalCair = data.summary?.totalBulanCair || 0;
+                    const totalBelum = data.summary?.totalBulanBelumCair || 0;
+                    const statCairEl = document.getElementById('tppStatSudahCair');
+                    if (statCairEl) statCairEl.innerText = `${totalCair} / 12 Bulan`;
+                    const statBelumEl = document.getElementById('tppStatBelumCair');
+                    if (statBelumEl) statBelumEl.innerText = `${totalBelum} Bulan`;
+
+                    // Update TW badge status
+                    if (data.triwulan) {
+                        data.triwulan.forEach(tw => {
+                            const badge = document.getElementById(`badgeTw${tw.triwulan}Status`);
+                            if (badge) {
+                                if (tw.status === 'SUDAH_CAIR') {
+                                    badge.className = 'px-2 py-0.5 rounded text-[10px] font-black bg-emerald-600 text-white';
+                                    badge.innerText = '🔒 SUDAH CAIR';
+                                } else {
+                                    badge.className = 'px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-800 border border-amber-300';
+                                    badge.innerText = 'BELUM CAIR';
+                                }
+                            }
+                        });
+                    }
+
+                    renderTppMonths();
+                } else {
+                    if (container) {
+                        container.innerHTML = `<div class="col-span-3 p-4 bg-red-50 text-red-700 text-xs font-bold rounded-2xl border border-red-200">Gagal memuat data TPP: ${data.message || 'Terjadi kesalahan'}</div>`;
+                    }
+                }
+            } catch (err) {
+                console.error('Error loadTeacherTppData:', err);
+                if (container) {
+                    container.innerHTML = `<div class="col-span-3 p-4 bg-red-50 text-red-700 text-xs font-bold rounded-2xl border border-red-200">Gagal menghubungi server TPP: ${err.message}</div>`;
+                }
+            }
+        }
+
+        function selectTppTriwulan(tw) {
+            selectedTppTriwulan = tw;
+
+            // Highlight active button
+            for (let i = 1; i <= 4; i++) {
+                const btn = document.getElementById(`btnTppTw${i}`);
+                if (btn) {
+                    if (i === tw) {
+                        btn.className = 'tpp-tw-btn px-4 py-3.5 rounded-2xl border-2 font-black text-xs text-left transition-all cursor-pointer flex flex-col justify-between border-emerald-600 bg-emerald-50 text-emerald-900 shadow-sm';
+                    } else {
+                        btn.className = 'tpp-tw-btn px-4 py-3.5 rounded-2xl border border-slate-200 font-black text-xs text-left transition-all cursor-pointer flex flex-col justify-between hover:bg-slate-50 text-slate-700';
+                    }
+                }
+            }
+
+            const rangeNames = {
+                1: 'Januari – Maret',
+                2: 'April – Juni',
+                3: 'Juli – September',
+                4: 'Oktober – Desember'
+            };
+
+            const twBulan = rangeNames[tw] || '';
+            const statTwEl = document.getElementById('tppStatTwAktif');
+            if (statTwEl) statTwEl.innerText = `TW ${tw}`;
+            const statTwBulanEl = document.getElementById('tppStatTwBulan');
+            if (statTwBulanEl) statTwBulanEl.innerText = twBulan;
+            const indicatorEl = document.getElementById('tppActiveTwIndicator');
+            if (indicatorEl) indicatorEl.innerText = `Sedang Ditampilkan: Triwulan ${tw} (${twBulan})`;
+            const titleEl = document.getElementById('tppMonthsTitle');
+            if (titleEl) titleEl.innerText = `DAFTAR BULAN PADA TRIWULAN ${tw} (${twBulan.toUpperCase()})`;
+
+            renderTppMonths();
+        }
+
+        function renderTppMonths() {
+            const container = document.getElementById('tppMonthsContainer');
+            if (!container) return;
+
+            if (!currentTppData || !currentTppData.triwulan) {
+                container.innerHTML = `<div class="col-span-3 text-center py-6 text-slate-400 text-xs font-semibold">Data TPP belum dimuat. Silakan klik Refresh.</div>`;
+                return;
+            }
+
+            const twObj = currentTppData.triwulan.find(t => t.triwulan === selectedTppTriwulan);
+            if (!twObj || !twObj.months || twObj.months.length === 0) {
+                container.innerHTML = `<div class="col-span-3 text-center py-6 text-slate-400 text-xs font-semibold">Tidak ada bulan pada Triwulan ini.</div>`;
+                return;
+            }
+
+            const todayStr = new Date().toISOString().split('T')[0];
+
+            container.innerHTML = twObj.months.map(m => {
+                const isCair = m.status === 'SUDAH_CAIR';
+
+                if (isCair) {
+                    // LOCK HIJAU: Emerald Green, 🔒 Padlock, Locked State
+                    return `
+                        <div class="border-2 border-emerald-500 bg-emerald-50/80 rounded-3xl p-5 shadow-md flex flex-col justify-between transition-all hover:shadow-lg">
+                            <div class="space-y-3">
+                                <div class="flex items-center justify-between pb-3 border-b border-emerald-200">
+                                    <div>
+                                        <span class="text-[10px] font-black uppercase text-emerald-800 tracking-wider">BULAN #${m.bulan} • TW ${twObj.triwulan}</span>
+                                        <h4 class="text-lg font-black text-emerald-950">${m.namaBulan}</h4>
+                                    </div>
+                                    <span class="px-3 py-1 rounded-xl text-xs font-black bg-emerald-600 text-white flex items-center gap-1 shadow-sm">
+                                        <span>🔒</span> SUDAH CAIR
+                                    </span>
+                                </div>
+
+                                <div class="bg-white/80 rounded-2xl p-3.5 border border-emerald-200 space-y-2 text-xs">
+                                    <div class="flex items-center justify-between">
+                                        <span class="text-emerald-800 font-semibold">Tanggal Pencairan:</span>
+                                        <span class="font-black font-mono text-emerald-950">${m.tanggalCairStr && m.tanggalCairStr !== '-' ? m.tanggalCairStr : 'Tercatat'}</span>
+                                    </div>
+                                    <div class="flex items-center justify-between">
+                                        <span class="text-emerald-800 font-semibold">No. Referensi:</span>
+                                        <span class="font-mono text-[11px] text-emerald-900 font-bold">${m.noReferensi && m.noReferensi !== '-' ? m.noReferensi : 'TPP-KEMENKEU-SP2D'}</span>
+                                    </div>
+                                    <div class="flex items-center justify-between pt-1 border-t border-emerald-100">
+                                        <span class="text-emerald-800 font-semibold">Status Kunci:</span>
+                                        <span class="font-extrabold text-emerald-700 flex items-center gap-1">
+                                            <span>🔒</span> Terkunci Permanen
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <div class="p-2.5 bg-emerald-100/60 rounded-xl border border-emerald-300 text-[11px] text-emerald-900 leading-relaxed">
+                                    <b>Catatan:</b> ${m.catatan || 'Laporan pencairan tervalidasi.'}
+                                </div>
+                            </div>
+
+                            <div class="pt-4 mt-3 border-t border-emerald-200">
+                                <button type="button" onclick="showTppLockedNotice('${m.namaBulan}', '${m.tanggalCairStr || '-'}')" class="w-full py-2.5 px-4 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-black text-xs flex items-center justify-center gap-2 shadow transition-all cursor-pointer">
+                                    <span>🔒</span> Status Terkunci (Sudah Cair)
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    // BELUM CAIR: Slate/Neutral, Input Tanggal, Dapat Dilaporkan
+                    return `
+                        <div class="border border-slate-300 bg-white rounded-3xl p-5 shadow-sm flex flex-col justify-between transition-all hover:border-slate-400">
+                            <div class="space-y-3">
+                                <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+                                    <div>
+                                        <span class="text-[10px] font-black uppercase text-slate-400 tracking-wider">BULAN #${m.bulan} • TW ${twObj.triwulan}</span>
+                                        <h4 class="text-lg font-black text-slate-800">${m.namaBulan}</h4>
+                                    </div>
+                                    <span class="px-2.5 py-1 rounded-xl text-xs font-bold bg-amber-100 text-amber-800 border border-amber-300 flex items-center gap-1">
+                                        <span>⏳</span> Belum Cair
+                                    </span>
+                                </div>
+
+                                <div class="space-y-2 text-xs">
+                                    <div>
+                                        <label class="block font-bold text-slate-700 mb-1">Tanggal Pencairan Rekening:</label>
+                                        <input type="date" id="inputCairDate_${m.bulan}" value="${todayStr}" class="w-full px-3 py-2 border border-slate-300 rounded-xl font-bold text-slate-800 text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                                    </div>
+                                    <div>
+                                        <label class="block font-bold text-slate-700 mb-1">Catatan Tambahan (Opsional):</label>
+                                        <input type="text" id="inputCatatan_${m.bulan}" placeholder="Cth: Cair Bank Jatim..." class="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs text-slate-700 focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                                    </div>
+                                </div>
+
+                                <div class="p-2.5 bg-slate-50 rounded-xl border border-slate-200 text-[11px] text-slate-500">
+                                    Setelah dilaporkan, status langsung beralih ke <b>🔒 Lock Hijau</b> dan tidak bisa diubah kembali oleh guru.
+                                </div>
+                            </div>
+
+                            <div class="pt-4 mt-3 border-t border-slate-100">
+                                <button type="button" onclick="submitTeacherTpp('${m.id}', ${m.bulan}, '${m.namaBulan}')" class="w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs flex items-center justify-center gap-2 shadow transition-all cursor-pointer">
+                                    <span>✅</span> Laporkan Sudah Cair
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                }
+            }).join('');
+        }
+
+        async function submitTeacherTpp(recordId, monthNumber, monthName) {
+            const inputDateEl = document.getElementById(`inputCairDate_${monthNumber}`);
+            const inputDate = inputDateEl ? inputDateEl.value : new Date().toISOString().split('T')[0];
+            const catatanEl = document.getElementById(`inputCatatan_${monthNumber}`);
+            const catatan = catatanEl && catatanEl.value.trim() ? catatanEl.value.trim() : `Laporan mandiri guru: Sudah Cair ${monthName}`;
+
+            if (!inputDate) {
+                alert('Harap masukkan tanggal pencairan yang valid!');
+                return;
+            }
+
+            if (!confirm(`Konfirmasi Laporan TPP Bulan ${monthName}:\n\nTanggal Pencairan: ${inputDate}\n\nPERINGATAN: Setelah status dilaporkan SUDAH CAIR, sistem akan LANGSUNG MENGUNCI STATUS (🔒 Lock Hijau) secara otomatis.\n\nApakah Anda yakin ingin menyimpan dan mengunci?`)) {
+                return;
+            }
+
+            try {
+                const res = await authFetch('/api/tpp/teacher/report', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        tppRecordId: recordId,
+                        status: 'SUDAH_CAIR',
+                        tanggalCairStr: inputDate,
+                        catatan: catatan
+                    })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    alert(`✅ BERHASIL DIKUNCI!\n\n${data.message || 'Laporan pencairan berhasil disimpan dan terkunci otomatis.'}`);
+                    loadTeacherTppData();
+                } else {
+                    alert(`Gagal: ${data.message || 'Terjadi kesalahan'}`);
+                }
+            } catch (err) {
+                console.error('Error submitTeacherTpp:', err);
+                alert('Terjadi kesalahan koneksi ke server: ' + err.message);
+            }
+        }
+
+        function showTppLockedNotice(monthName, tanggalCairStr) {
+            alert(`🔒 STATUS TERKUNCI RESMI (LOCK HIJAU)\n\nTPP Bulan ${monthName} telah berstatus SUDAH CAIR (Tanggal: ${tanggalCairStr}).\n\nData yang telah berstatus cair terkunci secara otomatis demi integritas rekonsiliasi Kurikulum & Operator.\n\nJika terdapat kesalahan pencatatan atau perlu revisi tanggal, silakan hubungi Tim Kurikulum atau Operator.`);
+        }
+
         function logout() {
             localStorage.removeItem('token');
             localStorage.removeItem('user');
@@ -6581,6 +7464,7 @@
                         <select id="modalPdfPeriodSelect" class="w-full border-2 border-slate-200 rounded-xl px-3 py-2 font-bold text-purple-700 bg-purple-50 border-purple-200 focus:border-purple-600 focus:bg-white focus:outline-none">
                             <option value="DAILY">Harian (Per Hari)</option>
                             <option value="WEEKLY">1 Minggu Penuh (Senin-Jumat)</option>
+                            <option value="MONTHLY">Bulanan (1 Bulan Penuh - Buku Induk Afektif)</option>
                         </select>
                     </div>
                 </div>
@@ -6602,6 +7486,133 @@
                 </button>
                 <button type="button" onclick="executePrayerPdfAction('print')" class="px-4 py-2.5 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white shadow-md flex items-center gap-1.5 transition-all cursor-pointer">
                     <span>🖨️</span> <span>Buka & Cetak PDF</span>
+                </button>
+            </div>
+    </div>
+
+    <!-- MODAL SCAN KARTU PELAJAR SISWA TANPA HP (GURU PAI) -->
+    <div id="modalPaiScanCard" class="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+        <div class="bg-white rounded-3xl max-w-lg w-full overflow-hidden shadow-2xl border border-slate-200 animate-fade-in flex flex-col max-h-[92vh]">
+            <div class="px-6 py-4 bg-gradient-to-r from-blue-700 via-indigo-700 to-slate-900 text-white flex justify-between items-center">
+                <div class="flex items-center gap-2.5">
+                    <span class="text-2xl">🪪</span>
+                    <div>
+                        <h3 class="font-black text-base leading-tight">Scan Kartu Pelajar (Siswa Tanpa HP)</h3>
+                        <p class="text-[11px] text-blue-200">Presensi Sholat Berjamaah &amp; Gate Masuk/Pulang Otomatis</p>
+                    </div>
+                </div>
+                <button type="button" onclick="closePaiScanCardModal()" class="text-white/80 hover:text-white font-bold text-2xl px-2 cursor-pointer">&times;</button>
+            </div>
+
+            <div class="p-6 space-y-4 text-xs overflow-y-auto">
+                <div class="bg-blue-50 border border-blue-200 rounded-2xl p-3.5 flex items-start gap-2.5 text-blue-900">
+                    <span class="text-base flex-shrink-0">💡</span>
+                    <div class="text-[11px] leading-relaxed">
+                        Arahkan <b>Barcode Scanner USB</b> ke barcode kartu pelajar fisik siswa, atau ketik langsung <b>NISN / NIS</b> lalu tekan Enter. Presensi sholat akan langsung tercatat resmi atas nama Guru PAI.
+                    </div>
+                </div>
+
+                <form id="formPaiScanCard" onsubmit="handlePaiScanCardSubmit(event)" class="space-y-3.5">
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">🕌 Sesi Ibadah Sholat:</label>
+                        <select id="modalScanPrayerType" class="w-full border-2 border-slate-200 rounded-xl px-3.5 py-2 font-bold text-slate-800 bg-slate-50 focus:border-blue-600 focus:bg-white focus:outline-none">
+                            <option value="DHUHUR">☀️ Sholat Dhuhur Berjamaah</option>
+                            <option value="DHUHA">🌅 Sholat Dhuha Berjamaah</option>
+                            <option value="JUMAT">🕌 Sholat Jumat (Putra) / Keputrian</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">📷 Barcode / NISN / NIS Kartu Pelajar:</label>
+                        <div class="flex gap-2">
+                            <input type="text" id="inputScanCardBarcode" placeholder="Scan barcode kartu atau ketik NISN..." autofocus class="flex-1 border-2 border-blue-500 rounded-xl px-4 py-3 font-mono font-black text-base text-slate-900 bg-blue-50/30 focus:border-blue-700 focus:bg-white focus:outline-none tracking-wider">
+                            <button type="submit" class="px-5 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-black text-xs shadow-md transition-all cursor-pointer flex items-center gap-1.5">
+                                <span>⚡</span> <span>Scan</span>
+                            </button>
+                        </div>
+                        <p class="text-[10.5px] text-slate-400 mt-1">Mendukung format: Kartu Pelajar Barcode, NISN (10 digit), NIS, atau Username.</p>
+                    </div>
+                </form>
+
+                <!-- Status Hasil Scan Terakhir -->
+                <div id="paiScanLastResult" class="hidden rounded-2xl border p-4 space-y-2">
+                    <!-- Populated dynamically via JS -->
+                </div>
+
+                <!-- Riwayat Scan Sesi Ini -->
+                <div>
+                    <h4 class="font-extrabold text-slate-700 text-[11px] uppercase tracking-wide mb-2 flex items-center justify-between">
+                        <span>Riwayat Scan Sesi Ini</span>
+                        <span id="paiScanSessionCount" class="text-blue-700 font-bold">0 Siswa</span>
+                    </h4>
+                    <div id="paiScanRecentList" class="space-y-1.5 max-h-40 overflow-y-auto">
+                        <p class="text-center text-slate-400 py-3 text-[11px]">Belum ada kartu siswa yang discan.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="p-4 bg-slate-50 border-t flex justify-end">
+                <button type="button" onclick="closePaiScanCardModal()" class="px-5 py-2.5 rounded-xl text-xs font-bold text-slate-700 bg-slate-200 hover:bg-slate-300 transition-colors cursor-pointer">
+                    Selesai &amp; Tutup
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL PENGINGAT SHOLAT BESOK (H-1) & ALAT SHOLAT -->
+    <div id="modalPaiH1Reminder" class="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+        <div class="bg-white rounded-3xl max-w-lg w-full overflow-hidden shadow-2xl border border-slate-200 animate-fade-in flex flex-col max-h-[92vh]">
+            <div class="px-6 py-4 bg-gradient-to-r from-indigo-700 via-purple-700 to-slate-900 text-white flex justify-between items-center">
+                <div class="flex items-center gap-2.5">
+                    <span class="text-2xl">📢</span>
+                    <div>
+                        <h3 class="font-black text-base leading-tight">Kirim Pengingat Sholat Besok (H-1)</h3>
+                        <p class="text-[11px] text-indigo-200">Kirim notifikasi ke Siswa &amp; Orang Tua agar membawa alat sholat</p>
+                    </div>
+                </div>
+                <button type="button" onclick="closePaiH1ReminderModal()" class="text-white/80 hover:text-white font-bold text-2xl px-2 cursor-pointer">&times;</button>
+            </div>
+
+            <div class="p-6 space-y-4 text-xs overflow-y-auto">
+                <div class="bg-indigo-50 border border-indigo-200 rounded-2xl p-4 space-y-2 text-indigo-950">
+                    <div class="flex items-center justify-between">
+                        <span class="font-bold text-[11px] text-indigo-700 uppercase tracking-wide">Target Hari Besok:</span>
+                        <span id="h1ModalTomorrowDay" class="font-black text-xs px-2.5 py-0.5 rounded-full bg-indigo-200 text-indigo-900">Memuat...</span>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span class="font-bold text-[11px] text-indigo-700 uppercase tracking-wide">Rombel Terjadwal Besok:</span>
+                        <span id="h1ModalTomorrowClasses" class="font-black text-xs text-indigo-900">Memuat...</span>
+                    </div>
+                    <p class="text-[11px] text-indigo-800 leading-relaxed pt-1 border-t border-indigo-200/60">
+                        Notifikasi otomatis dikirimkan ke <b>Aplikasi Siswa (In-App + FCM Push)</b> dan <b>Aplikasi Orang Tua</b>, serta pesan WhatsApp Resmi jika nomor wali murid aktif.
+                    </p>
+                </div>
+
+                <div class="space-y-2">
+                    <label class="block font-bold text-slate-700">💬 Pesan Pengingat yang Dikirimkan:</label>
+                    <div class="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 space-y-2 text-[11px]">
+                        <p class="font-bold text-slate-800">📱 Pesan ke Siswa:</p>
+                        <p class="text-slate-600 bg-white p-2.5 rounded-xl border border-slate-200 italic" id="h1PreviewSiswa">
+                            "Hai [Nama Siswa], besok kelas [Kelas] terjadwal Sholat Berjamaah. ⚠️ PENTING: Harap membawa perlengkapan &amp; alat sholat lengkap dari rumah (sarung/peci bagi putra, mukena bersih bagi putri, serta sajadah pribadi)..."
+                        </p>
+                        <p class="font-bold text-slate-800 pt-1">👨‍👩‍👧 Pesan ke Orang Tua:</p>
+                        <p class="text-slate-600 bg-white p-2.5 rounded-xl border border-slate-200 italic" id="h1PreviewOrtu">
+                            "Bapak/Ibu Orang Tua/Wali, besok ananda [Nama Siswa] memiliki jadwal Sholat Berjamaah di Mushola/Masjid sekolah. ⚠️ Mohon memastikan ananda membawa alat/perlengkapan sholat dari rumah..."
+                        </p>
+                    </div>
+                </div>
+
+                <div id="h1ResultAlert" class="hidden rounded-2xl p-3.5 border text-xs">
+                    <!-- Populated dynamically upon dispatch -->
+                </div>
+            </div>
+
+            <div class="p-4 bg-slate-50 border-t flex justify-end gap-2.5">
+                <button type="button" onclick="closePaiH1ReminderModal()" class="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-200 transition-colors cursor-pointer">
+                    Batal
+                </button>
+                <button type="button" id="btnConfirmSendH1" onclick="executePaiH1ReminderDispatch()" class="px-5 py-2.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-md flex items-center gap-1.5 transition-all cursor-pointer">
+                    <span>🚀</span> <span>Kirim Pengingat Sekarang</span>
                 </button>
             </div>
         </div>

@@ -173,6 +173,16 @@ export const getTahfizDashboardSummary = async (req: Request, res: Response) => 
 
     res.json({
       success: true,
+      totalStudents,
+      totalSiswa: totalStudents,
+      targetTuntas: completedCount,
+      pendingSetoran: pendingCount,
+      setoranMenunggu: pendingCount,
+      setoranHariIni: pendingCount,
+      needMurojaah: murojaahCount,
+      murojaahPerlu: murojaahCount,
+      perluMurojaah: murojaahCount,
+      butuhBimbingan: murojaahCount,
       summary: kpiData,
       kpi: kpiData,
       targets,
@@ -404,28 +414,35 @@ export const getTahfizSetoranList = async (req: Request, res: Response) => {
     const user = (req as any).user;
     const { status, className, studentId, limit = 50, page = 1 } = req.query;
 
-    let whereConditions: string[] = [];
+    const params: any[] = [];
+    const whereConditions: string[] = [];
+
     if (status && status !== 'ALL') {
-      whereConditions.push(`status = '${String(status).trim()}'`);
+      whereConditions.push(`status = ?`);
+      params.push(String(status).trim());
     }
     if (className && className !== 'ALL') {
-      whereConditions.push(`class_name = '${String(className).trim()}'`);
+      whereConditions.push(`class_name = ?`);
+      params.push(String(className).trim());
     }
     if (studentId) {
-      whereConditions.push(`student_id = '${String(studentId).trim()}'`);
+      whereConditions.push(`student_id = ?`);
+      params.push(String(studentId).trim());
     } else if (user?.role === 'STUDENT') {
-      whereConditions.push(`student_id = '${user.id}'`);
+      whereConditions.push(`student_id = ?`);
+      params.push(user.id);
     }
 
     const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
-    const offset = (Number(page) - 1) * Number(limit);
+    const limitNum = Math.max(1, Math.min(200, Number(limit) || 50));
+    const offsetNum = Math.max(0, (Number(page) - 1) * limitNum);
 
     const list: any[] = await safeRawQuery(`
       SELECT * FROM tahfiz_setoran
       ${whereClause}
       ORDER BY created_at DESC
-      LIMIT ${Number(limit)} OFFSET ${offset}
-    `);
+      LIMIT ${limitNum} OFFSET ${offsetNum}
+    `, ...params);
 
     const enriched = list.map(item => ({
       ...item,
@@ -535,7 +552,7 @@ export const saveTahfizPenilaian = async (req: Request, res: Response) => {
       });
     }
 
-    const {
+    let {
       setoranId,
       studentId,
       surahNumber,
@@ -543,13 +560,29 @@ export const saveTahfizPenilaian = async (req: Request, res: Response) => {
       ayatStart = 1,
       ayatEnd,
       nilaiKelancaran = 85,
-      nilaiKetepatanAyat = 85,
+      nilaiKetepatanAyat,
+      nilaiKetepatan,
       nilaiTajwid = 80,
-      nilaiMakharijulHuruf = 80,
+      nilaiMakharijulHuruf,
+      nilaiMakhraj,
       nilaiKemandirian = 90,
       catatanGuru,
-      statusHafalan // 'LULUS_SETORAN', 'PERLU_MUROJAAH', 'TUNTAS_SESUAI_TARGET', 'SEDANG_DIHAFAL'
+      statusHafalan,
+      statusHasil
     } = req.body;
+
+    // Jika setoranId ada namun info student/surah belum lengkap, ambil dari data setoran
+    if (setoranId && (!studentId || !surahNumber || !surahName)) {
+      const setoranRows: any[] = await safeRawQuery(`SELECT * FROM tahfiz_setoran WHERE id = ?`, setoranId);
+      if (setoranRows.length > 0) {
+        const s = setoranRows[0];
+        if (!studentId) studentId = s.student_id;
+        if (!surahNumber) surahNumber = s.surah_number;
+        if (!surahName) surahName = s.surah_name;
+        if (!ayatStart) ayatStart = s.ayat_start || 1;
+        if (!ayatEnd) ayatEnd = s.ayat_end || 40;
+      }
+    }
 
     if (!studentId || !surahNumber) {
       return res.status(400).json({ success: false, message: 'Data siswa dan nomor surat wajib disertakan.' });
@@ -557,6 +590,12 @@ export const saveTahfizPenilaian = async (req: Request, res: Response) => {
 
     const student = await prisma.user.findUnique({ where: { id: studentId } });
     if (!student) return res.status(404).json({ success: false, message: 'Siswa tidak ditemukan.' });
+
+    // Resolusi nama surat jika belum ada
+    if (!surahName) {
+      const sMaster: any[] = await safeRawQuery(`SELECT name_latin FROM tahfiz_surah_master WHERE number = ?`, Number(surahNumber));
+      surahName = sMaster[0]?.name_latin || `Surat #${surahNumber}`;
+    }
 
     // Ambil konfigurasi bobot rubrik
     const configRes: any[] = await safeRawQuery(`SELECT * FROM tahfiz_rubrik_config WHERE id = 'default'`);
@@ -576,17 +615,19 @@ export const saveTahfizPenilaian = async (req: Request, res: Response) => {
     const bKm = Number(cfg.bobot_kemandirian || 10);
     const totalBobot = bK + bKa + bT + bMh + bKm;
 
-    const nK = Number(nilaiKelancaran);
-    const nKa = Number(nilaiKetepatanAyat);
-    const nT = Number(nilaiTajwid);
-    const nMh = Number(nilaiMakharijulHuruf);
-    const nKm = Number(nilaiKemandirian);
+    const nK = Number(nilaiKelancaran || 85);
+    const nKa = Number(nilaiKetepatanAyat ?? nilaiKetepatan ?? 85);
+    const nT = Number(nilaiTajwid || 80);
+    const nMh = Number(nilaiMakharijulHuruf ?? nilaiMakhraj ?? 80);
+    const nKm = Number(nilaiKemandirian || 90);
 
     // Hitung Nilai Akhir Otomatis
     const nilaiAkhir = Math.round(((nK * bK) + (nKa * bKa) + (nT * bT) + (nMh * bMh) + (nKm * bKm)) / (totalBobot || 100));
 
     // Tentukan status hafalan default jika tidak ditentukan manual
-    let finalStatus = statusHafalan;
+    let finalStatus = statusHafalan || statusHasil;
+    if (finalStatus === 'LULUS') finalStatus = 'LULUS_SETORAN';
+    if (finalStatus === 'MENGULANG') finalStatus = 'PERLU_MUROJAAH';
     if (!finalStatus) {
       if (nilaiAkhir >= Number(cfg.min_lulus_score || 75)) {
         finalStatus = 'LULUS_SETORAN';
@@ -621,7 +662,7 @@ export const saveTahfizPenilaian = async (req: Request, res: Response) => {
       Number(surahNumber),
       String(surahName),
       Number(ayatStart),
-      Number(ayatEnd || 10),
+      Number(ayatEnd || 40),
       nK, bK,
       nKa, bKa,
       nT, bT,
@@ -673,10 +714,12 @@ export const saveTahfizPenilaian = async (req: Request, res: Response) => {
       await awardBadgeIfNotExists(student.id, 'BADGE_JUZ_30_COMPLETE', 'Hafiz Juz 30 Mutqin', '👑', 'Maa Syaa Allah! Telah menuntaskan seluruh 37 Surah Juz 30');
     }
 
-    // Kirim notifikasi hasil setoran ke siswa & orang tua
+    // Kirim notifikasi lengkap ke siswa & orang tua via APK
     try {
-      const notifTitle = `📖 Hasil Penilaian Tahfiz: Surat ${surahName}`;
-      const notifMsg = `Alhamdulillah, ananda ${student.name} telah dinilai untuk hafalan Surat ${surahName}. Nilai Akhir: ${nilaiAkhir} (${finalStatus.replace(/_/g, ' ')}). Catatan: ${catatanGuru || '-'}`;
+      const notifTitle = `📖 Penilaian Tahfiz: Surat ${surahName}`;
+      const notifMsg = `Alhamdulillah, hafalan ananda ${student.name} Surat ${surahName} (Ayat ${ayatStart}-${ayatEnd || 40}) telah dinilai oleh ${user?.name || 'Guru PAI'}. Nilai Akhir: ${nilaiAkhir} (${finalStatus.replace(/_/g, ' ')}). Catatan: ${catatanGuru || 'Bagus'}.`;
+
+      // 1. Notifikasi In-App & FCM untuk Siswa
       await (prisma as any).notificationMessage.create({
         data: {
           recipientRole: 'STUDENT',
@@ -687,8 +730,61 @@ export const saveTahfizPenilaian = async (req: Request, res: Response) => {
           message: notifMsg,
           category: 'EXAM'
         }
+      }).catch(() => {});
+      sendFcmToUser(student.id, notifTitle, notifMsg, { type: 'TAHFIZ_SCORE', surah: surahName }).catch(() => {});
+
+      // 2. Notifikasi In-App untuk Orang Tua di APK Orang Tua
+      await (prisma as any).notificationMessage.create({
+        data: {
+          recipientRole: 'PARENT',
+          studentId: student.id,
+          studentName: student.name,
+          className: student.className,
+          title: `📖 Laporan Tahfiz Ananda: ${student.name}`,
+          message: notifMsg,
+          category: 'ACADEMIC'
+        }
+      }).catch(() => {});
+
+      // 3. FCM ke Akun Orang Tua
+      const parentUsers = await prisma.user.findMany({
+        where: {
+          role: 'PARENT',
+          OR: [
+            { nisn: student.nisn || '___' },
+            { username: student.nisn || '___' },
+            { username: 'ortu_' + (student.nisn || '___') },
+            ...(student.parentPhone ? [{ phone: student.parentPhone }] : [])
+          ]
+        },
+        select: { id: true }
       });
-      await sendFcmToUser(student.id, notifTitle, notifMsg, { type: 'TAHFIZ_SCORE', surah: surahName }).catch(() => {});
+      for (const p of parentUsers) {
+        sendFcmToUser(p.id, `📖 Laporan Tahfiz: ${student.name}`, notifMsg, { type: 'TAHFIZ_SCORE', studentId: student.id }).catch(() => {});
+      }
+
+      // 4. WhatsApp Blast ke Orang Tua jika nomor tersedia
+      if (student.parentPhone) {
+        const { sendSingleWhatsApp } = require('../services/whatsappBlastService');
+        if (typeof sendSingleWhatsApp === 'function') {
+          const waText = `*LAPORAN PERKEMBANGAN TAHFIZ JUZ 30*\n\n` +
+            `Yth. Bapak/Ibu Orang Tua dari *${student.name}* (Kelas ${student.className || '-'}),\n\n` +
+            `Alhamdulillah, ananda telah menyetorkan hafalan dan dinilai oleh Guru PAI:\n` +
+            `📖 *Surat:* #${surahNumber} ${surahName} (Ayat ${ayatStart}-${ayatEnd || 40})\n` +
+            `⭐ *Nilai Akhir:* ${nilaiAkhir} / 100\n` +
+            `🏷️ *Status:* ${finalStatus.replace(/_/g, ' ')}\n` +
+            `💬 *Catatan Guru:* ${catatanGuru || '-'}\n\n` +
+            `Rincian 5 Rubrik Objektif PAI:\n` +
+            `• Kelancaran: ${nK}\n` +
+            `• Ketepatan Ayat: ${nKa}\n` +
+            `• Kaidah Tajwid: ${nT}\n` +
+            `• Makharijul Huruf: ${nMh}\n` +
+            `• Kemandirian: ${nKm}\n\n` +
+            `Perkembangan hafalan dapat dipantau langsung di Aplikasi Smart CBT Orang Tua.\n` +
+            `_SMPN 1 Boyolangu - Sistem Informasi Terpadu_`;
+          sendSingleWhatsApp(student.parentPhone, waText).catch(() => {});
+        }
+      }
     } catch (_) {}
 
     res.json({
@@ -724,16 +820,30 @@ async function awardBadgeIfNotExists(studentId: string, code: string, name: stri
 export const getMurojaahList = async (req: Request, res: Response) => {
   try {
     const { className, status = 'TERJADWAL' } = req.query;
-    let whereSql = `WHERE status = '${String(status)}'`;
-    if (className && className !== 'ALL') {
-      whereSql += ` AND class_name = '${String(className)}'`;
+    const params: any[] = [];
+    const whereConditions: string[] = [];
+
+    if (status && status !== 'ALL') {
+      whereConditions.push(`status = ?`);
+      params.push(String(status).trim());
     }
+    if (className && className !== 'ALL') {
+      whereConditions.push(`class_name = ?`);
+      params.push(String(className).trim());
+    }
+
+    const whereSql = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
 
     const list: any[] = await safeRawQuery(`
       SELECT * FROM tahfiz_murojaah ${whereSql} ORDER BY jadwal_murojaah ASC
-    `);
+    `, ...params);
 
-    res.json({ success: true, list });
+    res.json({
+      success: true,
+      list,
+      murojaahList: list,
+      murojaah: list
+    });
   } catch (error: any) {
     res.status(500).json({ success: false, message: 'Gagal memuat jadwal murojaah: ' + error.message });
   }
@@ -741,14 +851,18 @@ export const getMurojaahList = async (req: Request, res: Response) => {
 
 export const evaluateMurojaah = async (req: Request, res: Response) => {
   try {
-    const { id, hasilUjiUlang, nilaiUjiUlang, catatanTindakLanjut } = req.body;
-    if (!id) return res.status(400).json({ success: false, message: 'ID murojaah wajib diisi.' });
+    const targetId = req.body.id || req.body.murojaahId;
+    const hasil = req.body.hasilUjiUlang || req.body.status || req.body.hasil || req.body.hasilEvaluasi || 'LANCAR';
+    const nilai = Number(req.body.nilaiUjiUlang || req.body.nilai || req.body.score) || 85;
+    const catatan = req.body.catatanTindakLanjut || req.body.catatanGuru || req.body.catatan || null;
+
+    if (!targetId) return res.status(400).json({ success: false, message: 'ID murojaah wajib diisi.' });
 
     await safeRawExecute(`
       UPDATE tahfiz_murojaah
       SET hasil_uji_ulang = ?, nilai_uji_ulang = ?, catatan_tindak_lanjut = ?, status = 'SELESAI', updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
-    `, hasilUjiUlang || 'LANCAR', Number(nilaiUjiUlang) || 85, catatanTindakLanjut || null, id);
+    `, hasil, nilai, catatan, targetId);
 
     res.json({ success: true, message: 'Hasil uji ulang murojaah berhasil dicatat!' });
   } catch (error: any) {
@@ -824,7 +938,18 @@ export const getClassTahfizProgressMap = async (req: Request, res: Response) => 
       totalStudents: students.length,
       students,
       progressMap,
-      matrix
+      matrix,
+      progressList: matrix.map(m => ({
+        id: m.studentId,
+        studentId: m.studentId,
+        studentName: m.studentName,
+        nama: m.studentName,
+        nisn: m.nisn,
+        totalLulus: m.totalLulus,
+        surah_tuntas_count: m.totalLulus,
+        percentage: m.percentage,
+        surahs: m.surahs
+      }))
     });
   } catch (error: any) {
     console.error('Error getClassTahfizProgressMap:', error);

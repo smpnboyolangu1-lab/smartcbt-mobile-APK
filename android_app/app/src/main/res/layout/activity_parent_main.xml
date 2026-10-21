@@ -292,6 +292,63 @@
                         </LinearLayout>
                     </LinearLayout>
 
+                    <!-- Pemberitahuan Sholat & Presensi Mushola Hari Ini untuk Orang Tua -->
+                    <LinearLayout
+                        android:id="@+id/cardParentPrayerNotice"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:background="#F0FDF4"
+                        android:orientation="vertical"
+                        android:padding="10dp">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="🕌"
+                                android:textSize="13sp" />
+
+                            <TextView
+                                android:id="@+id/tvParentPrayerNoticeTitle"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:layout_marginStart="6dp"
+                                android:text="Pemberitahuan Sholat Berjamaah"
+                                android:textColor="#14532D"
+                                android:textSize="11sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:id="@+id/tvParentPrayerStatusBadge"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:background="#DCFCE7"
+                                android:paddingHorizontal="6dp"
+                                android:paddingVertical="2dp"
+                                android:text="Terjadwal"
+                                android:textColor="#166534"
+                                android:textSize="9sp"
+                                android:textStyle="bold" />
+                        </LinearLayout>
+
+                        <TextView
+                            android:id="@+id/tvParentPrayerNoticeText"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:text="Hari ini ada sholat jam 12:00 - 12:30 WIB dan ananda scan di mushola pukul --:-- WIB."
+                            android:textColor="#166534"
+                            android:textSize="10.5sp"
+                            android:lineSpacingExtra="2dp" />
+                    </LinearLayout>
+
 
                     <!-- Tombol Evaluasi & Statistik Keterlambatan Ananda -->
                     <LinearLayout
@@ -312,7 +369,7 @@
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="âš ï¸ Evaluasi Keterlambatan: 0x Terlambat (Aman)"
+                            android:text="⚠️ Evaluasi Keterlambatan: 0x Terlambat (Aman)"
                             android:textColor="#B91C1C"
                             android:textSize="11sp"
                             android:textStyle="bold" />
@@ -425,7 +482,7 @@
                             android:layout_weight="1"
                             android:layout_marginEnd="3dp"
                             android:backgroundTint="#F1F5F9"
-                            android:text="âš™ï¸ Batas Jajan"
+                            android:text="⚙️ Batas Jajan"
                             android:textColor="#334155"
                             android:textSize="10sp"
                             android:textStyle="bold"
@@ -848,12 +905,42 @@
                         android:textStyle="bold" />
                 </LinearLayout>
 
-                <!-- Spacer Kolom 3 & 4 agar kedua menu tetap presisi di sebelah kiri -->
-                <View
+                <!-- Menu 11: Tahfiz & Murojaah Juz 30 (Kolom 3) -->
+                <LinearLayout
+                    android:id="@+id/gridParentTahfiz"
                     android:layout_width="0dp"
-                    android:layout_height="0dp"
-                    android:layout_weight="1" />
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:padding="4dp">
 
+                    <LinearLayout
+                        android:layout_width="52dp"
+                        android:layout_height="52dp"
+                        android:background="@drawable/bg_icon_green"
+                        android:gravity="center">
+                        <ImageView
+                            android:layout_width="26dp"
+                            android:layout_height="26dp"
+                            android:src="@drawable/ic_quran_juz"
+                            app:tint="#FFFFFF" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:gravity="center"
+                        android:text="Tahfiz Juz 30"
+                        android:textColor="#065F46"
+                        android:textSize="11sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <!-- Spacer Kolom 4 agar grid tetap presisi 4 kolom -->
                 <View
                     android:layout_width="0dp"
                     android:layout_height="0dp"
@@ -926,7 +1013,7 @@
             android:layout_marginTop="16dp"
             android:layout_marginBottom="24dp"
             android:gravity="center"
-            android:text="Smart CBT v2.8.137 • SMP Negeri 1 Boyolangu"
+            android:text="Smart CBT v1.0.0 • SMP Negeri 1 Boyolangu"
             android:textColor="#94A3B8"
             android:textSize="11sp" />
 </LinearLayout>

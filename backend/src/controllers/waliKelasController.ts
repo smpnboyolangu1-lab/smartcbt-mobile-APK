@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import path from 'path';
 import prisma from '../utils/db';
 import { getSchoolSignaturesForClass } from '../utils/schoolSignatures';
 import { formatTimeWib } from '../utils/dateUtils';
@@ -58,7 +59,32 @@ export const getWaliKelasDashboard = async (req: Request, res: Response) => {
     try {
         const user = (req as any).user;
         const requestedClass = (req.query.className as string)?.trim();
-        let homeroomClass = requestedClass || await resolveHomeroomClass(user) || 'VII-A';
+        const resolved = await resolveHomeroomClass(user);
+        let homeroomClass = requestedClass || resolved;
+
+        if (!homeroomClass) {
+            return res.json({
+                success: true,
+                isHomeroom: false,
+                homeroomClass: null,
+                teacherName: user.name,
+                teacherNip: (user as any).nip || user.username || '-',
+                todayStats: {
+                    total: 0,
+                    present: 0,
+                    unconfirmedOut: 0,
+                    late: 0,
+                    sick: 0,
+                    permission: 0,
+                    absent: 0,
+                    notYet: 0,
+                    attendanceRate: 0
+                },
+                pendingLeavesCount: 0,
+                officers: { ketua: null, wakil: null, sekretaris: null, bendahara: null },
+                message: 'Guru tidak memiliki rombel binaan wali kelas aktif.'
+            });
+        }
 
         // Ambil seluruh siswa di kelas binaan
         const students = await prisma.user.findMany({
@@ -171,10 +197,10 @@ export const getWaliKelasDashboard = async (req: Request, res: Response) => {
             try {
                 const parsed = JSON.parse(classObj.officers);
                 officers = {
-                    ketua: parsed.ketua || null,
-                    wakil: parsed.wakil || null,
-                    sekretaris: parsed.sekretaris || null,
-                    bendahara: parsed.bendahara || null
+                    ketua: parsed.ketua || (parsed.ketuaName ? { id: parsed.ketuaId || null, name: parsed.ketuaName, nisn: parsed.ketuaNisn || null } : null),
+                    wakil: parsed.wakil || (parsed.wakilName ? { id: parsed.wakilId || null, name: parsed.wakilName, nisn: parsed.wakilNisn || null } : null),
+                    sekretaris: parsed.sekretaris || (parsed.sekretaris1Name ? { id: parsed.sekretaris1Id || null, name: parsed.sekretaris1Name, nisn: parsed.sekretaris1Nisn || null } : (parsed.sekretarisName ? { id: parsed.sekretarisId || null, name: parsed.sekretarisName, nisn: parsed.sekretarisNisn || null } : null)),
+                    bendahara: parsed.bendahara || (parsed.bendahara1Name ? { id: parsed.bendahara1Id || null, name: parsed.bendahara1Name, nisn: parsed.bendahara1Nisn || null } : (parsed.bendaharaName ? { id: parsed.bendaharaId || null, name: parsed.bendaharaName, nisn: parsed.bendaharaNisn || null } : null))
                 };
             } catch {
                 // Ignore parse error
@@ -240,10 +266,17 @@ export const getWaliKelasDashboard = async (req: Request, res: Response) => {
 export const getWaliKelasStudents = async (req: Request, res: Response) => {
     try {
         const user = (req as any).user;
-        const homeroomClass = await resolveHomeroomClass(user);
+        const requestedClass = (req.query.className as string)?.trim();
+        const homeroomClass = requestedClass || await resolveHomeroomClass(user);
 
         if (!homeroomClass) {
-            return res.status(403).json({ success: false, message: 'Hanya dapat diakses oleh Wali Kelas aktif.' });
+            return res.json({
+                success: true,
+                isHomeroom: false,
+                homeroomClass: null,
+                students: [],
+                message: 'Guru tidak memiliki rombel binaan wali kelas aktif.'
+            });
         }
 
         const students = await prisma.user.findMany({
@@ -272,21 +305,45 @@ export const getWaliKelasStudents = async (req: Request, res: Response) => {
             }
         });
 
-        // Ambil dokumen resmi PDF (KK & Akta) dari submission biodata
-        let submissions: any[] = [];
+        // Ambil dokumen resmi PDF (KK & Akta) dari dokumen_siswa dan student_profile_submissions
+        let dokumenList: any[] = [];
+        let profileSubmissions: any[] = [];
         try {
-            submissions = await (prisma as any).studentBiodataSubmission.findMany({
-                where: {
-                    studentId: { in: students.map(s => s.id) }
-                },
-                select: {
-                    studentId: true,
-                    kkFileUrl: true,
-                    aktaFileUrl: true
-                }
-            });
-        } catch (e) {}
-        const submissionMap = new Map<string, any>(submissions.map((sub: any) => [sub.studentId, sub]));
+            [dokumenList, profileSubmissions] = await Promise.all([
+                (prisma as any).dokumenSiswa.findMany({
+                    where: {
+                        studentId: { in: students.map(s => s.id) },
+                        jenis: { in: ['KK', 'AKTA'] }
+                    }
+                }),
+                (prisma as any).studentProfileSubmission.findMany({
+                    where: {
+                        studentId: { in: students.map(s => s.id) }
+                    },
+                    select: {
+                        studentId: true,
+                        kkFileUrl: true,
+                        aktaFileUrl: true
+                    }
+                })
+            ]);
+        } catch (e) {
+            console.error('[getWaliKelasStudents] Error fetching student docs:', e);
+        }
+
+        const dokMap = new Map<string, { kk?: string; akta?: string }>();
+        for (const d of dokumenList) {
+            if (!dokMap.has(d.studentId)) dokMap.set(d.studentId, {});
+            const item = dokMap.get(d.studentId)!;
+            if (d.jenis === 'KK' && d.fileUrl) item.kk = d.fileUrl;
+            if (d.jenis === 'AKTA' && d.fileUrl) item.akta = d.fileUrl;
+        }
+        for (const sub of profileSubmissions) {
+            if (!dokMap.has(sub.studentId)) dokMap.set(sub.studentId, {});
+            const item = dokMap.get(sub.studentId)!;
+            if (sub.kkFileUrl && !item.kk) item.kk = sub.kkFileUrl;
+            if (sub.aktaFileUrl && !item.akta) item.akta = sub.aktaFileUrl;
+        }
 
         // Ambil data siswa tanpa HP
         const noPhoneSetting = await prisma.settings.findUnique({ where: { key: 'NO_SMARTPHONE_STUDENT_IDS' } });
@@ -306,6 +363,32 @@ export const getWaliKelasStudents = async (req: Request, res: Response) => {
                 scanTime: { gte: startOfDay, lte: endOfDay }
             }
         });
+
+        // Hitung rata-rata nilai akademik real siswa dari tabel studentExam
+        let studentExams: any[] = [];
+        try {
+            studentExams = await (prisma as any).studentExam.findMany({
+                where: {
+                    studentId: { in: studentIds },
+                    status: 'FINISHED',
+                    score: { not: null }
+                },
+                select: {
+                    studentId: true,
+                    score: true
+                }
+            });
+        } catch {}
+
+        const scoreMap = new Map<string, { total: number; count: number }>();
+        for (const se of studentExams) {
+            if (!scoreMap.has(se.studentId)) {
+                scoreMap.set(se.studentId, { total: 0, count: 0 });
+            }
+            const item = scoreMap.get(se.studentId)!;
+            item.total += Number(se.score || 0);
+            item.count += 1;
+        }
 
         // Ambil surat permohonan izin/sakit siswa hari ini
         const todayLeaves = await (prisma as any).studentLeaveRequest.findMany({
@@ -384,15 +467,27 @@ export const getWaliKelasStudents = async (req: Request, res: Response) => {
                 }
             }
 
-            const sub = submissionMap.get(s.id);
+            const docObj = dokMap.get(s.id);
             const isNoSmartphone = noPhoneIds.includes(s.id);
             const leaveReq = leaveMap.get(s.id);
+
+            const studentFolderId = `${s.nisn || s.nis || s.id}_${s.name.trim().replace(/[/\\?%*:|"<>]/g, '_').replace(/\s+/g, '_')}`;
+            const kkUrl = docObj?.kk ? `/uploads/kk/${studentFolderId}/kartu_keluarga_${s.nisn || s.id}.pdf` : null;
+            const aktaUrl = docObj?.akta ? `/uploads/akta/${studentFolderId}/akta_kelahiran_${s.nisn || s.id}.pdf` : null;
+
+            const scInfo = scoreMap.get(s.id);
+            const academicAvgScore = scInfo && scInfo.count > 0 ? Number((scInfo.total / scInfo.count).toFixed(1)) : 80.0;
+            const completedExamsCount = scInfo ? scInfo.count : 0;
 
             return {
                 ...s,
                 isNoSmartphone,
-                kkFileUrl: sub?.kkFileUrl || null,
-                aktaFileUrl: sub?.aktaFileUrl || null,
+                kkFileUrl: kkUrl,
+                aktaFileUrl: aktaUrl,
+                academicAvgScore,
+                completedExamsCount,
+                studentDocsFolder: `/uploads/siswa/${studentFolderId}`,
+                biodataPdfUrl: `/api/biodata/print/${s.id}`,
                 attachmentUrl: leaveReq?.attachmentUrl || null,
                 leaveRequest: leaveReq ? {
                     category: leaveReq.category,
@@ -499,7 +594,7 @@ export const toggleNoPhoneStudent = async (req: Request, res: Response) => {
 export const recordManualAttendanceByWali = async (req: Request, res: Response) => {
     try {
         const user = (req as any).user;
-        const homeroomClass = await resolveHomeroomClass(user);
+        const homeroomClass = (req.body.className as string)?.trim() || (req.query.className as string)?.trim() || await resolveHomeroomClass(user);
 
         if (!homeroomClass) {
             return res.status(403).json({ success: false, message: 'Hanya Wali Kelas yang dapat mencatat presensi manual.' });
@@ -554,7 +649,7 @@ export const recordManualAttendanceByWali = async (req: Request, res: Response) 
 
             await prisma.attendance.deleteMany({
                 where: {
-                    studentId: student.id,
+                    userId: student.id,
                     status: { in: ['SICK', 'SAKIT'] },
                     scanTime: { gte: startOfDay, lte: endOfDay }
                 }
@@ -663,7 +758,7 @@ export const recordManualAttendanceByWali = async (req: Request, res: Response) 
 export const getWaliKelasRekap = async (req: Request, res: Response) => {
     try {
         const user = (req as any).user;
-        const homeroomClass = await resolveHomeroomClass(user);
+        const homeroomClass = (req.query.className as string)?.trim() || await resolveHomeroomClass(user);
 
         if (!homeroomClass) {
             return res.status(403).json({ success: false, message: 'Hanya dapat diakses oleh Wali Kelas.' });
@@ -761,11 +856,17 @@ export const getWaliKelasRekap = async (req: Request, res: Response) => {
             // Gabungkan izin resmi BK
             const studentLeaves = (classApprovedLeaves as any[]).filter(lv => lv.studentId === s.id);
             studentLeaves.forEach(lv => {
-                const sYmd = lv.startDate ? new Date(lv.startDate).toISOString().split('T')[0] : '';
-                const eYmd = lv.endDate ? new Date(lv.endDate).toISOString().split('T')[0] : sYmd;
-                const leaveStatus = (lv.type === 'SAKIT' || lv.type === 'SICK' || lv.category === 'SAKIT' || lv.category === 'SICK') ? 'SAKIT' : 'IZIN';
-                if (sYmd && !dateMap.has(sYmd)) {
-                    dateMap.set(sYmd, [{ status: leaveStatus, type: 'LEAVE', note: lv.reason || 'Izin Disetujui BK' }]);
+                if (!lv.startDate) return;
+                const dStart = new Date(lv.startDate);
+                const dEnd = lv.endDate ? new Date(lv.endDate) : dStart;
+                const leaveCat = (lv.category || lv.type || '').toUpperCase();
+                const leaveStatus = (leaveCat === 'SAKIT' || leaveCat === 'SICK') ? 'SAKIT' : 'IZIN';
+
+                for (let d = new Date(dStart); d <= dEnd; d.setDate(d.getDate() + 1)) {
+                    const curYmd = d.toISOString().split('T')[0];
+                    if (!dateMap.has(curYmd)) {
+                        dateMap.set(curYmd, [{ status: leaveStatus, type: 'LEAVE', note: lv.reason || 'Izin Disetujui BK' }]);
+                    }
                 }
             });
 
@@ -798,7 +899,15 @@ export const getWaliKelasRekap = async (req: Request, res: Response) => {
                 } else if (hasLate) {
                     countT++;
                 } else if (inRecord && !outRecord) {
-                    countQuestion++; // Tdk scan pulang
+                    const todayYmd = new Date().toISOString().split('T')[0];
+                    const isToday = dateKey === todayYmd;
+                    const currTimeStr = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false });
+                    const isPastGateOutEnd = currTimeStr > (gateSetting.gateOutEndTime || '17:00');
+                    if (isToday && !isPastGateOutEnd) {
+                        countH++; // Jam belajar masih berlangsung hari ini, siswa berstatus Hadir
+                    } else {
+                        countQuestion++; // Sudah lewat batas waktu pulang dan tidak ada scan kepulangan
+                    }
                 } else if (outRecord || inRecord || dayLogs.some(l => l.status === 'PRESENT' || l.status === 'HADIR')) {
                     countH++;
                 } else if (hasAbsent) {
@@ -1025,7 +1134,7 @@ export const getStudentDetailRekap = async (req: Request, res: Response) => {
                 studentId: student.id,
                 category: 'WALI_NOTE'
             },
-            orderBy: { createdAt: 'desc' },
+            orderBy: { sentAt: 'desc' },
             take: 10
         });
 
@@ -1171,10 +1280,10 @@ export const getWaliKelasOfficers = async (req: Request, res: Response) => {
             try {
                 const parsed = JSON.parse(classObj.officers);
                 officers = {
-                    ketua: parsed.ketua || null,
-                    wakil: parsed.wakil || null,
-                    sekretaris: parsed.sekretaris || null,
-                    bendahara: parsed.bendahara || null
+                    ketua: parsed.ketua || (parsed.ketuaName ? { id: parsed.ketuaId || null, name: parsed.ketuaName, nisn: parsed.ketuaNisn || null } : null),
+                    wakil: parsed.wakil || (parsed.wakilName ? { id: parsed.wakilId || null, name: parsed.wakilName, nisn: parsed.wakilNisn || null } : null),
+                    sekretaris: parsed.sekretaris || (parsed.sekretaris1Name ? { id: parsed.sekretaris1Id || null, name: parsed.sekretaris1Name, nisn: parsed.sekretaris1Nisn || null } : (parsed.sekretarisName ? { id: parsed.sekretarisId || null, name: parsed.sekretarisName, nisn: parsed.sekretarisNisn || null } : null)),
+                    bendahara: parsed.bendahara || (parsed.bendahara1Name ? { id: parsed.bendahara1Id || null, name: parsed.bendahara1Name, nisn: parsed.bendahara1Nisn || null } : (parsed.bendaharaName ? { id: parsed.bendaharaId || null, name: parsed.bendaharaName, nisn: parsed.bendaharaNisn || null } : null))
                 };
             } catch {
                 // Ignore parse error
@@ -1366,8 +1475,9 @@ export const exportWaliKelasPdf = async (req: Request, res: Response) => {
                     return curYmd >= startStr && curYmd <= endStr;
                 });
 
-                const isLeaveSick = matchedLeave && (matchedLeave.type === 'SAKIT' || matchedLeave.type === 'SICK');
-                const isLeavePerm = matchedLeave && (matchedLeave.type === 'IZIN' || matchedLeave.type === 'PERMISSION');
+                const leaveCat = (matchedLeave?.category || matchedLeave?.type || '').toUpperCase();
+                const isLeaveSick = leaveCat === 'SAKIT' || leaveCat === 'SICK';
+                const isLeavePerm = leaveCat === 'IZIN' || leaveCat === 'PERMISSION' || leaveCat === 'DISPENSATION';
 
                 const hasSick = dayLogs.some(l => l.status === 'SICK' || l.status === 'SAKIT') || isLeaveSick;
                 const hasPerm = dayLogs.some(l => l.status === 'PERMISSION' || l.status === 'IZIN') || isLeavePerm;
@@ -1584,11 +1694,17 @@ export const exportWaliKelasPdf = async (req: Request, res: Response) => {
             // BUG-KUR-17 Fix: Sinkronkan izin sakit/keperluan yang disetujui BK ke dateMap siswa
             const studentLeaves = (classApprovedLeaves as any[]).filter(lv => lv.studentId === s.id);
             studentLeaves.forEach(lv => {
-                const sYmd = lv.startDate ? new Date(lv.startDate).toISOString().split('T')[0] : '';
-                const eYmd = lv.endDate ? new Date(lv.endDate).toISOString().split('T')[0] : sYmd;
-                const leaveStatus = (lv.type === 'SAKIT' || lv.type === 'SICK' || lv.category === 'SAKIT' || lv.category === 'SICK') ? 'SAKIT' : 'IZIN';
-                if (sYmd && !dateMap.has(sYmd)) {
-                    dateMap.set(sYmd, [{ status: leaveStatus, type: 'LEAVE', note: lv.reason || 'Izin Disetujui BK' }]);
+                if (!lv.startDate) return;
+                const dStart = new Date(lv.startDate);
+                const dEnd = lv.endDate ? new Date(lv.endDate) : dStart;
+                const leaveCat = (lv.category || lv.type || '').toUpperCase();
+                const leaveStatus = (leaveCat === 'SAKIT' || leaveCat === 'SICK') ? 'SAKIT' : 'IZIN';
+
+                for (let d = new Date(dStart); d <= dEnd; d.setDate(d.getDate() + 1)) {
+                    const curYmd = d.toISOString().split('T')[0];
+                    if (!dateMap.has(curYmd)) {
+                        dateMap.set(curYmd, [{ status: leaveStatus, type: 'LEAVE', note: lv.reason || 'Izin Disetujui BK' }]);
+                    }
                 }
             });
 
@@ -1816,10 +1932,50 @@ export const verifyWaliKelasLeave = async (req: Request, res: Response) => {
             data: {
                 status,
                 verifiedBy: user.name,
-                approvalNotes: notes,
+                rejectionNote: status === 'REJECTED' ? (notes || 'Ditolak oleh Wali Kelas') : null,
                 verifiedAt: new Date()
             }
         });
+
+        // Jika disetujui, sinkronkan catatan absensi resmi (SICK / PERMISSION)
+        if (status === 'APPROVED' && request.startDate) {
+            try {
+                const dStart = new Date(request.startDate);
+                const dEnd = request.endDate ? new Date(request.endDate) : dStart;
+                const attStatus = (request.category === 'SICK' || request.category === 'SAKIT') ? 'SICK' : 'PERMISSION';
+
+                for (let d = new Date(dStart); d <= dEnd; d.setDate(d.getDate() + 1)) {
+                    const dayScanTime = new Date(d);
+                    dayScanTime.setHours(7, 0, 0, 0);
+
+                    const dayStart = new Date(d);
+                    dayStart.setHours(0, 0, 0, 0);
+                    const dayEnd = new Date(d);
+                    dayEnd.setHours(23, 59, 59, 999);
+
+                    const existing = await prisma.attendance.findFirst({
+                        where: {
+                            userId: request.studentId,
+                            type: 'GATE_IN',
+                            scanTime: { gte: dayStart, lte: dayEnd }
+                        }
+                    });
+
+                    if (!existing) {
+                        await prisma.attendance.create({
+                            data: {
+                                userId: request.studentId,
+                                type: 'GATE_IN',
+                                status: attStatus,
+                                method: 'OFFICIAL_LEAVE',
+                                scanTime: dayScanTime,
+                                note: `Izin resmi (${attStatus}) disetujui Wali Kelas: ${request.reason || '-'}`
+                            }
+                        });
+                    }
+                }
+            } catch (attErr) {}
+        }
 
         res.json({
             success: true,

@@ -11,7 +11,10 @@ data class TeacherSessionCheckInRequest(
     @SerializedName("nfcTagUid") val nfcTagUid: String? = null,
     @SerializedName("qrSecretToken") val qrSecretToken: String? = null,
     @SerializedName("forceHandover") val forceHandover: Boolean? = false,
-    @SerializedName("subjectName") val subjectName: String? = null
+    @SerializedName("subjectName") val subjectName: String? = null,
+    @SerializedName("lat") val lat: Double? = null,
+    @SerializedName("lng") val lng: Double? = null,
+    @SerializedName("isFakeGps") val isFakeGps: Boolean = false
 )
 
 data class TeacherSessionCheckInResponse(
@@ -102,7 +105,9 @@ data class TeacherCurrentSessionResponse(
 data class TeacherCheckOutRequest(
     @SerializedName("sessionId") val sessionId: String? = null,
     @SerializedName("teachingSummary") val teachingSummary: String? = null,
-    @SerializedName("notes") val notes: String? = null
+    @SerializedName("notes") val notes: String? = null,
+    @SerializedName("lat") val lat: Double? = null,
+    @SerializedName("lng") val lng: Double? = null
 )
 
 data class TeacherUpdateAttendanceRequest(

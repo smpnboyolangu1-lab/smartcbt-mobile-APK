@@ -30,39 +30,15 @@ class SmartSchoolApp : Application() {
             FileSyncWorker.schedulePeriodicSync(this)
         } catch (e: Exception) {}
 
-        // Deteksi otomatis server lokal yang aktif tanpa perlu ketuk manual
-        autoDetectLocalServer()
-    }
-
-    private fun autoDetectLocalServer() {
-        Thread {
-            try {
-                val sessionManager = com.school.smartcbt.utils.SessionManager(this)
-                val candidates = com.school.smartcbt.utils.SessionManager.SERVER_CANDIDATES
-                val client = okhttp3.OkHttpClient.Builder()
-                    .connectTimeout(1500, java.util.concurrent.TimeUnit.MILLISECONDS)
-                    .readTimeout(1500, java.util.concurrent.TimeUnit.MILLISECONDS)
-                    .build()
-
-                for (candidate in candidates) {
-                    if (candidate.contains("cbt.smpn1boyolangu")) continue
-                    try {
-                        val req = okhttp3.Request.Builder()
-                            .url("$candidate/api/app/version-check")
-                            .get()
-                            .build()
-                        val resp = client.newCall(req).execute()
-                        if (resp.isSuccessful) {
-                            resp.close()
-                            sessionManager.setServerIp(candidate)
-                            com.school.smartcbt.data.remote.ApiClient.resetClient()
-                            Log.d("SmartSchoolApp", "Auto-detected reachable local server: $candidate")
-                            break
-                        }
-                        resp.close()
-                    } catch (e: Exception) {}
-                }
-            } catch (e: Exception) {}
-        }.start()
+        // Pastikan hanya terhubung ke server resmi CBT (hapus residu IP lokal LAN)
+        try {
+            val sessionManager = com.school.smartcbt.utils.SessionManager(this)
+            val currentIp = sessionManager.getServerIp()
+            if (currentIp.contains("192.168") || currentIp.contains("localhost") || currentIp.contains("127.0.0.1") ||
+                currentIp.contains("10.") || currentIp.contains("172.")) {
+                sessionManager.setServerIp(com.school.smartcbt.utils.SessionManager.ONLINE_SERVER_URL)
+                com.school.smartcbt.data.remote.ApiClient.resetClient()
+            }
+        } catch (e: Exception) {}
     }
 }

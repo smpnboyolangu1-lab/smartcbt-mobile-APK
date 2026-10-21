@@ -19,6 +19,7 @@ import android.view.ViewGroup
 import android.view.Window
 import android.view.WindowManager
 import android.graphics.drawable.GradientDrawable
+import android.media.MediaPlayer
 import android.widget.*
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
@@ -46,6 +47,7 @@ class ParentMainActivity : AppCompatActivity() {
     private lateinit var sessionManager: SessionManager
     private var currentStudentId: String? = null
     private var pendingTopupOrderId: String? = null
+    private var activeParentTahfizPlayer: MediaPlayer? = null
 
     private var attachedPhotoBase64: String? = null
     private var ivPhotoPreview: ImageView? = null
@@ -266,6 +268,9 @@ class ParentMainActivity : AppCompatActivity() {
         }
         binding.gridParentPpdb.setOnClickListener {
             checkAndOpenPpdbForm()
+        }
+        binding.gridParentTahfiz.setOnClickListener {
+            showParentTahfizReportDialog()
         }
 
         binding.btnCloseParentNotif.setOnClickListener {
@@ -574,6 +579,12 @@ class ParentMainActivity : AppCompatActivity() {
                     try {
                         cachePrefs.edit().putString(cacheKey, Gson().toJson(data)).apply()
                     } catch (e: Exception) {}
+                    try {
+                        val widgetIntent = Intent(this@ParentMainActivity, com.school.smartcbt.widget.ParentAttendanceWidgetProvider::class.java).apply {
+                            action = com.school.smartcbt.widget.ParentAttendanceWidgetProvider.ACTION_REFRESH_PARENT_WIDGET
+                        }
+                        sendBroadcast(widgetIntent)
+                    } catch (e: Exception) {}
                 }
             }
 
@@ -672,6 +683,36 @@ class ParentMainActivity : AppCompatActivity() {
                 binding.tvParentTodayGateOutNote.text = "Belum scan kepulangan"
                 binding.tvParentTodayGateOutNote.setTextColor(Color.parseColor("#64748B"))
             }
+        }
+
+        // 1.5. Pemberitahuan Sholat Berjamaah & Presensi Mushola
+        val prayerNotice = data.todayPrayerNotice
+        if (prayerNotice != null && prayerNotice.hasScheduleToday == true) {
+            binding.cardParentPrayerNotice.visibility = View.VISIBLE
+            binding.tvParentPrayerNoticeTitle.text = prayerNotice.prayerTitle ?: "Pemberitahuan Sholat Berjamaah"
+            binding.tvParentPrayerNoticeText.text = prayerNotice.displayNotice ?: ""
+            binding.tvParentPrayerStatusBadge.text = prayerNotice.studentStatusLabel ?: "Terjadwal"
+            val pStatus = (prayerNotice.studentStatus ?: "").uppercase()
+            if (pStatus.contains("SHOLAT") || pStatus.contains("KEPUTRIAN")) {
+                binding.tvParentPrayerStatusBadge.setBackgroundColor(Color.parseColor("#DCFCE7"))
+                binding.tvParentPrayerStatusBadge.setTextColor(Color.parseColor("#166534"))
+            } else if (pStatus.contains("HAID") || pStatus.contains("UZUR")) {
+                binding.tvParentPrayerStatusBadge.setBackgroundColor(Color.parseColor("#F3E8FF"))
+                binding.tvParentPrayerStatusBadge.setTextColor(Color.parseColor("#6B21A8"))
+            } else if (pStatus.contains("ALPHA") || pStatus.contains("ALPA")) {
+                binding.tvParentPrayerStatusBadge.setBackgroundColor(Color.parseColor("#FEE2E2"))
+                binding.tvParentPrayerStatusBadge.setTextColor(Color.parseColor("#991B1B"))
+            } else {
+                binding.tvParentPrayerStatusBadge.setBackgroundColor(Color.parseColor("#FEF3C7"))
+                binding.tvParentPrayerStatusBadge.setTextColor(Color.parseColor("#92400E"))
+            }
+        } else {
+            binding.cardParentPrayerNotice.visibility = View.VISIBLE
+            binding.tvParentPrayerNoticeTitle.text = "Pemberitahuan Sholat"
+            binding.tvParentPrayerNoticeText.text = prayerNotice?.displayNotice ?: "Hari ini tidak ada giliran jadwal sholat berjamaah di mushola untuk kelas ananda."
+            binding.tvParentPrayerStatusBadge.text = "Tidak Ada Jadwal"
+            binding.tvParentPrayerStatusBadge.setBackgroundColor(Color.parseColor("#F1F5F9"))
+            binding.tvParentPrayerStatusBadge.setTextColor(Color.parseColor("#475569"))
         }
 
         // 2. Tampilkan Notifikasi Otomatis Ke Orang Tua (Cek status dismissal & tanggal agar tidak muncul berulang kali)
@@ -2972,6 +3013,16 @@ $confirmStatusText
                 }
                 colInfo.addView(tvTimes)
 
+                if (!h.prayerNotice.isNullOrEmpty()) {
+                    val tvPrayer = TextView(this).apply {
+                        text = "🕌 " + h.prayerNotice
+                        setTextColor(android.graphics.Color.parseColor("#047857"))
+                        textSize = 10f
+                        setPadding(0, (2 * density).toInt(), 0, 0)
+                    }
+                    colInfo.addView(tvPrayer)
+                }
+
                 cardInner.addView(colInfo)
 
                 // Status Chip
@@ -4210,6 +4261,754 @@ $confirmStatusText
             }
             .setNegativeButton("Batal", null)
             .show()
+    }
+
+    // =========================================================================
+    // MODUL LAPORAN TAHFIZ & MUROJAAH JUZ 30 UNTUK ORANG TUA
+    // =========================================================================
+    private data class TahfizSurahInfo(
+        val number: Int,
+        val latinName: String,
+        val arabicName: String,
+        val translation: String,
+        val versesCount: Int
+    )
+
+    private val juz30SurahList = listOf(
+        TahfizSurahInfo(78, "An-Naba'", "النَّبَإِ", "Berita Besar", 40),
+        TahfizSurahInfo(79, "An-Nazi'at", "النَّازِعَاتِ", "Malaikat Pencabut", 46),
+        TahfizSurahInfo(80, "'Abasa", "عَبَسَ", "Ia Bermuka Masam", 42),
+        TahfizSurahInfo(81, "At-Takwir", "التَّكْوِيرِ", "Menggulung", 29),
+        TahfizSurahInfo(82, "Al-Infitar", "الانْفِطَارِ", "Terbelah", 19),
+        TahfizSurahInfo(83, "Al-Muthaffifin", "المُطَفِّفِينَ", "Orang Curang", 36),
+        TahfizSurahInfo(84, "Al-Inshiqaq", "الانْشِقَاقِ", "Terbelah", 25),
+        TahfizSurahInfo(85, "Al-Buruj", "البُرُوجِ", "Gugusan Bintang", 22),
+        TahfizSurahInfo(86, "At-Tariq", "الطَّارِقِ", "Bintang di Malam Hari", 17),
+        TahfizSurahInfo(87, "Al-A'la", "الأَعْلَى", "Yang Maha Tinggi", 19),
+        TahfizSurahInfo(88, "Al-Ghasyiyah", "الغَاشِيَةِ", "Hari Pembalasan", 26),
+        TahfizSurahInfo(89, "Al-Fajr", "الفَجْرِ", "Fajar", 30),
+        TahfizSurahInfo(90, "Al-Balad", "البَلَدِ", "Negeri", 20),
+        TahfizSurahInfo(91, "Asy-Syams", "الشَّمْسِ", "Matahari", 15),
+        TahfizSurahInfo(92, "Al-Lail", "اللَّيْلِ", "Malam", 21),
+        TahfizSurahInfo(93, "Ad-Duha", "الضُّحَى", "Waktu Dhuha", 11),
+        TahfizSurahInfo(94, "Asy-Syarh", "الشَّرْحِ", "Kelapangan", 8),
+        TahfizSurahInfo(95, "At-Tin", "التِّينِ", "Buah Tin", 8),
+        TahfizSurahInfo(96, "Al-'Alaq", "العَلَقِ", "Segumpal Darah", 19),
+        TahfizSurahInfo(97, "Al-Qadr", "القَدْرِ", "Kemuliaan", 5),
+        TahfizSurahInfo(98, "Al-Bayyinah", "البَيِّنَةِ", "Bukti Nyata", 8),
+        TahfizSurahInfo(99, "Az-Zalzalah", "الزَّلْزَلَةِ", "Kegoncangan", 8),
+        TahfizSurahInfo(100, "Al-'Adiyat", "العَادِيَاتِ", "Kuda Perang Berlari Kencang", 11),
+        TahfizSurahInfo(101, "Al-Qari'ah", "القَارِعَةِ", "Hari Kiamat", 11),
+        TahfizSurahInfo(102, "At-Takatsur", "التَّكَاثُرِ", "Bermegah-Megahan", 8),
+        TahfizSurahInfo(103, "Al-'Asr", "العَصْرِ", "Masa / Waktu", 3),
+        TahfizSurahInfo(104, "Al-Humazah", "الهُمَزَةِ", "Pengumpat", 9),
+        TahfizSurahInfo(105, "Al-Fil", "الفِيلِ", "Gajah", 5),
+        TahfizSurahInfo(106, "Quraisy", "قُرَيْشٍ", "Suku Quraisy", 4),
+        TahfizSurahInfo(107, "Al-Ma'un", "المَاعُونِ", "Barang Berguna", 7),
+        TahfizSurahInfo(108, "Al-Kautsar", "الكَوْثَرِ", "Nikmat Berlimpah", 3),
+        TahfizSurahInfo(109, "Al-Kafirun", "الكَافِرُونَ", "Orang-Orang Kafir", 6),
+        TahfizSurahInfo(110, "An-Nasr", "النَّصْرِ", "Pertolongan", 3),
+        TahfizSurahInfo(111, "Al-Lahab", "المَسَدِ", "Gejolak Api", 5),
+        TahfizSurahInfo(112, "Al-Ikhlas", "الإِخْلَاصِ", "Keesaan Allah", 4),
+        TahfizSurahInfo(113, "Al-Falaq", "الفَلَقِ", "Waktu Subuh", 5),
+        TahfizSurahInfo(114, "An-Nas", "النَّاسِ", "Manusia", 6)
+    )
+
+    private fun showParentTahfizReportDialog() {
+        val density = resources.displayMetrics.density
+        fun dp(v: Int): Int = (v * density).toInt()
+
+        val childName = binding.tvChildName.text.toString().ifEmpty { "Ananda" }
+        val childClass = binding.tvChildClass.text.toString().ifEmpty { "Kelas Siswa" }
+        val targetStudentId = currentStudentId ?: availableChildren.firstOrNull()?.id ?: "me"
+
+        val dialog = AlertDialog.Builder(this, android.R.style.Theme_Material_Light_NoActionBar_Fullscreen).create()
+        dialog.setOnDismissListener {
+            try {
+                activeParentTahfizPlayer?.stop()
+                activeParentTahfizPlayer?.release()
+            } catch (e: Exception) {}
+            activeParentTahfizPlayer = null
+        }
+
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#F8FAFC"))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        }
+
+        // Header Modern Radiant
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            val grad = GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT,
+                intArrayOf(Color.parseColor("#065F46"), Color.parseColor("#047857"), Color.parseColor("#0F766E"))
+            )
+            background = grad
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+        }
+
+        val headerText = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val tvHeaderTitle = TextView(this).apply {
+            text = "📖 Laporan Lengkap Tahfiz & Murojaah Juz 30"
+            textSize = 15f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+        }
+        val tvHeaderSub = TextView(this).apply {
+            text = "$childName • $childClass • Capaian & Rubrik 5 Aspek PAI"
+            textSize = 11.5f
+            setTextColor(Color.parseColor("#D1FAE5"))
+            setPadding(0, dp(2), 0, 0)
+        }
+        headerText.addView(tvHeaderTitle)
+        headerText.addView(tvHeaderSub)
+        header.addView(headerText)
+
+        val btnClose = Button(this).apply {
+            text = "✕"
+            textSize = 16f
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.TRANSPARENT)
+            val p = dp(8)
+            setPadding(p, p, p, p)
+            layoutParams = LinearLayout.LayoutParams(dp(40), dp(40))
+            setOnClickListener { dialog.dismiss() }
+        }
+        header.addView(btnClose)
+        root.addView(header)
+
+        // Sub-Tab Navigation Bar
+        var currentTab = 0
+        val tabContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setBackgroundColor(Color.parseColor("#E2E8F0"))
+            setPadding(dp(6), dp(6), dp(6), dp(6))
+        }
+        val btnTabSurah = Button(this).apply {
+            text = "📜 37 Surat Juz 30"
+            textSize = 11f
+            setTypeface(null, Typeface.BOLD)
+            layoutParams = LinearLayout.LayoutParams(0, dp(38), 1f).apply { marginEnd = dp(3) }
+        }
+        val btnTabMurojaah = Button(this).apply {
+            text = "🔁 Uji Murojaah"
+            textSize = 11f
+            setTypeface(null, Typeface.BOLD)
+            layoutParams = LinearLayout.LayoutParams(0, dp(38), 1f).apply {
+                marginEnd = dp(3)
+                marginStart = dp(3)
+            }
+        }
+        val btnTabPrestasi = Button(this).apply {
+            text = "🏆 Lencana & Prestasi"
+            textSize = 11f
+            setTypeface(null, Typeface.BOLD)
+            layoutParams = LinearLayout.LayoutParams(0, dp(38), 1f).apply { marginStart = dp(3) }
+        }
+        tabContainer.addView(btnTabSurah)
+        tabContainer.addView(btnTabMurojaah)
+        tabContainer.addView(btnTabPrestasi)
+        root.addView(tabContainer)
+
+        val scroll = ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
+        }
+        val mainContent = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val p = dp(14)
+            setPadding(p, p, p, p)
+        }
+
+        val tvLoading = TextView(this).apply {
+            text = "Memuat data progres tahfiz dan murojaah $childName..."
+            textSize = 12.5f
+            setTextColor(Color.parseColor("#64748B"))
+            gravity = Gravity.CENTER
+            setPadding(dp(20), dp(30), dp(20), dp(30))
+        }
+        mainContent.addView(tvLoading)
+        scroll.addView(mainContent)
+        root.addView(scroll)
+
+        dialog.setView(root)
+        dialog.show()
+
+        // Fetch Data from Server
+        ApiClient.getClient(this).getTahfizStudentDetail(targetStudentId).enqueue(object : Callback<Map<String, Any>> {
+            override fun onResponse(call: Call<Map<String, Any>>, response: Response<Map<String, Any>>) {
+                if (dialog.isShowing != true) return
+                mainContent.removeAllViews()
+
+                val body = response.body()
+                val evaluations = (body?.get("evaluations") as? List<*>)?.mapNotNull { it as? Map<*, *> } ?: emptyList()
+                val setorans = (body?.get("setorans") as? List<*>)?.mapNotNull { it as? Map<*, *> } ?: emptyList()
+                val murojaahs = (body?.get("murojaahs") as? List<*>)?.mapNotNull { it as? Map<*, *> } ?: emptyList()
+                val badges = (body?.get("badges") as? List<*>)?.mapNotNull { it as? Map<*, *> } ?: emptyList()
+
+                // Calculate KPI Stats
+                val evalMap = mutableMapOf<Int, Map<*, *>>()
+                evaluations.forEach { ev ->
+                    val sNum = (ev["surah_number"] as? Number)?.toInt()
+                    if (sNum != null && !evalMap.containsKey(sNum)) {
+                        evalMap[sNum] = ev
+                    }
+                }
+                setorans.forEach { st ->
+                    val sNum = (st["surah_number"] as? Number)?.toInt() ?: (st["surahNumber"] as? Number)?.toInt()
+                    if (sNum != null && !evalMap.containsKey(sNum)) {
+                        evalMap[sNum] = st
+                    }
+                }
+
+                var mutqinCount = 0
+                var progresCount = 0
+                var totalScore = 0f
+                var scoredCount = 0
+
+                juz30SurahList.forEach { surah ->
+                    val item = evalMap[surah.number]
+                    val score = (item?.get("nilai_akhir") as? Number)?.toFloat() ?: (item?.get("nilaiAkhir") as? Number)?.toFloat()
+                    val status = item?.get("status_hafalan")?.toString() ?: item?.get("status")?.toString() ?: ""
+                    if (score != null) {
+                        totalScore += score
+                        scoredCount++
+                    }
+                    if (score != null && score >= 75 || status == "MUTQIN" || status == "LULUS" || status == "LULUS_SETORAN") {
+                        mutqinCount++
+                    } else if (item != null || status.contains("PROGRES") || status.contains("MENUNGGU") || status == "SEDANG_DIHAFAL") {
+                        progresCount++
+                    }
+                }
+
+                val avgScore = if (scoredCount > 0) String.format(Locale.US, "%.1f", totalScore / scoredCount) else "-"
+
+                // KPI Header Cards Row
+                val kpiRow = LinearLayout(this@ParentMainActivity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        bottomMargin = dp(14)
+                    }
+                }
+
+                fun makeKpiCard(title: String, value: String, sub: String, bgGrad: IntArray): CardView {
+                    val card = CardView(this@ParentMainActivity).apply {
+                        radius = 12f * density
+                        cardElevation = 2f * density
+                        layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                            marginEnd = dp(4)
+                            marginStart = dp(4)
+                        }
+                    }
+                    val l = LinearLayout(this@ParentMainActivity).apply {
+                        orientation = LinearLayout.VERTICAL
+                        val grad = GradientDrawable(GradientDrawable.Orientation.TL_BR, bgGrad).apply { cornerRadius = 12 * density }
+                        background = grad
+                        val p = dp(10)
+                        setPadding(p, p, p, p)
+                        gravity = Gravity.CENTER
+                    }
+                    val tvVal = TextView(this@ParentMainActivity).apply {
+                        text = value
+                        textSize = 15f
+                        setTypeface(null, Typeface.BOLD)
+                        setTextColor(Color.WHITE)
+                    }
+                    val tvTitle = TextView(this@ParentMainActivity).apply {
+                        text = title
+                        textSize = 10f
+                        setTextColor(Color.WHITE)
+                    }
+                    val tvSub = TextView(this@ParentMainActivity).apply {
+                        text = sub
+                        textSize = 9f
+                        setTextColor(Color.parseColor("#E0E7FF"))
+                    }
+                    l.addView(tvVal)
+                    l.addView(tvTitle)
+                    l.addView(tvSub)
+                    card.addView(l)
+                    return card
+                }
+
+                kpiRow.addView(makeKpiCard("Mutqin Tuntas", "$mutqinCount / 37", "Target Juz 30", intArrayOf(Color.parseColor("#059669"), Color.parseColor("#047857"))))
+                kpiRow.addView(makeKpiCard("Sedang Dihafal", "$progresCount Surat", "Dalam Proses", intArrayOf(Color.parseColor("#D97706"), Color.parseColor("#B45309"))))
+                kpiRow.addView(makeKpiCard("Rata-Rata Nilai", avgScore, "5 Rubrik PAI", intArrayOf(Color.parseColor("#2563EB"), Color.parseColor("#1D4ED8"))))
+                mainContent.addView(kpiRow)
+
+                val dynamicContainer = LinearLayout(this@ParentMainActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                }
+                mainContent.addView(dynamicContainer)
+
+                fun renderActiveTab() {
+                    dynamicContainer.removeAllViews()
+
+                    val activeBg = Color.parseColor("#065F46")
+                    val inactiveBg = Color.parseColor("#CBD5E1")
+                    val activeText = Color.WHITE
+                    val inactiveText = Color.parseColor("#334155")
+
+                    btnTabSurah.setBackgroundColor(if (currentTab == 0) activeBg else inactiveBg)
+                    btnTabSurah.setTextColor(if (currentTab == 0) activeText else inactiveText)
+                    btnTabMurojaah.setBackgroundColor(if (currentTab == 1) activeBg else inactiveBg)
+                    btnTabMurojaah.setTextColor(if (currentTab == 1) activeText else inactiveText)
+                    btnTabPrestasi.setBackgroundColor(if (currentTab == 2) activeBg else inactiveBg)
+                    btnTabPrestasi.setTextColor(if (currentTab == 2) activeText else inactiveText)
+
+                    when (currentTab) {
+                        0 -> {
+                            // TAB 0: 37 SURAT JUZ 30 LENGKAP
+                            val tvSectionTitle = TextView(this@ParentMainActivity).apply {
+                                text = "📋 Capaian Hafalan 37 Surat Juz 30 Ananda"
+                                textSize = 13.5f
+                                setTypeface(null, Typeface.BOLD)
+                                setTextColor(Color.parseColor("#0F172A"))
+                                setPadding(0, 0, 0, dp(8))
+                            }
+                            dynamicContainer.addView(tvSectionTitle)
+
+                            juz30SurahList.forEach { surah ->
+                                val item = evalMap[surah.number]
+                                val score = (item?.get("nilai_akhir") as? Number)?.toInt() ?: (item?.get("nilaiAkhir") as? Number)?.toInt()
+                                val statusStr = item?.get("status_hafalan")?.toString() ?: item?.get("status")?.toString() ?: "BELUM"
+                                val isGraded = (score != null && score > 0)
+                                val isPending = statusStr.contains("MENUNGGU") || statusStr == "SIAP_DISETORKAN"
+
+                                val cardSurah = CardView(this@ParentMainActivity).apply {
+                                    radius = 12f * density
+                                    cardElevation = 1.5f * density
+                                    setCardBackgroundColor(Color.WHITE)
+                                    val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                                        bottomMargin = dp(10)
+                                    }
+                                    layoutParams = lp
+                                }
+
+                                val inner = LinearLayout(this@ParentMainActivity).apply {
+                                    orientation = LinearLayout.VERTICAL
+                                    val p = dp(12)
+                                    setPadding(p, p, p, p)
+                                }
+
+                                // Top row: Number, Latin Name, Arabic Name, Status Badge
+                                val topRow = LinearLayout(this@ParentMainActivity).apply {
+                                    orientation = LinearLayout.HORIZONTAL
+                                    gravity = Gravity.CENTER_VERTICAL
+                                }
+
+                                val numBadge = TextView(this@ParentMainActivity).apply {
+                                    text = "#${surah.number}"
+                                    textSize = 10f
+                                    setTypeface(null, Typeface.BOLD)
+                                    setTextColor(Color.parseColor("#0F766E"))
+                                    setBackgroundColor(Color.parseColor("#CCFBF1"))
+                                    val hp = dp(6)
+                                    val vp = dp(2)
+                                    setPadding(hp, vp, hp, vp)
+                                    val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                                        marginEnd = dp(8)
+                                    }
+                                    layoutParams = lp
+                                }
+                                topRow.addView(numBadge)
+
+                                val titleBox = LinearLayout(this@ParentMainActivity).apply {
+                                    orientation = LinearLayout.VERTICAL
+                                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                                }
+                                val tvSName = TextView(this@ParentMainActivity).apply {
+                                    text = "${surah.latinName} (${surah.arabicName})"
+                                    textSize = 13f
+                                    setTypeface(null, Typeface.BOLD)
+                                    setTextColor(Color.parseColor("#0F172A"))
+                                }
+                                val tvSTrans = TextView(this@ParentMainActivity).apply {
+                                    text = "${surah.translation} • ${surah.versesCount} Ayat"
+                                    textSize = 10.5f
+                                    setTextColor(Color.parseColor("#64748B"))
+                                }
+                                titleBox.addView(tvSName)
+                                titleBox.addView(tvSTrans)
+                                topRow.addView(titleBox)
+
+                                val badgeText = when {
+                                    isGraded && score >= 75 -> "🟢 MUTQIN (${score}/100)"
+                                    isGraded -> "🟡 PERLU MUROJAAH (${score}/100)"
+                                    isPending -> "⏳ MENUNGGU NILAI"
+                                    item != null -> "🟡 SEDANG DIHAFAL"
+                                    else -> "⚪ BELUM"
+                                }
+                                val badgeBgColor = when {
+                                    isGraded && score >= 75 -> "#DCFCE7"
+                                    isGraded -> "#FEF3C7"
+                                    isPending -> "#FEF9C3"
+                                    item != null -> "#EFF6FF"
+                                    else -> "#F1F5F9"
+                                }
+                                val badgeTextColor = when {
+                                    isGraded && score >= 75 -> "#065F46"
+                                    isGraded -> "#92400E"
+                                    isPending -> "#854D0E"
+                                    item != null -> "#1E40AF"
+                                    else -> "#64748B"
+                                }
+                                val tvBadge = TextView(this@ParentMainActivity).apply {
+                                    text = badgeText
+                                    textSize = 10f
+                                    setTypeface(null, Typeface.BOLD)
+                                    setTextColor(Color.parseColor(badgeTextColor))
+                                    setBackgroundColor(Color.parseColor(badgeBgColor))
+                                    val hp = dp(8)
+                                    val vp = dp(3)
+                                    setPadding(hp, vp, hp, vp)
+                                }
+                                topRow.addView(tvBadge)
+                                inner.addView(topRow)
+
+                                // Rubrik 5 Aspek & Catatan Guru jika sudah dinilai
+                                if (item != null && (isGraded || isPending)) {
+                                    val rubrikContainer = LinearLayout(this@ParentMainActivity).apply {
+                                        orientation = LinearLayout.VERTICAL
+                                        val p = dp(10)
+                                        setPadding(p, p, p, p)
+                                        val bg = GradientDrawable().apply {
+                                            setColor(Color.parseColor("#F8FAFC"))
+                                            cornerRadius = 8 * density
+                                            setStroke(dp(1), Color.parseColor("#E2E8F0"))
+                                        }
+                                        background = bg
+                                        val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                                            topMargin = dp(8)
+                                        }
+                                        layoutParams = lp
+                                    }
+
+                                    if (isGraded) {
+                                        val tvRTitle = TextView(this@ParentMainActivity).apply {
+                                            text = "📊 Evaluasi 5 Rubrik Objektif PAI:"
+                                            textSize = 11f
+                                            setTypeface(null, Typeface.BOLD)
+                                            setTextColor(Color.parseColor("#0F172A"))
+                                            setPadding(0, 0, 0, dp(4))
+                                        }
+                                        rubrikContainer.addView(tvRTitle)
+
+                                        val nKelancaran = (item["nilai_kelancaran"] ?: item["nilaiKelancaran"] ?: "-").toString()
+                                        val nKetepatan = (item["nilai_ketepatan_ayat"] ?: item["nilai_ketepatan"] ?: item["nilaiKetepatanAyat"] ?: "-").toString()
+                                        val nTajwid = (item["nilai_tajwid"] ?: item["nilaiTajwid"] ?: "-").toString()
+                                        val nMakhraj = (item["nilai_makharijul_huruf"] ?: item["nilai_makhraj"] ?: item["nilaiMakharijulHuruf"] ?: "-").toString()
+                                        val nKemandirian = (item["nilai_kemandirian"] ?: item["nilaiKemandirian"] ?: "-").toString()
+
+                                        fun makeRubrikRow(name: String, weight: String, valStr: String): LinearLayout {
+                                            return LinearLayout(this@ParentMainActivity).apply {
+                                                orientation = LinearLayout.HORIZONTAL
+                                                val t = TextView(this@ParentMainActivity).apply {
+                                                    text = "• $name ($weight):"
+                                                    textSize = 10.5f
+                                                    setTextColor(Color.parseColor("#475569"))
+                                                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                                                }
+                                                val v = TextView(this@ParentMainActivity).apply {
+                                                    text = "$valStr / 100"
+                                                    textSize = 10.5f
+                                                    setTypeface(null, Typeface.BOLD)
+                                                    setTextColor(Color.parseColor("#0F172A"))
+                                                }
+                                                addView(t)
+                                                addView(v)
+                                            }
+                                        }
+
+                                        rubrikContainer.addView(makeRubrikRow("1. Kelancaran", "25%", nKelancaran))
+                                        rubrikContainer.addView(makeRubrikRow("2. Ketepatan Ayat", "25%", nKetepatan))
+                                        rubrikContainer.addView(makeRubrikRow("3. Kaidah Tajwid", "20%", nTajwid))
+                                        rubrikContainer.addView(makeRubrikRow("4. Makharijul Huruf", "20%", nMakhraj))
+                                        rubrikContainer.addView(makeRubrikRow("5. Kemandirian", "10%", nKemandirian))
+                                    }
+
+                                    val catatan = item["catatan_guru"]?.toString() ?: item["catatanGuru"]?.toString() ?: item["student_notes"]?.toString()
+                                    if (!catatan.isNullOrEmpty()) {
+                                        val tvCatatan = TextView(this@ParentMainActivity).apply {
+                                            text = "💬 Catatan Guru: $catatan"
+                                            textSize = 10.5f
+                                            setTextColor(Color.parseColor("#334155"))
+                                            setTypeface(null, Typeface.ITALIC)
+                                            setPadding(0, dp(4), 0, 0)
+                                        }
+                                        rubrikContainer.addView(tvCatatan)
+                                    }
+
+                                    val penilaiName = item["target_guru_name"]?.toString() ?: item["targetGuruName"]?.toString() ?: item["guru_name"]?.toString()
+                                    val tglVal = item["tanggal_penilaian"]?.toString() ?: item["scheduled_date"]?.toString() ?: item["scheduledDate"]?.toString()
+                                    if (!penilaiName.isNullOrEmpty() || !tglVal.isNullOrEmpty()) {
+                                        val tvGuruInfo = TextView(this@ParentMainActivity).apply {
+                                            text = "👨‍🏫 ${if (!penilaiName.isNullOrEmpty()) penilaiName else "Guru PAI"} • 📅 ${tglVal ?: "Terkini"}"
+                                            textSize = 10f
+                                            setTextColor(Color.parseColor("#64748B"))
+                                            setPadding(0, dp(4), 0, 0)
+                                        }
+                                        rubrikContainer.addView(tvGuruInfo)
+                                    }
+
+                                    // Audio Playback Button for Parent
+                                    val audioUrl = item["audio_url"]?.toString() ?: item["audioRecordUrl"]?.toString() ?: item["audio_record_url"]?.toString()
+                                    if (!audioUrl.isNullOrEmpty()) {
+                                        val btnPlayAudio = Button(this@ParentMainActivity).apply {
+                                            text = "▶️ Putar Rekaman Setoran Suara Anak"
+                                            textSize = 11f
+                                            setTypeface(null, Typeface.BOLD)
+                                            setTextColor(Color.WHITE)
+                                            val bgBtn = GradientDrawable(
+                                                GradientDrawable.Orientation.LEFT_RIGHT,
+                                                intArrayOf(Color.parseColor("#0284C7"), Color.parseColor("#0369A1"))
+                                            ).apply { cornerRadius = 6 * density }
+                                            background = bgBtn
+                                            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(36)).apply {
+                                                topMargin = dp(8)
+                                            }
+                                            layoutParams = lp
+                                            setOnClickListener {
+                                                try {
+                                                    activeParentTahfizPlayer?.stop()
+                                                    activeParentTahfizPlayer?.release()
+                                                    val fullUrl = if (audioUrl.startsWith("http")) audioUrl else "${ApiClient.getBaseServerUrl(this@ParentMainActivity)}${if (audioUrl.startsWith("/")) "" else "/"}$audioUrl"
+                                                    activeParentTahfizPlayer = MediaPlayer().apply {
+                                                        setDataSource(fullUrl)
+                                                        prepareAsync()
+                                                        setOnPreparedListener { start() }
+                                                        setOnCompletionListener {
+                                                            Toast.makeText(this@ParentMainActivity, "Selesai mendengarkan rekaman setoran anak.", Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    }
+                                                    Toast.makeText(this@ParentMainActivity, "Memutar audio setoran hafalan anak...", Toast.LENGTH_SHORT).show()
+                                                } catch (e: Exception) {
+                                                    Toast.makeText(this@ParentMainActivity, "Gagal memutar rekaman: ${e.message}", Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
+                                        }
+                                        rubrikContainer.addView(btnPlayAudio)
+                                    }
+
+                                    inner.addView(rubrikContainer)
+                                }
+
+                                cardSurah.addView(inner)
+                                dynamicContainer.addView(cardSurah)
+                            }
+                        }
+                        1 -> {
+                            // TAB 1: UJI MUROJAAH BERKALA
+                            val tvSec = TextView(this@ParentMainActivity).apply {
+                                text = "🔁 Riwayat Uji Murojaah Berkala"
+                                textSize = 13.5f
+                                setTypeface(null, Typeface.BOLD)
+                                setTextColor(Color.parseColor("#0F172A"))
+                                setPadding(0, 0, 0, dp(8))
+                            }
+                            dynamicContainer.addView(tvSec)
+
+                            if (murojaahs.isEmpty()) {
+                                val cardEmpty = CardView(this@ParentMainActivity).apply {
+                                    radius = 12f * density
+                                    setCardBackgroundColor(Color.WHITE)
+                                    val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                                    layoutParams = lp
+                                }
+                                val innerEmpty = LinearLayout(this@ParentMainActivity).apply {
+                                    orientation = LinearLayout.VERTICAL
+                                    val p = dp(20)
+                                    setPadding(p, p, p, p)
+                                    gravity = Gravity.CENTER
+                                }
+                                val tvIcon = TextView(this@ParentMainActivity).apply {
+                                    text = "📖"
+                                    textSize = 28f
+                                    gravity = Gravity.CENTER
+                                }
+                                val tvMsg = TextView(this@ParentMainActivity).apply {
+                                    text = "Belum ada jadwal atau catatan uji murojaah berkala untuk santri saat ini."
+                                    textSize = 12f
+                                    setTextColor(Color.parseColor("#64748B"))
+                                    gravity = Gravity.CENTER
+                                    setPadding(0, dp(6), 0, 0)
+                                }
+                                innerEmpty.addView(tvIcon)
+                                innerEmpty.addView(tvMsg)
+                                cardEmpty.addView(innerEmpty)
+                                dynamicContainer.addView(cardEmpty)
+                            } else {
+                                murojaahs.forEach { m ->
+                                    val surahName = m["surah_name"]?.toString() ?: m["surahName"]?.toString() ?: "Surat Juz 30"
+                                    val ayatRange = "${m["ayat_start"] ?: m["ayatStart"] ?: 1} - ${m["ayat_end"] ?: m["ayatEnd"] ?: 10}"
+                                    val statusMur = m["status_murojaah"]?.toString() ?: m["status"]?.toString() ?: "LANCAR"
+                                    val catatanMur = m["catatan_penguji"]?.toString() ?: m["catatanPenguji"]?.toString() ?: "-"
+                                    val penguji = m["penguji_name"]?.toString() ?: m["pengujiName"]?.toString() ?: "Guru PAI"
+                                    val tglMur = m["jadwal_murojaah"]?.toString() ?: m["created_at"]?.toString() ?: "Terkini"
+
+                                    val card = CardView(this@ParentMainActivity).apply {
+                                        radius = 12f * density
+                                        cardElevation = 1.5f * density
+                                        setCardBackgroundColor(Color.WHITE)
+                                        val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                                            bottomMargin = dp(10)
+                                        }
+                                        layoutParams = lp
+                                    }
+                                    val l = LinearLayout(this@ParentMainActivity).apply {
+                                        orientation = LinearLayout.VERTICAL
+                                        val p = dp(12)
+                                        setPadding(p, p, p, p)
+                                    }
+                                    val rowTop = LinearLayout(this@ParentMainActivity).apply {
+                                        orientation = LinearLayout.HORIZONTAL
+                                        gravity = Gravity.CENTER_VERTICAL
+                                    }
+                                    val tvT = TextView(this@ParentMainActivity).apply {
+                                        text = "Surat $surahName (Ayat $ayatRange)"
+                                        textSize = 13f
+                                        setTypeface(null, Typeface.BOLD)
+                                        setTextColor(Color.parseColor("#0F172A"))
+                                        layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                                    }
+                                    val tvSt = TextView(this@ParentMainActivity).apply {
+                                        text = statusMur
+                                        textSize = 10f
+                                        setTypeface(null, Typeface.BOLD)
+                                        setTextColor(Color.parseColor(if (statusMur.contains("LANCAR")) "#065F46" else "#92400E"))
+                                        setBackgroundColor(Color.parseColor(if (statusMur.contains("LANCAR")) "#DCFCE7" else "#FEF3C7"))
+                                        val hp = dp(8)
+                                        val vp = dp(3)
+                                        setPadding(hp, vp, hp, vp)
+                                    }
+                                    rowTop.addView(tvT)
+                                    rowTop.addView(tvSt)
+                                    l.addView(rowTop)
+
+                                    val tvNotes = TextView(this@ParentMainActivity).apply {
+                                        text = "💬 Catatan Penguji: $catatanMur"
+                                        textSize = 11f
+                                        setTextColor(Color.parseColor("#475569"))
+                                        setPadding(0, dp(4), 0, 0)
+                                    }
+                                    val tvFooter = TextView(this@ParentMainActivity).apply {
+                                        text = "👨‍🏫 Penguji: $penguji • 📅 $tglMur"
+                                        textSize = 10f
+                                        setTextColor(Color.parseColor("#94A3B8"))
+                                        setPadding(0, dp(4), 0, 0)
+                                    }
+                                    l.addView(tvNotes)
+                                    l.addView(tvFooter)
+                                    card.addView(l)
+                                    dynamicContainer.addView(card)
+                                }
+                            }
+                        }
+                        2 -> {
+                            // TAB 2: LENCANA & PRESTASI TAHFIZ
+                            val tvSec = TextView(this@ParentMainActivity).apply {
+                                text = "🏆 Lencana Prestasi & Penghargaan Tahfiz"
+                                textSize = 13.5f
+                                setTypeface(null, Typeface.BOLD)
+                                setTextColor(Color.parseColor("#0F172A"))
+                                setPadding(0, 0, 0, dp(8))
+                            }
+                            dynamicContainer.addView(tvSec)
+
+                            val badgeDefinitions = listOf(
+                                Triple("🎖️ Hafiz Pemula Juz 30", "Menyelesaikan 5 Surat Pendek Pertama dengan predikat Mutqin.", mutqinCount >= 5),
+                                Triple("🌟 Bintang Tajwid", "Meraih nilai kaidah tajwid >= 90 pada evaluasi setoran Guru PAI.", avgScore != "-" && avgScore.replace(",", ".").toFloatOrNull() ?: 0f >= 85f),
+                                Triple("📜 Penakluk Surat An-Naba'", "Menuntaskan seluruh 40 ayat Surat An-Naba' dengan lancar & tartil.", evalMap.containsKey(78) && ((evalMap[78]?.get("nilai_akhir") as? Number)?.toInt() ?: 0) >= 75),
+                                Triple("💫 Istiqomah Murojaah", "Aktif mengikuti evaluasi murojaah berkala terjadwal sekolah.", murojaahs.isNotEmpty()),
+                                Triple("👑 Khatam Juz 30 Mutqin", "Menuntaskan seluruh 37 surat Juz 30 (An-Naba' s.d An-Nas) secara mutqin.", mutqinCount >= 37)
+                            )
+
+                            badgeDefinitions.forEach { (bTitle, bDesc, isEarned) ->
+                                val card = CardView(this@ParentMainActivity).apply {
+                                    radius = 12f * density
+                                    cardElevation = 1.5f * density
+                                    setCardBackgroundColor(if (isEarned) Color.parseColor("#F0FDF4") else Color.WHITE)
+                                    val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                                        bottomMargin = dp(10)
+                                    }
+                                    layoutParams = lp
+                                }
+                                val l = LinearLayout(this@ParentMainActivity).apply {
+                                    orientation = LinearLayout.VERTICAL
+                                    val p = dp(12)
+                                    setPadding(p, p, p, p)
+                                }
+                                val rowTop = LinearLayout(this@ParentMainActivity).apply {
+                                    orientation = LinearLayout.HORIZONTAL
+                                    gravity = Gravity.CENTER_VERTICAL
+                                }
+                                val tvT = TextView(this@ParentMainActivity).apply {
+                                    text = bTitle
+                                    textSize = 13f
+                                    setTypeface(null, Typeface.BOLD)
+                                    setTextColor(if (isEarned) Color.parseColor("#065F46") else Color.parseColor("#334155"))
+                                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                                }
+                                val tvSt = TextView(this@ParentMainActivity).apply {
+                                    text = if (isEarned) "✅ DIRAIH" else "⏳ PROGRES"
+                                    textSize = 10f
+                                    setTypeface(null, Typeface.BOLD)
+                                    setTextColor(Color.parseColor(if (isEarned) "#065F46" else "#64748B"))
+                                    setBackgroundColor(Color.parseColor(if (isEarned) "#DCFCE7" else "#F1F5F9"))
+                                    val hp = dp(8)
+                                    val vp = dp(3)
+                                    setPadding(hp, vp, hp, vp)
+                                }
+                                rowTop.addView(tvT)
+                                rowTop.addView(tvSt)
+                                l.addView(rowTop)
+
+                                val tvD = TextView(this@ParentMainActivity).apply {
+                                    text = bDesc
+                                    textSize = 11f
+                                    setTextColor(Color.parseColor("#475569"))
+                                    setPadding(0, dp(4), 0, 0)
+                                }
+                                l.addView(tvD)
+                                card.addView(l)
+                                dynamicContainer.addView(card)
+                            }
+                        }
+                    }
+                }
+
+                btnTabSurah.setOnClickListener { currentTab = 0; renderActiveTab() }
+                btnTabMurojaah.setOnClickListener { currentTab = 1; renderActiveTab() }
+                btnTabPrestasi.setOnClickListener { currentTab = 2; renderActiveTab() }
+                renderActiveTab()
+            }
+
+            override fun onFailure(call: Call<Map<String, Any>>, t: Throwable) {
+                if (dialog.isShowing != true) return
+                mainContent.removeAllViews()
+                val tvErr = TextView(this@ParentMainActivity).apply {
+                    text = "Gagal memuat laporan tahfiz: ${t.message}"
+                    setTextColor(Color.RED)
+                    textSize = 12.5f
+                    gravity = Gravity.CENTER
+                    setPadding(dp(20), dp(30), dp(20), dp(30))
+                }
+                mainContent.addView(tvErr)
+            }
+        })
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        try {
+            activeParentTahfizPlayer?.stop()
+            activeParentTahfizPlayer?.release()
+        } catch (e: Exception) {}
+        activeParentTahfizPlayer = null
     }
 
     private data class Quadruple<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)

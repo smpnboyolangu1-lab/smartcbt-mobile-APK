@@ -6,7 +6,8 @@ import fs from 'fs';
 import { checkStudentCommitteeRole, getClassCommittee } from '../utils/classCommittee';
 import { normalizeClassVariations, resolveHomeroomTeacher, resolveCounselorTeacher, canonicalClassName } from '../utils/classHelper';
 import { supabase } from '../utils/supabaseClient';
-import { formatTimeWibWithSuffix } from '../utils/dateUtils';
+import { formatTimeWib, formatTimeWibWithSuffix } from '../utils/dateUtils';
+import { getResolvedDayPrayerSchedules } from './prayerAttendanceController';
 
 // 1. Get Complete Student / User Profile
 export const getStudentProfile = async (req: Request, res: Response): Promise<void> => {
@@ -384,6 +385,24 @@ export const getDetailedAttendance = async (req: Request, res: Response): Promis
 
     const allHistory: any[] = [];
 
+    // Ambil info siswa untuk presensi sholat
+    const targetStudentInfo = await prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { id: true, className: true, gender: true }
+    });
+
+    const prayerAttendances = await (prisma as any).studentPrayerAttendance.findMany({
+      where: { studentId: targetUserId }
+    });
+    const prayerAttMap = new Map<string, any>();
+    prayerAttendances.forEach((pa: any) => {
+      prayerAttMap.set(pa.date, pa);
+    });
+
+    const allDbPrayerSchedules = await (prisma as any).prayerClassSchedule.findMany({
+      where: { isActive: true }
+    });
+
     for (const [dateStr, records] of groupedMap.entries()) {
       const dateObj = new Date(dateStr + 'T12:00:00Z');
       const dayIndex = dateObj.getDay();
@@ -459,6 +478,40 @@ export const getDetailedAttendance = async (req: Request, res: Response): Promis
       const gateOutTime = (!isNonScanStatus && outRecord && outRecord.method !== 'SYSTEM_AUTO') ? formatTime(outRecord.scanTime, outRecord.note) : '-';
       const isLate = finalStatus === 'TERLAMBAT';
 
+      // Hitung info jadwal & presensi sholat hari tersebut
+      const pa = prayerAttMap.get(dateStr);
+      const daySchedules = getResolvedDayPrayerSchedules(dayIndex, allDbPrayerSchedules);
+      const studentClassName = (targetStudentInfo?.className || '').trim();
+      const isFemale = (targetStudentInfo?.gender || '').toUpperCase().startsWith('P');
+      const daySchedule = daySchedules.find((s: any) => {
+        const classes = (s.classNames || '').split(',').map((c: string) => c.trim());
+        if (s.classNames === 'ALL') return true;
+        if (s.prayerType === 'JUMAT' && s.classNames === 'ALL_MALE' && !isFemale) return true;
+        if (s.prayerType === 'KEPUTRIAN' && s.classNames === 'ALL_FEMALE' && isFemale) return true;
+        return classes.includes(studentClassName);
+      });
+
+      let prayerNotice: string | null = null;
+      let prayerScheduleTime: string | null = null;
+      let prayerScanTime: string | null = null;
+      let prayerStatus: string | null = null;
+
+      if (daySchedule) {
+        prayerScheduleTime = `${daySchedule.scanStartTime || '12:00'} - ${daySchedule.scanEndTime || '12:30'} WIB`;
+        if (pa) {
+          prayerStatus = pa.status;
+          prayerScanTime = pa.createdAt ? (formatTimeWib(pa.createdAt) + ' WIB') : null;
+          const stLabel = pa.status === 'SHOLAT_BERJAMAAH' ? 'Sholat Berjamaah'
+            : pa.status === 'HADIR_KEPUTRIAN' ? 'Hadir Keputrian'
+            : (pa.status === 'BERHALANGAN_HAID' || pa.status === 'UZUR_SYARI') ? 'Uzur Syar\'i'
+            : 'Alpa';
+          prayerNotice = `Hari ini ada sholat jam ${prayerScheduleTime} dan ananda scan di mushola pukul ${prayerScanTime || '--:--'} (${stLabel})`;
+        } else {
+          prayerStatus = 'BELUM_SCAN';
+          prayerNotice = `Hari ini ada sholat jam ${prayerScheduleTime} di mushola (Belum scan)`;
+        }
+      }
+
       allHistory.push({
         date: dateStr,
         dayName,
@@ -469,7 +522,11 @@ export const getDetailedAttendance = async (req: Request, res: Response): Promis
         note: inRecord?.note || outRecord?.note || null,
         isLate,
         isSunday,
-        isMissingGateOut
+        isMissingGateOut,
+        prayerNotice,
+        prayerScheduleTime,
+        prayerScanTime,
+        prayerStatus
       });
     }
 
@@ -483,6 +540,40 @@ export const getDetailedAttendance = async (req: Request, res: Response): Promis
       const isPastCutoffToday = todayCurrTimeStr >= '08:00';
       const statusToday = isPastCutoffToday ? 'ALPA' : 'BELUM PRESENSI';
       if (isPastCutoffToday) alpaCount++;
+
+      const paToday = prayerAttMap.get(todayStrWib);
+      const todayDaySchedules = getResolvedDayPrayerSchedules(todayDayOfWeek, allDbPrayerSchedules);
+      const studentClassName = (targetStudentInfo?.className || '').trim();
+      const isFemale = (targetStudentInfo?.gender || '').toUpperCase().startsWith('P');
+      const todaySchedule = todayDaySchedules.find((s: any) => {
+        const classes = (s.classNames || '').split(',').map((c: string) => c.trim());
+        if (s.classNames === 'ALL') return true;
+        if (s.prayerType === 'JUMAT' && s.classNames === 'ALL_MALE' && !isFemale) return true;
+        if (s.prayerType === 'KEPUTRIAN' && s.classNames === 'ALL_FEMALE' && isFemale) return true;
+        return classes.includes(studentClassName);
+      });
+
+      let prayerNoticeToday: string | null = null;
+      let prayerSchedToday: string | null = null;
+      let prayerScanToday: string | null = null;
+      let prayerStatusToday: string | null = null;
+
+      if (todaySchedule) {
+        prayerSchedToday = `${todaySchedule.scanStartTime || '12:00'} - ${todaySchedule.scanEndTime || '12:30'} WIB`;
+        if (paToday) {
+          prayerStatusToday = paToday.status;
+          prayerScanToday = paToday.createdAt ? (formatTimeWib(paToday.createdAt) + ' WIB') : null;
+          const stLabel = paToday.status === 'SHOLAT_BERJAMAAH' ? 'Sholat Berjamaah'
+            : paToday.status === 'HADIR_KEPUTRIAN' ? 'Hadir Keputrian'
+            : (paToday.status === 'BERHALANGAN_HAID' || paToday.status === 'UZUR_SYARI') ? 'Uzur Syar\'i'
+            : 'Alpa';
+          prayerNoticeToday = `Hari ini ada sholat jam ${prayerSchedToday} dan ananda scan di mushola pukul ${prayerScanToday || '--:--'} (${stLabel})`;
+        } else {
+          prayerStatusToday = 'BELUM_SCAN';
+          prayerNoticeToday = `Hari ini ada sholat jam ${prayerSchedToday} di mushola (Belum scan)`;
+        }
+      }
+
       allHistory.push({
         date: todayStrWib,
         dayName: dayNames[todayDayOfWeek] || 'Hari Ini',
@@ -493,7 +584,11 @@ export const getDetailedAttendance = async (req: Request, res: Response): Promis
         note: isPastCutoffToday ? 'Tidak ada rekaman presensi masuk hari ini' : 'Silakan scan barcode gerbang sebelum 08:00 WIB',
         isLate: false,
         isSunday: false,
-        isMissingGateOut: false
+        isMissingGateOut: false,
+        prayerNotice: prayerNoticeToday,
+        prayerScheduleTime: prayerSchedToday,
+        prayerScanTime: prayerScanToday,
+        prayerStatus: prayerStatusToday
       });
     }
 

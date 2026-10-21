@@ -263,11 +263,17 @@ class ExamActivity : AppCompatActivity() {
                         val gson = Gson()
 
                         backendQuestions.forEachIndexed { idx, bq ->
-                            val options = mutableListOf<String>()
-                            bq.optionA?.let { if (it.isNotBlank()) options.add(it) }
-                            bq.optionB?.let { if (it.isNotBlank()) options.add(it) }
-                            bq.optionC?.let { if (it.isNotBlank()) options.add(it) }
-                            bq.optionD?.let { if (it.isNotBlank()) options.add(it) }
+                            val parsedOptions = bq.parseOptionsList()
+                            val options = if (parsedOptions.isNotEmpty()) parsedOptions.toMutableList() else {
+                                val fallbackOpts = mutableListOf<String>()
+                                bq.optionA?.let { if (it.isNotBlank()) fallbackOpts.add(it) }
+                                bq.optionB?.let { if (it.isNotBlank()) fallbackOpts.add(it) }
+                                bq.optionC?.let { if (it.isNotBlank()) fallbackOpts.add(it) }
+                                bq.optionD?.let { if (it.isNotBlank()) fallbackOpts.add(it) }
+                                fallbackOpts
+                            }
+
+                            val qText = bq.getQuestionBody()
 
                             val qType = when (bq.type?.uppercase()) {
                                 "MATCHING" -> QuestionType.MATCHING
@@ -278,7 +284,7 @@ class ExamActivity : AppCompatActivity() {
                             questionsList.add(
                                 QuestionModel(
                                     id = bq.id,
-                                    text = bq.questionText ?: "",
+                                    text = qText,
                                     type = qType,
                                     options = options,
                                     imageUrl = bq.imageUrl,
@@ -292,7 +298,7 @@ class ExamActivity : AppCompatActivity() {
                                 QuestionEntity(
                                     id = bq.id,
                                     examId = eId ?: "online_exam",
-                                    content = bq.questionText ?: "",
+                                    content = qText,
                                     type = bq.type ?: "MULTIPLE_CHOICE",
                                     options = gson.toJson(options),
                                     orderNum = idx,

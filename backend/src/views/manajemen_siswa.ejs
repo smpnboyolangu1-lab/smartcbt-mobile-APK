@@ -4,6 +4,10 @@
     const countVII = initList.filter(s => (s.className || '').startsWith('VII-')).length;
     const countVIII = initList.filter(s => (s.className || '').startsWith('VIII-')).length;
     const countIX = initList.filter(s => (s.className || '').startsWith('IX-')).length;
+
+    const countConnected = initList.filter(s => s.phoneStatus === 'CONNECTED').length;
+    const countNotConnected = initList.filter(s => s.phoneStatus === 'NOT_CONNECTED').length;
+    const countNoPhone = initList.filter(s => s.phoneStatus === 'NO_PHONE').length;
 %>
 <!DOCTYPE html>
 <html lang="id">
@@ -22,10 +26,17 @@
             box-shadow: 0 4px 12px rgba(21, 101, 192, 0.25);
             font-weight: 800;
         }
+        .phone-filter-btn.active {
+            background-color: #0c234a;
+            color: white;
+            box-shadow: 0 2px 8px rgba(12, 35, 74, 0.25);
+            font-weight: 800;
+        }
         @media print {
             body * { visibility: hidden; }
-            #printableStudentCard, #printableStudentCard * { visibility: visible; }
-            #printableStudentCard { position: absolute; left: 0; top: 0; width: 100%; }
+            #printableStudentCard, #printableStudentCard *,
+            #printablePhoneReport, #printablePhoneReport * { visibility: visible; }
+            #printableStudentCard, #printablePhoneReport { position: absolute; left: 0; top: 0; width: 100%; }
         }
     </style>
     <link rel="stylesheet" href="/css/portal-theme.css">
@@ -46,12 +57,15 @@
                     <h1 class="text-2xl font-black text-slate-800 flex items-center gap-2">
                         <span>👨‍🎓</span> Data Siswa &amp; Profil
                     </h1>
-                    <p class="text-slate-500 text-xs">Pengelompokan Lengkap Tingkat Kelas VII, Kelas VIII, dan Kelas IX</p>
+                    <p class="text-slate-500 text-xs">Pengelompokan Lengkap Tingkat Kelas VII, VIII, IX &amp; Monitoring Kepemilikan HP Siswa</p>
                 </div>
             </div>
             <div class="flex flex-wrap gap-2">
-                <a href="/admin/siswa/print-cards" target="_blank" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl shadow-md font-bold flex items-center gap-2 transition-all text-xs">
-                    <span>🪪</span> <span>Cetak &amp; Unduh Semua QR Siswa</span>
+                <button onclick="openPhoneReportModal()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl shadow-md font-bold flex items-center gap-2 transition-all text-xs" title="Lihat dan Cetak Rekapitulasi Siswa Terhubung HP, Belum Terhubung, dan Tidak Punya HP">
+                    <span>📱</span> <span>Rekap Data HP Siswa</span>
+                </button>
+                <a href="/admin/siswa/print-cards" target="_blank" class="bg-slate-700 hover:bg-slate-800 text-white px-4 py-2.5 rounded-xl shadow-md font-bold flex items-center gap-2 transition-all text-xs">
+                    <span>🪪</span> <span>Cetak QR Siswa</span>
                 </a>
                 <button onclick="openPromoteModal()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl shadow-md font-bold flex items-center gap-2 transition-all text-xs">
                     <span>⬆️</span> <span>Kenaikan Kelas</span>
@@ -62,6 +76,45 @@
                     </svg>
                     <span>Tambah Siswa</span>
                 </button>
+            </div>
+        </div>
+
+        <!-- 3 STATISTIK KARTU KONEKSI HP SISWA (TERHUBUNG, BELUM, TIDAK PUNYA HP) -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+            <div onclick="selectPhoneFilter('CONNECTED')" id="cardPhoneConnected" class="phone-stat-card bg-white p-4 rounded-2xl border-2 border-emerald-100 shadow-sm cursor-pointer hover:border-emerald-500 hover:shadow transition-all flex items-center justify-between">
+                <div>
+                    <div class="flex items-center gap-1.5 mb-1">
+                        <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                        <p class="text-[11px] text-emerald-800 font-extrabold uppercase tracking-wider">🟢 Terhubung HP</p>
+                    </div>
+                    <p class="text-2xl font-black text-emerald-600" id="statPhoneConnected"><%= countConnected %></p>
+                    <p class="text-[10px] text-emerald-700 font-semibold mt-0.5">Sudah login / terikat perangkat HP</p>
+                </div>
+                <div class="p-3 bg-emerald-50 text-emerald-600 rounded-2xl text-2xl border border-emerald-100">📱</div>
+            </div>
+
+            <div onclick="selectPhoneFilter('NOT_CONNECTED')" id="cardPhoneNotConnected" class="phone-stat-card bg-white p-4 rounded-2xl border-2 border-amber-100 shadow-sm cursor-pointer hover:border-amber-500 hover:shadow transition-all flex items-center justify-between">
+                <div>
+                    <div class="flex items-center gap-1.5 mb-1">
+                        <span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+                        <p class="text-[11px] text-amber-800 font-extrabold uppercase tracking-wider">🟡 Belum Terhubung</p>
+                    </div>
+                    <p class="text-2xl font-black text-amber-600" id="statPhoneNotConnected"><%= countNotConnected %></p>
+                    <p class="text-[10px] text-amber-700 font-semibold mt-0.5">Belum login ke aplikasi di HP</p>
+                </div>
+                <div class="p-3 bg-amber-50 text-amber-600 rounded-2xl text-2xl border border-amber-100">⏳</div>
+            </div>
+
+            <div onclick="selectPhoneFilter('NO_PHONE')" id="cardPhoneNoPhone" class="phone-stat-card bg-white p-4 rounded-2xl border-2 border-rose-100 shadow-sm cursor-pointer hover:border-rose-500 hover:shadow transition-all flex items-center justify-between">
+                <div>
+                    <div class="flex items-center gap-1.5 mb-1">
+                        <span class="w-2.5 h-2.5 rounded-full bg-rose-500"></span>
+                        <p class="text-[11px] text-rose-800 font-extrabold uppercase tracking-wider">⚪ Tidak Punya HP</p>
+                    </div>
+                    <p class="text-2xl font-black text-rose-600" id="statPhoneNoPhone"><%= countNoPhone %></p>
+                    <p class="text-[10px] text-rose-700 font-semibold mt-0.5">Siswa butuh fasilitas Lab CBT sekolah</p>
+                </div>
+                <div class="p-3 bg-rose-50 text-rose-600 rounded-2xl text-2xl border border-rose-100">🚫</div>
             </div>
         </div>
 
@@ -102,7 +155,7 @@
         </div>
 
         <!-- TINGKAT TAB SWITCHER & FILTER BAR -->
-        <div class="bg-white p-4 rounded-2xl border shadow-sm mb-4">
+        <div class="bg-white p-4 rounded-2xl border shadow-sm mb-4 space-y-3">
             <div class="flex flex-wrap items-center justify-between gap-4">
                 <!-- Level Tabs -->
                 <div class="flex items-center bg-gray-100 p-1.5 rounded-xl gap-1">
@@ -131,6 +184,33 @@
                            oninput="debounceSearch()">
                 </div>
             </div>
+
+            <!-- Bilah Filter Cepat Status HP Siswa -->
+            <div class="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100">
+                <div class="flex items-center gap-1.5">
+                    <span class="text-[11px] font-extrabold text-slate-700 uppercase tracking-wider flex items-center gap-1">
+                        <span>📱</span> Filter Status HP:
+                    </span>
+                    <div class="flex items-center bg-slate-100 p-1 rounded-xl gap-1">
+                        <button onclick="selectPhoneFilter('ALL')" id="filterPhoneAll" class="phone-filter-btn active px-3 py-1.5 rounded-lg text-xs font-bold transition-all">
+                            Semua (<span id="pillCountAll"><%= totalCount %></span>)
+                        </button>
+                        <button onclick="selectPhoneFilter('CONNECTED')" id="filterPhoneConnected" class="phone-filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold text-emerald-800 hover:bg-emerald-100 transition-all flex items-center gap-1">
+                            <span>🟢 Terhubung HP (<span id="pillCountConnected"><%= countConnected %></span>)</span>
+                        </button>
+                        <button onclick="selectPhoneFilter('NOT_CONNECTED')" id="filterPhoneNotConnected" class="phone-filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold text-amber-800 hover:bg-amber-100 transition-all flex items-center gap-1">
+                            <span>🟡 Belum Terhubung (<span id="pillCountNotConnected"><%= countNotConnected %></span>)</span>
+                        </button>
+                        <button onclick="selectPhoneFilter('NO_PHONE')" id="filterPhoneNoPhone" class="phone-filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold text-rose-800 hover:bg-rose-100 transition-all flex items-center gap-1">
+                            <span>⚪ Tidak Punya HP (<span id="pillCountNoPhone"><%= countNoPhone %></span>)</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="text-[11px] text-slate-500 font-medium">
+                    <span>💡 Klik tab untuk menyaring siswa per kategori kepemilikan HP</span>
+                </div>
+            </div>
         </div>
 
         <!-- Table Container -->
@@ -143,7 +223,7 @@
                             <th class="p-3.5">NISN / Username</th>
                             <th class="p-3.5">Tingkat & Rombel</th>
                             <th class="p-3.5">L/P</th>
-                            <th class="p-3.5">📱 Binding HP Siswa</th>
+                            <th class="p-3.5">📱 Status & Perangkat HP</th>
                             <th class="p-3.5">Status CBT</th>
                             <th class="p-3.5 text-right">Aksi Terpadu</th>
                         </tr>
@@ -448,6 +528,81 @@
         </div>
     </div>
 
+    <!-- Modal Rekapitulasi Data Status HP Siswa (Siap Cetak & Export) -->
+    <div id="modalPhoneReport" class="hidden fixed inset-0 bg-black/60 backdrop-blur-sm flex justify-center items-center z-50 p-4">
+        <div class="bg-white rounded-3xl w-full max-w-4xl max-h-[92vh] overflow-hidden flex flex-col shadow-2xl border">
+            <div class="p-5 border-b flex justify-between items-center bg-gradient-to-r from-slate-900 via-blue-900 to-indigo-900 text-white rounded-t-3xl">
+                <div class="flex items-center gap-2.5">
+                    <span class="text-2xl">📱</span>
+                    <div>
+                        <h2 class="text-base font-black">Rekapitulasi Data Kepemilikan &amp; Koneksi HP Siswa</h2>
+                        <p class="text-xs text-indigo-200">Data Siswa Terhubung HP, Belum Terhubung, dan Siswa Tanpa HP</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button onclick="printPhoneReportContent()" class="bg-indigo-600 hover:bg-indigo-500 text-white px-3.5 py-2 rounded-xl text-xs font-bold shadow flex items-center gap-1.5 cursor-pointer">
+                        <span>🖨️</span> Cetak Rekap (PDF)
+                    </button>
+                    <button onclick="closePhoneReportModal()" class="text-white hover:text-gray-300 text-2xl font-bold ml-2 cursor-pointer">&times;</button>
+                </div>
+            </div>
+
+            <!-- Filter Bar dalam Modal Rekap -->
+            <div class="p-3.5 bg-slate-50 border-b flex flex-wrap items-center justify-between gap-3 text-xs">
+                <div class="flex items-center gap-2">
+                    <span class="font-bold text-slate-700">Filter Rombel:</span>
+                    <select id="modalReportClassFilter" onchange="renderModalReportTable()" class="border rounded-xl px-3 py-1.5 bg-white font-bold text-slate-800">
+                        <option value="ALL">Semua Rombel (Semua Siswa)</option>
+                    </select>
+                    <span class="font-bold text-slate-700 ml-2">Status:</span>
+                    <select id="modalReportStatusFilter" onchange="renderModalReportTable()" class="border rounded-xl px-3 py-1.5 bg-white font-bold text-slate-800">
+                        <option value="ALL">Semua Status HP</option>
+                        <option value="CONNECTED">🟢 Hanya Terhubung HP</option>
+                        <option value="NOT_CONNECTED">🟡 Hanya Belum Terhubung</option>
+                        <option value="NO_PHONE">⚪ Hanya Tidak Punya HP</option>
+                    </select>
+                </div>
+                <div class="flex items-center gap-2 font-bold text-slate-600">
+                    <span id="modalReportTotalBadge" class="bg-blue-100 text-blue-900 px-2.5 py-1 rounded-lg">Total: 0 Siswa</span>
+                </div>
+            </div>
+
+            <!-- Content Area Siap Cetak -->
+            <div class="p-6 overflow-y-auto flex-1 bg-white" id="printablePhoneReport">
+                <div class="mb-4 text-center border-b pb-3">
+                    <h3 class="text-base font-black text-slate-900 uppercase">DAFTAR KEPEMILIKAN &amp; KONEKSI PERANGKAT HP SISWA</h3>
+                    <p class="text-xs text-slate-600 font-semibold" id="reportHeaderMeta">SMP NEGERI 1 BOYOLANGU - TAHUN AJARAN AKTIF</p>
+                    <div class="flex justify-center gap-4 mt-2 text-xs font-bold text-slate-700">
+                        <span class="text-emerald-700">🟢 Terhubung: <b id="reportStatConnected">0</b></span>
+                        <span class="text-amber-700">🟡 Belum Terhubung: <b id="reportStatNotConnected">0</b></span>
+                        <span class="text-rose-700">⚪ Tidak Punya HP: <b id="reportStatNoPhone">0</b></span>
+                    </div>
+                </div>
+
+                <table class="w-full text-left border-collapse text-xs" id="modalReportTable">
+                    <thead>
+                        <tr class="bg-slate-100 border text-slate-800 font-bold">
+                            <th class="p-2 border text-center w-10">No</th>
+                            <th class="p-2 border">NISN</th>
+                            <th class="p-2 border">Nama Siswa</th>
+                            <th class="p-2 border text-center">Kelas</th>
+                            <th class="p-2 border text-center">Status HP</th>
+                            <th class="p-2 border">Perangkat / Android ID</th>
+                            <th class="p-2 border">Keterangan CBT</th>
+                        </tr>
+                    </thead>
+                    <tbody id="modalReportTableBody" class="divide-y border">
+                        <!-- Injected via JS -->
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="p-3 bg-slate-50 border-t flex justify-end">
+                <button type="button" onclick="closePhoneReportModal()" class="px-5 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-xl text-xs font-bold cursor-pointer">Tutup</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Floating Menu Aksi Terpadu Siswa (Fixed Position to avoid table overflow clipping) -->
     <div id="globalStudentActionDropdown" class="hidden fixed z-[99999] w-56 bg-white rounded-2xl shadow-2xl border border-slate-200 py-1.5 text-left text-xs transition-opacity duration-150">
         <div class="px-3.5 py-2.5 border-b border-slate-100 bg-slate-50/90 rounded-t-2xl">
@@ -467,6 +622,13 @@
                 <div>
                     <div class="font-bold text-xs text-slate-800">Reset Kunci HP</div>
                     <div class="text-[10px] text-slate-400">Lepas binding perangkat HP</div>
+                </div>
+            </button>
+            <button type="button" onclick="handleDropdownAction('TOGGLE_NO_PHONE')" class="w-full text-left px-3.5 py-2 hover:bg-slate-50 text-slate-700 hover:text-slate-900 font-semibold flex items-center gap-2.5 transition-colors cursor-pointer" id="dropdownToggleNoPhoneBtn">
+                <span class="text-sm">🔄</span>
+                <div>
+                    <div class="font-bold text-xs text-slate-800" id="dropdownNoPhoneTitle">Ubah Status HP</div>
+                    <div class="text-[10px] text-slate-400" id="dropdownNoPhoneSubtitle">Tandai Tanpa HP / Siswa Ada HP</div>
                 </div>
             </button>
             <button type="button" onclick="handleDropdownAction('FORCE_LOGOUT')" class="w-full text-left px-3.5 py-2 hover:bg-rose-50 text-slate-700 hover:text-rose-800 font-semibold flex items-center gap-2.5 transition-colors cursor-pointer">
@@ -502,55 +664,59 @@
     </div>
 
     <script>
-        let token = localStorage.getItem('token');
+        const serverToken = "<%= typeof currentAuthToken !== 'undefined' ? currentAuthToken : '' %>";
+        let token = serverToken || localStorage.getItem('token') || localStorage.getItem('admin_token') || '';
+        if (serverToken && !localStorage.getItem('token')) {
+            try { localStorage.setItem('token', serverToken); } catch (e) {}
+        }
         let allStudents = <%- JSON.stringify(initialStudents || []) %>;
         let filteredStudents = [];
         let currentTingkatTab = 'ALL';
+        let currentPhoneFilter = 'ALL';
         let currentPage = 1;
         const rowsPerPage = 50;
         let searchTimeout = null;
 
-        async function getFreshToken() {
-            try {
-                const res = await fetch('/api/auth/login', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username: 'admin', password: 'password123' })
-                });
-                const data = await res.json();
-                if (data.token) {
-                    token = data.token;
-                    localStorage.setItem('token', token);
-                    return token;
-                }
-            } catch(e) {}
-            return null;
+        function getStudentPhoneStatus(s) {
+            if (!s) return 'NOT_CONNECTED';
+            if (s.hasNoSmartphone === true || s.phoneStatus === 'NO_PHONE') return 'NO_PHONE';
+            if (s.phoneStatus === 'CONNECTED') return 'CONNECTED';
+            if ((s.devices && s.devices.length > 0) || s.deviceBindingId) return 'CONNECTED';
+            return 'NOT_CONNECTED';
         }
 
         async function loadStudents() {
-            if (!token) token = await getFreshToken();
+            if (!token) {
+                token = serverToken || localStorage.getItem('token') || localStorage.getItem('admin_token') || '';
+            }
             try {
+                const reqHeaders = { 'Content-Type': 'application/json' };
+                if (token && token !== 'null' && token !== 'undefined') {
+                    reqHeaders['Authorization'] = 'Bearer ' + token;
+                }
                 let res = await fetch('/api/admin/students', {
-                    headers: { 'Authorization': 'Bearer ' + token }
+                    headers: reqHeaders,
+                    credentials: 'same-origin'
                 });
                 if (!res.ok) {
-                    token = await getFreshToken();
                     res = await fetch('/api/students', {
-                        headers: { 'Authorization': 'Bearer ' + token }
+                        headers: reqHeaders,
+                        credentials: 'same-origin'
                     });
                 }
                 if (res.ok) {
                     const data = await res.json();
                     const list = Array.isArray(data) ? data : (data.students || []);
-                    if (list.length > 0 || allStudents.length === 0) {
+                    if (list.length > 0) {
                         allStudents = list;
                     }
-                    updateStats();
-                    populateRombelDropdown();
-                    applyFilters();
                 }
             } catch(e) {
-                console.error('Failed to load students:', e);
+                console.warn('Background sync students notice:', e);
+            } finally {
+                updateStats();
+                populateRombelDropdown();
+                applyFilters();
             }
         }
 
@@ -559,17 +725,86 @@
             const countVIII = allStudents.filter(s => (s.className || '').startsWith('VIII-')).length;
             const countIX = allStudents.filter(s => (s.className || '').startsWith('IX-')).length;
 
-            document.getElementById('statAllCount').innerText = allStudents.length.toLocaleString('id-ID');
-            document.getElementById('tabBadgeAll').innerText = allStudents.length.toLocaleString('id-ID');
+            const countConnected = allStudents.filter(s => getStudentPhoneStatus(s) === 'CONNECTED').length;
+            const countNotConnected = allStudents.filter(s => getStudentPhoneStatus(s) === 'NOT_CONNECTED').length;
+            const countNoPhone = allStudents.filter(s => getStudentPhoneStatus(s) === 'NO_PHONE').length;
 
-            document.getElementById('statVII').innerText = countVII;
-            document.getElementById('tabBadgeVII').innerText = countVII;
+            const statAll = document.getElementById('statAllCount');
+            if (statAll) statAll.innerText = allStudents.length.toLocaleString('id-ID');
+            const tabAll = document.getElementById('tabBadgeAll');
+            if (tabAll) tabAll.innerText = allStudents.length.toLocaleString('id-ID');
 
-            document.getElementById('statVIII').innerText = countVIII;
-            document.getElementById('tabBadgeVIII').innerText = countVIII;
+            const statVIIEl = document.getElementById('statVII');
+            if (statVIIEl) statVIIEl.innerText = countVII;
+            const tabVIIEl = document.getElementById('tabBadgeVII');
+            if (tabVIIEl) tabVIIEl.innerText = countVII;
 
-            document.getElementById('statIX').innerText = countIX;
-            document.getElementById('tabBadgeIX').innerText = countIX;
+            const statVIIIEl = document.getElementById('statVIII');
+            if (statVIIIEl) statVIIIEl.innerText = countVIII;
+            const tabVIIIEl = document.getElementById('tabBadgeVIII');
+            if (tabVIIIEl) tabVIIIEl.innerText = countVIII;
+
+            const statIXEl = document.getElementById('statIX');
+            if (statIXEl) statIXEl.innerText = countIX;
+            const tabIXEl = document.getElementById('tabBadgeIX');
+            if (tabIXEl) tabIXEl.innerText = countIX;
+
+            // Update Phone Stat Cards & Pills
+            const statConn = document.getElementById('statPhoneConnected');
+            if (statConn) statConn.innerText = countConnected;
+            const pillConn = document.getElementById('pillCountConnected');
+            if (pillConn) pillConn.innerText = countConnected;
+
+            const statNotConn = document.getElementById('statPhoneNotConnected');
+            if (statNotConn) statNotConn.innerText = countNotConnected;
+            const pillNotConn = document.getElementById('pillCountNotConnected');
+            if (pillNotConn) pillNotConn.innerText = countNotConnected;
+
+            const statNoPh = document.getElementById('statPhoneNoPhone');
+            if (statNoPh) statNoPh.innerText = countNoPhone;
+            const pillNoPh = document.getElementById('pillCountNoPhone');
+            if (pillNoPh) pillNoPh.innerText = countNoPhone;
+
+            const pillAll = document.getElementById('pillCountAll');
+            if (pillAll) pillAll.innerText = allStudents.length;
+        }
+
+        function selectPhoneFilter(status) {
+            currentPhoneFilter = status;
+
+            const filterBtnIds = ['filterPhoneAll', 'filterPhoneConnected', 'filterPhoneNotConnected', 'filterPhoneNoPhone'];
+            filterBtnIds.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.classList.remove('active');
+            });
+
+            const activeBtnMap = {
+                'ALL': 'filterPhoneAll',
+                'CONNECTED': 'filterPhoneConnected',
+                'NOT_CONNECTED': 'filterPhoneNotConnected',
+                'NO_PHONE': 'filterPhoneNoPhone'
+            };
+            const activeBtn = document.getElementById(activeBtnMap[status]);
+            if (activeBtn) activeBtn.classList.add('active');
+
+            // Highlight kartu stat di bagian atas
+            const cardMap = {
+                'CONNECTED': 'cardPhoneConnected',
+                'NOT_CONNECTED': 'cardPhoneNotConnected',
+                'NO_PHONE': 'cardPhoneNoPhone'
+            };
+            ['cardPhoneConnected', 'cardPhoneNotConnected', 'cardPhoneNoPhone'].forEach(cId => {
+                const cEl = document.getElementById(cId);
+                if (cEl) {
+                    if (cardMap[status] === cId) {
+                        cEl.classList.add('ring-2', 'ring-blue-600', 'bg-blue-50/20');
+                    } else {
+                        cEl.classList.remove('ring-2', 'ring-blue-600', 'bg-blue-50/20');
+                    }
+                }
+            });
+
+            applyFilters();
         }
 
         function selectTingkatTab(tingkat) {
@@ -658,13 +893,20 @@
                 // Rombel Dropdown Filter
                 const matchRombel = (rombelVal === 'ALL') || (cName === rombelVal);
 
+                // Phone Status Filter
+                const pStatus = getStudentPhoneStatus(s);
+                let matchPhone = true;
+                if (currentPhoneFilter !== 'ALL') {
+                    matchPhone = (pStatus === currentPhoneFilter);
+                }
+
                 // Search Box
                 const matchSearch = (s.name || '').toLowerCase().includes(searchVal) ||
                                     (s.username || '').toLowerCase().includes(searchVal) ||
                                     (s.nisn || '').toLowerCase().includes(searchVal) ||
                                     cName.toLowerCase().includes(searchVal);
 
-                return matchTingkat && matchRombel && matchSearch;
+                return matchTingkat && matchRombel && matchPhone && matchSearch;
             });
 
             currentPage = 1;
@@ -676,14 +918,17 @@
             const total = filteredStudents.length;
 
             if (total === 0) {
-                
-            let emptyMsg = 'Tidak ada data siswa yang sesuai filter.';
-            if (currentTingkatTab === 'VIII') {
-                emptyMsg = 'ℹ️ Data Siswa Kelas VIII belum diinput/diimpor ke sistem.';
-            } else if (currentTingkatTab === 'IX') {
-                emptyMsg = 'ℹ️ Data Siswa Kelas IX belum diinput/diimpor ke sistem.';
-            }
-            tbody.innerHTML = '<tr><td colspan="6" class="p-8 text-center text-gray-400 font-medium">' + emptyMsg + '</td></tr>';
+                let emptyMsg = 'Tidak ada data siswa yang sesuai filter.';
+                if (currentPhoneFilter === 'NO_PHONE') {
+                    emptyMsg = 'ℹ️ Belum ada siswa yang ditandai "Tidak Punya HP" di filter ini.';
+                } else if (currentPhoneFilter === 'CONNECTED') {
+                    emptyMsg = 'ℹ️ Tidak ada siswa terhubung HP yang sesuai pencarian.';
+                } else if (currentTingkatTab === 'VIII') {
+                    emptyMsg = 'ℹ️ Data Siswa Kelas VIII belum diinput/diimpor ke sistem.';
+                } else if (currentTingkatTab === 'IX') {
+                    emptyMsg = 'ℹ️ Data Siswa Kelas IX belum diinput/diimpor ke sistem.';
+                }
+                tbody.innerHTML = '<tr><td colspan="7" class="p-8 text-center text-gray-400 font-medium">' + emptyMsg + '</td></tr>';
 
                 document.getElementById('pageInfo').innerText = 'Menampilkan 0 dari 0 siswa';
                 document.getElementById('btnPrev').disabled = true;
@@ -718,16 +963,57 @@
                     : `<div class="w-8 h-8 rounded-full bg-blue-100 text-blue-700 font-bold flex items-center justify-center text-xs">${initial}</div>`;
 
                 const safeName = (s.name || '').replace(/'/g, "\\'");
-                const bindingCol = s.deviceBindingId 
-                    ? `<div class="flex flex-col gap-0.5">
-                         <span class="bg-purple-100 text-purple-900 border border-purple-300 font-mono text-[10px] px-2 py-0.5 rounded font-bold inline-flex items-center gap-1" title="${s.deviceBindingId}">
-                           📱 ${s.deviceBindingId.length > 10 ? s.deviceBindingId.substring(0, 8) + '...' : s.deviceBindingId}
-                         </span>
-                         <button onclick="unbindStudentDevice('${s.id}', '${safeName}')" class="text-[10px] text-red-600 hover:text-red-800 font-bold underline text-left">
-                           🔓 Lepas Kunci
-                         </button>
-                       </div>`
-                    : `<span class="bg-slate-100 text-slate-500 border border-slate-200 text-[10px] px-2 py-0.5 rounded font-medium">⚪ Bebas (Belum Binding)</span>`;
+                const pStatus = getStudentPhoneStatus(s);
+
+                let phoneCol = '';
+                if (pStatus === 'CONNECTED') {
+                    const dev = s.activeDevice || (s.devices && s.devices.length > 0 ? s.devices[0] : null);
+                    const devName = dev ? (dev.deviceModel || dev.deviceName || 'Android') : 'Android Device';
+                    const bindId = s.deviceBindingId || (dev ? dev.deviceAndroidId : '');
+                    phoneCol = `
+                        <div class="flex flex-col gap-0.5">
+                            <span class="bg-emerald-100 text-emerald-800 border border-emerald-300 font-extrabold text-[10px] px-2 py-0.5 rounded-md inline-flex items-center gap-1 w-fit">
+                                <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> 🟢 Terhubung HP
+                            </span>
+                            <span class="text-[11px] font-bold text-slate-800 truncate max-w-[170px]" title="${devName}">
+                                📱 ${devName}
+                            </span>
+                            ${bindId ? `
+                                <div class="flex items-center gap-1.5">
+                                    <span class="font-mono text-[9px] bg-slate-100 text-slate-600 px-1.5 py-0.2 rounded border" title="${bindId}">ID: ${bindId.length > 8 ? bindId.substring(0, 8) + '...' : bindId}</span>
+                                    <button onclick="unbindStudentDevice('${s.id}', '${safeName}')" class="text-[9px] text-red-600 hover:text-red-800 font-bold underline cursor-pointer" title="Lepas Kunci Android ID">🔓 Lepas</button>
+                                </div>
+                            ` : ''}
+                            <button onclick="toggleStudentNoPhone('${s.id}', '${safeName}', true)" class="text-[9px] text-slate-500 hover:text-rose-600 underline font-medium text-left cursor-pointer" title="Ubah status jika siswa ini ternyata tidak memiliki HP">
+                                ⚪ Set Tidak Punya HP
+                            </button>
+                        </div>
+                    `;
+                } else if (pStatus === 'NO_PHONE') {
+                    phoneCol = `
+                        <div class="flex flex-col gap-0.5">
+                            <span class="bg-rose-100 text-rose-800 border border-rose-300 font-black text-[10px] px-2 py-0.5 rounded-md inline-flex items-center gap-1 w-fit">
+                                <span>⚪</span> Tidak Punya HP
+                            </span>
+                            <span class="text-[10px] text-rose-700 font-medium">Fasilitas Lab CBT</span>
+                            <button onclick="toggleStudentNoPhone('${s.id}', '${safeName}', false)" class="text-[10px] text-emerald-700 hover:text-emerald-900 font-bold underline text-left cursor-pointer" title="Kembalikan status jika siswa sudah membawa HP">
+                                🔄 Batalkan (Ada HP)
+                            </button>
+                        </div>
+                    `;
+                } else {
+                    phoneCol = `
+                        <div class="flex flex-col gap-0.5">
+                            <span class="bg-amber-100 text-amber-900 border border-amber-300 font-bold text-[10px] px-2 py-0.5 rounded-md inline-flex items-center gap-1 w-fit">
+                                <span>🟡</span> Belum Terhubung
+                            </span>
+                            <span class="text-[10px] text-amber-800">Belum login APK di HP</span>
+                            <button onclick="toggleStudentNoPhone('${s.id}', '${safeName}', true)" class="text-[10px] text-blue-600 hover:text-blue-800 font-bold underline text-left cursor-pointer" title="Tandai jika siswa memang tidak memiliki smartphone">
+                                ➕ Tandai Tanpa HP
+                            </button>
+                        </div>
+                    `;
+                }
 
                 const roleBadge = s.classRole 
                     ? `<span class="bg-amber-100 text-amber-900 border border-amber-300 text-[10px] px-1.5 py-0.5 rounded font-bold mt-1 inline-block">⭐ ${s.classRole}</span>`
@@ -756,10 +1042,12 @@
                             </span>
                         </td>
                         <td class="p-3.5">
-                            ${bindingCol}
+                            ${phoneCol}
                         </td>
                         <td class="p-3.5">
-                            <span class="bg-green-100 text-green-800 px-2 py-0.5 rounded-full text-[10px] font-bold">🟢 SIAP UJIAN</span>
+                            ${pStatus === 'NO_PHONE' 
+                                ? '<span class="bg-rose-100 text-rose-800 px-2 py-0.5 rounded-full text-[10px] font-bold">🏛️ LAB SEKOLAH</span>' 
+                                : '<span class="bg-green-100 text-green-800 px-2 py-0.5 rounded-full text-[10px] font-bold">🟢 SIAP UJIAN</span>'}
                         </td>
                         <td class="p-3.5 text-right whitespace-nowrap">
                             <div class="inline-flex items-center gap-1.5 justify-end">
@@ -808,6 +1096,12 @@
             document.getElementById('dropdownStudentName').innerText = s.name || s.nama || 'Siswa';
             document.getElementById('dropdownStudentNisn').innerText = 'NISN: ' + (s.nisn || s.username || '-');
 
+            const isNoPhone = (s.hasNoSmartphone || s.phoneStatus === 'NO_PHONE');
+            const toggleTitle = document.getElementById('dropdownNoPhoneTitle');
+            const toggleSub = document.getElementById('dropdownNoPhoneSubtitle');
+            if (toggleTitle) toggleTitle.innerText = isNoPhone ? 'Batalkan (Siswa Punya HP)' : 'Tandai Tidak Punya HP';
+            if (toggleSub) toggleSub.innerText = isNoPhone ? 'Ubah menjadi siswa dengan HP regular' : 'Fasilitas Lab Komputer CBT Sekolah';
+
             dropdown.classList.remove('hidden');
 
             const btn = event.currentTarget || (event.target ? event.target.closest('button') : null);
@@ -852,6 +1146,9 @@
                 openResetPasswordModal(studentId, sName, sNisn);
             } else if (actionType === 'RESET_DEVICE') {
                 unbindStudentDevice(studentId, sName);
+            } else if (actionType === 'TOGGLE_NO_PHONE') {
+                const isCurrentlyNoPhone = (s && (s.hasNoSmartphone || s.phoneStatus === 'NO_PHONE'));
+                toggleStudentNoPhone(studentId, sName, !isCurrentlyNoPhone);
             } else if (actionType === 'FORCE_LOGOUT') {
                 forceLogoutStudent(studentId, sName);
             } else if (actionType === 'VIEW_PROFILE') {
@@ -908,7 +1205,21 @@
                         ${(s.name || 'S')[0].toUpperCase()}
                    </div>`;
 
-            const html = `
+            const pStatus = getStudentPhoneStatus(s);
+            const isNoPhone = (pStatus === 'NO_PHONE');
+            const dev = s.activeDevice || (s.devices && s.devices.length > 0 ? s.devices[0] : null);
+            const devName = dev ? (dev.deviceModel || dev.deviceName || 'Android') : 'Belum Terdeteksi';
+
+            let phoneBadgeHtml = '';
+            if (pStatus === 'CONNECTED') {
+                phoneBadgeHtml = '<span class="bg-emerald-100 text-emerald-800 border border-emerald-300 font-black px-3 py-1 rounded-full text-xs">🟢 Terhubung HP Aktif</span>';
+            } else if (pStatus === 'NO_PHONE') {
+                phoneBadgeHtml = '<span class="bg-rose-100 text-rose-800 border border-rose-300 font-black px-3 py-1 rounded-full text-xs">⚪ Siswa Tanpa HP (Lab CBT)</span>';
+            } else {
+                phoneBadgeHtml = '<span class="bg-amber-100 text-amber-900 border border-amber-300 font-black px-3 py-1 rounded-full text-xs">🟡 Belum Terhubung HP</span>';
+            }
+
+            let html = `
                 <div class="bg-white p-6 rounded-2xl border shadow-sm flex flex-col md:flex-row items-center gap-6 mb-6">
                     <div class="relative group">
                         ${avatarBig}
@@ -950,29 +1261,52 @@
                         <p class="font-bold ${s.profilePicUrl ? 'text-emerald-600' : 'text-amber-600'} mt-0.5">${s.profilePicUrl ? '✅ Terpasang di Portal & APK' : '⚠️ Belum Ada Foto (Gunakan Default)'}</p>
                     </div>
                 </div>
+            `;
 
-                <div class="mt-4 bg-purple-50/70 border border-purple-200 p-4 rounded-2xl">
-                    <div class="flex flex-wrap items-center justify-between gap-3">
+                html += `
+                <div class="mt-4 bg-slate-50 border border-slate-200 p-4 rounded-2xl shadow-sm">
+                    <div class="flex flex-wrap items-center justify-between gap-3 border-b pb-3 mb-3">
                         <div class="flex items-center gap-2.5">
                             <span class="text-2xl">📱</span>
                             <div>
-                                <h4 class="font-bold text-xs text-purple-950">Status Kunci Perangkat HP Siswa (Device Binding)</h4>
-                                <p class="text-[11px] text-purple-700">Kode identitas Android ID yang terkunci pada akun ini untuk mencegah kecurangan ujian</p>
+                                <h4 class="font-bold text-xs text-slate-900">Status Kepemilikan &amp; Perangkat HP Siswa</h4>
+                                <p class="text-[11px] text-slate-500">Monitoring koneksi APK Android, Android ID unik, dan kesiapan ujian CBT</p>
                             </div>
                         </div>
-                        ${s.deviceBindingId ? `
-                            <button onclick="unbindStudentDevice('${s.id}', '${(s.name || '').replace(/'/g, "\\'")}')" class="bg-red-600 hover:bg-red-700 text-white font-bold px-3 py-1.5 rounded-xl text-xs shadow flex items-center gap-1">
-                                <span>🔓</span> Lepas Kunci HP
-                            </button>
-                        ` : `
-                            <span class="bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold px-3 py-1 rounded-full text-xs">
-                                ⚪ Status: Bebas Login
-                            </span>
-                        `}
+                        <div class="flex items-center gap-2">
+                            ${phoneBadgeHtml}
+                        </div>
                     </div>
-                    <div class="mt-2.5 text-xs font-mono bg-white p-2.5 rounded-xl border border-purple-200 text-purple-950 flex items-center justify-between">
-                        <span>${s.deviceBindingId ? `<strong>Android ID:</strong> ${s.deviceBindingId}` : '<em>Belum terikat ke perangkat HP manapun. Siswa dapat login pertama kali dari HP Android miliknya.</em>'}</span>
-                        ${s.classRole ? `<span class="bg-amber-100 text-amber-900 px-2 py-0.5 rounded font-bold text-xs font-sans">⭐ ${s.classRole}</span>` : ''}
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+                        <div class="bg-white p-2.5 rounded-xl border">
+                            <span class="text-[10px] text-slate-400 font-semibold uppercase block">Model Perangkat HP</span>
+                            <span class="font-bold text-slate-800">${devName}</span>
+                        </div>
+                        <div class="bg-white p-2.5 rounded-xl border">
+                            <span class="text-[10px] text-slate-400 font-semibold uppercase block">Kunci Android ID (Binding)</span>
+                            <span class="font-mono font-bold text-slate-700">${s.deviceBindingId || 'Belum Ada Kunci'}</span>
+                        </div>
+                    </div>
+
+                    <div class="mt-3 pt-3 border-t flex flex-wrap items-center justify-between gap-2">
+                        <div class="flex items-center gap-2">
+                            ${s.deviceBindingId ? `
+                                <button onclick="unbindStudentDevice('${s.id}', '${(s.name || '').replace(/'/g, "\\'")}')" class="bg-red-600 hover:bg-red-700 text-white font-bold px-3 py-1.5 rounded-xl text-xs shadow flex items-center gap-1 cursor-pointer">
+                                    <span>🔓</span> Lepas Kunci HP
+                                </button>
+                            ` : ''}
+                            ${isNoPhone ? `
+                                <button onclick="toggleStudentNoPhone('${s.id}', '${(s.name || '').replace(/'/g, "\\'")}', false)" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1.5 rounded-xl text-xs shadow flex items-center gap-1 cursor-pointer">
+                                    <span>📱</span> Siswa Memiliki HP Reguler
+                                </button>
+                            ` : `
+                                <button onclick="toggleStudentNoPhone('${s.id}', '${(s.name || '').replace(/'/g, "\\'")}', true)" class="bg-rose-600 hover:bg-rose-700 text-white font-bold px-3 py-1.5 rounded-xl text-xs shadow flex items-center gap-1 cursor-pointer">
+                                    <span>⚪</span> Tandai Tidak Punya HP
+                                </button>
+                            `}
+                        </div>
+                        <span class="text-[10px] text-slate-400 font-medium">Bisa diubah sewaktu-waktu oleh Admin &amp; Wali Kelas</span>
                     </div>
                 </div>
             `;
@@ -1096,6 +1430,142 @@
             } catch(e) {
                 alert('Kesalahan koneksi: ' + e.message);
             }
+        }
+
+        async function toggleStudentNoPhone(studentId, studentName, targetState) {
+            const s = allStudents.find(x => String(x.id) === String(studentId));
+            const name = s ? s.name : (studentName || 'Siswa');
+            const actionLabel = targetState ? 'Tandai bahwa siswa TIDAK MEMILIKI SMARTPHONE (akan difasilitasi Lab CBT)' : 'Batalkan status tanpa HP (siswa memiliki smartphone reguler)';
+            
+            if (!confirm(`Konfirmasi Status HP Siswa:\n\n${actionLabel} untuk ${name}?`)) {
+                return;
+            }
+
+            try {
+                if (!token) token = await getFreshToken();
+                const res = await fetch(`/api/admin/students/${studentId}/toggle-no-phone`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Bearer ' + token,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ isNoPhone: targetState })
+                });
+
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    if (s) {
+                        s.hasNoSmartphone = data.isNoSmartphone;
+                        s.phoneStatus = data.isNoSmartphone ? 'NO_PHONE' : (s.deviceBindingId || (s.devices && s.devices.length > 0) ? 'CONNECTED' : 'NOT_CONNECTED');
+                    }
+                    updateStats();
+                    applyFilters();
+                    if (!document.getElementById('modalProfile').classList.contains('hidden')) {
+                        viewProfile(studentId);
+                    }
+                    if (!document.getElementById('modalPhoneReport').classList.contains('hidden')) {
+                        renderModalReportTable();
+                    }
+                    alert('✅ ' + data.message);
+                } else {
+                    alert('❌ Gagal: ' + (data.message || 'Terjadi kesalahan'));
+                }
+            } catch (err) {
+                console.error(err);
+                alert('Terjadi kesalahan jaringan saat memperbarui status HP siswa.');
+            }
+        }
+
+        function openPhoneReportModal() {
+            populateReportClassFilter();
+            renderModalReportTable();
+            document.getElementById('modalPhoneReport').classList.remove('hidden');
+        }
+
+        function closePhoneReportModal() {
+            document.getElementById('modalPhoneReport').classList.add('hidden');
+        }
+
+        function populateReportClassFilter() {
+            const sel = document.getElementById('modalReportClassFilter');
+            if (!sel) return;
+            const uniqueClasses = Array.from(new Set(allStudents.map(s => s.className).filter(Boolean))).sort();
+            sel.innerHTML = '<option value="ALL">📋 Semua Rombel (Seluruh Siswa)</option>' +
+                uniqueClasses.map(c => `<option value="${c}">Kelas ${c}</option>`).join('');
+        }
+
+        function renderModalReportTable() {
+            const classFilter = document.getElementById('modalReportClassFilter')?.value || 'ALL';
+            const statusFilter = document.getElementById('modalReportStatusFilter')?.value || 'ALL';
+            const tbody = document.getElementById('modalReportTableBody');
+            if (!tbody) return;
+
+            const list = allStudents.filter(s => {
+                const matchClass = (classFilter === 'ALL') || (s.className === classFilter);
+                const pStatus = getStudentPhoneStatus(s);
+                const matchStatus = (statusFilter === 'ALL') || (pStatus === statusFilter);
+                return matchClass && matchStatus;
+            });
+
+            // Update stats in modal header
+            const totalConn = allStudents.filter(s => getStudentPhoneStatus(s) === 'CONNECTED').length;
+            const totalNotConn = allStudents.filter(s => getStudentPhoneStatus(s) === 'NOT_CONNECTED').length;
+            const totalNoPh = allStudents.filter(s => getStudentPhoneStatus(s) === 'NO_PHONE').length;
+
+            const statC = document.getElementById('reportStatConnected');
+            if (statC) statC.innerText = totalConn;
+            const statNC = document.getElementById('reportStatNotConnected');
+            if (statNC) statNC.innerText = totalNotConn;
+            const statNP = document.getElementById('reportStatNoPhone');
+            if (statNP) statNP.innerText = totalNoPh;
+
+            const badge = document.getElementById('modalReportTotalBadge');
+            if (badge) badge.innerText = `Menampilkan: ${list.length} Siswa`;
+
+            if (list.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" class="p-6 text-center text-slate-400 font-semibold">Tidak ada data siswa yang cocok dengan filter yang dipilih.</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = list.map((s, i) => {
+                const pStatus = getStudentPhoneStatus(s);
+                let statusBadge = '';
+                let deviceDesc = '-';
+                let note = '';
+
+                if (pStatus === 'CONNECTED') {
+                    const dev = s.activeDevice || (s.devices && s.devices.length > 0 ? s.devices[0] : null);
+                    const devName = dev ? (dev.deviceModel || dev.deviceName || 'Android') : 'Android Device';
+                    const bindId = s.deviceBindingId || (dev ? dev.deviceAndroidId : '');
+                    statusBadge = '<span class="font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded text-[11px]">🟢 Terhubung HP</span>';
+                    deviceDesc = `<b>${devName}</b>${bindId ? `<br><span class="font-mono text-[10px] text-slate-500">ID: ${bindId}</span>` : ''}`;
+                    note = 'Mandiri (Ujian di HP Pribadi)';
+                } else if (pStatus === 'NO_PHONE') {
+                    statusBadge = '<span class="font-black text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded text-[11px]">⚪ Tidak Punya HP</span>';
+                    deviceDesc = '<span class="text-rose-600 italic">Tanpa Perangkat</span>';
+                    note = '<b class="text-rose-700">Wajib Fasilitasi Lab Komputer CBT</b>';
+                } else {
+                    statusBadge = '<span class="font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded text-[11px]">🟡 Belum Terhubung</span>';
+                    deviceDesc = '<span class="text-slate-400 italic">Belum Login APK</span>';
+                    note = 'Perlu Edukasi Login APK / Konfirmasi HP';
+                }
+
+                return `
+                    <tr class="hover:bg-slate-50">
+                        <td class="p-2 border text-center font-bold text-slate-500">${i + 1}</td>
+                        <td class="p-2 border font-mono font-bold text-slate-700">${s.nisn || s.username || '-'}</td>
+                        <td class="p-2 border font-bold text-slate-900">${s.name}</td>
+                        <td class="p-2 border text-center font-bold text-indigo-700">${s.className || '-'}</td>
+                        <td class="p-2 border text-center">${statusBadge}</td>
+                        <td class="p-2 border text-xs">${deviceDesc}</td>
+                        <td class="p-2 border text-xs text-slate-700">${note}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function printPhoneReportContent() {
+            window.print();
         }
 
         async function deleteStudentAction(id, name, nisn) {
@@ -1353,6 +1823,12 @@
             }
         }
 
+        // Render instan dari data SSR
+        updateStats();
+        populateRombelDropdown();
+        applyFilters();
+
+        // Background update jika ada perubahan realtime
         loadStudents();
     </script>
 </body>

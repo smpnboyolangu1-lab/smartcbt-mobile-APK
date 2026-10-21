@@ -909,6 +909,81 @@ export const getRekapPresensiGuru = async (req: AuthRequest, res: Response) => {
             };
         });
 
+        if (req.query.export === 'pdf') {
+            const printHtml = `
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="utf-8">
+    <title>Rekapitulasi Kehadiran & KBM Guru - SMPN 1 Boyolangu</title>
+    <style>
+        body { font-family: 'Times New Roman', serif; margin: 30px; color: #111; }
+        .header { text-align: center; border-bottom: 3px double #000; padding-bottom: 12px; margin-bottom: 20px; }
+        .title { font-size: 16pt; font-weight: bold; margin-bottom: 4px; }
+        .subtitle { font-size: 11pt; color: #333; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 10pt; }
+        th, td { border: 1px solid #333; padding: 6px 8px; text-align: center; }
+        th { background: #f1f5f9; font-weight: bold; }
+        td.left { text-align: left; }
+        .footer { margin-top: 40px; display: flex; justify-content: space-between; font-size: 11pt; }
+        @media print { .no-print { display: none; } }
+    </style>
+</head>
+<body>
+    <div class="no-print" style="margin-bottom: 20px; text-align: right;">
+        <button onclick="window.print()" style="padding: 8px 16px; background: #0f766e; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold;">🖨️ Cetak / Simpan PDF</button>
+    </div>
+    <div class="header">
+        <div class="title">PEMERINTAH KABUPATEN TULUNGAGUNG</div>
+        <div class="title">DINAS PENDIDIKAN - SMP NEGERI 1 BOYOLANGU</div>
+        <div class="subtitle">Jl. Ki Mangunsarkoro No. 101, Boyolangu, Tulungagung • Website: cbt.smpn1boyolangu.my.id</div>
+    </div>
+    <h3 style="text-align: center; margin: 0 0 10px 0;">REKAPITULASI PRESENSI & JURNAL KBM SELURUH GURU</h3>
+    <div style="font-size: 10.5pt; margin-bottom: 15px;">Periode: <strong>${periode || '30 Hari Terakhir'}</strong> | Dicetak pada: ${new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</div>
+    <table>
+        <thead>
+            <tr>
+                <th style="width: 40px;">No</th>
+                <th>Nama Guru / NIP</th>
+                <th>Mata Pelajaran</th>
+                <th>Tepat Waktu</th>
+                <th>Terlambat</th>
+                <th>Izin Resmi</th>
+                <th>Sakit</th>
+                <th>Cuti</th>
+                <th>% Kehadiran</th>
+            </tr>
+        </thead>
+        <tbody>
+            ${rekap.map((t, i) => `<tr>
+                <td>${i + 1}</td>
+                <td class="left" style="font-weight: bold;">${t.nama}<br><span style="font-size: 9pt; font-weight: normal; color: #555;">NIP: ${t.nip}</span></td>
+                <td class="left">${t.mapel}</td>
+                <td>${t.tepatWaktu}</td>
+                <td>${t.terlambat}</td>
+                <td>${t.izin}</td>
+                <td>${t.sakit}</td>
+                <td>${t.cutiCount}</td>
+                <td style="font-weight: bold; color: ${t.persentaseKehadiran >= 80 ? '#059669' : '#d97706'};">${t.persentaseKehadiran}%</td>
+            </tr>`).join('')}
+        </tbody>
+    </table>
+    <div class="footer">
+        <div>
+            Mengetahui,<br>Kepala SMPN 1 Boyolangu<br><br><br><br>
+            <strong>MUGI PRAYITNO, S.Pd., M.M.</strong><br>NIP. 196803201995121002
+        </div>
+        <div>
+            Tulungagung, ${new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}<br>Tim Penjamin Mutu Kurikulum<br><br><br><br>
+            <strong>WAKA KURIKULUM</strong><br>NIP. -
+        </div>
+    </div>
+</body>
+</html>`;
+            res.setHeader('Content-Type', 'text/html; charset=utf-8');
+            return res.send(printHtml);
+        }
+
         res.json({
             success: true,
             mode: 'LENGKAP',
@@ -956,7 +1031,9 @@ export const getMyTeacherAttendanceRecap = async (req: AuthRequest, res: Respons
             }).catch(() => []),
             (prisma as any).teacherLeaveRequest.findMany({
                 where: {
-                    teacherId: guruId
+                    teacherId: guruId,
+                    startDate: { lte: endPeriod },
+                    endDate: { gte: startPeriod }
                 },
                 orderBy: { createdAt: 'desc' }
             }).catch(() => [])
@@ -1142,11 +1219,119 @@ export const getRekapPresensiSiswa = async (req: AuthRequest, res: Response) => 
             };
         });
 
+        // Agregat rekapList per kelas untuk APK Guru & Tim Kurikulum
+        const classMap = new Map<string, { className: string; totalSiswa: number; hadir: number; terlambat: number; izin: number; sakit: number; alpa: number }>();
+        for (const item of rekap) {
+            const cls = item.kelas || 'Rombel';
+            if (!classMap.has(cls)) {
+                classMap.set(cls, {
+                    className: cls,
+                    totalSiswa: 0,
+                    hadir: 0,
+                    terlambat: 0,
+                    izin: 0,
+                    sakit: 0,
+                    alpa: 0
+                });
+            }
+            const cur = classMap.get(cls)!;
+            cur.totalSiswa += 1;
+            cur.hadir += item.hadir;
+            cur.terlambat += item.terlambat;
+            cur.izin += item.izin;
+            cur.sakit += item.sakit;
+            cur.alpa += item.alpa;
+        }
+        const rekapList = Array.from(classMap.values());
+
+        // Jika diminta format cetak PDF / Print Preview
+        if (req.query.export === 'pdf') {
+            const printHtml = `
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="utf-8">
+    <title>Rekapitulasi Presensi Siswa Kurikulum - SMPN 1 Boyolangu</title>
+    <style>
+        body { font-family: 'Times New Roman', serif; margin: 30px; color: #111; }
+        .header { text-align: center; border-bottom: 3px double #000; padding-bottom: 12px; margin-bottom: 20px; }
+        .title { font-size: 16pt; font-weight: bold; margin-bottom: 4px; }
+        .subtitle { font-size: 11pt; color: #333; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 10pt; }
+        th, td { border: 1px solid #333; padding: 6px 8px; text-align: center; }
+        th { background: #f1f5f9; font-weight: bold; }
+        td.left { text-align: left; }
+        .footer { margin-top: 40px; display: flex; justify-content: space-between; font-size: 11pt; }
+        @media print { .no-print { display: none; } }
+    </style>
+</head>
+<body>
+    <div class="no-print" style="margin-bottom: 20px; text-align: right;">
+        <button onclick="window.print()" style="padding: 8px 16px; background: #0f766e; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold;">🖨️ Cetak / Simpan PDF</button>
+    </div>
+    <div class="header">
+        <div class="title">PEMERINTAH KABUPATEN TULUNGAGUNG</div>
+        <div class="title">DINAS PENDIDIKAN - SMP NEGERI 1 BOYOLANGU</div>
+        <div class="subtitle">Jl. Ki Mangunsarkoro No. 101, Boyolangu, Tulungagung • Website: cbt.smpn1boyolangu.my.id</div>
+    </div>
+    <h3 style="text-align: center; margin: 0 0 10px 0;">REKAPITULASI KEHADIRAN SISWA SELURUH KELAS</h3>
+    <div style="font-size: 10.5pt; margin-bottom: 15px;">Periode: <strong>${periode || 'Bulan Ini'}</strong> | Dicetak pada: ${new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</div>
+    <table>
+        <thead>
+            <tr>
+                <th style="width: 40px;">No</th>
+                <th>Rombel / Kelas</th>
+                <th>Jumlah Siswa</th>
+                <th>Hadir (H)</th>
+                <th>Terlambat (T)</th>
+                <th>Izin (I)</th>
+                <th>Sakit (S)</th>
+                <th>Alpa (A)</th>
+                <th>% Kehadiran</th>
+            </tr>
+        </thead>
+        <tbody>
+            ${rekapList.map((r, i) => {
+                const totalKehadiran = r.hadir + r.terlambat;
+                const totalAkumulasi = totalKehadiran + r.izin + r.sakit + r.alpa;
+                const pct = totalAkumulasi > 0 ? ((totalKehadiran / totalAkumulasi) * 100).toFixed(1) : '100.0';
+                return `<tr>
+                    <td>${i + 1}</td>
+                    <td class="left" style="font-weight: bold;">Kelas ${r.className}</td>
+                    <td>${r.totalSiswa}</td>
+                    <td>${r.hadir}</td>
+                    <td>${r.terlambat}</td>
+                    <td>${r.izin}</td>
+                    <td>${r.sakit}</td>
+                    <td>${r.alpa}</td>
+                    <td style="font-weight: bold; color: ${Number(pct) >= 90 ? '#059669' : '#d97706'};">${pct}%</td>
+                </tr>`;
+            }).join('')}
+        </tbody>
+    </table>
+    <div class="footer">
+        <div>
+            Mengetahui,<br>Kepala SMPN 1 Boyolangu<br><br><br><br>
+            <strong>MUGI PRAYITNO, S.Pd., M.M.</strong><br>NIP. 196803201995121002
+        </div>
+        <div>
+            Tulungagung, ${new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}<br>Tim Pengembang Kurikulum<br><br><br><br>
+            <strong>WAKA KURIKULUM</strong><br>NIP. -
+        </div>
+    </div>
+</body>
+</html>`;
+            res.setHeader('Content-Type', 'text/html; charset=utf-8');
+            return res.send(printHtml);
+        }
+
         res.json({
             success: true,
             periode: periode || '30 Hari Terakhir',
             count: rekap.length,
-            rekap
+            rekap,
+            rekapList,
+            data: rekapList
         });
     } catch (error: any) {
         console.error('Error getRekapPresensiSiswa:', error);

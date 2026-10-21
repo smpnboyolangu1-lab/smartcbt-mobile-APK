@@ -125,15 +125,27 @@ object AppUpdateChecker {
                 var sourceBaseUrl = activeBaseUrl
                 val timestamp = System.currentTimeMillis()
 
+                val sessionManager = SessionManager(context)
+                val userRole = sessionManager.getRole()
+                val userToken = sessionManager.getToken()
+                val userId = sessionManager.getUserId()
+
                 // 1. Periksa server aktif yang sedang terhubung ke aplikasi (dengan query buster anti-cache)
                 try {
                     val activeSep = if (activeBaseUrl.contains("?")) "&" else "?"
-                    val activeReq = Request.Builder()
-                        .url("$activeBaseUrl/api/app/version-check${activeSep}_t=$timestamp")
+                    val activeUrl = "$activeBaseUrl/api/app/version-check${activeSep}_t=$timestamp&role=${Uri.encode(userRole)}&user_id=${Uri.encode(userId)}"
+                    val activeReqBuilder = Request.Builder()
+                        .url(activeUrl)
                         .header("Cache-Control", "no-cache, no-store, must-revalidate")
                         .header("Pragma", "no-cache")
                         .header("Expires", "0")
-                        .build()
+                    if (!userToken.isNullOrBlank()) {
+                        activeReqBuilder.header("Authorization", "Bearer $userToken")
+                    }
+                    if (userRole.isNotBlank()) {
+                        activeReqBuilder.header("X-User-Role", userRole)
+                    }
+                    val activeReq = activeReqBuilder.build()
                     val activeResp = okHttpClient.newCall(activeReq).execute()
                     if (activeResp.isSuccessful) {
                         val body = activeResp.body()?.string()
@@ -156,12 +168,19 @@ object AppUpdateChecker {
                 val isSameAsVps = activeBaseUrl.contains("cbt.smpn1boyolangu.my.id")
                 if (!isSameAsVps) {
                     try {
-                        val vpsReq = Request.Builder()
-                            .url("$vpsBaseUrl/api/app/version-check?_t=$timestamp")
+                        val vpsUrl = "$vpsBaseUrl/api/app/version-check?_t=$timestamp&role=${Uri.encode(userRole)}&user_id=${Uri.encode(userId)}"
+                        val vpsReqBuilder = Request.Builder()
+                            .url(vpsUrl)
                             .header("Cache-Control", "no-cache, no-store, must-revalidate")
                             .header("Pragma", "no-cache")
                             .header("Expires", "0")
-                            .build()
+                        if (!userToken.isNullOrBlank()) {
+                            vpsReqBuilder.header("Authorization", "Bearer $userToken")
+                        }
+                        if (userRole.isNotBlank()) {
+                            vpsReqBuilder.header("X-User-Role", userRole)
+                        }
+                        val vpsReq = vpsReqBuilder.build()
                         val vpsResp = okHttpClient.newCall(vpsReq).execute()
                         if (vpsResp.isSuccessful) {
                             val body = vpsResp.body()?.string()
@@ -258,30 +277,41 @@ object AppUpdateChecker {
                 notificationManager.createNotificationChannel(channel)
             }
 
-            val cleanVer = update.versionName.trim().removePrefix("v")
-            val downloadUrl = if (update.downloadUrl.contains("github.com", ignoreCase = true)) {
-                update.downloadUrl
-            } else {
-                "https://github.com/smpnboyolangu1-lab/smartcbt-mobile-APK/releases/download/v$cleanVer/SmartCBT_v$cleanVer.apk"
+            val downloadUrl = resolveDownloadUrl(context, update.downloadUrl, sourceBaseUrl).ifBlank {
+                "https://cbt.smpn1boyolangu.my.id/uploads/smartcbt-latest.apk"
             }
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(downloadUrl)).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                putExtra("EXTRA_CHECK_UPDATE", true)
             }
             val pendingIntent = android.app.PendingIntent.getActivity(
                 context,
                 8888,
-                intent,
+                launchIntent ?: Intent(Intent.ACTION_VIEW, Uri.parse(downloadUrl)).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                },
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT else android.app.PendingIntent.FLAG_UPDATE_CURRENT
+            )
+
+            val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(downloadUrl)).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            val pendingBrowserIntent = android.app.PendingIntent.getActivity(
+                context,
+                8889,
+                browserIntent,
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT else android.app.PendingIntent.FLAG_UPDATE_CURRENT
             )
 
             val notif = NotificationCompat.Builder(context, channelId)
                 .setSmallIcon(android.R.drawable.stat_sys_download_done)
                 .setContentTitle("🚀 Pembaruan Smart CBT v${update.versionName} Tersedia")
-                .setContentText("Versi terbaru siap diunduh. Ketuk untuk memperbarui aplikasi.")
-                .setStyle(NotificationCompat.BigTextStyle().bigText("Pembaruan Smart CBT v${update.versionName} siap dipasang.\n${update.releaseNotes.take(120)}... Ketuk untuk mengunduh versi terbaru."))
+                .setContentText("Versi terbaru siap dipasang. Ketuk untuk memperbarui aplikasi.")
+                .setStyle(NotificationCompat.BigTextStyle().bigText("Pembaruan Smart CBT v${update.versionName} siap dipasang.\n${update.releaseNotes.take(120)}...\n\nKetuk notifikasi untuk membuka aplikasi atau unduh berkas APK."))
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setAutoCancel(true)
                 .setContentIntent(pendingIntent)
+                .addAction(android.R.drawable.stat_sys_download, "Unduh Berkas APK", pendingBrowserIntent)
                 .build()
 
             notificationManager.notify(8888, notif)
@@ -314,6 +344,7 @@ object AppUpdateChecker {
             val notes = updateObj.optString("releaseNotes", updateObj.optString("changelog", ""))
             val isForce = if (updateObj.has("isForceUpdate")) updateObj.optBoolean("isForceUpdate", false) else updateObj.optBoolean("is_force_update", false)
             val sha = if (updateObj.has("sha256") && !updateObj.isNull("sha256")) updateObj.optString("sha256") else null
+            val ch = if (updateObj.has("channel")) updateObj.optString("channel", "public") else json.optString("channel", "public")
 
             if (vCode <= 0 && vName.isBlank()) return null
 
@@ -324,7 +355,8 @@ object AppUpdateChecker {
                 fileSizeMb = fSize,
                 releaseNotes = notes,
                 isForceUpdate = isForce,
-                sha256 = sha
+                sha256 = sha,
+                channel = ch
             )
         } catch (e: Exception) {
             null
@@ -410,6 +442,32 @@ object AppUpdateChecker {
                 setPadding(0, (2 * density).toInt(), 0, (14 * density).toInt())
             }
             root.addView(tvSub)
+
+            if (update.channel == "admin_beta") {
+                val tvBetaBadge = android.widget.TextView(context).apply {
+                    text = "🟡 MODE UJI COBA INTERNAL (HP ADMIN SAJA)\nSiswa (3.000 Siswa) Belum Mendapatkan Update Ini"
+                    textSize = 11f
+                    setTextColor(android.graphics.Color.parseColor("#92400E"))
+                    setTypeface(null, android.graphics.Typeface.BOLD)
+                    gravity = android.view.Gravity.CENTER
+                    val padH = (12 * density).toInt()
+                    val padV = (6 * density).toInt()
+                    setPadding(padH, padV, padH, padV)
+                    background = android.graphics.drawable.GradientDrawable().apply {
+                        setColor(android.graphics.Color.parseColor("#FEF3C7"))
+                        cornerRadius = 8 * density
+                        setStroke((1.5f * density).toInt(), android.graphics.Color.parseColor("#F59E0B"))
+                    }
+                    val lp = android.widget.LinearLayout.LayoutParams(
+                        android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                        android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply {
+                        bottomMargin = (12 * density).toInt()
+                    }
+                    layoutParams = lp
+                }
+                root.addView(tvBetaBadge)
+            }
 
             // Version comparison pills
             val rowVersion = android.widget.LinearLayout(context).apply {
@@ -660,7 +718,8 @@ object AppUpdateChecker {
             root.addView(btnUpdate)
 
             val tvBrowser = android.widget.TextView(context).apply {
-                text = "🌐 Unduh Cepat via Browser (GitHub CDN)"
+                val isGithubCdn = update.downloadUrl.contains("github.com", ignoreCase = true)
+                text = if (isGithubCdn) "⚡ Unduh Cepat via Browser (GitHub CDN)" else "🌐 Unduh via Browser (Cloudflare CDN / Server)"
                 textSize = 12f
                 setTextColor(android.graphics.Color.parseColor("#2563EB"))
                 gravity = android.view.Gravity.CENTER
@@ -668,11 +727,8 @@ object AppUpdateChecker {
                 setPadding(0, p, 0, (6 * density).toInt())
                 setOnClickListener {
                     dialog?.dismiss()
-                    val cleanVer = update.versionName.trim().removePrefix("v")
-                    val browserUrl = if (update.downloadUrl.contains("github.com", ignoreCase = true)) {
-                        update.downloadUrl
-                    } else {
-                        "https://github.com/smpnboyolangu1-lab/smartcbt-mobile-APK/releases/download/v$cleanVer/SmartCBT_v$cleanVer.apk"
+                    val browserUrl = resolveDownloadUrl(context, update.downloadUrl, sourceBaseUrl).ifBlank {
+                        "https://cbt.smpn1boyolangu.my.id/uploads/smartcbt-latest.apk"
                     }
                     val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(browserUrl)).apply {
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -744,32 +800,38 @@ object AppUpdateChecker {
                     .retryOnConnectionFailure(true)
                     .build()
 
-                val cleanVer = update.versionName.trim().removePrefix("v")
-                val githubTagUrl = "https://github.com/smpnboyolangu1-lab/smartcbt-mobile-APK/releases/download/v$cleanVer/SmartCBT_v$cleanVer.apk"
-
                 val targetUrls = mutableListOf<String>()
 
-                // 1. PRIORITAS UTAMA: Unduh langsung dari server lokal / portal sekolah sesuai downloadUrl
+                // 1. PRIORITAS UTAMA: Unduh langsung sesuai downloadUrl (bisa dari GitHub CDN atau server sekolah)
                 if (downloadUrl.isNotBlank()) {
                     targetUrls.add(downloadUrl)
                 }
 
-                // 2. Fallback endpoint resmi server lokal sekolah
+                // 2. Tambahkan jalur cepat GitHub CDN jika belum ada di daftar
+                val cleanVer = update.versionName.trim().removePrefix("v")
+                val githubCdnTagUrl = "https://github.com/smpnboyolangu1-lab/smartcbt-mobile-APK/releases/download/v$cleanVer/SmartCBT_v$cleanVer.apk"
+                if (!targetUrls.contains(githubCdnTagUrl)) {
+                    targetUrls.add(githubCdnTagUrl)
+                }
+
                 val currentBase = preferredBaseUrl.ifBlank { ApiClient.getBaseServerUrl(context) }.trimEnd('/')
+                if (update.channel == "admin_beta") {
+                    val directBetaApk = "$currentBase/uploads/smartcbt-admin-beta.apk"
+                    if (!targetUrls.contains(directBetaApk)) {
+                        targetUrls.add(directBetaApk)
+                    }
+                }
+
+                // 3. Fallback endpoint resmi server lokal sekolah
                 val directServerApk = "$currentBase/uploads/smartcbt-latest.apk"
                 if (!targetUrls.contains(directServerApk)) {
                     targetUrls.add(directServerApk)
                 }
 
+                // 4. Fallback domain publik resmi SMPN 1 Boyolangu (Cloudflare CDN)
                 val publicServerFallback = "https://cbt.smpn1boyolangu.my.id/uploads/smartcbt-latest.apk"
                 if (!targetUrls.contains(publicServerFallback)) {
                     targetUrls.add(publicServerFallback)
-                }
-
-                // 3. Fallback terakhir ke GitHub Releases HANYA spesifik tag versi rilis ini
-                // JANGAN pernah mengunduh 'SmartCBT_latest.apk' dari GitHub releases/latest karena dapat mengarah ke build lama yang memicu downgrade loop!
-                if (githubTagUrl.isNotBlank() && !targetUrls.contains(githubTagUrl)) {
-                    targetUrls.add(githubTagUrl)
                 }
 
                 var response: okhttp3.Response? = null
@@ -908,9 +970,24 @@ object AppUpdateChecker {
                 return
             }
 
-            // BUG-NEW-10 Fix: Verifikasi integritas SHA-256 APK sebelum dieksekusi
-            if (!verifyApkSha256(apkFile, currentExpectedSha256)) {
-                Toast.makeText(context, "❌ Keamanan Terancam: Checksum SHA-256 berkas APK tidak sesuai dengan server sekolah. Pemasangan dibatalkan otomatis demi perlindungan perangkat.", Toast.LENGTH_LONG).show()
+            // Verifikasi integritas APK: SHA-256 dan Package Archive Info
+            val isShaMatch = verifyApkSha256(apkFile, currentExpectedSha256)
+            val archiveInfo = try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    context.packageManager.getPackageArchiveInfo(
+                        apkFile.absolutePath,
+                        android.content.pm.PackageManager.PackageInfoFlags.of(0)
+                    )
+                } else {
+                    @Suppress("DEPRECATION")
+                    context.packageManager.getPackageArchiveInfo(apkFile.absolutePath, 0)
+                }
+            } catch (e: Exception) { null }
+
+            val isAuthenticPackage = archiveInfo != null && archiveInfo.packageName == context.packageName
+
+            if (!isShaMatch && !isAuthenticPackage) {
+                Toast.makeText(context, "❌ Keamanan Terancam: Berkas APK tidak valid atau rusak. Pemasangan dibatalkan otomatis demi perlindungan perangkat.", Toast.LENGTH_LONG).show()
                 apkFile.delete()
                 return
             }
@@ -928,7 +1005,8 @@ object AppUpdateChecker {
                 setDataAndType(apkUri, "application/vnd.android.package-archive")
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 addFlags(Intent.FLAG_GRANT_PREFIX_URI_PERMISSION)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
             }
 
             // Explicitly grant permissions to known Android & OEM Package Installers

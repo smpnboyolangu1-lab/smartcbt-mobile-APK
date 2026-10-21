@@ -23,13 +23,10 @@ class SessionManager(private val context: Context) {
         const val KEY_PROFILE_PIC_URL = "user_profile_pic_url"
 
         const val ONLINE_SERVER_URL = "https://cbt.smpn1boyolangu.my.id"
-        const val LOCAL_SERVER_URL = "http://192.168.101.46:3000"
         const val DEFAULT_IP = ONLINE_SERVER_URL
-        const val DEFAULT_LOCAL_IP = LOCAL_SERVER_URL
 
         val SERVER_CANDIDATES = listOf(
-            ONLINE_SERVER_URL,
-            LOCAL_SERVER_URL
+            ONLINE_SERVER_URL
         )
     }
 
@@ -151,8 +148,9 @@ class SessionManager(private val context: Context) {
     fun getServerIp(): String {
         val saved = prefs.getString(KEY_SERVER_IP, null)
         if (!saved.isNullOrEmpty()) {
-            // Jika tersimpan IP LAN lokal, domain kadaluarsa, atau localhost, selalu arahkan ke domain resmi
-            if (saved.contains("192.168.101.46") || saved.contains("localhost") || saved.contains("127.0.0.1") ||
+            // Jika tersimpan IP LAN lokal, domain kadaluarsa, atau localhost, selalu paksa ke domain resmi CBT
+            if (saved.contains("192.168") || saved.contains("localhost") || saved.contains("127.0.0.1") ||
+                saved.contains("10.") || saved.contains("172.") ||
                 saved.contains("cbt.smpn1boyolangu.sch.id") || saved.contains("cbt.smpn1boyolangu.com") || saved.contains("104.207.92.172")) {
                 setServerIp(ONLINE_SERVER_URL)
                 return ONLINE_SERVER_URL
@@ -164,11 +162,18 @@ class SessionManager(private val context: Context) {
         }
         return ONLINE_SERVER_URL
     }
-    fun setServerIp(ip: String) = prefs.edit().putString(KEY_SERVER_IP, ip).apply()
+    fun setServerIp(ip: String) {
+        val clean = ip.trim()
+        val target = if (clean.contains("192.168") || clean.contains("localhost") || clean.contains("127.0.0.1") ||
+            clean.contains("10.") || clean.contains("172.") || clean.isEmpty()) {
+            ONLINE_SERVER_URL
+        } else {
+            clean
+        }
+        prefs.edit().putString(KEY_SERVER_IP, target).apply()
+    }
 
     fun rotateToNextServer(): String {
-        // Domain resmi ONLINE_SERVER_URL (cbt.smpn1boyolangu.my.id) adalah server cloud utama
-        // yang selalu aktif dan dapat diakses baik via WiFi sekolah maupun kuota seluler.
         setServerIp(ONLINE_SERVER_URL)
         return ONLINE_SERVER_URL
     }
@@ -243,6 +248,10 @@ class SessionManager(private val context: Context) {
     fun getRememberedPassword(): String = prefs.getString("remember_password", "") ?: ""
 
     fun clearSession() {
+        try {
+            FcmHelper.clearFcmRegistration(context)
+        } catch (_: Exception) {}
+
         val savedIp = getServerIp()
         val savedSecret = getAdminSecret()
         val remember = isRememberLogin()

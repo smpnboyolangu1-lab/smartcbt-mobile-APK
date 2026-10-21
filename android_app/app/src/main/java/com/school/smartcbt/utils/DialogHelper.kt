@@ -110,16 +110,6 @@ object DialogHelper {
 
             mandatoryFilesDialogInstance = dialog
             dialog.show()
-
-            // Tampilkan juga Heads-Up Notification besar di System Bar
-            try {
-                NotificationHelper.showHeadsUpNotification(
-                    context = activity,
-                    title = "📁 Izin Akses Semua File Wajib Diaktifkan",
-                    message = "Aplikasi Smart CBT mewajibkan izin 'Kelola Semua File' untuk keamanan ujian dan sinkronisasi berkas. Ketuk untuk mengaktifkan sekarang.",
-                    subText = "Peringatan Sistem CBT"
-                )
-            } catch (e: Exception) {}
         } catch (e: Exception) {
             androidx.appcompat.app.AlertDialog.Builder(activity)
                 .setTitle("📁 Izin Akses Semua File Wajib")

@@ -85,7 +85,7 @@ export const testSendWhatsApp = async (req: Request, res: Response) => {
     const testMsg =
       `Bapak/Ibu Orang Tua/Wali Murid, ini adalah pesan uji coba resmi dari Sistem Layanan Presensi SMP Negeri 1 Boyolangu.\n\n` +
       `Sistem ini digunakan untuk memberikan pemberitahuan kehadiran siswa dan pemantauan kegiatan sekolah melalui aplikasi Smart CBT:\n` +
-      `https://github.com/smpnboyolangu1-lab/smartcbt-mobile-APK/releases/latest/download/SmartCBT_latest.apk\n\n` +
+      `https://cbt.smpn1boyolangu.my.id/uploads/smartcbt-latest.apk\n\n` +
       `— Tim Kesiswaan SMP Negeri 1 Boyolangu`;
 
     const sendRes = await sendSingleWhatsApp(targetPhone, testMsg);

@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/db';
 import { formatTimeWib, getWibDayBounds, getWibTimeColon } from '../utils/dateUtils';
-import { sendSingleWhatsApp } from '../services/whatsappBlastService';
+import { sendSingleWhatsApp, WHATSAPP_NOTIFICATION_POLICY } from '../services/whatsappBlastService';
 import { sendFcmToUser } from '../services/fcmService';
 
 // 1. Presensi Manual Siswa Tanpa HP oleh Guru BK
@@ -126,21 +126,23 @@ export const submitBkManualAttendance = async (req: Request, res: Response) => {
                 }).catch(() => {});
             }
 
-            // Sesuai D13: Notifikasi WhatsApp HANYA untuk siswa terlambat dan hanya ke nomor orang tua yang terinput
-            if (finalStatus === 'LATE' && computedLateMinutes > 0 && student.parentPhone) {
+            // ============================================================
+            // KEBIJAKAN RESMI WHATSAPP: HANYA SISWA TERLAMBAT ATAU ALPA (FLAG AKTIF)
+            // ============================================================
+            if (WHATSAPP_NOTIFICATION_POLICY.isDispatchAllowed(finalStatus) && finalStatus === 'LATE' && computedLateMinutes > 0 && student.parentPhone) {
                 const timeStrWib = getWibTimeColon(scanTime);
                 const waReason = (reasonNoPhone || notes || req.body.reason || 'Keterlambatan ditangani Guru BK').trim();
                 const waLateNotice = `*PEMBERITAHUAN KETERLAMBATAN SISWA*\n` +
                     `*SMP NEGERI 1 BOYOLANGU*\n\n` +
                     `Yth. Bapak/Ibu Orang Tua / Wali Murid dari ananda *${student.name}* (Kelas ${student.className || '-'}),\n\n` +
-                    `Kami menginformasikan bahwa ananda telah tiba di sekolah dengan status *TERLAMBAT*:\n` +
+                    `Kami menginformasikan bahwa ananda telah tiba di sekolah dengan catatan keterlambatan:\n` +
                     `• *Waktu Tiba*: ${timeStrWib} WIB\n` +
                     `• *Keterlambatan*: *${computedLateMinutes} Menit* (Batas Tepat Waktu: 07:00 WIB)\n` +
                     `• *Jalur Presensi*: Input Manual oleh Guru BK\n` +
                     `• *Dicatat Oleh*: ${user.name || 'Guru BK'}\n` +
                     `• *Alasan*: ${waReason}\n` +
                     `• *Tindak Lanjut*: Telah melapor ke Ruang BK untuk pendataan dan pembinaan sebelum memasuki kelas.\n\n` +
-                    `Laporan kedisiplinan ini dikirimkan secara otomatis oleh Sistem Presensi Cerdas SMPN 1 Boyolangu. Mohon bantuan Bapak/Ibu untuk membimbing ananda agar dapat berangkat lebih awal demi kelancaran proses pembelajaran. Terima kasih atas kerja samanya.`;
+                    `Laporan kedisiplinan ini dikirimkan secara otomatis oleh Sistem Presensi Cerdas SMPN 1 Boyolangu. Mohon dukungan Bapak/Ibu untuk membimbing ananda agar dapat berangkat lebih awal demi kelancaran proses pembelajaran. Terima kasih atas kerja samanya.`;
 
                 sendSingleWhatsApp(student.parentPhone, waLateNotice).catch(waErr => {
                     console.warn(`[WA BK Manual Late Alert] Gagal kirim WA ke ${student.parentPhone}:`, waErr.message);

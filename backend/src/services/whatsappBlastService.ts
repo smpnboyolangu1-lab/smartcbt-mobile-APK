@@ -10,6 +10,41 @@ import QRCode from 'qrcode';
 import fs from 'fs';
 import path from 'path';
 
+/**
+ * ============================================================================
+ * KEBIJAKAN RESMI SISTEM PENGIRIMAN NOTIFIKASI WHATSAPP KE ORANG TUA SISWA
+ * SMP NEGERI 1 BOYOLANGU (SIBOY 2026)
+ * ============================================================================
+ * ATURAN MUTLAK SISTEM (JANGAN PERNAH MENGUBAH / DO NOT REMOVE OR BYPASS):
+ * 1. Pesan WhatsApp ke orang tua siswa TIDAK BOLEH dikirimkan ke semua siswa!
+ * 2. Pesan WhatsApp HANYA DIKIRIMKAN untuk 2 kondisi kedisiplinan:
+ *    a) TERLAMBAT (LATE) - Siswa tiba di sekolah melewati jam 07:00:00 WIB.
+ *    b) ALPA (ABSENT_NO_CHECKLOCK / ATTENDANCE_ALPA) - Siswa tidak hadir di sekolah tanpa keterangan sah.
+ * 3. Siswa HADIR TEPAT WAKTU (ON_TIME/PRESENT), SAKIT (SICK), IZIN (PERMISSION),
+ *    maupun PULANG SEKOLAH (GATE_OUT) DILARANG KERAS dikirimi pesan WhatsApp
+ *    demi menghindari spam ke orang tua dan mencegah blokir nomor resmi oleh Meta/WhatsApp.
+ * ============================================================================
+ */
+export const WHATSAPP_NOTIFICATION_POLICY = {
+  // Flag penegakan aturan: HANYA siswa Terlambat atau Alpa yang boleh menerima WhatsApp
+  ONLY_LATE_OR_ALPA: true,
+  // Larangan tegas pengiriman WhatsApp untuk kehadiran tepat waktu (ON_TIME / PRESENT)
+  ALLOW_ON_TIME_NOTIF: false,
+  // Larangan tegas pengiriman WhatsApp untuk kepulangan normal
+  ALLOW_NORMAL_GATE_OUT_NOTIF: false,
+  // Kategori presensi yang diizinkan untuk WhatsApp orang tua
+  ALLOWED_CATEGORIES: ['LATE', 'ALPA', 'ABSENT_NO_CHECKLOCK', 'ATTENDANCE_ALPA'] as const,
+
+  /**
+   * Helper guard validator untuk mengecek apakah sebuah kategori presensi boleh mengirim WhatsApp
+   */
+  isDispatchAllowed(category: string): boolean {
+    if (!this.ONLY_LATE_OR_ALPA) return false;
+    const cat = (category || '').toUpperCase().trim();
+    return this.ALLOWED_CATEGORIES.includes(cat as any) || cat === 'TERLAMBAT';
+  }
+};
+
 export interface WaBlastRecipient {
   studentId: string;
   studentName: string;
@@ -63,9 +98,9 @@ export function getWaConfig(): WaGatewayConfig {
       return {
         provider: 'BAILEYS_SELF_HOSTED',
         isActive: parsed.isActive ?? true,
-        schoolDownloadUrl: parsed.schoolDownloadUrl && !parsed.schoolDownloadUrl.includes('/uploads/smartcbt-latest.apk') && !parsed.schoolDownloadUrl.includes('adiprayitno')
+        schoolDownloadUrl: parsed.schoolDownloadUrl && !parsed.schoolDownloadUrl.includes('adiprayitno') && !parsed.schoolDownloadUrl.includes('github.com')
           ? parsed.schoolDownloadUrl 
-          : 'https://github.com/smpnboyolangu1-lab/smartcbt-mobile-APK/releases/latest/download/SmartCBT_latest.apk',
+          : 'https://cbt.smpn1boyolangu.my.id/uploads/smartcbt-latest.apk',
         officialPhone: parsed.officialPhone || connectedPhone || '081234567890',
         senderName: parsed.senderName || 'SMP Negeri 1 Boyolangu'
       };
@@ -75,7 +110,7 @@ export function getWaConfig(): WaGatewayConfig {
   return {
     provider: 'BAILEYS_SELF_HOSTED',
     isActive: true,
-    schoolDownloadUrl: 'https://github.com/smpnboyolangu1-lab/smartcbt-mobile-APK/releases/latest/download/SmartCBT_latest.apk',
+    schoolDownloadUrl: 'https://cbt.smpn1boyolangu.my.id/uploads/smartcbt-latest.apk',
     officialPhone: connectedPhone || '081234567890',
     senderName: 'SMP Negeri 1 Boyolangu'
   };

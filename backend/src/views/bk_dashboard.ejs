@@ -774,62 +774,182 @@
                 </div>
             </div>
 
-            <!-- Filter Toolbar -->
-            <div class="bg-white p-4 rounded-2xl border shadow-sm flex flex-wrap justify-between items-center gap-3 text-xs">
-                <div class="flex flex-wrap items-center gap-3">
-                    <div>
-                        <label class="block font-bold text-slate-600 mb-1">📅 Tanggal</label>
-                        <input type="date" id="bkPrayerDate" class="border rounded-xl px-3 py-2 text-xs font-semibold focus:ring-2 focus:ring-teal-500 outline-none" onchange="loadBkPrayerMonitoring()">
-                    </div>
-                    <div>
-                        <label class="block font-bold text-slate-600 mb-1">🕌 Sesi Sholat</label>
-                        <select id="bkPrayerTypeFilter" class="border rounded-xl px-3 py-2 text-xs font-bold text-teal-900 bg-teal-50 focus:ring-2 focus:ring-teal-500 outline-none" onchange="onBkPrayerTypeFilterChange()">
-                            <option value="">Otomatis (Sesuai Jadwal)</option>
-                            <option value="DHUHA">🌅 Sholat Dhuha (Pagi)</option>
-                            <option value="DHUHUR">☀️ Sholat Dhuhur (Siang)</option>
-                            <option value="JUMAT">🕌 Sholat Jumat / Keputrian</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block font-bold text-slate-600 mb-1">🏫 Rombel Kelas</label>
-                        <select id="bkPrayerClassSelect" class="border rounded-xl px-3 py-2 text-xs font-bold text-teal-900 bg-teal-50 focus:ring-2 focus:ring-teal-500 outline-none" onchange="loadBkPrayerMonitoring()">
-                            <!-- Populated dynamically -->
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block font-bold text-slate-600 mb-1">🔍 Cari Siswa</label>
-                        <input type="text" id="bkPrayerSearch" placeholder="Nama / NISN..." class="border rounded-xl px-3 py-2 text-xs w-44 outline-none focus:ring-2 focus:ring-teal-500" onkeyup="filterBkPrayerTable()">
-                    </div>
-                </div>
+            <!-- Mode Switcher: REKAP GLOBAL 33 ROMBEL vs DETAIL PER-KELAS -->
+            <div class="flex items-center justify-between bg-white p-3 rounded-2xl border shadow-sm flex-wrap gap-2">
                 <div class="flex items-center gap-2">
-                    <button onclick="filterBkPrayerByStatus('ALL')" id="btnPrayerFilterAll" class="px-3 py-1.5 rounded-xl font-bold bg-teal-600 text-white shadow-sm transition-all text-xs">Semua</button>
-                    <button onclick="filterBkPrayerByStatus('SHOLAT')" id="btnPrayerFilterSholat" class="px-3 py-1.5 rounded-xl font-bold bg-slate-100 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700 transition-all text-xs">Sudah Sholat</button>
-                    <button onclick="filterBkPrayerByStatus('HAID')" id="btnPrayerFilterHaid" class="px-3 py-1.5 rounded-xl font-bold bg-slate-100 text-slate-600 hover:bg-purple-50 hover:text-purple-700 transition-all text-xs">Keputrian / Haid</button>
-                    <button onclick="filterBkPrayerByStatus('BELUM')" id="btnPrayerFilterBelum" class="px-3 py-1.5 rounded-xl font-bold bg-slate-100 text-slate-600 hover:bg-rose-50 hover:text-rose-700 transition-all text-xs">Belum</button>
+                    <button type="button" onclick="switchBkPrayerMode('GLOBAL')" id="btnBkPrayerModeGlobal" class="px-4 py-2 rounded-xl text-xs font-black bg-teal-600 text-white shadow-md flex items-center gap-1.5 transition-all cursor-pointer">
+                        <span>🌍</span> <span>Rekap Global Seluruh Rombel (33 Kelas)</span>
+                    </button>
+                    <button type="button" onclick="switchBkPrayerMode('PER_CLASS')" id="btnBkPrayerModeClass" class="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 flex items-center gap-1.5 transition-all cursor-pointer">
+                        <span>🔍</span> <span>Detail Presensi Per-Kelas</span>
+                    </button>
+                </div>
+                <div class="text-[11px] text-teal-800 bg-teal-50 px-3 py-1.5 rounded-xl border border-teal-200 font-bold" id="bkPrayerGlobalStatusNotice">
+                    🏛️ Pantauan Makro Seluruh Siswa SMPN 1 Boyolangu
                 </div>
             </div>
 
-            <!-- Table of Students -->
-            <div class="bg-white rounded-2xl shadow-sm border overflow-hidden">
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left border-collapse text-xs">
-                        <thead>
-                            <tr class="bg-slate-50 text-slate-600 border-b uppercase text-[11px] font-extrabold tracking-wider">
-                                <th class="p-3.5 text-center w-12">No</th>
-                                <th class="p-3.5 w-28">NISN</th>
-                                <th class="p-3.5">Nama Lengkap Siswa</th>
-                                <th class="p-3.5 text-center w-16">L/P</th>
-                                <th class="p-3.5 text-center w-24">Agama</th>
-                                <th class="p-3.5 text-center w-40">Status Presensi Sholat</th>
-                                <th class="p-3.5 text-center w-32">Waktu &amp; Metode</th>
-                                <th class="p-3.5">Catatan / Keterangan</th>
-                                <th class="p-3.5 text-center w-36">Aksi Cepat BK</th>
-                            </tr>
-                        </thead>
-                        <tbody id="bkPrayerTableBody" class="divide-y divide-slate-100">
-                            <tr><td colspan="9" class="p-8 text-center text-slate-400">Pilih kelas untuk melihat data presensi sholat siswa...</td></tr>
-                        </tbody>
-                    </table>
+            <!-- VIEW 1: REKAP GLOBAL SELURUH ROMBEL (33 KELAS & DAFTAR SISWA ALPA UNTUK KONSELING) -->
+            <div id="bkPrayerGlobalViewContainer" class="space-y-6">
+                <!-- Toolbar Global -->
+                <div class="bg-white p-4 rounded-2xl border shadow-sm flex flex-wrap justify-between items-center gap-3 text-xs">
+                    <div class="flex flex-wrap items-center gap-3">
+                        <div>
+                            <label class="block font-bold text-slate-600 mb-1">📅 Tanggal</label>
+                            <input type="date" id="bkGlobalPrayerDate" class="border rounded-xl px-3 py-2 text-xs font-semibold focus:ring-2 focus:ring-teal-500 outline-none" onchange="loadBkGlobalPrayerData()">
+                        </div>
+                        <div>
+                            <label class="block font-bold text-slate-600 mb-1">🕌 Sesi Sholat</label>
+                            <select id="bkGlobalPrayerTypeSelect" class="border rounded-xl px-3 py-2 text-xs font-bold text-teal-900 bg-teal-50 focus:ring-2 focus:ring-teal-500 outline-none" onchange="loadBkGlobalPrayerData()">
+                                <option value="">Otomatis (Sesuai Jadwal)</option>
+                                <option value="DHUHA">🌅 Sholat Dhuha (Pagi)</option>
+                                <option value="DHUHUR">☀️ Sholat Dhuhur (Siang)</option>
+                                <option value="JUMAT">🕌 Sholat Jumat / Keputrian</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block font-bold text-slate-600 mb-1">🏛️ Tingkat Kelas</label>
+                            <select id="bkGlobalPrayerGradeFilter" class="border rounded-xl px-3 py-2 text-xs font-bold text-teal-900 bg-teal-50 focus:ring-2 focus:ring-teal-500 outline-none" onchange="loadBkGlobalPrayerData()">
+                                <option value="ALL">Semua Tingkat (33 Rombel)</option>
+                                <option value="7">Kelas 7 Saja (VII-A s/d VII-K)</option>
+                                <option value="8">Kelas 8 Saja (VIII-A s/d VIII-K)</option>
+                                <option value="9">Kelas 9 Saja (IX-A s/d IX-K)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button onclick="loadBkGlobalPrayerData()" class="px-4 py-2 rounded-xl font-bold bg-teal-600 hover:bg-teal-700 text-white shadow-sm transition-all text-xs flex items-center gap-1.5 cursor-pointer">
+                            <span>🔄</span> <span>Segarkan Rekap Global</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Tabel Rekapitulasi Per-Rombel (33 Kelas) -->
+                <div class="bg-white rounded-2xl shadow-sm border overflow-hidden">
+                    <div class="px-5 py-3.5 bg-slate-50 border-b flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                        <div>
+                            <h3 class="font-black text-slate-800 text-xs flex items-center gap-2">
+                                <span>🏫</span> Rekapitulasi Kehadiran Sholat per-Rombel Kelas
+                            </h3>
+                            <p class="text-[11px] text-slate-500">Persentase kedisiplinan ibadah sholat berjamaah & keputrian seluruh kelas</p>
+                        </div>
+                        <span class="text-[11px] font-bold text-slate-600 bg-white px-2.5 py-1 rounded-lg border" id="bkGlobalRombelCountLabel">33 Rombel</span>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse text-xs">
+                            <thead>
+                                <tr class="bg-slate-100/70 text-slate-700 border-b uppercase text-[11px] font-extrabold tracking-wider">
+                                    <th class="p-3 text-center w-12">No</th>
+                                    <th class="p-3 w-28">Nama Kelas</th>
+                                    <th class="p-3 text-center w-36">Jadwal Hari Ini</th>
+                                    <th class="p-3 text-center w-24">Total Siswa</th>
+                                    <th class="p-3 text-center w-28">Hadir Sholat</th>
+                                    <th class="p-3 text-center w-28">Keputrian</th>
+                                    <th class="p-3 text-center w-28">Uzur (Haid)</th>
+                                    <th class="p-3 text-center w-28">Alpa / Belum</th>
+                                    <th class="p-3 w-48">Persentase Kehadiran</th>
+                                    <th class="p-3 text-center w-32">Aksi Detail</th>
+                                </tr>
+                            </thead>
+                            <tbody id="bkGlobalPrayerClassTableBody" class="divide-y divide-slate-100">
+                                <tr><td colspan="10" class="p-8 text-center text-slate-400">Memuat rekap global seluruh kelas...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Tabel Prioritas Siswa Alpa Sholat (Untuk Konseling BK) -->
+                <div class="bg-white rounded-2xl shadow-sm border border-rose-200 overflow-hidden">
+                    <div class="px-5 py-3.5 bg-rose-50 border-b border-rose-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                        <div>
+                            <h3 class="font-black text-rose-900 text-xs flex items-center gap-2">
+                                <span>🚨</span> Daftar Siswa Tidak Hadir / Alpa Sholat (Tindak Lanjut Konseling Karakter BK)
+                            </h3>
+                            <p class="text-[11px] text-rose-700">Siswa beragama Islam yang terjadwal namun belum/tidak melaksanakan ibadah sholat di mushola</p>
+                        </div>
+                        <span class="text-[11px] font-black text-rose-700 bg-rose-100 px-3 py-1 rounded-full border border-rose-200" id="bkGlobalAlpaCountBadge">0 Siswa Alpa</span>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse text-xs">
+                            <thead>
+                                <tr class="bg-rose-50/50 text-rose-900 border-b border-rose-100 uppercase text-[11px] font-extrabold tracking-wider">
+                                    <th class="p-3 text-center w-12">No</th>
+                                    <th class="p-3 w-28">NISN</th>
+                                    <th class="p-3">Nama Lengkap Siswa</th>
+                                    <th class="p-3 text-center w-20">Kelas</th>
+                                    <th class="p-3 text-center w-16">L/P</th>
+                                    <th class="p-3 text-center w-36">Status Kehadiran</th>
+                                    <th class="p-3 text-center w-36">No HP Orang Tua</th>
+                                    <th class="p-3 text-center w-48">Tindakan Guru BK</th>
+                                </tr>
+                            </thead>
+                            <tbody id="bkGlobalPrayerAlpaTableBody" class="divide-y divide-slate-100">
+                                <tr><td colspan="8" class="p-8 text-center text-slate-400">Memuat daftar siswa alpa sholat...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- VIEW 2: DETAIL PRESENSI PER-KELAS (EXISTING) -->
+            <div id="bkPrayerPerClassContainer" class="space-y-6 hidden">
+                <!-- Filter Toolbar -->
+                <div class="bg-white p-4 rounded-2xl border shadow-sm flex flex-wrap justify-between items-center gap-3 text-xs">
+                    <div class="flex flex-wrap items-center gap-3">
+                        <div>
+                            <label class="block font-bold text-slate-600 mb-1">📅 Tanggal</label>
+                            <input type="date" id="bkPrayerDate" class="border rounded-xl px-3 py-2 text-xs font-semibold focus:ring-2 focus:ring-teal-500 outline-none" onchange="loadBkPrayerMonitoring()">
+                        </div>
+                        <div>
+                            <label class="block font-bold text-slate-600 mb-1">🕌 Sesi Sholat</label>
+                            <select id="bkPrayerTypeFilter" class="border rounded-xl px-3 py-2 text-xs font-bold text-teal-900 bg-teal-50 focus:ring-2 focus:ring-teal-500 outline-none" onchange="onBkPrayerTypeFilterChange()">
+                                <option value="">Otomatis (Sesuai Jadwal)</option>
+                                <option value="DHUHA">🌅 Sholat Dhuha (Pagi)</option>
+                                <option value="DHUHUR">☀️ Sholat Dhuhur (Siang)</option>
+                                <option value="JUMAT">🕌 Sholat Jumat / Keputrian</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block font-bold text-slate-600 mb-1">🏫 Rombel Kelas</label>
+                            <select id="bkPrayerClassSelect" class="border rounded-xl px-3 py-2 text-xs font-bold text-teal-900 bg-teal-50 focus:ring-2 focus:ring-teal-500 outline-none" onchange="loadBkPrayerMonitoring()">
+                                <!-- Populated dynamically -->
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block font-bold text-slate-600 mb-1">🔍 Cari Siswa</label>
+                            <input type="text" id="bkPrayerSearch" placeholder="Nama / NISN..." class="border rounded-xl px-3 py-2 text-xs w-44 outline-none focus:ring-2 focus:ring-teal-500" onkeyup="filterBkPrayerTable()">
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button onclick="filterBkPrayerByStatus('ALL')" id="btnPrayerFilterAll" class="px-3 py-1.5 rounded-xl font-bold bg-teal-600 text-white shadow-sm transition-all text-xs">Semua</button>
+                        <button onclick="filterBkPrayerByStatus('SHOLAT')" id="btnPrayerFilterSholat" class="px-3 py-1.5 rounded-xl font-bold bg-slate-100 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700 transition-all text-xs">Sudah Sholat</button>
+                        <button onclick="filterBkPrayerByStatus('HAID')" id="btnPrayerFilterHaid" class="px-3 py-1.5 rounded-xl font-bold bg-slate-100 text-slate-600 hover:bg-purple-50 hover:text-purple-700 transition-all text-xs">Keputrian / Haid</button>
+                        <button onclick="filterBkPrayerByStatus('BELUM')" id="btnPrayerFilterBelum" class="px-3 py-1.5 rounded-xl font-bold bg-slate-100 text-slate-600 hover:bg-rose-50 hover:text-rose-700 transition-all text-xs">Belum</button>
+                    </div>
+                </div>
+
+                <!-- Table of Students -->
+                <div class="bg-white rounded-2xl shadow-sm border overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse text-xs">
+                            <thead>
+                                <tr class="bg-slate-50 text-slate-600 border-b uppercase text-[11px] font-extrabold tracking-wider">
+                                    <th class="p-3.5 text-center w-12">No</th>
+                                    <th class="p-3.5 w-28">NISN</th>
+                                    <th class="p-3.5">Nama Lengkap Siswa</th>
+                                    <th class="p-3.5 text-center w-16">L/P</th>
+                                    <th class="p-3.5 text-center w-24">Agama</th>
+                                    <th class="p-3.5 text-center w-40">Status Presensi Sholat</th>
+                                    <th class="p-3.5 text-center w-32">Waktu &amp; Metode</th>
+                                    <th class="p-3.5">Catatan / Keterangan</th>
+                                    <th class="p-3.5 text-center w-36">Aksi Cepat BK</th>
+                                </tr>
+                            </thead>
+                            <tbody id="bkPrayerTableBody" class="divide-y divide-slate-100">
+                                <tr><td colspan="9" class="p-8 text-center text-slate-400">Pilih kelas untuk melihat data presensi sholat siswa...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </div>
@@ -6374,8 +6494,12 @@
             // 2. Ambil Seluruh Jadwal Sepekan (Senin - Sabtu)
             await loadPrayerWeekSchedules();
 
-            // 3. Muat Data Siswa Rombel yang Dipilih
-            await loadBkPrayerStudentList();
+            // 3. Muat Data Sesuai Mode (GLOBAL atau PER_CLASS)
+            if (currentBkPrayerMode === 'GLOBAL') {
+                await loadBkGlobalPrayerData();
+            } else {
+                await loadBkPrayerStudentList();
+            }
         }
 
         function renderBkPrayerHeader(data) {
@@ -6733,6 +6857,194 @@
             }
         }
 
+        // ==================== REKAP GLOBAL SHOLAT UNTUK GURU BK ====================
+        let currentBkPrayerMode = 'GLOBAL'; // 'GLOBAL' or 'PER_CLASS'
+        let cachedBkGlobalData = null;
+
+        function switchBkPrayerMode(mode) {
+            currentBkPrayerMode = mode;
+            const btnGlobal = document.getElementById('btnBkPrayerModeGlobal');
+            const btnClass = document.getElementById('btnBkPrayerModeClass');
+            const secGlobal = document.getElementById('bkPrayerGlobalViewContainer');
+            const secClass = document.getElementById('bkPrayerPerClassContainer');
+
+            if (mode === 'GLOBAL') {
+                if (btnGlobal) btnGlobal.className = 'px-4 py-2 rounded-xl text-xs font-black bg-teal-600 text-white shadow-md flex items-center gap-1.5 transition-all cursor-pointer';
+                if (btnClass) btnClass.className = 'px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 flex items-center gap-1.5 transition-all cursor-pointer';
+                if (secGlobal) secGlobal.classList.remove('hidden');
+                if (secClass) secClass.classList.add('hidden');
+                loadBkGlobalPrayerData();
+            } else {
+                if (btnGlobal) btnGlobal.className = 'px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 flex items-center gap-1.5 transition-all cursor-pointer';
+                if (btnClass) btnClass.className = 'px-4 py-2 rounded-xl text-xs font-black bg-teal-600 text-white shadow-md flex items-center gap-1.5 transition-all cursor-pointer';
+                if (secGlobal) secGlobal.classList.add('hidden');
+                if (secClass) secClass.classList.remove('hidden');
+                loadBkPrayerStudentList();
+            }
+        }
+
+        async function loadBkGlobalPrayerData() {
+            const dateInput = document.getElementById('bkGlobalPrayerDate') || document.getElementById('bkPrayerDate');
+            const typeSelect = document.getElementById('bkGlobalPrayerTypeSelect');
+            const gradeSelect = document.getElementById('bkGlobalPrayerGradeFilter');
+            const tbodyClass = document.getElementById('bkGlobalPrayerClassTableBody');
+            const tbodyAlpa = document.getElementById('bkGlobalPrayerAlpaTableBody');
+
+            const date = dateInput && dateInput.value ? dateInput.value : new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Jakarta' });
+            if (dateInput && !dateInput.value) dateInput.value = date;
+            const pType = typeSelect ? typeSelect.value : (currentBkPrayerType || '');
+            const grade = gradeSelect ? gradeSelect.value : 'ALL';
+
+            if (tbodyClass) tbodyClass.innerHTML = `<tr><td colspan="10" class="p-8 text-center text-slate-400">⏳ Mengagregasi data presensi sholat seluruh 33 rombel...</td></tr>`;
+            if (tbodyAlpa) tbodyAlpa.innerHTML = `<tr><td colspan="8" class="p-8 text-center text-slate-400">⏳ Memuat daftar siswa alpa sholat...</td></tr>`;
+
+            try {
+                let url = `/api/prayer/bk-global-recap?date=${encodeURIComponent(date)}&grade=${encodeURIComponent(grade)}`;
+                if (pType) url += `&prayerType=${encodeURIComponent(pType)}`;
+
+                const res = await authFetch(url);
+                if (!res.ok) {
+                    if (tbodyClass) tbodyClass.innerHTML = `<tr><td colspan="10" class="p-8 text-center text-rose-500">Gagal memuat rekap global (${res.status}).</td></tr>`;
+                    return;
+                }
+
+                const data = await res.json();
+                if (data.success) {
+                    cachedBkGlobalData = data;
+
+                    // Update Top Stats KPI
+                    const ms = data.macroStats || {};
+                    const statTotal = document.getElementById('bkPrayerStatTotal');
+                    const statPresent = document.getElementById('bkPrayerStatPresent');
+                    const statHaid = document.getElementById('bkPrayerStatHaid');
+                    const statPending = document.getElementById('bkPrayerStatPending');
+
+                    if (statTotal) statTotal.innerText = ms.totalScheduledStudents || ms.totalSchoolStudents || 0;
+                    if (statPresent) statPresent.innerText = `${ms.totalSholat || 0} (${ms.overallPercentage || 0}%)`;
+                    if (statHaid) statHaid.innerText = (ms.totalUzur || 0) + (ms.totalKeputrian || 0);
+                    if (statPending) statPending.innerText = ms.totalAlpa || 0;
+
+                    // Render Class Breakdown Table
+                    renderBkGlobalClassTable(data.classBreakdown || []);
+
+                    // Render Alpa Students Table
+                    renderBkGlobalAlpaTable(data.alpaStudents || []);
+                }
+            } catch (err) {
+                console.error('Error loadBkGlobalPrayerData:', err);
+                if (tbodyClass) tbodyClass.innerHTML = `<tr><td colspan="10" class="p-8 text-center text-rose-500">Kesalahan jaringan: ${err.message}</td></tr>`;
+            }
+        }
+
+        function renderBkGlobalClassTable(classes) {
+            const tbody = document.getElementById('bkGlobalPrayerClassTableBody');
+            const rombelCount = document.getElementById('bkGlobalRombelCountLabel');
+            if (!tbody) return;
+
+            if (rombelCount) rombelCount.innerText = `${classes.length} Rombel`;
+
+            if (classes.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="10" class="p-8 text-center text-slate-400">Tidak ada rombel kelas yang ditemukan.</td></tr>`;
+                return;
+            }
+
+            let html = '';
+            classes.forEach((c, idx) => {
+                const schedBadge = c.isScheduledToday
+                    ? '<span class="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300">✅ Terjadwal</span>'
+                    : '<span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-500 border border-slate-200">Tidak Terjadwal</span>';
+
+                const pct = c.percentage || 0;
+                const barColor = pct >= 85 ? 'bg-emerald-500' : (pct >= 60 ? 'bg-amber-500' : 'bg-rose-500');
+
+                html += `
+                    <tr class="hover:bg-slate-50 transition-colors ${c.isScheduledToday ? 'bg-emerald-50/20' : ''}">
+                        <td class="p-3 text-center font-bold text-slate-400">${idx + 1}</td>
+                        <td class="p-3 font-black text-slate-800 font-mono text-xs">
+                            Kelas ${c.className}
+                        </td>
+                        <td class="p-3 text-center">${schedBadge}</td>
+                        <td class="p-3 text-center font-bold text-slate-700">${c.totalStudents}</td>
+                        <td class="p-3 text-center font-extrabold text-emerald-700">${c.sholatCount}</td>
+                        <td class="p-3 text-center font-bold text-purple-700">${c.keputrianCount}</td>
+                        <td class="p-3 text-center font-bold text-amber-700">${c.uzurCount}</td>
+                        <td class="p-3 text-center font-bold ${c.alpaCount > 0 ? 'text-rose-600' : 'text-slate-400'}">${c.alpaCount}</td>
+                        <td class="p-3">
+                            <div class="flex items-center gap-2">
+                                <div class="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
+                                    <div class="${barColor} h-2 rounded-full transition-all" style="width: ${pct}%"></div>
+                                </div>
+                                <span class="font-black text-xs text-slate-700 w-10 text-right">${pct}%</span>
+                            </div>
+                        </td>
+                        <td class="p-3 text-center">
+                            <button onclick="inspectBkClassPrayer('${c.className}')" class="px-3 py-1 rounded-lg bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-300 font-bold text-[11px] transition-all cursor-pointer">
+                                🔍 Detail Kelas
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            });
+            tbody.innerHTML = html;
+        }
+
+        function renderBkGlobalAlpaTable(students) {
+            const tbody = document.getElementById('bkGlobalPrayerAlpaTableBody');
+            const badge = document.getElementById('bkGlobalAlpaCountBadge');
+            if (!tbody) return;
+
+            if (badge) badge.innerText = `${students.length} Siswa Butuh Konseling`;
+
+            if (students.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="8" class="p-8 text-center text-emerald-600 font-bold">🎉 Alhamdulillah! Seluruh siswa terjadwal sholat hari ini telah melakukan presensi.</td></tr>`;
+                return;
+            }
+
+            let html = '';
+            students.forEach((s, idx) => {
+                const phoneStr = s.parentPhone ? `<a href="https://wa.me/${s.parentPhone.replace(/^0/, '62')}" target="_blank" class="text-emerald-700 hover:underline font-bold">📱 ${s.parentPhone}</a>` : '<span class="text-slate-400 italic">Belum Ada</span>';
+                html += `
+                    <tr class="hover:bg-rose-50/40 transition-colors">
+                        <td class="p-3 text-center font-bold text-rose-400">${idx + 1}</td>
+                        <td class="p-3 font-mono font-bold text-slate-700">${s.nisn}</td>
+                        <td class="p-3 font-bold text-slate-800">${s.studentName}</td>
+                        <td class="p-3 text-center font-mono font-bold text-slate-700">${s.className}</td>
+                        <td class="p-3 text-center font-bold text-slate-600">${s.gender}</td>
+                        <td class="p-3 text-center">
+                            <span class="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-rose-100 text-rose-800 border border-rose-300">
+                                🚨 Alpa Sholat
+                            </span>
+                        </td>
+                        <td class="p-3 text-center">${phoneStr}</td>
+                        <td class="p-3 text-center">
+                            <button onclick="startBkCounselingForPrayer('${s.studentId}', '${s.studentName.replace(/'/g, "\\'")}', '${s.className}')" class="px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[11px] shadow-sm flex items-center justify-center gap-1 mx-auto transition-all cursor-pointer">
+                                <span>🕊️</span> <span>Panggil Konseling</span>
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            });
+            tbody.innerHTML = html;
+        }
+
+        function inspectBkClassPrayer(className) {
+            const classSel = document.getElementById('bkPrayerClassSelect');
+            if (classSel) classSel.value = className;
+            switchBkPrayerMode('PER_CLASS');
+        }
+
+        function startBkCounselingForPrayer(studentId, studentName, className) {
+            const notes = `Konseling Karakter & Kedisiplinan Ibadah: Siswa tercatat Alpa pada jadwal sholat berjamaah di mushola sekolah. Perlu pendampingan dan pembinaan moral religius.`;
+            if (typeof openNewConsultationModal === 'function') {
+                openNewConsultationModal(studentId, studentName, notes);
+            } else if (typeof switchTab === 'function') {
+                switchTab('konseling');
+                alert(`Mengarahkan ke Layanan Konseling untuk Ananda ${studentName} (${className}). Catatan: Alpa Sholat Berjamaah.`);
+            } else {
+                alert(`Siswa: ${studentName} (${className})\nTindakan BK: Dijadwalkan sesi bimbingan ibadah berjamaah.`);
+            }
+        }
+
         // ==================== MODAL JADWAL ROMBEL SHOLAT ====================
         let selectedPrayerClassSet = new Set();
 
@@ -7045,10 +7357,13 @@
                 if (g.status === 'PENDING') {
                     actionBtns = `
                         <div class="flex items-center justify-end gap-1.5">
-                            <button onclick="updateGatepassActionBK('${g.id}', 'WAITING_BK_SCAN')" class="bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1.5 rounded-lg font-bold text-[11px] shadow transition flex items-center gap-1" title="ACC dan instruksikan siswa scan Dynamic QR Meja BK">
-                                <span>✓</span> ACC Panggil Scan
+                            <button onclick="updateGatepassActionBK('${g.id}', 'ACTIVE_APPROVED')" class="bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1.5 rounded-lg font-bold text-[11px] shadow transition flex items-center gap-1" title="ACC langsung & aktifkan QR Code Gatepass pada HP siswa">
+                                <span>✓</span> ACC &amp; Aktifkan QR
                             </button>
-                            <button onclick="promptRejectGatepassBK('${g.id}')" class="bg-rose-100 hover:bg-rose-200 text-rose-700 px-2.5 py-1.5 rounded-lg font-bold text-[11px] transition" title="Tolak Permohonan">
+                            <button onclick="updateGatepassActionBK('${g.id}', 'WAITING_BK_SCAN')" class="bg-sky-600 hover:bg-sky-700 text-white px-2 py-1.5 rounded-lg font-bold text-[11px] shadow transition flex items-center gap-1" title="Panggil siswa untuk scan Dynamic QR di Meja BK">
+                                <span>⚡</span> Meja BK
+                            </button>
+                            <button onclick="promptRejectGatepassBK('${g.id}')" class="bg-rose-100 hover:bg-rose-200 text-rose-700 px-2 py-1.5 rounded-lg font-bold text-[11px] transition" title="Tolak Permohonan">
                                 <span>✕</span>
                             </button>
                         </div>
@@ -7125,6 +7440,12 @@
                 if (json.success) {
                     if (action === 'WAITING_BK_SCAN') {
                         openBkDynamicQrModal();
+                    } else if (action === 'ACTIVE_APPROVED') {
+                        if (typeof showToastSuccess === 'function') {
+                            showToastSuccess('✅ Gatepass Berhasil Di-ACC! QR Code telah aktif di HP siswa dan notifikasi terkirim ke orang tua.');
+                        } else {
+                            alert('✅ Gatepass Berhasil Di-ACC! QR Code telah aktif di HP siswa dan notifikasi terkirim ke orang tua.');
+                        }
                     }
                     loadGatepassMonitoringBK();
                 } else {

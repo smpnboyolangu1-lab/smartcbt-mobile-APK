@@ -5,8 +5,10 @@ import { getSchoolSignatures, getSchoolSignaturesForClass } from '../utils/schoo
 import { validateGpsAttendance } from '../services/gpsValidationService';
 import { compareClassNames, sortStudentsByGradeAndName } from '../utils/classSort';
 import { sendFcmToUser, sendFcmToRole } from '../services/fcmService';
-import { sendSingleWhatsApp } from '../services/whatsappBlastService';
+import { sendSingleWhatsApp, WHATSAPP_NOTIFICATION_POLICY } from '../services/whatsappBlastService';
 import { formatTimeWib, formatTimeWibWithSuffix, getWibDayBounds, getWibTimeColon, getWibDayOfWeek } from '../utils/dateUtils';
+import { extractStudentCardCandidates, buildStudentCardPrismaOr } from '../utils/studentCardHelper';
+import { DEFAULT_PRAYER_SCHEDULES_MAP } from './prayerAttendanceController';
 import { logAudit } from '../services/auditLogger';
 
 export const DYNAMIC_QR_SALT = 'SmartCBT_Boyolangu_DynQR_Salt_2026';
@@ -34,9 +36,9 @@ export function verifyDynamicClassQr(payload: string, studentClass: string): { i
         };
     }
 
-    // Toleransi jendela waktu: step sekarang, step - 1, step + 1 (toleransi 10-15 detik)
+    // Toleransi jendela waktu: step sekarang ± 3 step (toleransi ±30 detik untuk toleransi sinyal/clock drift)
     const currentStep = Math.floor(Date.now() / 10000);
-    const validSteps = [currentStep, currentStep - 1, currentStep + 1];
+    const validSteps = [currentStep, currentStep - 1, currentStep + 1, currentStep - 2, currentStep + 2, currentStep - 3, currentStep + 3];
 
     let match = false;
     for (const s of validSteps) {
@@ -437,20 +439,21 @@ export const scanClassGate = async (req: Request, res: Response) => {
             });
         }
 
+        const parsedStudentId = extractStudentCardCandidates(studentIdentifier);
+        const orStudent = buildStudentCardPrismaOr(parsedStudentId);
+
         const student = await prisma.user.findFirst({
             where: {
-                OR: [
-                    { username: String(studentIdentifier) },
-                    { nisn: String(studentIdentifier) },
-                    { nis: String(studentIdentifier) }
-                ],
+                OR: orStudent,
                 role: 'STUDENT'
             }
         });
 
         if (!student) {
-            return res.status(404).json({ message: 'Siswa tidak ditemukan dalam database.' });
+            return res.status(404).json({ message: `Siswa "${parsedStudentId.cleanCode}" tidak ditemukan dalam database.` });
         }
+
+        const now = new Date();
 
         // 2. Deteksi Apakah Barcode adalah QR Dinamis Pengurus Kelas
         const rawCodeUpper = (barcodeCode || '').trim().toUpperCase();
@@ -469,9 +472,9 @@ export const scanClassGate = async (req: Request, res: Response) => {
         const isBkGateIn = rawCodeUpper === 'GATE_IN_BK' || rawCodeUpper === 'GATE_LATE_BK' || rawCodeUpper.includes('GATE_IN_BK');
         const isBkGateOut = rawCodeUpper === 'GATE_OUT_BK' || rawCodeUpper.includes('GATE_OUT_BK');
         const isBkBarcode = isBkGateIn || isBkGateOut;
-        const isMusholaIn = rawCodeUpper.includes('MUSHOLA_IN') || (rawCodeUpper.includes('MUSHOLA') && !rawCodeUpper.includes('OUT')) || rawCodeUpper === 'BARCODE_SHOLAT_DHUHUR_MASJID' || rawCodeUpper === 'BARCODE_SHOLAT_JUMAT_MASJID';
-        const isMusholaOut = rawCodeUpper.includes('MUSHOLA_OUT') || (rawCodeUpper.includes('MUSHOLA') && rawCodeUpper.includes('OUT'));
-        const isMusholaBarcode = isMusholaIn || isMusholaOut || rawCodeUpper.includes('MUSHOLA') || rawCodeUpper.includes('SHOLAT');
+        const isMusholaIn = rawCodeUpper.includes('MUSHOLA_IN') || (rawCodeUpper.includes('MUSHOLA') && !rawCodeUpper.includes('OUT')) || rawCodeUpper === 'BARCODE_SHOLAT_DHUHUR_MASJID' || rawCodeUpper === 'BARCODE_SHOLAT_JUMAT_MASJID' || rawCodeUpper === 'BARCODE_SHOLAT_DHUHA_MASJID' || rawCodeUpper === 'BARCODE_KEPUTRIAN_MASUK' || rawCodeUpper.includes('DHUHA') || rawCodeUpper.includes('KEPUTRIAN');
+        const isMusholaOut = rawCodeUpper.includes('MUSHOLA_OUT') || (rawCodeUpper.includes('MUSHOLA') && rawCodeUpper.includes('OUT')) || rawCodeUpper === 'BARCODE_SHOLAT_PULANG_MASJID' || rawCodeUpper === 'BARCODE_KEPUTRIAN_PULANG' || rawCodeUpper.includes('PULANG_MUSHOLA');
+        const isMusholaBarcode = isMusholaIn || isMusholaOut || rawCodeUpper.includes('MUSHOLA') || rawCodeUpper.includes('SHOLAT') || rawCodeUpper.includes('KEPUTRIAN') || rawCodeUpper.includes('MASJID');
 
         const settings = await getOrCreateGateSettings();
         const effective = getEffectiveGateSettings(settings);
@@ -501,35 +504,43 @@ export const scanClassGate = async (req: Request, res: Response) => {
         const studentClass = student.className ? await prisma.class.findFirst({ where: { name: student.className } }) : null;
         
         // Ambil konfigurasi dinamis dari SystemSetting
-        const [geoEnabledRow, masterGeoRow, globalRadiusRow, bufferDefaultRow, schoolLatRow, schoolLngRow, driftLimitRow] = await Promise.all([
+        const [geoEnabledRow, masterGeoRow, globalRadiusRow, bufferDefaultRow, schoolLatRow, schoolLngRow, driftLimitRow, musholaLatRow, musholaLngRow, musholaRadiusRow] = await Promise.all([
             prisma.systemSetting.findUnique({ where: { key: "feature.scanner.geolocation" } }),
             prisma.systemSetting.findUnique({ where: { key: "feature.geofence.enabled" } }),
             prisma.systemSetting.findUnique({ where: { key: "gps.radius.global" } }),
             prisma.systemSetting.findUnique({ where: { key: "gps.buffer.default" } }),
             prisma.systemSetting.findUnique({ where: { key: "gps.school.lat" } }),
             prisma.systemSetting.findUnique({ where: { key: "gps.school.lng" } }),
-            prisma.systemSetting.findUnique({ where: { key: "attendance.clock_drift_limit_minutes" } })
+            prisma.systemSetting.findUnique({ where: { key: "attendance.clock_drift_limit_minutes" } }),
+            prisma.systemSetting.findUnique({ where: { key: "gps.mushola.lat" } }),
+            prisma.systemSetting.findUnique({ where: { key: "gps.mushola.lng" } }),
+            prisma.systemSetting.findUnique({ where: { key: "gps.mushola.radius" } })
         ]);
 
         const isMasterGeoActive = masterGeoRow ? (masterGeoRow.value === "true" || masterGeoRow.value === "1") : true;
         const isGeolocationActive = (geoEnabledRow ? (geoEnabledRow.value === "true" || geoEnabledRow.value === "1") : true) && isMasterGeoActive;
-        const globalRadius = globalRadiusRow ? (parseInt(globalRadiusRow.value) || 150) : 150;
-        const defaultBuffer = bufferDefaultRow ? (parseInt(bufferDefaultRow.value) || 50) : 50;
+        const globalRadius = globalRadiusRow ? (parseInt(globalRadiusRow.value) || 130) : 130;
+        const defaultBuffer = bufferDefaultRow ? (parseInt(bufferDefaultRow.value) || 15) : 15;
         const defaultSchoolLat = schoolLatRow ? (parseFloat(schoolLatRow.value) || -8.125157) : -8.125157;
         const defaultSchoolLng = schoolLngRow ? (parseFloat(schoolLngRow.value) || 111.893912) : 111.893912;
+        const defaultMusholaLat = musholaLatRow ? (parseFloat(musholaLatRow.value) || -8.1249085) : -8.1249085;
+        const defaultMusholaLng = musholaLngRow ? (parseFloat(musholaLngRow.value) || 111.8934869) : 111.8934869;
+        const defaultMusholaRadius = musholaRadiusRow ? (parseInt(musholaRadiusRow.value) || 60) : 60;
         const clockDriftLimit = driftLimitRow ? (parseInt(driftLimitRow.value) || 5) : 5;
 
-        // Ruang BK berada di area sekolah (koordinat pusat sekolah atau kelas)
-        const targetLat = isBkBarcode ? defaultSchoolLat : (studentClass?.lat ?? defaultSchoolLat);
-        const targetLng = isBkBarcode ? defaultSchoolLng : (studentClass?.lng ?? defaultSchoolLng);
+        // Titik target koordinat: Mushola jika scan barcode mushola, Pusat Sekolah jika BK, atau koordinat ruang kelas masing-masing
+        const targetLat = isMusholaBarcode ? defaultMusholaLat : (isBkBarcode ? defaultSchoolLat : (studentClass?.lat ?? defaultSchoolLat));
+        const targetLng = isMusholaBarcode ? defaultMusholaLng : (isBkBarcode ? defaultSchoolLng : (studentClass?.lng ?? defaultSchoolLng));
         const accuracyNum = req.body.accuracy ? Number(req.body.accuracy) : null;
-        // Toleransi geofence kampus: radius base (minimal 70m untuk seluruh area sekolah SMPN 1 Boyolangu) + toleransi indoor drift jika akurasi GPS terdegradasi
-        const configuredRadius = globalRadiusRow ? (parseInt(globalRadiusRow.value) || 70) : 70;
+        // Toleransi geofence kampus: radius base + toleransi indoor drift jika akurasi GPS terdegradasi
+        const configuredRadius = globalRadiusRow ? (parseInt(globalRadiusRow.value) || 130) : 130;
         const defaultBufferVal = bufferDefaultRow ? (parseInt(bufferDefaultRow.value) || 15) : 15;
         const rawClassRadius = (studentClass?.radiusMeters && studentClass.radiusMeters > 0) ? studentClass.radiusMeters : configuredRadius;
-        const baseRadius = Math.max(rawClassRadius, 70); // Minimal 70m mencakup seluruh area gedung sekolah SMPN 1 Boyolangu
+        const baseRadius = isMusholaBarcode ? defaultMusholaRadius : Math.max(rawClassRadius, 70); // Minimal 70m mencakup seluruh area gedung sekolah SMPN 1 Boyolangu
         const gpsAccuracyBuffer = (accuracyNum && accuracyNum > 25) ? Math.min(Math.round(accuracyNum * 0.65), 65) : 0;
-        const maxRadius = isBkBarcode ? Math.max(baseRadius + defaultBufferVal + gpsAccuracyBuffer, 85) : (baseRadius + defaultBufferVal + gpsAccuracyBuffer);
+        const maxRadius = isMusholaBarcode
+            ? Math.max(defaultMusholaRadius + defaultBufferVal + gpsAccuracyBuffer, 65)
+            : (isBkBarcode ? Math.max(baseRadius + defaultBufferVal + gpsAccuracyBuffer, 85) : (baseRadius + defaultBufferVal + gpsAccuracyBuffer));
 
         // Validasi Hari Libur Sekolah / Situasi Tertentu
         const todayYmd = effective.currentDateStr;
@@ -551,6 +562,46 @@ export const scanClassGate = async (req: Request, res: Response) => {
                 isHoliday: true,
                 message: `🌴 Hari ${effective.currentDayName} adalah hari libur operasional sekolah! Tidak ada presensi tatap muka hari ini. Selamat berlibur!`
             });
+        }
+
+        // Cek Dini: Kunci Barcode Pulang Ruang Kelas jika kelas terjadwal Sholat Berjamaah / Keputrian di Mushola
+        const isClassGateOutScanEarly = (rawCodeUpper.startsWith('GATE_OUT') || (barcodeCode && barcodeCode.startsWith('GATE_OUT')) || req.body.scanType === 'GATE_OUT' || req.body.type === 'GATE_OUT') && !isMusholaBarcode && !isBkBarcode;
+        if (isClassGateOutScanEarly) {
+            const todayDayNum = getWibDayOfWeek(now);
+            const userRel = String(student.religion || '').toUpperCase().trim();
+            const isNonMuslim = userRel.length > 0 && !userRel.includes('ISLAM');
+
+            if (!isNonMuslim) {
+                const dbScheds = await (prisma as any).prayerClassSchedule.findMany({
+                    where: { dayOfWeek: todayDayNum, isActive: true, prayerType: { in: ['DHUHUR', 'JUMAT', 'KEPUTRIAN'] } }
+                }).catch(() => []);
+                const dayScheds = dbScheds.length > 0 ? dbScheds : (DEFAULT_PRAYER_SCHEDULES_MAP[todayDayNum] || []).filter((s: any) => ['DHUHUR', 'JUMAT', 'KEPUTRIAN'].includes(s.prayerType));
+                const studentGender = (student.gender || 'L').toUpperCase().startsWith('P') ? 'P' : 'L';
+                const sClass = (student.className || '').trim().toUpperCase();
+
+                let isScheduledForPrayerToday = false;
+                for (const sched of dayScheds) {
+                    const clsList = (sched.classNames || '').split(',').map((c: string) => c.trim().toUpperCase());
+                    const isAll = clsList.includes('ALL') || clsList.includes('SEMUA');
+                    const isAllMale = sched.prayerType === 'JUMAT' || clsList.includes('ALL_MALE');
+                    const isAllFemale = sched.prayerType === 'KEPUTRIAN' || clsList.includes('ALL_FEMALE');
+
+                    if (isAll || (isAllMale && studentGender === 'L') || (isAllFemale && studentGender === 'P') || clsList.includes(sClass)) {
+                        isScheduledForPrayerToday = true;
+                        break;
+                    }
+                }
+
+                const isEmergencyDismissalActive = Boolean(isTestingMode || settings.isEmergencyGateOut || settings.isEarlyDismissal);
+                if (isScheduledForPrayerToday && !isEmergencyDismissalActive) {
+                    return res.status(400).json({
+                        success: false,
+                        isWarningYellow: true,
+                        isClassGateClosedDueToPrayer: true,
+                        message: `🕌 QR Code Pulang di kelas DITUTUP untuk kelas ${student.className || sClass} hari ini karena terjadwal Sholat Berjamaah! Seluruh siswa wajib sholat berjamaah dan melakukan scan kepulangan resmi di Mushola Sekolah.`
+                    });
+                }
+            }
         }
 
         let distanceMeters: number | null = null;
@@ -636,7 +687,7 @@ export const scanClassGate = async (req: Request, res: Response) => {
             });
         }
 
-        const now = new Date();
+        // now telah didefinisikan di awal recordAttendance
         let effectiveScanTime = now;
         if (req.body.clientScanTime) {
             const parsedClientDate = new Date(Number(req.body.clientScanTime));
@@ -750,32 +801,80 @@ export const scanClassGate = async (req: Request, res: Response) => {
         // ATURAN 1 & 2: DUAL-POINT CHECKOUT - TITIK MUSHOLA SEKOLAH
         // ============================================================
         if (isMusholaBarcode) {
-            const todayDay = now.getDay();
-            const prayerSchedule = await (prisma as any).prayerClassSchedule.findFirst({
+            const todayDay = getWibDayOfWeek(now);
+            const userRel = String(student.religion || '').toUpperCase().trim();
+            const isNonMuslim = userRel.length > 0 && !userRel.includes('ISLAM');
+
+            const dbScheds = await (prisma as any).prayerClassSchedule.findMany({
                 where: { dayOfWeek: todayDay, isActive: true }
-            });
+            }).catch(() => []);
+            const dayScheds = dbScheds.length > 0 ? dbScheds : (DEFAULT_PRAYER_SCHEDULES_MAP[todayDay] || []);
 
-            const scheduledClasses = (prayerSchedule?.classNames || '').split(',').map((c: string) => c.trim().toUpperCase());
-            const isAllMaleSchedule = prayerSchedule?.prayerType === 'JUMAT' || scheduledClasses.includes('ALL_MALE');
             const studentGender = (student.gender || 'L').toUpperCase().startsWith('P') ? 'P' : 'L';
-            
-            const isClassScheduled = isAllMaleSchedule 
-                ? (studentGender === 'L') 
-                : scheduledClasses.includes(student.className.trim().toUpperCase());
+            const sClass = (student.className || '').trim().toUpperCase();
 
-            // ATURAN 1: Barcode di mushola hanya valid untuk kelas yang memiliki jadwal sholat di mushola pada jam/hari tersebut (Kecuali Mode Pulang Cepat / Darurat).
-            if (!isClassScheduled && !isTestingMode && !settings.isEmergencyGateOut && !settings.isEarlyDismissal) {
+            const { hour: currentHourWIB } = getWibDayBounds(now);
+            const isMorningDhuha = currentHourWIB < 10 || rawCodeUpper.includes('DHUHA');
+
+            // Cek apakah ada jadwal yang match untuk siswa ini hari ini
+            let matchedSched: any = null;
+            if (isMorningDhuha) {
+                // Sesi Pagi: Seluruh siswa yang hadir untuk Sholat Dhuha diizinkan presensi ibadah
+                matchedSched = dayScheds.find((s: any) => s.prayerType === 'DHUHA') || { prayerType: 'DHUHA', classNames: 'ALL' };
+            } else {
+                for (const sched of dayScheds) {
+                    if (sched.prayerType === 'DHUHA') continue;
+                    const scheduledClasses = (sched.classNames || '').split(',').map((c: string) => c.trim().toUpperCase());
+                    const isAll = scheduledClasses.includes('ALL') || scheduledClasses.includes('SEMUA');
+                    const isAllMaleSchedule = sched.prayerType === 'JUMAT' || scheduledClasses.includes('ALL_MALE');
+                    const isAllFemaleSchedule = sched.prayerType === 'KEPUTRIAN' || scheduledClasses.includes('ALL_FEMALE');
+
+                    if (isAll) { matchedSched = sched; break; }
+                    if (isAllMaleSchedule && studentGender === 'L') { matchedSched = sched; break; }
+                    if (isAllFemaleSchedule && studentGender === 'P') { matchedSched = sched; break; }
+                    if (scheduledClasses.includes(sClass)) { matchedSched = sched; break; }
+                }
+            }
+
+            // ATURAN 1: Barcode di mushola hanya valid untuk kelas yang memiliki jadwal sholat di mushola pada jam/hari tersebut (Kecuali Mode Pulang Cepat / Darurat / Sholat Dhuha Pagi).
+            if (!matchedSched && !isTestingMode && !settings.isEmergencyGateOut && !settings.isEarlyDismissal) {
                 return res.status(403).json({
                     success: false,
-                    message: `⛔ Akses Mushola Ditolak! Rombel ${student.className} tidak memiliki jadwal sholat berjamaah di mushola hari ini (${prayerSchedule?.dayName || 'Hari Ini'}). Siswa dipersilakan melakukan presensi kepulangan langsung di Ruang Kelas.`
+                    message: `⛔ Akses Mushola Ditolak! Rombel ${student.className} tidak memiliki jadwal sholat berjamaah di mushola hari ini. Siswa dipersilakan melakukan presensi kepulangan langsung di Ruang Kelas.`
                 });
             }
 
             const todayYmdStr = new Date(now).toISOString().substring(0, 10);
-            const pType = prayerSchedule?.prayerType || (todayDay === 5 ? 'JUMAT' : 'DHUHUR');
+            const pType = isMorningDhuha ? 'DHUHA' : (matchedSched?.prayerType || (todayDay === 5 ? (studentGender === 'P' ? 'KEPUTRIAN' : 'JUMAT') : 'DHUHUR'));
 
             // ATURAN 2A: Siswa melakukan "Scan In" saat tiba di mushola
             if (isMusholaIn || scanType === 'MUSHOLA_IN') {
+                // Siswa sholat Dhuha pagi di mushola: jika belum scan masuk kelas, catat otomatis GATE_IN di mushola
+                if (isMorningDhuha) {
+                    const classCheckIn = await prisma.attendance.findFirst({
+                        where: {
+                            userId: student.id,
+                            type: 'GATE_IN',
+                            scanTime: { gte: startOfDay, lte: endOfDay }
+                        }
+                    });
+                    if (!classCheckIn) {
+                        await prisma.attendance.create({
+                            data: {
+                                userId: student.id,
+                                type: 'GATE_IN',
+                                method: 'BARCODE',
+                                status: 'PRESENT',
+                                scanTime: now,
+                                lat: targetLat,
+                                lng: targetLng,
+                                isFakeGps: Boolean(req.body.isFakeGps),
+                                note: `Presensi Masuk Otomatis via Sholat Dhuha Berjamaah Mushola`
+                            }
+                        }).catch(() => {});
+                    }
+                }
+
                 const todayPrayerIn = await (prisma as any).studentPrayerAttendance.findFirst({
                     where: { studentId: student.id, date: todayYmdStr, prayerType: pType }
                 });
@@ -968,7 +1067,7 @@ export const scanClassGate = async (req: Request, res: Response) => {
 
             await prisma.attendance.deleteMany({
                 where: {
-                    studentId: student.id,
+                    userId: student.id,
                     status: { in: ['SICK', 'SAKIT'] },
                     scanTime: { gte: todayStart, lte: todayEnd }
                 }
@@ -1138,29 +1237,42 @@ export const scanClassGate = async (req: Request, res: Response) => {
                 // ============================================================
                 // ATURAN 3 & 4: Penanganan Presensi Pulang Kelas vs Mushola
                 // ============================================================
-                const todayDay = now.getDay();
-                const prayerSchedule = await (prisma as any).prayerClassSchedule.findFirst({
-                    where: { dayOfWeek: todayDay, isActive: true }
-                });
+                const todayDay = getWibDayOfWeek(now);
+                const userRel = String(student.religion || '').toUpperCase().trim();
+                const isNonMuslim = userRel.length > 0 && !userRel.includes('ISLAM');
 
-                if (prayerSchedule && !isEmergency && !isEarlyDismissalAll && !isTestingMode) {
-                    const scheduledClasses = (prayerSchedule.classNames || '').split(',').map((c: string) => c.trim().toUpperCase());
-                    const isAllMaleSchedule = prayerSchedule.prayerType === 'JUMAT' || scheduledClasses.includes('ALL_MALE');
+                if (!isNonMuslim && !isEmergency && !isEarlyDismissalAll && !isTestingMode) {
+                    const dbScheds = await (prisma as any).prayerClassSchedule.findMany({
+                        where: { dayOfWeek: todayDay, isActive: true, prayerType: { in: ['DHUHUR', 'JUMAT', 'KEPUTRIAN'] } }
+                    }).catch(() => []);
+                    const dayScheds = dbScheds.length > 0 ? dbScheds : (DEFAULT_PRAYER_SCHEDULES_MAP[todayDay] || []).filter((s: any) => ['DHUHUR', 'JUMAT', 'KEPUTRIAN'].includes(s.prayerType));
+
                     const studentGender = (student.gender || 'L').toUpperCase().startsWith('P') ? 'P' : 'L';
-                    const isClassScheduled = isAllMaleSchedule 
-                        ? (studentGender === 'L') 
-                        : scheduledClasses.includes(student.className.trim().toUpperCase());
+                    const sClass = (student.className || '').trim().toUpperCase();
 
-                    if (isClassScheduled) {
-                        // Sesuai Instruksi Resmi: Ketika ada jadwal sholat di mushola, QR Code pulang di kelas DITUTUP TOTAL!
-                        // Barcode kepulangan berada di Mushola. Seluruh siswa wajib menuju ke Mushola.
-                        // Siswi berhalangan (uzur/haid) melakukan presensi di Pos Bimbingan Keputrian Mushola.
-                        return res.status(403).json({
-                            success: false,
-                            isClassGateClosedDueToPrayer: true,
-                            prayerType: prayerSchedule.prayerType || 'DHUHUR',
-                            message: `🕌 Barcode Pulang di Kelas Ditutup! Rombel ${student.className} memiliki jadwal Sholat ${prayerSchedule.prayerType || 'Dhuhur'} Berjamaah di Mushola hari ini. Seluruh siswa wajib menuju ke Mushola untuk melaksanakan sholat dan memindai Barcode Kepulangan di Mushola (siswi yang berhalangan/haid memindai di pos bimbingan Keputrian Mushola).`
-                        });
+                    for (const prayerSchedule of dayScheds) {
+                        const scheduledClasses = (prayerSchedule.classNames || '').split(',').map((c: string) => c.trim().toUpperCase());
+                        const isAll = scheduledClasses.includes('ALL') || scheduledClasses.includes('SEMUA');
+                        const isAllMaleSchedule = prayerSchedule.prayerType === 'JUMAT' || scheduledClasses.includes('ALL_MALE');
+                        const isAllFemaleSchedule = prayerSchedule.prayerType === 'KEPUTRIAN' || scheduledClasses.includes('ALL_FEMALE');
+
+                        let isClassScheduled = false;
+                        if (isAll) isClassScheduled = true;
+                        else if (isAllMaleSchedule && studentGender === 'L') isClassScheduled = true;
+                        else if (isAllFemaleSchedule && studentGender === 'P') isClassScheduled = true;
+                        else if (scheduledClasses.includes(sClass)) isClassScheduled = true;
+
+                        if (isClassScheduled) {
+                            // Sesuai Instruksi Resmi: Ketika ada jadwal sholat di mushola, QR Code pulang di kelas DITUTUP TOTAL!
+                            // Barcode kepulangan berada di Mushola. Seluruh siswa wajib menuju ke Mushola.
+                            // Siswi berhalangan (uzur/haid) melakukan presensi di Pos Bimbingan Keputrian Mushola.
+                            return res.status(403).json({
+                                success: false,
+                                isClassGateClosedDueToPrayer: true,
+                                prayerType: prayerSchedule.prayerType || 'DHUHUR',
+                                message: `🕌 Barcode Pulang di Kelas Ditutup! Rombel ${student.className} memiliki jadwal Sholat ${prayerSchedule.prayerType || 'Dhuhur'} Berjamaah di Mushola hari ini. Seluruh siswa wajib menuju ke Mushola untuk melaksanakan sholat dan memindai Barcode Kepulangan di Mushola (siswi yang berhalangan/haid memindai di pos bimbingan Keputrian Mushola).`
+                            });
+                        }
                     }
                 }
             }
@@ -1254,6 +1366,26 @@ export const scanClassGate = async (req: Request, res: Response) => {
             finalMethod = 'QR_DYNAMIC_OFFICER';
         } else if (scanType === 'GATE_IN') {
             finalMethod = method === 'GPS' ? 'GPS' : 'QR_KELAS_GEOMAPS';
+        }
+
+        // Double-check Idempotency Guard: Cegah Race Condition duplikasi scan parallel
+        if (!isTestingMode) {
+            const concurrentRecord = await prisma.attendance.findFirst({
+                where: {
+                    userId: student.id,
+                    type: scanType,
+                    scanTime: { gte: startOfDay, lte: endOfDay }
+                }
+            });
+            if (concurrentRecord) {
+                const recTimeStr = formatTimeWib(concurrentRecord.scanTime, true);
+                return res.json({
+                    success: true,
+                    alreadyScanned: true,
+                    scanType,
+                    message: `✅ Anda sudah tercatat Presensi ${scanType === 'GATE_IN' ? 'Masuk' : 'Pulang'} hari ini pukul ${recTimeStr} WIB (${concurrentRecord.note || 'Sah'}). Presensi Anda sudah aman di sistem.`
+                });
+            }
         }
 
         const attRecord = await prisma.attendance.create({
@@ -1412,8 +1544,11 @@ export const scanClassGate = async (req: Request, res: Response) => {
                     studentId: student.id
                 }).catch(e => console.warn('[FCM Attendance Student]', e.message));
 
-                // Sesuai instruksi D13: Notifikasi WhatsApp HANYA untuk siswa terlambat dan hanya ke nomor orang tua yang terinput
-                if (status === 'LATE' && lateMinutes > 0 && student.parentPhone) {
+                // ============================================================
+                // KEBIJAKAN RESMI WHATSAPP: HANYA SISWA TERLAMBAT ATAU ALPA (FLAG AKTIF)
+                // Dilarang mengirim WhatsApp untuk siswa hadir tepat waktu (PRESENT) atau pulang (GATE_OUT).
+                // ============================================================
+                if (WHATSAPP_NOTIFICATION_POLICY.isDispatchAllowed(status) && status === 'LATE' && lateMinutes > 0 && student.parentPhone) {
                     const waTrack = isBkGateIn 
                         ? 'Scan QR Terlambat di Ruang BK' 
                         : (isDynamicOfficerQr ? `Scan Barcode Dinamis Pengurus Kelas (${student.className || '-'})` : `Scan Presensi Mandiri di Ruang Kelas (${student.className || '-'})`);
@@ -1425,13 +1560,13 @@ export const scanClassGate = async (req: Request, res: Response) => {
                     const waLateNotice = `*PEMBERITAHUAN KETERLAMBATAN SISWA*\n` +
                         `*SMP NEGERI 1 BOYOLANGU*\n\n` +
                         `Yth. Bapak/Ibu Orang Tua / Wali Murid dari ananda *${student.name}* (Kelas ${student.className || '-'}),\n\n` +
-                        `Kami menginformasikan bahwa ananda telah tiba di sekolah dengan status *TERLAMBAT*:\n` +
+                        `Kami menginformasikan bahwa ananda telah tiba di sekolah dengan catatan keterlambatan:\n` +
                         `• *Waktu Tiba*: ${timeWithSec}\n` +
                         `• *Keterlambatan*: *${lateMinutes} Menit* (Batas Tepat Waktu: 07:00 WIB)\n` +
                         `• *Jalur Presensi*: ${waTrack}\n` +
                         `• *Lokasi*: ${waLocation}\n` +
                         `• *Tindak Lanjut*: ${waFollowUp}\n\n` +
-                        `Laporan kedisiplinan ini dikirimkan secara otomatis oleh Sistem Presensi Cerdas SMPN 1 Boyolangu. Mohon bantuan Bapak/Ibu untuk membimbing ananda agar dapat berangkat lebih awal demi kelancaran proses pembelajaran. Terima kasih atas kerja samanya.`;
+                        `Laporan kedisiplinan ini dikirimkan secara otomatis oleh Sistem Presensi Cerdas SMPN 1 Boyolangu. Mohon dukungan Bapak/Ibu untuk membimbing ananda agar dapat berangkat lebih awal demi kelancaran proses pembelajaran. Terima kasih atas kerja samanya.`;
 
                     sendSingleWhatsApp(student.parentPhone, waLateNotice).catch(waErr => {
                         console.warn(`[WA Late Alert] Gagal mengirim pesan ke ${student.parentPhone}:`, waErr.message);
@@ -1711,35 +1846,37 @@ export const recordAttendanceScan = async (req: Request, res: Response) => {
                 select: { className: true, gender: true, religion: true }
             });
             const sClass = (studentUser?.className || '').trim().toUpperCase();
-            const todayDay = now.getDay();
+            const todayDay = getWibDayOfWeek(now);
             const userRel = String(studentUser?.religion || '').toUpperCase().trim();
             const isNonMuslim = userRel.length > 0 && !userRel.includes('ISLAM');
 
-            // Cek jadwal sholat hari ini
-            const prayerSched = await (prisma as any).prayerClassSchedule.findFirst({
-                where: { dayOfWeek: todayDay, isActive: true }
-            });
-
             let isClassScheduledForPrayer = false;
+            let targetPrayerName = 'Dhuhur';
+
             if (!isNonMuslim) {
-                if (prayerSched && prayerSched.classNames) {
-                    const clsList = prayerSched.classNames.split(',').map((c: string) => c.trim().toUpperCase());
-                    if (clsList.includes('ALL') || clsList.includes('SEMUA') || clsList.includes(sClass)) {
+                const dbScheds = await (prisma as any).prayerClassSchedule.findMany({
+                    where: { dayOfWeek: todayDay, isActive: true, prayerType: { in: ['DHUHUR', 'JUMAT', 'KEPUTRIAN'] } }
+                }).catch(() => []);
+                const dayScheds = dbScheds.length > 0 ? dbScheds : (DEFAULT_PRAYER_SCHEDULES_MAP[todayDay] || []).filter((s: any) => ['DHUHUR', 'JUMAT', 'KEPUTRIAN'].includes(s.prayerType));
+
+                const studentGender = (studentUser?.gender || 'L').toUpperCase().startsWith('P') ? 'P' : 'L';
+
+                for (const sched of dayScheds) {
+                    const clsList = (sched.classNames || '').split(',').map((c: string) => c.trim().toUpperCase());
+                    const isAll = clsList.includes('ALL') || clsList.includes('SEMUA');
+                    const isAllMale = sched.prayerType === 'JUMAT' || clsList.includes('ALL_MALE');
+                    const isAllFemale = sched.prayerType === 'KEPUTRIAN' || clsList.includes('ALL_FEMALE');
+
+                    let match = false;
+                    if (isAll) match = true;
+                    else if (isAllMale && studentGender === 'L') match = true;
+                    else if (isAllFemale && studentGender === 'P') match = true;
+                    else if (clsList.includes(sClass)) match = true;
+
+                    if (match) {
                         isClassScheduledForPrayer = true;
-                    } else if (todayDay === 5 && (clsList.includes('ALL_MALE') || clsList.includes('SEMUA_PUTRA'))) {
-                        const isMale = !studentUser?.gender?.toUpperCase().startsWith('P');
-                        if (isMale) isClassScheduledForPrayer = true;
-                    }
-                } else {
-                    if (todayDay === 1 && sClass.startsWith('VII')) isClassScheduledForPrayer = true;
-                    else if (todayDay === 2 && sClass.startsWith('VIII')) isClassScheduledForPrayer = true;
-                    else if (todayDay === 3 && sClass.startsWith('IX')) isClassScheduledForPrayer = true;
-                    else if (todayDay === 4 && (sClass.includes('F') || sClass.includes('G'))) isClassScheduledForPrayer = true;
-                    else if (todayDay === 5) {
-                        const isMale = !studentUser?.gender?.toUpperCase().startsWith('P');
-                        if (isMale) isClassScheduledForPrayer = true;
-                    } else if (todayDay === 6 && (sClass.startsWith('VII') || sClass.startsWith('VIII') || sClass.startsWith('IX'))) {
-                        isClassScheduledForPrayer = true;
+                        targetPrayerName = sched.prayerType || 'Dhuhur';
+                        break;
                     }
                 }
             }
@@ -1840,6 +1977,26 @@ export const recordAttendanceScan = async (req: Request, res: Response) => {
         let status = 'PRESENT';
         if (scanType === 'GATE_IN' && effective.currentTimeWithSecStr > gateInEndSec) {
             status = 'LATE';
+        }
+
+        // Double-check Idempotency Guard: Cegah Race Condition duplikasi scan parallel
+        if (!isTestingMode) {
+            const concurrentRecord = await prisma.attendance.findFirst({
+                where: {
+                    userId: user.id,
+                    type: scanType,
+                    scanTime: { gte: startOfDay, lte: endOfDay }
+                }
+            });
+            if (concurrentRecord) {
+                const recTimeStr = formatTimeWib(concurrentRecord.scanTime, false);
+                return res.json({
+                    success: true,
+                    alreadyScanned: true,
+                    scanType,
+                    message: `✅ Anda sudah tercatat Presensi ${scanType === 'GATE_IN' ? 'Masuk' : 'Pulang'} hari ini pukul ${recTimeStr} WIB (${concurrentRecord.note || 'Sah'}). Presensi Anda sudah aman di sistem.`
+                });
+            }
         }
 
         const attendance = await prisma.attendance.create({
@@ -4544,20 +4701,28 @@ export const getClassOfficerDynamicQr = async (req: Request, res: Response) => {
         const now = new Date();
         const { timeWithSecStr } = getWibDate(now);
 
-        // Batas waktu: Barcode dinamis pengurus kelas hanya aktif pukul 06:00:00 - 07:05:00 WIB
-        if (timeWithSecStr < '06:00:00') {
-            return res.status(400).json({
-                success: false,
-                message: 'Barcode dinamis pengurus kelas belum dibuka. Presensi dibuka mulai pukul 06:00 WIB.'
-            });
-        }
+        const settings = await getOrCreateGateSettings();
+        const effective = getEffectiveGateSettings(settings);
+        const isEmergency = Boolean(settings.isEmergencyGateOut || settings.isEarlyDismissal);
+        const gateOutStart = (effective.gateOutStartTime || '12:00') + ':00';
+        const gateOutEnd = (effective.gateOutEndTime || '18:00') + ':59';
+        const isGateOutPeriod = isEmergency || (timeWithSecStr >= gateOutStart && timeWithSecStr <= gateOutEnd);
+        const isMorningPeriod = timeWithSecStr >= '06:00:00' && timeWithSecStr <= '07:05:00';
 
-        if (timeWithSecStr > '07:05:00') {
-            return res.status(400).json({
-                success: false,
-                isClosed: true,
-                message: 'Barcode dinamis pengurus kelas ditutup pukul 07:05 WIB. Siswa yang terlambat wajib scan di Ruang BK (07:05 - 08:00 WIB).'
-            });
+        if (!isMorningPeriod && !isGateOutPeriod) {
+            if (timeWithSecStr > '07:05:00' && timeWithSecStr < gateOutStart) {
+                return res.status(400).json({
+                    success: false,
+                    isClosed: true,
+                    message: `Barcode dinamis kelas untuk jam masuk ditutup pukul 07:05 WIB. Siswa terlambat wajib lapor ke Ruang BK. Barcode dinamis kepulangan akan dibuka mulai pukul ${effective.gateOutStartTime} WIB.`
+                });
+            }
+            if (timeWithSecStr < '06:00:00') {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Barcode dinamis pengurus kelas belum dibuka. Presensi dibuka mulai pukul 06:00 WIB.'
+                });
+            }
         }
 
         const nowMs = Date.now();
@@ -4588,10 +4753,10 @@ export const excuseLateStudent = async (req: Request, res: Response) => {
         const { attendanceId, studentId, date, reason } = req.body;
         const user = (req as any).user;
 
-        const todayStr = date || new Date().toISOString().substring(0, 10);
+        const { startOfDay, endOfDay } = getWibDayBounds(date ? new Date(date) : new Date());
         const whereClause: any = attendanceId ? { id: attendanceId } : {
-            studentId,
-            date: todayStr,
+            userId: studentId,
+            scanTime: { gte: startOfDay, lte: endOfDay },
             status: 'LATE'
         };
 

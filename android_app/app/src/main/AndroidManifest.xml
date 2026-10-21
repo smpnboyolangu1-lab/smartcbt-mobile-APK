@@ -158,6 +158,19 @@
             </intent-filter>
         </receiver>
 
+        <!-- Widget Layar Utama (Home Screen) Orang Tua: Presensi Masuk, Sholat Mushola (Jadwal Portal), & Pulang -->
+        <receiver
+            android:name=".widget.ParentAttendanceWidgetProvider"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="com.school.smartcbt.widget.REFRESH_PARENT_WIDGET" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_parent_attendance_info" />
+        </receiver>
+
         <!-- File Provider for PDF & APK Sharing/Installing -->
         <provider
             android:name="androidx.core.content.FileProvider"

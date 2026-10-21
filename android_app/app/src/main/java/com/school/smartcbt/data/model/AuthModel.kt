@@ -73,5 +73,6 @@ data class AppVersionConfig(
     val fileSizeMb: Double,
     val releaseNotes: String,
     val isForceUpdate: Boolean,
-    val sha256: String? = null
+    val sha256: String? = null,
+    val channel: String? = null
 )

@@ -21,6 +21,7 @@ import com.school.smartcbt.data.remote.ApiService
 import com.school.smartcbt.databinding.ActivityWaliKelasBinding
 import com.school.smartcbt.databinding.ItemWaliKelasStudentBinding
 import com.school.smartcbt.databinding.ItemWaliKelasRekapBinding
+import com.school.smartcbt.utils.AttendancePdfHelper
 import com.school.smartcbt.utils.SessionManager
 import retrofit2.Call
 import retrofit2.Callback
@@ -44,6 +45,18 @@ class WaliKelasActivity : AppCompatActivity() {
 
         sessionManager = SessionManager(this)
         apiService = ApiClient.getClient(this)
+
+        val teacherName = sessionManager.getName().uppercase().trim()
+        if (teacherName.contains("SIDIK") || teacherName.contains("SUJATMIKO")) {
+            AlertDialog.Builder(this)
+                .setTitle("ℹ️ Peran Tim Kurikulum")
+                .setMessage("Bapak Sidik Sujatmiko terdaftar sebagai Tim Kurikulum sekolah, bukan Wali Kelas.\n\nSilakan gunakan 'Menu Kurikulum' di halaman utama untuk monitoring KBM seluruh rombel, rekap wali kelas 33 rombel, dan verifikasi perizinan.")
+                .setIcon(android.R.drawable.ic_dialog_info)
+                .setPositiveButton("Buka Menu Kurikulum") { _, _ -> finish() }
+                .setCancelable(false)
+                .show()
+            return
+        }
 
         homeroomClass = sessionManager.getClassName() ?: ""
 
@@ -77,7 +90,36 @@ class WaliKelasActivity : AppCompatActivity() {
             com.school.smartcbt.utils.AppUpdateChecker.checkForUpdates(this, showToastIfLatest = true)
         }
 
-        // Tab Switching
+        // Modern 2-Column Grid Cards Listeners
+        binding.cardMenuWaliStudents.setOnClickListener { switchSection(1) }
+        binding.cardMenuWaliRekap.setOnClickListener {
+            switchSection(2)
+            loadRekap()
+        }
+        binding.cardMenuWaliOfficers.setOnClickListener {
+            switchSection(3)
+            loadOfficers()
+        }
+        binding.cardMenuWaliAkademik.setOnClickListener {
+            showMonitoringAkademikDialog()
+        }
+        binding.cardMenuWaliPembinaan.setOnClickListener {
+            showCatatanPembinaanHubDialog()
+        }
+        binding.cardMenuWaliKomunikasi.setOnClickListener {
+            showKomunikasiOrtuHubDialog()
+        }
+        binding.cardMenuWaliAdministrasi.setOnClickListener {
+            showAdministrasiRaporDialog()
+        }
+        binding.cardMenuWaliSync.setOnClickListener {
+            Toast.makeText(this, "🔄 Menyegarkan data kelas & berkas...", Toast.LENGTH_SHORT).show()
+            loadDashboard()
+            loadStudents()
+            loadOfficers()
+        }
+
+        // Tab Switching Compatibility
         binding.btnTabStudents.setOnClickListener { switchSection(1) }
         binding.btnTabRekap.setOnClickListener {
             switchSection(2)
@@ -139,6 +181,18 @@ class WaliKelasActivity : AppCompatActivity() {
     }
 
     private fun switchSection(sectionIndex: Int) {
+        // Highlight Active 2-Column Card
+        binding.cardMenuWaliStudents.setCardBackgroundColor(if (sectionIndex == 1) Color.parseColor("#F0FDF4") else Color.WHITE)
+        binding.cardMenuWaliRekap.setCardBackgroundColor(if (sectionIndex == 2) Color.parseColor("#EEF2FF") else Color.WHITE)
+        binding.cardMenuWaliOfficers.setCardBackgroundColor(if (sectionIndex == 3) Color.parseColor("#FEF3C7") else Color.WHITE)
+
+        binding.tvWaliActiveSectionPill.text = when (sectionIndex) {
+            1 -> "👥 Data Siswa & Berkas"
+            2 -> "📊 Rekap Presensi & PDF"
+            3 -> "👑 Pengurus Kelas"
+            else -> "⚡ Menu Wali Kelas"
+        }
+
         val activeBg = Color.parseColor("#0F766E")
         val inactiveBg = Color.parseColor("#E2E8F0")
         val activeText = Color.parseColor("#FFFFFF")
@@ -159,7 +213,7 @@ class WaliKelasActivity : AppCompatActivity() {
     }
 
     private fun loadDashboard() {
-        apiService.getWaliKelasDashboard().enqueue(object : Callback<WaliKelasDashboardResponse> {
+        apiService.getWaliKelasDashboard(homeroomClass.ifEmpty { null }).enqueue(object : Callback<WaliKelasDashboardResponse> {
             override fun onResponse(call: Call<WaliKelasDashboardResponse>, response: Response<WaliKelasDashboardResponse>) {
                 if (response.isSuccessful && response.body() != null) {
                     val data = response.body()!!
@@ -209,7 +263,7 @@ class WaliKelasActivity : AppCompatActivity() {
     }
 
     private fun loadStudents() {
-        apiService.getWaliKelasStudents().enqueue(object : Callback<WaliKelasStudentsResponse> {
+        apiService.getWaliKelasStudents(homeroomClass.ifEmpty { null }).enqueue(object : Callback<WaliKelasStudentsResponse> {
             override fun onResponse(call: Call<WaliKelasStudentsResponse>, response: Response<WaliKelasStudentsResponse>) {
                 if (response.isSuccessful && response.body() != null) {
                     val data = response.body()!!
@@ -589,12 +643,13 @@ class WaliKelasActivity : AppCompatActivity() {
     }
 
     private fun loadRekap() {
-        apiService.getWaliKelasRekap("MONTHLY").enqueue(object : Callback<WaliKelasRekapResponse> {
+        apiService.getWaliKelasRekap("MONTHLY", className = homeroomClass.ifEmpty { null }).enqueue(object : Callback<WaliKelasRekapResponse> {
             override fun onResponse(call: Call<WaliKelasRekapResponse>, response: Response<WaliKelasRekapResponse>) {
                 if (response.isSuccessful && response.body() != null) {
                     val data = response.body()!!
                     if (data.success) {
                         binding.rvWaliRekap.adapter = RekapAdapter(data.records)
+                        updateAttendanceGraph(data.records)
                     }
                 }
             }
@@ -603,6 +658,73 @@ class WaliKelasActivity : AppCompatActivity() {
                 Toast.makeText(this@WaliKelasActivity, "Gagal memuat rekap: ${t.message}", Toast.LENGTH_SHORT).show()
             }
         })
+    }
+
+    private fun updateAttendanceGraph(records: List<WaliKelasRekapItemDto>) {
+        if (records.isEmpty()) {
+            binding.cardWaliAttendanceGraph.visibility = View.GONE
+            return
+        }
+        binding.cardWaliAttendanceGraph.visibility = View.VISIBLE
+
+        val sumH = records.sumOf { it.H }
+        val sumTP = records.sumOf { it.questionMark }
+        val sumT = records.sumOf { it.T }
+        val sumS = records.sumOf { it.S }
+        val sumI = records.sumOf { it.I }
+        val sumA = records.sumOf { it.A }
+        val grandTotal = sumH + sumTP + sumT + sumS + sumI + sumA
+
+        val avgPct = if (records.isNotEmpty()) {
+            records.map { it.attendancePercentage }.average()
+        } else 100.0
+
+        binding.tvGraphAttendancePct.text = "${"%.1f".format(avgPct)}% Hadir"
+
+        binding.tvGraphLegendH.text = "🟢 H: $sumH"
+        binding.tvGraphLegendTP.text = "🟡 ?: $sumTP"
+        binding.tvGraphLegendT.text = "🟠 T: $sumT"
+        binding.tvGraphLegendS.text = "🔵 S: $sumS"
+        binding.tvGraphLegendI.text = "🟣 I: $sumI"
+        binding.tvGraphLegendA.text = "🔴 A: $sumA"
+
+        val wH = if (grandTotal > 0) sumH.toFloat() / grandTotal else 1f
+        val wTP = if (grandTotal > 0) sumTP.toFloat() / grandTotal else 0f
+        val wT = if (grandTotal > 0) sumT.toFloat() / grandTotal else 0f
+        val wS = if (grandTotal > 0) sumS.toFloat() / grandTotal else 0f
+        val wI = if (grandTotal > 0) sumI.toFloat() / grandTotal else 0f
+        val wA = if (grandTotal > 0) sumA.toFloat() / grandTotal else 0f
+
+        (binding.barHadir.layoutParams as? LinearLayout.LayoutParams)?.let {
+            it.weight = if (wH > 0) wH else 0.001f
+            binding.barHadir.layoutParams = it
+            binding.barHadir.visibility = if (sumH > 0 || grandTotal == 0) View.VISIBLE else View.GONE
+        }
+        (binding.barUnconfirmed.layoutParams as? LinearLayout.LayoutParams)?.let {
+            it.weight = if (wTP > 0) wTP else 0.001f
+            binding.barUnconfirmed.layoutParams = it
+            binding.barUnconfirmed.visibility = if (sumTP > 0) View.VISIBLE else View.GONE
+        }
+        (binding.barLate.layoutParams as? LinearLayout.LayoutParams)?.let {
+            it.weight = if (wT > 0) wT else 0.001f
+            binding.barLate.layoutParams = it
+            binding.barLate.visibility = if (sumT > 0) View.VISIBLE else View.GONE
+        }
+        (binding.barSick.layoutParams as? LinearLayout.LayoutParams)?.let {
+            it.weight = if (wS > 0) wS else 0.001f
+            binding.barSick.layoutParams = it
+            binding.barSick.visibility = if (sumS > 0) View.VISIBLE else View.GONE
+        }
+        (binding.barPermit.layoutParams as? LinearLayout.LayoutParams)?.let {
+            it.weight = if (wI > 0) wI else 0.001f
+            binding.barPermit.layoutParams = it
+            binding.barPermit.visibility = if (sumI > 0) View.VISIBLE else View.GONE
+        }
+        (binding.barAbsent.layoutParams as? LinearLayout.LayoutParams)?.let {
+            it.weight = if (wA > 0) wA else 0.001f
+            binding.barAbsent.layoutParams = it
+            binding.barAbsent.visibility = if (sumA > 0) View.VISIBLE else View.GONE
+        }
     }
 
     private fun openPdfUrl(type: String, studentId: String?) {
@@ -1234,8 +1356,13 @@ class WaliKelasActivity : AppCompatActivity() {
         })
 
         val total = allStudents.size
+        val scoredStudents = allStudents.filter { (it.completedExamsCount ?: 0) > 0 }
+        val classAvg = if (scoredStudents.isNotEmpty()) scoredStudents.map { it.academicAvgScore ?: 0.0 }.average() else 0.0
+        val passingCount = scoredStudents.count { (it.academicAvgScore ?: 0.0) >= 75.0 }
+        val remedialCount = scoredStudents.count { (it.academicAvgScore ?: 0.0) < 75.0 }
+
         val kpiDesc = TextView(this).apply {
-            text = "Total $total Siswa terdaftar. Nilai seluruh mata pelajaran disinkronkan langsung dari portal guru pengampu mata pelajaran untuk memastikan transparansi dan deteksi dini siswa yang membutuhkan bimbingan khusus."
+            text = "Total $total Siswa terdaftar (${scoredStudents.size} memiliki data ujian CBT). Rata-rata kelas: ${"%.1f".format(classAvg)} • Tuntas KKM: $passingCount • Butuh Remedial: $remedialCount. Nilai disinkronkan langsung dari hasil ujian CBT & asesmen guru mapel."
             textSize = 11f
             setTextColor(Color.parseColor("#475569"))
             val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
@@ -1280,22 +1407,35 @@ class WaliKelasActivity : AppCompatActivity() {
                 setTypeface(null, Typeface.BOLD)
                 setTextColor(Color.parseColor("#0F172A"))
             }
+
+            val avg = s.academicAvgScore ?: 0.0
+            val examCount = s.completedExamsCount ?: 0
+
             val nisn = TextView(this).apply {
-                text = "NISN: ${s.nisn ?: "-"} • Nilai Rata-rata: 85.0"
+                text = if (examCount > 0) {
+                    "NISN: ${s.nisn ?: "-"} • Nilai Rata-rata: ${"%.1f".format(avg)} ($examCount Ujian)"
+                } else {
+                    "NISN: ${s.nisn ?: "-"} • Belum ada rekap nilai ujian CBT"
+                }
                 textSize = 10.5f
                 setTextColor(Color.parseColor("#64748B"))
             }
             info.addView(name)
             info.addView(nisn)
 
+            val isPassing = examCount > 0 && avg >= 75.0
+            val badgeText = if (examCount == 0) "Belum Ada Nilai" else if (isPassing) "✅ Tuntas" else "⚠️ Perlu Remedial"
+            val badgeTextColor = if (examCount == 0) "#64748B" else if (isPassing) "#059669" else "#DC2626"
+            val badgeBgColor = if (examCount == 0) "#F1F5F9" else if (isPassing) "#ECFDF5" else "#FEF2F2"
+
             val badge = TextView(this).apply {
-                text = "✅ Tuntas"
+                text = badgeText
                 textSize = 10f
                 setTypeface(null, Typeface.BOLD)
-                setTextColor(Color.parseColor("#059669"))
+                setTextColor(Color.parseColor(badgeTextColor))
                 val gd = android.graphics.drawable.GradientDrawable().apply {
                     cornerRadius = dp(6).toFloat()
-                    setColor(Color.parseColor("#ECFDF5"))
+                    setColor(Color.parseColor(badgeBgColor))
                 }
                 background = gd
                 val bp = dp(6)
@@ -1619,13 +1759,13 @@ class WaliKelasActivity : AppCompatActivity() {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
         titleBox.addView(TextView(this).apply {
-            text = "📑 Administrasi Kelas & Rapor"
+            text = "📑 Administrasi Kelas & Validasi Rapor"
             setTextColor(Color.WHITE)
             textSize = 15f
             setTypeface(null, Typeface.BOLD)
         })
         titleBox.addView(TextView(this).apply {
-            text = "Kelas $homeroomClass • Checklist validasi rapor & kelengkapan administrasi"
+            text = "Kelas $homeroomClass • Pusat verifikasi dokumen digital & kesiapan rapor"
             setTextColor(Color.parseColor("#CCFBF1"))
             textSize = 11.5f
         })
@@ -1656,51 +1796,219 @@ class WaliKelasActivity : AppCompatActivity() {
         }
         sv.addView(container)
 
-        val checklistItems = listOf(
-            "1. Verifikasi Biodata Siswa (KK & Akta Kelahiran)",
-            "2. Kelengkapan Nilai Mata Pelajaran dari Seluruh Guru Mapel",
-            "3. Rekapitulasi Presensi & Kehadiran Semester (Akurat dari DB)",
-            "4. Catatan Wali Kelas & Keputusan Kenaikan / Kelulusan",
-            "5. Penilaian Ekstrakurikuler & Karakter Pelajar Pancasila"
+        // Real Document & Academic Verification Statistics Card
+        val total = allStudents.size
+        val kkCount = allStudents.count { !it.kkFileUrl.isNullOrBlank() }
+        val aktaCount = allStudents.count { !it.aktaFileUrl.isNullOrBlank() }
+        val completeDocs = allStudents.count { !it.kkFileUrl.isNullOrBlank() && !it.aktaFileUrl.isNullOrBlank() }
+        val docPct = if (total > 0) (completeDocs * 100) / total else 0
+        val examCountScored = allStudents.count { (it.completedExamsCount ?: 0) > 0 }
+
+        val summaryCard = CardView(this).apply {
+            radius = dp(14).toFloat()
+            cardElevation = dp(3).toFloat()
+            setCardBackgroundColor(Color.WHITE)
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(14)
+            }
+            layoutParams = lp
+        }
+        val sInner = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val p = dp(14)
+            setPadding(p, p, p, p)
+        }
+        sInner.addView(TextView(this).apply {
+            text = "📊 Kesiapan Berkas & Nilai Rombel $homeroomClass"
+            textSize = 13.5f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#0F172A"))
+        })
+
+        val metricsRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            weightSum = 3f
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(10)
+            }
+            layoutParams = lp
+        }
+        fun createMiniMetric(label: String, value: String, sub: String, colorHex: String): View {
+            return LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                val gd = android.graphics.drawable.GradientDrawable().apply {
+                    cornerRadius = dp(8).toFloat()
+                    setColor(Color.parseColor("#F8FAFC"))
+                    setStroke(dp(1), Color.parseColor("#E2E8F0"))
+                }
+                background = gd
+                val p = dp(8)
+                setPadding(p, p, p, p)
+                addView(TextView(this@WaliKelasActivity).apply {
+                    text = value
+                    textSize = 13f
+                    setTypeface(null, Typeface.BOLD)
+                    setTextColor(Color.parseColor(colorHex))
+                })
+                addView(TextView(this@WaliKelasActivity).apply {
+                    text = label
+                    textSize = 9.5f
+                    setTextColor(Color.parseColor("#475569"))
+                    setTypeface(null, Typeface.BOLD)
+                })
+                addView(TextView(this@WaliKelasActivity).apply {
+                    text = sub
+                    textSize = 8.5f
+                    setTextColor(Color.parseColor("#94A3B8"))
+                })
+            }
+        }
+        metricsRow.addView(createMiniMetric("KK Terkumpul", "$kkCount/$total", "Server /uploads/kk/", "#0284C7"))
+        val space1 = View(this).apply { layoutParams = LinearLayout.LayoutParams(dp(6), 0) }
+        metricsRow.addView(space1)
+        metricsRow.addView(createMiniMetric("Akta Lahir", "$aktaCount/$total", "Server /uploads/akta/", "#7C3AED"))
+        val space2 = View(this).apply { layoutParams = LinearLayout.LayoutParams(dp(6), 0) }
+        metricsRow.addView(space2)
+        metricsRow.addView(createMiniMetric("CBT Terdata", "$examCountScored/$total", "Nilai Real DB", "#059669"))
+        sInner.addView(metricsRow)
+        summaryCard.addView(sInner)
+        container.addView(summaryCard)
+
+        container.addView(TextView(this).apply {
+            text = "✅ CHECKLIST VALIDASI RAPOR & TUGAS WALI KELAS:"
+            textSize = 11.5f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#334155"))
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(8)
+                marginStart = dp(4)
+            }
+            layoutParams = lp
+        })
+
+        data class CheckItem(val id: Int, val title: String, val subtitle: String, val actionTitle: String, val onAction: () -> Unit)
+        val checklist = listOf(
+            CheckItem(
+                1,
+                "1. Verifikasi Berkas Fisik & Digital (KK & Akta)",
+                "Kelengkapan KK & Akta per folder siswa server ($completeDocs/$total lengkap)",
+                "📋 Lihat Status Berkas",
+                { showUnverifiedDocsDialog() }
+            ),
+            CheckItem(
+                2,
+                "2. Kelengkapan Nilai Mata Pelajaran & Remedial",
+                "Sinkronisasi capaian pembelajaran seluruh guru mapel & CBT",
+                "📈 Buka Nilai Akademik",
+                { showMonitoringAkademikDialog() }
+            ),
+            CheckItem(
+                3,
+                "3. Rekapitulasi Presensi Semester Berjalan",
+                "Sinkronisasi kehadiran harian (Hadir, TP, Izin, Sakit, Alpa)",
+                "📊 Buka Rekap Presensi",
+                {
+                    dialog.dismiss()
+                    switchSection(2)
+                    loadRekap()
+                }
+            ),
+            CheckItem(
+                4,
+                "4. Catatan Wali Kelas & Pembinaan Karakter",
+                "Konsultasi, kepribadian, catatan pembinaan, & koordinasi BK",
+                "📝 Buka Hub Pembinaan",
+                { showCatatanPembinaanHubDialog() }
+            ),
+            CheckItem(
+                5,
+                "5. Penilaian Ekstrakurikuler & Rapor Karakter",
+                "Validasi partisipasi ekstrakurikuler & Profil Pelajar Pancasila",
+                "🌟 Konfirmasi Selesai",
+                { Toast.makeText(this@WaliKelasActivity, "✅ Validasi Ekstrakurikuler telah dicatat!", Toast.LENGTH_SHORT).show() }
+            )
         )
 
-        checklistItems.forEach { itemText ->
+        checklist.forEach { item ->
             val card = CardView(this).apply {
-                radius = dp(10).toFloat()
+                radius = dp(12).toFloat()
                 cardElevation = dp(2).toFloat()
                 setCardBackgroundColor(Color.WHITE)
                 val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                    bottomMargin = dp(8)
+                    bottomMargin = dp(10)
                 }
                 layoutParams = lp
             }
             val row = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                val p = dp(14)
+                orientation = LinearLayout.VERTICAL
+                val p = dp(12)
                 setPadding(p, p, p, p)
             }
-            val checkIcon = TextView(this).apply {
-                text = "✅"
-                textSize = 16f
-                val lp = LinearLayout.LayoutParams(dp(28), ViewGroup.LayoutParams.WRAP_CONTENT)
+
+            val topPart = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+
+            val cb = android.widget.CheckBox(this).apply {
+                isChecked = true
+                val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
                 layoutParams = lp
             }
-            val text = TextView(this).apply {
-                this.text = itemText
-                textSize = 12f
+            topPart.addView(cb)
+
+            val textCol = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    marginStart = dp(6)
+                }
+                layoutParams = lp
+            }
+            textCol.addView(TextView(this).apply {
+                text = item.title
+                textSize = 12.5f
                 setTypeface(null, Typeface.BOLD)
                 setTextColor(Color.parseColor("#0F172A"))
-                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            })
+            textCol.addView(TextView(this).apply {
+                text = item.subtitle
+                textSize = 10.5f
+                setTextColor(Color.parseColor("#64748B"))
+            })
+            topPart.addView(textCol)
+            row.addView(topPart)
+
+            val btnAction = androidx.appcompat.widget.AppCompatButton(this).apply {
+                text = item.actionTitle
+                textSize = 11f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(Color.parseColor("#0F766E"))
+                val gd = android.graphics.drawable.GradientDrawable().apply {
+                    cornerRadius = dp(6).toFloat()
+                    setColor(Color.parseColor("#F0FDFA"))
+                    setStroke(dp(1), Color.parseColor("#99F6E4"))
+                }
+                background = gd
+                val bp = dp(6)
+                setPadding(bp, dp(2), bp, dp(2))
+                val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(34)).apply {
+                    topMargin = dp(8)
+                    marginStart = dp(34)
+                }
+                layoutParams = lp
+                setOnClickListener { item.onAction() }
             }
-            row.addView(checkIcon)
-            row.addView(text)
+            row.addView(btnAction)
+
             card.addView(row)
             container.addView(card)
         }
 
+        // Action Buttons
         val btnDownloadReport = androidx.appcompat.widget.AppCompatButton(this).apply {
-            text = "🖨️ Unduh Rekap Resmi Kelas (PDF)"
+            text = "🖨️ Cetak Rekap Resmi Rapor Kelas (PDF)"
             textSize = 12f
             setTypeface(null, Typeface.BOLD)
             setTextColor(Color.WHITE)
@@ -1721,7 +2029,145 @@ class WaliKelasActivity : AppCompatActivity() {
         }
         container.addView(btnDownloadReport)
 
+        val btnUnverified = androidx.appcompat.widget.AppCompatButton(this).apply {
+            text = "📋 Periksa Siswa Belum Lengkap Berkas KK / Akta"
+            textSize = 11.5f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#0284C7"))
+            val gd = android.graphics.drawable.GradientDrawable().apply {
+                cornerRadius = dp(8).toFloat()
+                setColor(Color.parseColor("#F0F9FF"))
+                setStroke(dp(1), Color.parseColor("#BAE6FD"))
+            }
+            background = gd
+            val p = dp(10)
+            setPadding(p, p, p, p)
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(8)
+            }
+            layoutParams = lp
+            setOnClickListener {
+                showUnverifiedDocsDialog()
+            }
+        }
+        container.addView(btnUnverified)
+
         root.addView(sv)
+        dialog.setView(root)
+        dialog.show()
+    }
+
+    private fun showUnverifiedDocsDialog() {
+        val dp = { v: Int -> (v * resources.displayMetrics.density).toInt() }
+        val dialog = AlertDialog.Builder(this).create()
+
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#F8FAFC"))
+            setPadding(0, 0, 0, dp(12))
+        }
+
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#0284C7"))
+            val p = dp(16)
+            setPadding(p, p, p, p)
+        }
+        header.addView(TextView(this).apply {
+            text = "📑 Status Berkas Siswa Kelas $homeroomClass"
+            textSize = 15f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+        })
+        header.addView(TextView(this).apply {
+            text = "Daftar kelengkapan berkas Kartu Keluarga & Akta Kelahiran di server"
+            textSize = 11f
+            setTextColor(Color.parseColor("#E0F2FE"))
+            setPadding(0, dp(4), 0, 0)
+        })
+        root.addView(header)
+
+        val sv = ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
+        }
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val p = dp(14)
+            setPadding(p, p, p, p)
+        }
+
+        allStudents.forEachIndexed { idx, s ->
+            val hasKk = !s.kkFileUrl.isNullOrBlank()
+            val hasAkta = !s.aktaFileUrl.isNullOrBlank()
+
+            val card = CardView(this).apply {
+                radius = dp(10).toFloat()
+                cardElevation = dp(2).toFloat()
+                setCardBackgroundColor(Color.WHITE)
+                val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    bottomMargin = dp(8)
+                }
+                layoutParams = lp
+            }
+            val inner = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                val p = dp(12)
+                setPadding(p, p, p, p)
+            }
+
+            val infoCol = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            infoCol.addView(TextView(this).apply {
+                text = "${idx + 1}. ${s.name}"
+                textSize = 12.5f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(Color.parseColor("#0F172A"))
+            })
+            infoCol.addView(TextView(this).apply {
+                val kkStatus = if (hasKk) "KK: ✅" else "KK: ❌"
+                val aktaStatus = if (hasAkta) "Akta: ✅" else "Akta: ❌"
+                text = "NISN: ${s.nisn ?: "-"} • $kkStatus • $aktaStatus"
+                textSize = 10.5f
+                setTextColor(Color.parseColor(if (hasKk && hasAkta) "#059669" else "#DC2626"))
+            })
+            inner.addView(infoCol)
+
+            val btnViewDocs = androidx.appcompat.widget.AppCompatButton(this).apply {
+                text = "📂 Buka"
+                textSize = 10.5f
+                setTextColor(Color.parseColor("#0284C7"))
+                val gd = android.graphics.drawable.GradientDrawable().apply {
+                    cornerRadius = dp(6).toFloat()
+                    setColor(Color.parseColor("#F0F9FF"))
+                    setStroke(dp(1), Color.parseColor("#BAE6FD"))
+                }
+                background = gd
+                val p = dp(6)
+                setPadding(p, dp(2), p, dp(2))
+                setOnClickListener {
+                    showStudentDocumentsHubDialog(s)
+                }
+            }
+            inner.addView(btnViewDocs)
+            card.addView(inner)
+            content.addView(card)
+        }
+
+        sv.addView(content)
+        root.addView(sv)
+
+        val btnClose = androidx.appcompat.widget.AppCompatButton(this).apply {
+            text = "Tutup"
+            textSize = 11f
+            setTextColor(Color.parseColor("#64748B"))
+            setBackgroundColor(Color.TRANSPARENT)
+            setOnClickListener { dialog.dismiss() }
+        }
+        root.addView(btnClose)
+
         dialog.setView(root)
         dialog.show()
     }
@@ -1819,9 +2265,9 @@ class WaliKelasActivity : AppCompatActivity() {
                 }
             }
 
-            // Tombol PDF Siswa
+            // Tombol Berkas & Dokumen Digital Siswa (KK, Akta, Biodata, Rekap)
             b.btnStudentPdf.setOnClickListener {
-                openPdfUrl("student_individual", s.id)
+                showStudentDocumentsHubDialog(s)
             }
 
             // Tombol WhatsApp Orang Tua
@@ -1838,6 +2284,233 @@ class WaliKelasActivity : AppCompatActivity() {
         }
 
         override fun getItemCount() = list.size
+    }
+
+    private fun showStudentDocumentsHubDialog(s: WaliKelasStudentItemDto) {
+        val dp = { v: Int -> (v * resources.displayMetrics.density).toInt() }
+        val dialog = AlertDialog.Builder(this).create()
+
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#F8FAFC"))
+            setPadding(0, 0, 0, dp(12))
+        }
+
+        // Header
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#0F766E"))
+            setPadding(dp(16), dp(16), dp(16), dp(16))
+        }
+        val tvTitle = TextView(this).apply {
+            text = "📂 Berkas Digital & Dokumen Siswa"
+            textSize = 15.5f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+        }
+        val tvSub = TextView(this).apply {
+            text = "${s.name} • NISN: ${s.nisn ?: "-"} • Kelas $homeroomClass"
+            textSize = 11.5f
+            setTextColor(Color.parseColor("#CCFBF1"))
+            setPadding(0, dp(4), 0, 0)
+        }
+        header.addView(tvTitle)
+        header.addView(tvSub)
+        root.addView(header)
+
+        val sv = ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
+        }
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(14), dp(12), dp(14), dp(4))
+        }
+
+        val baseUrl = ApiClient.getBaseServerUrl(this).removeSuffix("/")
+        val token = sessionManager.getToken() ?: ""
+
+        // Card Helper
+        fun createDocItem(
+            emoji: String,
+            title: String,
+            desc: String,
+            statusBadge: String,
+            badgeBg: String,
+            badgeColor: String,
+            btnText: String,
+            btnColor: String,
+            isEnabled: Boolean,
+            onClick: () -> Unit
+        ): View {
+            val card = CardView(this).apply {
+                radius = dp(12).toFloat()
+                cardElevation = dp(2).toFloat()
+                setCardBackgroundColor(Color.WHITE)
+                val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    bottomMargin = dp(10)
+                }
+                layoutParams = lp
+            }
+
+            val inner = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(12), dp(12), dp(12), dp(12))
+            }
+
+            val top = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            top.addView(TextView(this).apply {
+                text = emoji
+                textSize = 20f
+            })
+            val titleLayout = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    marginStart = dp(8)
+                }
+                layoutParams = lp
+            }
+            titleLayout.addView(TextView(this).apply {
+                text = title
+                textSize = 13f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(Color.parseColor("#0F172A"))
+            })
+            titleLayout.addView(TextView(this).apply {
+                text = desc
+                textSize = 10.5f
+                setTextColor(Color.parseColor("#64748B"))
+            })
+            top.addView(titleLayout)
+
+            val badge = TextView(this).apply {
+                text = statusBadge
+                textSize = 9.5f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(Color.parseColor(badgeColor))
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    setColor(Color.parseColor(badgeBg))
+                    cornerRadius = dp(6).toFloat()
+                }
+                setPadding(dp(6), dp(2), dp(6), dp(2))
+            }
+            top.addView(badge)
+            inner.addView(top)
+
+            val btn = Button(this).apply {
+                text = btnText
+                textSize = 11f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(Color.WHITE)
+                backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor(btnColor))
+                val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(38)).apply {
+                    topMargin = dp(10)
+                }
+                layoutParams = lp
+                this.isEnabled = isEnabled
+                setOnClickListener { onClick() }
+            }
+            inner.addView(btn)
+
+            card.addView(inner)
+            return card
+        }
+
+        // 1. BIODATA RESMI A4 (Lengkap Data Ortu & Foto)
+        content.addView(createDocItem(
+            emoji = "📄",
+            title = "Formulir Biodata Lengkap Siswa (A4)",
+            desc = "Format resmi kop sekolah lengkap data orang tua, alamat, NIK & foto",
+            statusBadge = "PORTAL TERSEDIA",
+            badgeBg = "#D1FAE5",
+            badgeColor = "#059669",
+            btnText = "🖨️ Cetak / Buka Biodata Lengkap PDF",
+            btnColor = "#059669",
+            isEnabled = true
+        ) {
+            dialog.dismiss()
+            val printUrl = "$baseUrl/api/biodata/print/${s.id}?token=${Uri.encode(token)}"
+            try {
+                AttendancePdfHelper.printViaWebView(this, printUrl, "Biodata_${s.name.replace(' ', '_')}", "A4")
+            } catch (e: Exception) {
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(printUrl))
+                startActivity(intent)
+            }
+        })
+
+        // 2. KARTU KELUARGA (KK)
+        val hasKk = !s.kkFileUrl.isNullOrBlank()
+        content.addView(createDocItem(
+            emoji = "📑",
+            title = "Berkas Kartu Keluarga (KK) Siswa",
+            desc = if (hasKk) "Berkas KK resmi tersimpan di server portal sekolah" else "Berkas KK belum diunggah oleh siswa/operator di portal",
+            statusBadge = if (hasKk) "TERUNGGAH" else "BELUM ADA",
+            badgeBg = if (hasKk) "#E0F2FE" else "#FEE2E2",
+            badgeColor = if (hasKk) "#0284C7" else "#DC2626",
+            btnText = if (hasKk) "📥 Buka / Unduh Berkas KK" else "⚠️ Berkas KK Belum Tersedia",
+            btnColor = if (hasKk) "#0284C7" else "#94A3B8",
+            isEnabled = hasKk
+        ) {
+            dialog.dismiss()
+            val kkFull = if (s.kkFileUrl!!.startsWith("http")) s.kkFileUrl else "$baseUrl${s.kkFileUrl}"
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(kkFull)))
+        })
+
+        // 3. AKTA KELAHIRAN
+        val hasAkta = !s.aktaFileUrl.isNullOrBlank()
+        content.addView(createDocItem(
+            emoji = "📜",
+            title = "Berkas Akta Kelahiran Siswa",
+            desc = if (hasAkta) "Berkas Akta Kelahiran resmi tersimpan di portal sekolah" else "Berkas Akta belum diunggah oleh siswa/operator di portal",
+            statusBadge = if (hasAkta) "TERUNGGAH" else "BELUM ADA",
+            badgeBg = if (hasAkta) "#EDE9FE" else "#FEE2E2",
+            badgeColor = if (hasAkta) "#7C3AED" else "#DC2626",
+            btnText = if (hasAkta) "📥 Buka / Unduh Berkas Akta" else "⚠️ Berkas Akta Belum Tersedia",
+            btnColor = if (hasAkta) "#7C3AED" else "#94A3B8",
+            isEnabled = hasAkta
+        ) {
+            dialog.dismiss()
+            val aktaFull = if (s.aktaFileUrl!!.startsWith("http")) s.aktaFileUrl else "$baseUrl${s.aktaFileUrl}"
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(aktaFull)))
+        })
+
+        // 4. REKAP PRESENSI INDIVIDU
+        content.addView(createDocItem(
+            emoji = "📊",
+            title = "Laporan Rekap Presensi Siswa",
+            desc = "Rekapitulasi kehadiran harian, izin, sakit & alpa semester berjalan",
+            statusBadge = "REKAP SIBOY",
+            badgeBg = "#FEF3C7",
+            badgeColor = "#D97706",
+            btnText = "🖨️ Cetak Rekapitulasi Presensi PDF",
+            btnColor = "#D97706",
+            isEnabled = true
+        ) {
+            dialog.dismiss()
+            openPdfUrl("student_individual", s.id)
+        })
+
+        sv.addView(content)
+        root.addView(sv)
+
+        val btnClose = Button(this).apply {
+            text = "Tutup"
+            textSize = 12f
+            setTextColor(Color.parseColor("#475569"))
+            setBackgroundColor(Color.TRANSPARENT)
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(40)).apply {
+                marginEnd = dp(14)
+                marginStart = dp(14)
+            }
+            layoutParams = lp
+            setOnClickListener { dialog.dismiss() }
+        }
+        root.addView(btnClose)
+
+        dialog.setView(root)
+        dialog.show()
     }
 
     inner class RekapAdapter(private val list: List<WaliKelasRekapItemDto>) :

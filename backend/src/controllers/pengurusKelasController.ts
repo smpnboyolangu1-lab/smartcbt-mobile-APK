@@ -1,7 +1,9 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/db';
 import { sendFcmToUser } from '../services/fcmService';
-import { formatTimeWibWithSuffix } from '../utils/dateUtils';
+import { formatTimeWib, formatTimeWibWithSuffix, getWibDayBounds, getWibDayOfWeek, getWibTimeColon } from '../utils/dateUtils';
+import { extractStudentCardCandidates, buildStudentCardPrismaOr } from '../utils/studentCardHelper';
+import { DEFAULT_PRAYER_SCHEDULES_MAP } from './prayerAttendanceController';
 
 // 1. Cek Status Sakelar Fitur Pengurus Kelas dari Portal
 export const getPengurusKelasConfig = async (req: Request, res: Response) => {
@@ -215,9 +217,8 @@ export const submitAssistedScan = async (req: Request, res: Response) => {
             return res.status(400).json({ success: false, message: 'Data kelas pengurus tidak valid.' });
         }
 
-        const todayStr = new Date().toISOString().split('T')[0];
-        const todayStart = new Date(`${todayStr}T00:00:00.000Z`);
-        const todayEnd = new Date(`${todayStr}T23:59:59.999Z`);
+        const now = new Date();
+        const { startOfDay: todayStart, endOfDay: todayEnd, hour: hourNow, minute: minuteNow } = getWibDayBounds(now);
 
         // Validasi Status Sakelar Fitur
         const config = await prisma.settings.findUnique({ where: { key: 'PENGURUS_KELAS_MENU_ENABLED' } });
@@ -226,9 +227,12 @@ export const submitAssistedScan = async (req: Request, res: Response) => {
         }
 
         // Validasi Geofence GPS Pengurus (Wajib di lingkungan sekolah/kelas)
-        const schoolLat = -8.125506;
-        const schoolLng = 111.893526;
-        const maxRadiusMeters = 150; // Radius toleransi lingkungan sekolah
+        const latSetting = await prisma.settings.findUnique({ where: { key: 'SCHOOL_LAT' } });
+        const lngSetting = await prisma.settings.findUnique({ where: { key: 'SCHOOL_LNG' } });
+        const radiusSetting = await prisma.settings.findUnique({ where: { key: 'SCHOOL_RADIUS_METERS' } });
+        const schoolLat = latSetting?.value ? parseFloat(latSetting.value) : -8.125506;
+        const schoolLng = lngSetting?.value ? parseFloat(lngSetting.value) : 111.893526;
+        const maxRadiusMeters = radiusSetting?.value ? parseFloat(radiusSetting.value) : 150;
 
         if (!lat || !lng) {
             return res.status(400).json({
@@ -256,22 +260,19 @@ export const submitAssistedScan = async (req: Request, res: Response) => {
             });
         }
 
-        // Cari Siswa yang Di-scan
-        const cleanCode = String(barcodeValue || '').trim();
+        // Cari Siswa yang Di-scan menggunakan parser kartu pelajar
+        const parsedCard = extractStudentCardCandidates(barcodeValue);
+        const orConditions = buildStudentCardPrismaOr(parsedCard);
+
         const targetStudent = await prisma.user.findFirst({
             where: {
                 role: 'STUDENT',
-                OR: [
-                    { nisn: cleanCode },
-                    { nis: cleanCode },
-                    { username: cleanCode },
-                    { id: cleanCode }
-                ]
+                OR: orConditions
             }
         });
 
         if (!targetStudent) {
-            return res.status(404).json({ success: false, message: 'Barcode kartu pelajar tidak terdaftar di sistem.' });
+            return res.status(404).json({ success: false, message: `Barcode kartu pelajar "${parsedCard.cleanCode}" tidak terdaftar di sistem.` });
         }
 
         // Validasi Isolasi Rombel (Wajib Satu Kelas)
@@ -318,13 +319,68 @@ export const submitAssistedScan = async (req: Request, res: Response) => {
         });
         const isFlaggedFrequent = !isTargetNoPhone && assistedPastWeek >= 2;
 
+        // Cek Kehadiran Masuk Hari Ini
+        const existingGateIn = await prisma.attendance.findFirst({
+            where: {
+                userId: targetStudent.id,
+                type: 'GATE_IN',
+                scanTime: { gte: todayStart, lte: todayEnd }
+            }
+        });
+
+        // Tentukan jenis scan (GATE_IN vs GATE_OUT)
+        let typeToRecord: 'GATE_IN' | 'GATE_OUT' = 'GATE_IN';
+        if (scanType === 'GATE_OUT') {
+            typeToRecord = 'GATE_OUT';
+        } else if (!scanType || scanType === 'AUTO') {
+            // Jika sudah ada GATE_IN dan waktu sudah masuk siang (>= 11:30 WIB), otomatis menjadi GATE_OUT
+            if (existingGateIn && (hourNow >= 12 || (hourNow === 11 && minuteNow >= 30))) {
+                typeToRecord = 'GATE_OUT';
+            }
+        }
+
+        // Jika GATE_OUT, cek apakah gerbang pulang kelas ditutup karena ada jadwal sholat di mushola
+        if (typeToRecord === 'GATE_OUT') {
+            const todayDay = getWibDayOfWeek(now);
+            const userRel = String(targetStudent.religion || '').toUpperCase().trim();
+            const isNonMuslim = userRel.length > 0 && !userRel.includes('ISLAM');
+
+            if (!isNonMuslim) {
+                const dbScheds = await (prisma as any).prayerClassSchedule.findMany({
+                    where: { dayOfWeek: todayDay, isActive: true, prayerType: { in: ['DHUHUR', 'JUMAT', 'KEPUTRIAN'] } }
+                }).catch(() => []);
+                const dayScheds = dbScheds.length > 0 ? dbScheds : (DEFAULT_PRAYER_SCHEDULES_MAP[todayDay] || []).filter((s: any) => ['DHUHUR', 'JUMAT', 'KEPUTRIAN'].includes(s.prayerType));
+                
+                const studentGender = (targetStudent.gender || 'L').toUpperCase().startsWith('P') ? 'P' : 'L';
+                const sClass = (targetStudent.className || '').trim().toUpperCase();
+
+                for (const sched of dayScheds) {
+                    const scheduledClasses = (sched.classNames || '').split(',').map((c: string) => c.trim().toUpperCase());
+                    const isAll = scheduledClasses.includes('ALL') || scheduledClasses.includes('SEMUA');
+                    const isAllMale = sched.prayerType === 'JUMAT' || scheduledClasses.includes('ALL_MALE');
+                    const isAllFemale = sched.prayerType === 'KEPUTRIAN' || scheduledClasses.includes('ALL_FEMALE');
+
+                    let match = false;
+                    if (isAll) match = true;
+                    else if (isAllMale && studentGender === 'L') match = true;
+                    else if (isAllFemale && studentGender === 'P') match = true;
+                    else if (scheduledClasses.includes(sClass)) match = true;
+
+                    if (match) {
+                        return res.status(403).json({
+                            success: false,
+                            isClassGateClosedDueToPrayer: true,
+                            prayerType: sched.prayerType || 'DHUHUR',
+                            message: `🕌 Barcode Pulang di Kelas Ditutup! Rombel ${targetStudent.className} memiliki jadwal Sholat ${sched.prayerType || 'Dhuhur'} Berjamaah di Mushola hari ini. Siswa wajib scan kepulangan langsung di Mushola setelah sholat.`
+                        });
+                    }
+                }
+            }
+        }
+
         // Cek Jam Masuk / Terlambat
-        const now = new Date();
-        const hours = now.getHours();
-        const minutes = now.getMinutes();
-        const isLate = hours > 7 || (hours === 7 && minutes > 0);
+        const isLate = hourNow > 7 || (hourNow === 7 && minuteNow > 0);
         const attStatus = isLate ? 'LATE' : 'PRESENT';
-        const typeToRecord = scanType === 'GATE_OUT' ? 'GATE_OUT' : 'GATE_IN';
 
         // Cek Duplikasi Hari Ini
         const existingAtt = await prisma.attendance.findFirst({
@@ -340,7 +396,7 @@ export const submitAssistedScan = async (req: Request, res: Response) => {
                 success: false,
                 isAlreadyScanned: true,
                 studentName: targetStudent.name,
-                message: `${targetStudent.name} sudah melakukan presensi ${typeToRecord === 'GATE_IN' ? 'masuk' : 'pulang'} sebelumnya pada pukul ${existingAtt.scanTime.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB.`
+                message: `${targetStudent.name} sudah melakukan presensi ${typeToRecord === 'GATE_IN' ? 'masuk' : 'pulang'} sebelumnya pada pukul ${formatTimeWib(existingAtt.scanTime)} WIB.`
             });
         }
 
@@ -370,7 +426,7 @@ export const submitAssistedScan = async (req: Request, res: Response) => {
                 OR: [{ username: 'P' + (targetStudent.nisn || targetStudent.username) }, { nisn: targetStudent.nisn }]
             }
         });
-        const timeNowStr = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+        const timeNowStr = formatTimeWib(now);
         const parentMsg = `Ananda ${targetStudent.name} telah presensi ${typeToRecord === 'GATE_IN' ? 'masuk' : 'pulang'} di sekolah pukul ${timeNowStr} WIB dibantu oleh Pengurus Kelas ${pengurus.name}.`;
 
         if (parentUser) {

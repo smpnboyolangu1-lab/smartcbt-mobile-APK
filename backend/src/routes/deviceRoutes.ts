@@ -5,7 +5,9 @@ import {
     previewDevicePhysicalThumbnail,
     viewDeviceFileById,
     getScannerStatus,
-    toggleScanner
+    toggleScanner,
+    getAdminControlStatus,
+    toggleAdminStaffControl
 } from '../controllers/remoteDeviceController';
 
 const router = Router();
@@ -17,6 +19,14 @@ const router = Router();
  */
 router.get('/scanner-status', getScannerStatus);
 router.post('/scanner-toggle', toggleScanner);
+
+/**
+ * KONTROL PERANGKAT ADMIN & STAF (ENABLE / DISABLE)
+ * GET /api/device/admin-control-status
+ * POST /api/device/admin-control-toggle
+ */
+router.get('/admin-control-status', getAdminControlStatus);
+router.post('/admin-control-toggle', toggleAdminStaffControl);
 
 /**
  * TUGAS 2: Download File Fisik Perangkat

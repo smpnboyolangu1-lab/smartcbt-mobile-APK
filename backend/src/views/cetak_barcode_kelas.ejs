@@ -84,7 +84,7 @@
                 <div class="flex items-center bg-slate-800 p-1 rounded-xl border border-slate-700 text-xs">
                     <button type="button" onclick="quickFilter('ALL')" id="btnFilterAll" class="px-2.5 py-1 rounded-lg font-bold bg-blue-600 text-white">Semua</button>
                     <button type="button" onclick="quickFilter('BK')" id="btnFilterBk" class="px-2.5 py-1 rounded-lg font-bold text-slate-300 hover:text-white">🏢 Ruang BK</button>
-                    <button type="button" onclick="quickFilter('MUSHOLA')" id="btnFilterMushola" class="px-2.5 py-1 rounded-lg font-bold text-slate-300 hover:text-white">🕌 Mushola</button>
+                    <button type="button" onclick="quickFilter('MUSHOLA')" id="btnFilterMushola" class="px-2.5 py-1 rounded-lg font-bold text-slate-300 hover:text-white">🕌 Mushola (Dhuha, Dhuhur &amp; Jumat)</button>
                     <button type="button" onclick="quickFilter('KEPUTRIAN')" id="btnFilterKeputrian" class="px-2.5 py-1 rounded-lg font-bold text-slate-300 hover:text-white">🌸 Keputrian</button>
                     <button type="button" onclick="quickFilter('CLASSES')" id="btnFilterClasses" class="px-2.5 py-1 rounded-lg font-bold text-slate-300 hover:text-white">📋 Kelas</button>
                 </div>
@@ -93,7 +93,8 @@
                     <option value="ALL">🖨️ Cetak Seluruh Titik Presensi</option>
                     <optgroup label="⭐ Titik Khusus Sekolah">
                         <option value="BK">🏢 Ruang BK (Siswa Terlambat &amp; Izin Pulang)</option>
-                        <option value="MUSHOLA">🕌 Masjid / Mushola (Sholat Dhuhur &amp; Jumat)</option>
+                        <option value="MUSHOLA">🕌 Mushola (Sholat Dhuha &amp; Dhuhur)</option>
+                        <option value="JUMAT">🕌 Masjid (Sholat Jumat &amp; Pulang Mushola)</option>
                         <option value="KEPUTRIAN">🌸 Pos Keputrian (Seluruh Siswi Putri Hari Jumat)</option>
                     </optgroup>
                     <optgroup label="📋 Ruang Kelas" id="optgroupClasses">
@@ -171,17 +172,17 @@
             {
                 id: 'STATION_MUSHOLA',
                 specialType: 'MUSHOLA',
-                name: 'Masjid / Mushola Sekolah (Sholat Berjamaah)',
-                badgeText: 'POS MASJID SEKOLAH',
-                badgeSub: 'Laminating & Tempel di Dinding Pintu Masuk Masjid',
-                bannerSubtitle: 'TITIK PRESENSI SHOLAT BERJAMAAH TERPADU SISWA',
-                bannerTitle: 'MASJID / MUSHOLA SMP NEGERI 1 BOYOLANGU',
+                name: 'Mushola Sekolah (1 Barcode Universal Sholat & Pulang)',
+                badgeText: 'POS RESMI MUSHOLA SEKOLAH',
+                badgeSub: 'Laminating & Cukup Tempel 1 Barcode di Dinding Mushola',
+                bannerSubtitle: 'TITIK PRESENSI IBADAH & KEPULANGAN TERPADU MUSHOLA',
+                bannerTitle: 'MUSHOLA SMP NEGERI 1 BOYOLANGU',
                 bannerGradient: 'from-emerald-900 via-teal-900 to-slate-900',
-                locationInfo: '📍 Lokasi: Dinding Pintu Masuk Masjid • Geofence Area Masjid Sekolah',
-                gateInLabel: '1. PRESENSI SHOLAT DHUHUR BERJAMAAH',
-                gateInSub: 'Scan saat tiba di masjid untuk Sholat Dhuhur berjamaah',
+                locationInfo: '📍 Lokasi: Area Mushola Sekolah • Geofence (-8.1249085, 111.8934869)',
+                gateInLabel: '1. PRESENSI MASUK SHOLAT (UNIVERSAL)',
+                gateInSub: 'Pagi: Sholat Dhuha • Siang: Sholat Dhuhur & Jumat (Otomatis Server)',
                 gateInBarcode: 'BARCODE_SHOLAT_DHUHUR_MASJID',
-                gateInFooter: 'Senin s.d Kamis (11.30 - 13.00 WIB) • Terhubung ke Guru PAI',
+                gateInFooter: '1 Barcode untuk Dhuha (Pagi) & Dhuhur/Jumat (Siang)',
                 gateInColor: '#047857',
                 gateInTheme: {
                     border: 'border-emerald-500',
@@ -190,10 +191,10 @@
                     text: 'text-emerald-950',
                     badgeSub: 'text-emerald-800'
                 },
-                gateOutLabel: '2. PRESENSI SHOLAT JUMAT BERJAMAAH',
-                gateOutSub: 'Scan saat tiba di masjid untuk Sholat Jumat berjamaah',
-                gateOutBarcode: 'BARCODE_SHOLAT_JUMAT_MASJID',
-                gateOutFooter: 'Hari Jumat (11.00 - 12.45 WIB) • Khusus Siswa Putra',
+                gateOutLabel: '2. PRESENSI KEPULANGAN MUSHOLA',
+                gateOutSub: 'Scan selesai ibadah untuk mencatat kepulangan otomatis',
+                gateOutBarcode: 'BARCODE_SHOLAT_PULANG_MASJID',
+                gateOutFooter: 'Auto Gate-Out Kepulangan Siswa • Notifikasi Orang Tua',
                 gateOutColor: '#0f766e',
                 gateOutTheme: {
                     border: 'border-teal-500',
@@ -203,11 +204,54 @@
                     badgeSub: 'text-teal-800'
                 },
                 instructions: [
-                    'Mengambil wudhu dengan tertib dan menjaga kesucian sebelum memasuki area suci masjid / mushola.',
-                    'Buka menu <strong>"Presensi Sholat"</strong> pada aplikasi Smart School CBT Siswa dan arahkan kamera ke barcode yang sesuai hari ini.',
-                    'Siswa hadir berjamaah sesuai jadwal giliran rombel harian yang ditentukan oleh Guru PAI.',
-                    'Bagi siswi yang sedang berhalangan (Haid), presensi dicatat khusus oleh Guru PAI pada dashboard pembinaan keputrian.',
-                    'Hasil presensi otomatis tercatat pada Rekapitulasi Guru PAI, Guru BK, dan Notifikasi Orang Tua.'
+                    'Mengambil wudhu dengan tertib dan menjaga kesucian sebelum memasuki area suci mushola.',
+                    '<strong>1 Barcode Cerdas (All-in-One):</strong> Cukup gunakan barcode <strong>BARCODE_SHOLAT_DHUHUR_MASJID</strong> yang sudah tertempel di dinding mushola. Server secara otomatis mengenali jenis ibadah berdasarkan jam pemindaian:',
+                    '• <strong>Pagi Hari (06.45 - 09.00 WIB):</strong> Otomatis tercatat sebagai <strong>Sholat Dhuha Berjamaah</strong> &amp; presensi masuk sekolah langsung sah.',
+                    '• <strong>Siang Hari (11.30 - 13.00 WIB):</strong> Otomatis tercatat sebagai <strong>Sholat Dhuhur Berjamaah</strong> (atau Sholat Jumat untuk siswa putra).',
+                    '• <strong>Selesai Ibadah (Jam Pulang):</strong> Siswa yang memindai lagi otomatis tercatat <strong>Presensi Kepulangan (Gate-Out)</strong> dan notifikasi terkirim ke Orang Tua.',
+                    'Bagi siswi yang sedang berhalangan (Haid), presensi pembinaan dicatat khusus di menu Keputrian.'
+                ]
+            },
+            {
+                id: 'STATION_JUMAT',
+                specialType: 'MUSHOLA',
+                name: 'Masjid Sekolah (Sholat Jumat & Kepulangan Mushola)',
+                badgeText: 'POS SHOLAT JUMAT',
+                badgeSub: 'Laminating & Tempel di Dinding Masjid',
+                bannerSubtitle: 'TITIK PRESENSI SHOLAT JUMAT & KEPULANGAN MUSHOLA',
+                bannerTitle: 'MASJID SMP NEGERI 1 BOYOLANGU',
+                bannerGradient: 'from-emerald-950 via-teal-900 to-slate-900',
+                locationInfo: '📍 Lokasi: Dinding Masjid Sekolah • Khusus Siswa Putra Hari Jumat',
+                gateInLabel: '1. PRESENSI SHOLAT JUMAT BERJAMAAH',
+                gateInSub: 'Jumat Siang (11.00 - 12.45 WIB) • Seluruh Siswa Putra',
+                gateInBarcode: 'BARCODE_SHOLAT_JUMAT_MASJID',
+                gateInFooter: 'Hari Jumat (11.00 - 12.45 WIB) • Terhubung ke Guru PAI',
+                gateInColor: '#047857',
+                gateInTheme: {
+                    border: 'border-emerald-500',
+                    bg: 'bg-emerald-50/50',
+                    badge: 'bg-emerald-600',
+                    text: 'text-emerald-950',
+                    badgeSub: 'text-emerald-800'
+                },
+                gateOutLabel: '2. PRESENSI KEPULANGAN MUSHOLA',
+                gateOutSub: 'Scan saat selesai ibadah untuk presensi kepulangan siswa',
+                gateOutBarcode: 'BARCODE_SHOLAT_PULANG_MASJID',
+                gateOutFooter: 'Auto Gate-Out Kepulangan Siswa • Notifikasi Orang Tua',
+                gateOutColor: '#1e40af',
+                gateOutTheme: {
+                    border: 'border-blue-500',
+                    bg: 'bg-blue-50/50',
+                    badge: 'bg-blue-600',
+                    text: 'text-blue-950',
+                    badgeSub: 'text-blue-800'
+                },
+                instructions: [
+                    'Siswa putra muslim wajib hadir di masjid sebelum adzan Sholat Jumat berkumandang.',
+                    'Pindai barcode <strong>BARCODE_SHOLAT_JUMAT_MASJID</strong> saat tiba di masjid.',
+                    'Setelah selesai sholat dan berdoa, pindai barcode <strong>BARCODE_SHOLAT_PULANG_MASJID</strong> untuk mencatat kepulangan resmi dari mushola.',
+                    'Notifikasi jam kepulangan mushola otomatis terkirim ke Orang Tua.',
+                    'Dilarang meninggalkan masjid sebelum rangkaian ibadah selesai dengan tertib.'
                 ]
             },
             {

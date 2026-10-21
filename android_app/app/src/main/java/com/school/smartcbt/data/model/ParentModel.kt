@@ -7,9 +7,23 @@ data class ParentDashboardDto(
     val submissions: List<SubmissionDto>?,
     val stats: StatsDto?,
     val todayAttendance: ParentTodayAttendanceDto? = null,
+    val todayPrayerNotice: ParentTodayPrayerNoticeDto? = null,
     val parentNotifications: List<ParentNotificationItemDto>? = null,
     val homeworkSchedule: List<ParentHomeworkItemDto>? = null,
     val lateAnalytics: LateAnalyticsDto? = null
+)
+
+data class ParentTodayPrayerNoticeDto(
+    val hasScheduleToday: Boolean? = false,
+    val prayerType: String? = null,
+    val prayerTitle: String? = null,
+    val scheduleTime: String? = null,
+    val wudhuTime: String? = null,
+    val location: String? = null,
+    val studentStatus: String? = null,
+    val studentStatusLabel: String? = null,
+    val scanTime: String? = null,
+    val displayNotice: String? = null
 )
 
 data class LateHistoryItemDto(

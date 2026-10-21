@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/db';
 import { formatTimeWib, formatTimeWibWithSuffix, formatDateWibShort } from '../utils/dateUtils';
+import { getResolvedDayPrayerSchedules } from './prayerAttendanceController';
 
 export const getMyChildData = async (req: any, res: Response) => {
     try {
@@ -173,18 +174,136 @@ export const getMyChildData = async (req: any, res: Response) => {
         // Notifikasi Absensi Otomatis untuk Orang Tua
         let parentNotifications: any[] = [];
         try {
-            if ((prisma as any).notificationMessage) {
-                parentNotifications = await (prisma as any).notificationMessage.findMany({
-                    where: {
-                        studentId: student.id,
-                        recipientRole: 'PARENT'
-                    },
-                    orderBy: { sentAt: 'desc' },
-                    take: 20
-                });
-            }
+            const rawNotifs = await (prisma as any).notificationMessage.findMany({
+                where: {
+                    studentId: student.id,
+                    recipientRole: 'PARENT'
+                },
+                orderBy: { sentAt: 'desc' },
+                take: 20
+            });
+            parentNotifications = rawNotifs.map((n: any) => ({
+                ...n,
+                createdAt: n.sentAt || n.createdAt
+            }));
         } catch (notifErr) {
             console.warn('notificationMessage query fallback:', notifErr);
+        }
+
+        // PEMBERITAHUAN PRESENSI SHOLAT BERJAMAAH UNTUK ORANG TUA
+        let todayPrayerNotice: any = {
+            hasScheduleToday: false,
+            prayerType: null,
+            prayerTitle: null,
+            scheduleTime: null,
+            wudhuTime: null,
+            location: 'Mushola / Masjid SMPN 1 Boyolangu',
+            studentStatus: 'TIDAK_ADA_JADWAL',
+            studentStatusLabel: 'Tidak Ada Jadwal Sholat Hari Ini',
+            scanTime: null,
+            displayNotice: `Hari ini tidak ada jadwal giliran sholat berjamaah di mushola untuk kelas ${student.className || '-'}.`
+        };
+
+        try {
+            const todayStrWib = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Jakarta' });
+            const todayDateObj = new Date(todayStrWib + 'T12:00:00+07:00');
+            const dayOfWeek = todayDateObj.getDay();
+
+            if (dayOfWeek >= 1 && dayOfWeek <= 6) { // Senin - Sabtu
+                const dbSchedules = await (prisma as any).prayerClassSchedule.findMany({
+                    where: { dayOfWeek, isActive: true },
+                    orderBy: { scanStartTime: 'asc' }
+                });
+                const resolvedSchedules = getResolvedDayPrayerSchedules(dayOfWeek, dbSchedules);
+
+                const studentClassName = (student.className || '').trim();
+                const isFemale = (student.gender || '').toUpperCase().startsWith('P');
+
+                // Cari jadwal yang cocok untuk kelas siswa ini
+                const matchingSchedule = resolvedSchedules.find((s: any) => {
+                    const classes = (s.classNames || '').split(',').map((c: string) => c.trim());
+                    if (s.classNames === 'ALL') return true;
+                    if (s.prayerType === 'JUMAT' && s.classNames === 'ALL_MALE' && !isFemale) return true;
+                    if (s.prayerType === 'KEPUTRIAN' && s.classNames === 'ALL_FEMALE' && isFemale) return true;
+                    return classes.includes(studentClassName);
+                });
+
+                if (matchingSchedule) {
+                    const pType = matchingSchedule.prayerType;
+                    const prayerTitle = pType === 'DHUHA' ? 'Sholat Dhuha Berjamaah'
+                        : pType === 'JUMAT' ? 'Sholat Jumat Berjamaah'
+                        : pType === 'KEPUTRIAN' ? 'Pembinaan Keputrian Muslimah'
+                        : 'Sholat Dhuhur Berjamaah';
+                    
+                    const schedTime = `${matchingSchedule.scanStartTime || '12:00'} - ${matchingSchedule.scanEndTime || '12:30'} WIB`;
+                    const wudhuTime = `${matchingSchedule.wudhuTime || '11:45'} WIB`;
+
+                    // Cek rekaman presensi sholat siswa hari ini
+                    const prayerAtt = await (prisma as any).studentPrayerAttendance.findFirst({
+                        where: {
+                            studentId: student.id,
+                            date: todayStrWib,
+                            ...(pType === 'JUMAT' || pType === 'KEPUTRIAN' ? { prayerType: { in: ['JUMAT', 'KEPUTRIAN', 'DHUHUR'] } } : { prayerType: pType })
+                        }
+                    });
+
+                    let studentStatus = 'BELUM_SCAN';
+                    let studentStatusLabel = 'Belum Melakukan Scan di Mushola';
+                    let scanTimeStr: string | null = null;
+
+                    if (prayerAtt) {
+                        studentStatus = prayerAtt.status;
+                        scanTimeStr = prayerAtt.createdAt ? (formatTimeWib(prayerAtt.createdAt) + ' WIB') : null;
+
+                        if (prayerAtt.status === 'SHOLAT_BERJAMAAH') {
+                            studentStatusLabel = 'Sholat Berjamaah';
+                        } else if (prayerAtt.status === 'HADIR_KEPUTRIAN') {
+                            studentStatusLabel = 'Hadir Keputrian';
+                        } else if (prayerAtt.status === 'BERHALANGAN_HAID' || prayerAtt.status === 'UZUR_SYARI') {
+                            studentStatusLabel = 'Berhalangan (Uzur Syar\'i)';
+                        } else if (prayerAtt.status === 'ALPHA') {
+                            studentStatusLabel = 'Tidak Hadir / Alpa';
+                        }
+                    }
+
+                    let noticeText = '';
+                    if (prayerAtt && (prayerAtt.status === 'SHOLAT_BERJAMAAH' || prayerAtt.status === 'HADIR_KEPUTRIAN')) {
+                        noticeText = `Hari ini ada sholat jam ${schedTime} dan ananda scan di mushola pukul ${scanTimeStr || '--:--'} (Status: ${studentStatusLabel} ✅).`;
+                    } else if (prayerAtt && (prayerAtt.status === 'BERHALANGAN_HAID' || prayerAtt.status === 'UZUR_SYARI')) {
+                        noticeText = `Hari ini ada sholat jam ${schedTime} dan ananda tercatat ${studentStatusLabel} pada pukul ${scanTimeStr || '--:--'}.`;
+                    } else if (prayerAtt && prayerAtt.status === 'ALPHA') {
+                        noticeText = `Hari ini ada sholat jam ${schedTime} di mushola. Ananda tercatat Tidak Hadir / Alpa Sholat.`;
+                    } else {
+                        noticeText = `Hari ini ada sholat jam ${schedTime} di mushola sekolah. Ananda belum melakukan scan di mushola.`;
+                    }
+
+                    todayPrayerNotice = {
+                        hasScheduleToday: true,
+                        prayerType: pType,
+                        prayerTitle,
+                        scheduleTime: schedTime,
+                        wudhuTime,
+                        location: 'Mushola / Masjid SMPN 1 Boyolangu',
+                        studentStatus,
+                        studentStatusLabel,
+                        scanTime: scanTimeStr,
+                        displayNotice: noticeText
+                    };
+
+                    // Sisipkan ke notifikasi orang tua paling atas
+                    parentNotifications.unshift({
+                        id: 'prayer_notice_' + todayStrWib,
+                        title: `Pemberitahuan ${prayerTitle}`,
+                        message: noticeText,
+                        type: 'PRAYER_ATTENDANCE',
+                        category: 'PRAYER',
+                        isRead: false,
+                        createdAt: prayerAtt?.createdAt || new Date()
+                    });
+                }
+            }
+        } catch (prayerErr) {
+            console.warn('Error resolving parent todayPrayerNotice:', prayerErr);
         }
 
         if (parentNotifications.length === 0 && todayInAtt) {
@@ -442,6 +561,7 @@ export const getMyChildData = async (req: any, res: Response) => {
                 isLate: todayStatus === 'TERLAMBAT',
                 summaryText: `Datang: ${todayGateInTime} • Pulang: ${todayGateOutTime}`
             },
+            todayPrayerNotice,
             parentNotifications,
             homeworkSchedule: classHomeworks.map((h: any) => ({
                 id: h.id,
@@ -737,10 +857,15 @@ export const getParentNotifications = async (req: any, res: Response) => {
             take: 50
         });
 
+        const mapped = notifications.map((n: any) => ({
+            ...n,
+            createdAt: n.sentAt || n.createdAt
+        }));
+
         res.json({
             success: true,
-            count: notifications.length,
-            notifications
+            count: mapped.length,
+            notifications: mapped
         });
     } catch (error) {
         console.error('Error fetching parent notifications:', error);

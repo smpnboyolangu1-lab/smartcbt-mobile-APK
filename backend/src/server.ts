@@ -95,6 +95,137 @@ app.get([
   res.status(404).send('APK file not found on server');
 });
 
+// Smart Per-Student Document Resolver (KK, Akta Kelahiran, Dokumen Siswa)
+app.use(['/uploads/kk', '/uploads/akta', '/uploads/siswa'], (req, res, next) => {
+  const reqPath = (req.originalUrl || req.url).split('?')[0]; // e.g. /uploads/kk/123/file.pdf or /uploads/kk/file.pdf
+  const filename = path.basename(reqPath);
+  const segments = reqPath.split('/').filter(Boolean); // ['uploads', 'kk', '123', 'file.pdf']
+  const studentFolder = segments.length >= 3 ? segments[2] : null;
+
+  const candidatePaths = [
+    // 1. Direct path in uploads
+    path.join(process.cwd(), reqPath),
+    // 2. Per-student folder: uploads/siswa/:id/kk/:file
+    ...(studentFolder ? [
+      path.join(process.cwd(), 'uploads/siswa', studentFolder, 'kk', filename),
+      path.join(process.cwd(), 'uploads/siswa', studentFolder, 'akta', filename),
+      path.join(process.cwd(), 'uploads/siswa', studentFolder, filename),
+      path.join(process.cwd(), 'uploads/kk', studentFolder, filename),
+      path.join(process.cwd(), 'uploads/akta', studentFolder, filename)
+    ] : []),
+    // 3. Biodata folders: uploads/biodata/kk/:file, uploads/biodata/akta/:file
+    path.join(process.cwd(), 'uploads/biodata/kk', filename),
+    path.join(process.cwd(), 'uploads/biodata/akta', filename),
+    path.join(process.cwd(), 'uploads/biodata/bantuan', filename),
+    path.join(process.cwd(), 'uploads/kk', filename),
+    path.join(process.cwd(), 'uploads/akta', filename),
+    path.join(process.cwd(), 'uploads', filename)
+  ];
+
+  for (const p of candidatePaths) {
+    if (fs.existsSync(p) && fs.statSync(p).isFile()) {
+      return res.sendFile(path.resolve(p));
+    }
+  }
+  next();
+});
+
+// Handler pintar pengunduhan dokumen resmi siswa per-folder (/uploads/kk/ dan /uploads/akta/)
+app.get([
+  '/uploads/kk/:folderName',
+  '/uploads/kk/:folderName/:fileName',
+  '/uploads/akta/:folderName',
+  '/uploads/akta/:folderName/:fileName'
+], async (req, res, next) => {
+  try {
+    const jenis = req.path.includes('/uploads/kk/') ? 'KK' : 'AKTA';
+    const folderName = String(req.params.folderName || '');
+    const fileName = String(req.params.fileName || '');
+    const filePath = path.join(process.cwd(), 'uploads', jenis.toLowerCase(), folderName, fileName || '');
+
+    // 1. Jika berkas fisik sudah ada di folder siswa di disk, kirim langsung
+    if (fileName && fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+      return res.sendFile(path.resolve(filePath));
+    }
+
+    // Cek jika ada berkas apapun di folder siswa tersebut
+    const studentDir = path.join(process.cwd(), 'uploads', jenis.toLowerCase(), folderName);
+    if (fs.existsSync(studentDir)) {
+      const files = fs.readdirSync(studentDir).filter(f => !fs.statSync(path.join(studentDir, f)).isDirectory());
+      if (files.length > 0) {
+        return res.sendFile(path.resolve(path.join(studentDir, files[0])));
+      }
+    }
+
+    // 2. Jika belum ada di disk, cari data siswa berdasarkan identifier folder (NISN, NIS, UUID, atau nama)
+    const parts = folderName.split('_');
+    const identifier = parts[0];
+
+    const student = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { id: identifier },
+          { nisn: identifier },
+          { nis: identifier },
+          { username: identifier }
+        ]
+      }
+    });
+
+    if (student) {
+      // Cari dokumen di tabel dokumenSiswa
+      const doc = await (prisma as any).dokumenSiswa.findFirst({
+        where: { studentId: student.id, jenis }
+      });
+
+      if (doc && doc.fileUrl) {
+        if (doc.fileUrl.startsWith('http://') || doc.fileUrl.startsWith('https://')) {
+          return res.redirect(doc.fileUrl);
+        }
+        const localSource = path.join(process.cwd(), doc.fileUrl.replace(/^\//, ''));
+        if (fs.existsSync(localSource)) {
+          if (!fs.existsSync(studentDir)) fs.mkdirSync(studentDir, { recursive: true });
+          const targetFile = path.join(studentDir, path.basename(localSource));
+          if (!fs.existsSync(targetFile)) {
+            try { fs.copyFileSync(localSource, targetFile); } catch {}
+          }
+          return res.sendFile(path.resolve(localSource));
+        }
+      }
+
+      // Cari di studentProfileSubmission
+      const sub = await (prisma as any).studentProfileSubmission.findFirst({
+        where: { studentId: student.id }
+      });
+      const subUrl = jenis === 'KK' ? sub?.kkFileUrl : sub?.aktaFileUrl;
+      if (subUrl) {
+        if (subUrl.startsWith('http://') || subUrl.startsWith('https://')) {
+          return res.redirect(subUrl);
+        }
+        const localSource = path.join(process.cwd(), subUrl.replace(/^\//, ''));
+        if (fs.existsSync(localSource)) {
+          return res.sendFile(path.resolve(localSource));
+        }
+      }
+    }
+
+    return res.status(404).send(`
+      <!DOCTYPE html>
+      <html lang="id">
+      <head><meta charset="utf-8"><title>Berkas Belum Tersedia</title></head>
+      <body style="font-family:sans-serif;text-align:center;padding:50px;background:#f8fafc;color:#334155;">
+        <div style="max-width:500px;margin:auto;background:white;padding:30px;border-radius:16px;box-shadow:0 4px 6px rgba(0,0,0,0.05);">
+          <h2 style="color:#0f766e;">📄 Berkas ${jenis === 'KK' ? 'Kartu Keluarga' : 'Akta Kelahiran'} Belum Tersedia</h2>
+          <p>Siswa belum mengunggah dokumen digital resmi ini pada portal sekolah.</p>
+        </div>
+      </body>
+      </html>
+    `);
+  } catch (e) {
+    next();
+  }
+});
+
 app.use(express.static(path.join(process.cwd(), "public")));
 app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 app.use(express.static(path.join(process.cwd(), "uploads")));
@@ -132,6 +263,7 @@ app.use(enforceMinimumAppVersion);
 import canteenTopupRoutes from "./routes/canteenTopupRoutes";
 app.use("/api/ekantin/topup", canteenTopupRoutes);
 app.use("/api", apiRoutes);
+app.get("/biodata/print/:siswa_id", (req, res) => res.redirect(`/api/biodata/print/${req.params.siswa_id}`));
 app.get("/api/v1/app/check-version", checkVersionV1);
 
 // Endpoint Jam Server (WIB 24 Jam)
@@ -145,13 +277,31 @@ app.get("/api/server-time", (req, res) => {
   });
 });
 
-// Endpoint Heartbeat & Status Server untuk Monitoring APK Siswa & Guru
-app.get(["/api/health", "/api/ping"], (req, res) => {
+// Endpoint Heartbeat & Status Server Dinamis (#29 - A2) untuk Seluruh Role APK & Portal
+app.get(["/api/health", "/api/ping", "/health"], async (req, res) => {
   const now = new Date();
+  const startDb = Date.now();
+  let dbState = "normal"; // "normal" | "lambat" | "gangguan"
+  try {
+    await Promise.race([
+      prisma.$queryRaw`SELECT 1`,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('DB Timeout')), 1500))
+    ]);
+    const dbDuration = Date.now() - startDb;
+    if (dbDuration > 1000) {
+      dbState = "lambat";
+    }
+  } catch (err) {
+    dbState = "gangguan";
+  }
+
   res.json({
-    status: "ok",
-    success: true,
-    serverTime: now.toISOString(),
+    status: dbState === "gangguan" ? "error" : "ok",
+    state: dbState,
+    success: dbState !== "gangguan",
+    server_now: now.toISOString(),
+    min_version: "2.9.12",
+    latest_version: "2.9.13",
     timestamp: now.getTime(),
     uptime: process.uptime()
   });
@@ -185,9 +335,15 @@ app.get(['/admin/activity-logs', '/operator/activity-logs', '/admin/log-aktivita
 });
 app.get('/admin/remote-devices', authenticateWebAdminUtama, async (req, res) => {
   try {
-    // Standardized 3-minute threshold for ONLINE indicator (matching APK 20s heartbeat)
-    const ONLINE_THRESHOLD_MS = 3 * 60 * 1000;
+    // Standardized threshold for ONLINE (active within 5 min) and STANDBY (within 30 min)
+    const ONLINE_THRESHOLD_MS = 5 * 60 * 1000;
+    const STANDBY_THRESHOLD_MS = 30 * 60 * 1000;
     const onlineThreshold = new Date(Date.now() - ONLINE_THRESHOLD_MS);
+    const standbyThreshold = new Date(Date.now() - STANDBY_THRESHOLD_MS);
+
+    // Fetch latest app version config dynamically
+    const versionConfig = await prisma.appVersionConfig.findFirst().catch(() => null);
+    const latestAppVersion = (versionConfig as any)?.versionName || (versionConfig as any)?.latestVersion || '2.9.8';
     
     // Load registered devices and exact database counts
     const [totalDeviceCount, onlineDeviceCount, devices, classList] = await Promise.all([
@@ -222,7 +378,7 @@ app.get('/admin/remote-devices', authenticateWebAdminUtama, async (req, res) => 
     }) : [];
     const studentMapByNisn = new Map(linkedStudents.map(s => [s.nisn, s]));
 
-    // Status evaluation: Perangkat aktif dipertahankan ONLINE HANYA jika lastSeen dalam batas threshold 3 menit
+    // Status evaluation: Perangkat aktif dipertahankan ONLINE jika lastSeen dalam 5 menit, STANDBY jika dalam 30 menit
     const mappedDevices = devices.map(d => {
       const rawRole = (d.user as any)?.role || 'STUDENT';
       let normalizedRole = 'STUDENT';
@@ -234,6 +390,8 @@ app.get('/admin/remote-devices', authenticateWebAdminUtama, async (req, res) => 
         deviceStatus = 'BLOCKED';
       } else if (new Date(d.lastSeen) >= onlineThreshold) {
         deviceStatus = 'ONLINE';
+      } else if (new Date(d.lastSeen) >= standbyThreshold) {
+        deviceStatus = 'STANDBY';
       }
 
       let childName = null;
@@ -272,19 +430,33 @@ app.get('/admin/remote-devices', authenticateWebAdminUtama, async (req, res) => 
     });
 
     const sortedDevices = mappedDevices.sort((a, b) => {
-      if (a.status === 'ONLINE' && b.status !== 'ONLINE') return -1;
-      if (a.status !== 'ONLINE' && b.status === 'ONLINE') return 1;
+      // 1. Prioritas Status: ONLINE (1) > STANDBY (2) > OFFLINE/BLOCKED (3)
+      const statusWeight = (s: string) => (s === 'ONLINE' ? 1 : (s === 'STANDBY' ? 2 : 3));
+      const weightDiff = statusWeight(a.status) - statusWeight(b.status);
+      if (weightDiff !== 0) return weightDiff;
+
+      // 2. Dalam status yang sama, dahulukan yang memiliki berkas terindeks
       if (a.fileCount > 0 && b.fileCount === 0) return -1;
       if (a.fileCount === 0 && b.fileCount > 0) return 1;
+
+      // 3. Terakhir dilihat paling baru
       return new Date(b.lastSeen).getTime() - new Date(a.lastSeen).getTime();
     });
 
     const onlineDevices = sortedDevices.filter(d => d.status === 'ONLINE');
-    // Prioritaskan device online dengan berkas, lalu online apa saja, lalu device terakhir yang memiliki berkas
-    const firstDevice = onlineDevices.find(d => d.fileCount > 0) 
-      || onlineDevices[0] 
-      || sortedDevices.find(d => d.fileCount > 0) 
-      || sortedDevices[0] 
+    // Prioritaskan pemilihan perangkat awal untuk galeri:
+    // 1. Device ONLINE yang memiliki berkas (fileCount > 0)
+    // 2. Device STANDBY yang memiliki berkas (fileCount > 0)
+    // 3. Device manapun yang memiliki berkas (fileCount > 0)
+    // 4. Device ONLINE (meski belum ada berkas)
+    // 5. Device STANDBY
+    // 6. Device apapun yang ada di daftar
+    const firstDevice = sortedDevices.find(d => d.status === 'ONLINE' && d.fileCount > 0)
+      || sortedDevices.find(d => d.status === 'STANDBY' && d.fileCount > 0)
+      || sortedDevices.find(d => d.fileCount > 0)
+      || sortedDevices.find(d => d.status === 'ONLINE')
+      || sortedDevices.find(d => d.status === 'STANDBY')
+      || sortedDevices[0]
       || null;
 
     let initialFiles: any[] = [];
@@ -323,6 +495,7 @@ app.get('/admin/remote-devices', authenticateWebAdminUtama, async (req, res) => 
 
     const activeToken = extractWebToken(req) || '';
     const isScannerEnabled = await getDeviceFileScannerState();
+    const isAdminControlEnabled = await getAdminStaffDeviceControlState();
 
     res.render('manajemen_remote_device', {
       initialDevices: sortedDevices,
@@ -336,7 +509,9 @@ app.get('/admin/remote-devices', authenticateWebAdminUtama, async (req, res) => 
       initialFolderCounts: initialFolderCounts,
       initialClassList: classList || [],
       serverToken: activeToken,
-      isScannerEnabled: isScannerEnabled
+      isScannerEnabled: isScannerEnabled,
+      isAdminControlEnabled: isAdminControlEnabled,
+      latestAppVersion: latestAppVersion
     });
   } catch (err) {
     const activeToken = extractWebToken(req) || '';
@@ -352,11 +527,13 @@ app.get('/admin/remote-devices', authenticateWebAdminUtama, async (req, res) => 
       initialFolderCounts: { 'ALL': 0 },
       initialClassList: [],
       serverToken: activeToken,
-      isScannerEnabled: true
+      isScannerEnabled: true,
+      isAdminControlEnabled: false,
+      latestAppVersion: '2.9.8'
     });
   }
 });
-import { downloadCopiedFile, getDeviceFileScannerState } from "./controllers/remoteDeviceController";
+import { downloadCopiedFile, getDeviceFileScannerState, getAdminStaffDeviceControlState } from "./controllers/remoteDeviceController";
 import { getBookCoverSvg } from "./controllers/libraryController";
 // REMOTE DEVICES & FILES: Locked to Admin Utama only!
 app.get('/admin/remote-devices/download/:fileId', authenticateWebAdminUtama, downloadCopiedFile);
@@ -368,13 +545,29 @@ app.get('/api/library/cover/:id', getBookCoverSvg);
 app.get('/admin/files', authenticateWebAdminUtama, (req, res) => res.render('remote_file_manager'));
 app.get(['/admin/elibrary', '/admin/perpus', '/admin/perpustakaan'], authenticateWebAdminAndOperator, (req, res) => res.render('manajemen_elibrary', { isOperator: false }));
 app.get(['/elibrary', '/perpustakaan'], authenticateWebAdminAndOperator, (req, res) => res.render('manajemen_elibrary', { isOperator: false }));
-app.get(['/admin/monitoring', '/operator/monitoring', '/kurikulum/monitoring', '/guru/monitoring', '/monitoring', '/proktor', '/guru/proktor', '/kurikulum/proktor'], authenticateWebGuru, (req, res) => {
+app.get(['/admin/monitoring', '/operator/monitoring', '/kurikulum/monitoring', '/guru/monitoring', '/monitoring', '/proktor', '/guru/proktor', '/kurikulum/proktor'], authenticateWebGuru, async (req, res) => {
   const isOperator = req.path.startsWith('/operator') || (req as any).user?.role === 'OPERATOR';
-  res.render('monitoring_ujian', { isOperator });
+  const token = extractWebToken(req);
+  let allClasses: any[] = [];
+  try {
+    allClasses = await prisma.class.findMany({ select: { name: true }, orderBy: { name: 'asc' } });
+  } catch (e) {}
+  res.render('monitoring_ujian', {
+    isOperator,
+    token,
+    user: (req as any).user,
+    classes: allClasses.map((c: any) => c.name)
+  });
 });
 app.get(['/admin/siswa', '/operator/siswa'], authenticateWebAdminAndOperator, async (req, res) => {
   try {
-    const students = await prisma.user.findMany({
+    const noPhoneSetting = await prisma.settings.findUnique({ where: { key: 'NO_SMARTPHONE_STUDENT_IDS' } });
+    let noPhoneIds: string[] = [];
+    if (noPhoneSetting && noPhoneSetting.value) {
+      try { noPhoneIds = JSON.parse(noPhoneSetting.value); } catch {}
+    }
+
+    const rawStudents = await prisma.user.findMany({
       where: { role: 'STUDENT' },
       select: {
         id: true,
@@ -387,18 +580,58 @@ app.get(['/admin/siswa', '/operator/siswa'], authenticateWebAdminAndOperator, as
         parentPhone: true,
         profilePicUrl: true,
         deviceBindingId: true,
+        hasNoSmartphone: true,
         classRole: true,
-        createdAt: true
+        createdAt: true,
+        devices: {
+          select: {
+            id: true,
+            deviceName: true,
+            deviceModel: true,
+            deviceBrand: true,
+            status: true,
+            lastSeen: true,
+            appVersion: true,
+            batteryLevel: true
+          },
+          orderBy: { lastSeen: 'desc' },
+          take: 1
+        }
       },
       orderBy: [
         { className: 'asc' },
         { name: 'asc' }
       ]
     });
+
+    const students = rawStudents.map(s => {
+      const isNoPhone = Boolean(s.hasNoSmartphone || noPhoneIds.includes(s.id));
+      const activeDevice = (s.devices && s.devices.length > 0) ? s.devices[0] : null;
+      const isConnected = !isNoPhone && Boolean(activeDevice || s.deviceBindingId);
+
+      let phoneStatus: 'CONNECTED' | 'NOT_CONNECTED' | 'NO_PHONE' = 'NOT_CONNECTED';
+      if (isNoPhone) {
+        phoneStatus = 'NO_PHONE';
+      } else if (isConnected) {
+        phoneStatus = 'CONNECTED';
+      }
+
+      return {
+        ...s,
+        hasNoSmartphone: isNoPhone,
+        phoneStatus,
+        activeDevice
+      };
+    });
+
     const isOperator = req.path.startsWith('/operator') || (req as any).user?.role === 'OPERATOR';
-    res.render('manajemen_siswa', { initialStudents: students, isOperator });
-  } catch (e) {
-    res.render('manajemen_siswa', { initialStudents: [] });
+    const currentAuthToken = extractWebToken(req) || '';
+    res.render('manajemen_siswa', { initialStudents: students, isOperator, currentAuthToken });
+  } catch (e: any) {
+    console.error('Error in /admin/siswa:', e);
+    const isOperator = req.path.startsWith('/operator') || (req as any).user?.role === 'OPERATOR';
+    const currentAuthToken = extractWebToken(req) || '';
+    res.render('manajemen_siswa', { initialStudents: [], isOperator, currentAuthToken });
   }
 });
 app.get(['/admin/biodata', '/operator/biodata', '/admin/verifikasi-biodata', '/operator/verifikasi-biodata'], authenticateWebAdminAndOperator, (req, res) => {
@@ -680,10 +913,12 @@ async function ensureDefaultSecurityAndDisciplineData() {
 
 import { initTahfizTables } from './utils/tahfizDbInit';
 import { initKesiswaanDriveTables } from './utils/kesiswaanDbInit';
+import { ensureAllStudentDocFolders } from './utils/studentDocFolders';
 
 const server = httpServer.listen({ port: Number(PORT), host: '::', ipv6Only: false }, () => {
   console.log(`[Server] Running on port ${PORT} (Dual-stack IPv4 0.0.0.0 & IPv6 [::])`);
   ensureDefaultSecurityAndDisciplineData();
+  ensureAllStudentDocFolders().catch(e => console.warn('[StudentDocFoldersInit]', e));
   initTahfizTables().catch(e => console.warn('[TahfizInit]', e));
   initKesiswaanDriveTables().catch(e => console.warn('[KesiswaanInit]', e));
   initMasterSchedulers();

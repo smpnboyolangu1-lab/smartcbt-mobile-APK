@@ -5,30 +5,28 @@ async function main() {
     const config = await prisma.appVersionConfig.upsert({
         where: { id: 'latest' },
         update: {
-            versionCode: 129,
-            versionName: '2.8.119',
+            versionCode: 180,
+            versionName: '2.9.10',
             downloadUrl: '/uploads/smartcbt-latest.apk',
-            fileSizeMb: 17.50,
+            fileSizeMb: 19.0,
             isForceUpdate: false,
-            releaseNotes: 'Pembaruan Resmi Smart CBT v2.8.119 (Build 129):\n' +
-                '1. Tampilan CBT Siswa Standar Ujian Nasional / ANBK Pusmendik: Header Navy #0A2540, tombol zoom font [A-] [A] [A+], status badge terjawab/ragu/belum, dan tombol Pembahasan Soal langkah demi langkah pasca ujian.\n' +
-                '2. AI Prompt Soal Terkunci Mutlak Jenjang SMP (Fase D Kurikulum Merdeka): Menolak materi di luar SMP, 4 opsi A-D, dan pembahasan lengkap per butir soal.\n' +
-                '3. E-Kantin Sehat Digital Siswa & Orang Tua: Saldo uang saku digital, barcode bayar stan kantin, menu sehat, kontrol batas jajan harian, top up, dan grafik pengeluaran 6 hari (Senin s/d Sabtu).\n' +
-                '4. Verifikasi Ganda Sholat Putri (2 Centang Kejujuran): Lapor uzur syar\'i/haid wajib verifikasi 2 centang sebelum submit.\n' +
-                '5. Guru PAI Scan Kartu Pelajar Siswa Tanpa HP: Langsung catat sholat mushola dan gate in/out sekolah terintegrasi.\n' +
-                '6. Pusat Guru Piket & Lapor Jam Kosong: Integrasi teruskan/disposisi ke Tim Kurikulum, info tim piket hari ini, dan rekap guru izin.\n' +
-                '7. Rekap Presensi Wali Kelas: Penggantian kode "?" menjadi "[TP] Tanpa Pulang" dan integrasi keterangan sakit via BK.\n' +
-                '8. Sederhanakan Pos Satpam: Fokus pemindaian barcode tiket dispensasi pulang/izin keluar siswa.\n' +
-                '9. Atur Jadwal Sholat Fullscreen Ber-Header Islami Emerald & Redesain Dialog Tutup Sesi KBM.'
+            releaseNotes: '⚡ PEMBARUAN SISTEM RESMI: Smart CBT v2.9.10 (Build 180)\n' +
+                '1. Modul Deteksi Dini & Skrining SDQ Kemendikbud: Standar baku 5 skala evaluasi emosi dan perilaku siswa usia 11–17 tahun (Normal, Borderline, Abnormal).\n' +
+                '2. Sosiometri Digital & Anti-Bullying: Pemetaan relasi pertemanan/geng, deteksi siswa terisolasi, dan Kotak Rahaja (Whistleblowing anonim + unggah tangkapan layar bukti digital).\n' +
+                '3. Generator E-RPL Resmi & Laporan A4: Penyusunan otomatis RPL Kurikulum Merdeka dan Laporan Bulanan/Semesteran siap cetak PDF A4 resmi dengan TTD Kepala Sekolah & Guru BK.\n' +
+                '4. Skor SAW & Disiplin Positif: Poin Reward untuk prestasi/perilaku terpuji pengurang poin pelanggaran, serta Kontrak Perilaku siswa sebelum penerbitan SP.\n' +
+                '5. Keamanan Data & Etika Konseling: Asas kerahasiaan konseling terenkripsi, Informed Consent Digital, dan Audit Log pelacakan akses catatan sensitif.\n' +
+                '6. Berkas KK & Akta per Folder Siswa: Akses dokumen KK dan Akta terstruktur per folder siswa untuk Wali Kelas tanpa meminta ulang berkas.\n' +
+                '7. Dashboard Konseling BK Modern: Kartu konseling eksekutif ringkas, filter status cepat, dan pemulihan data presensi kelas ampuan.'
         },
         create: {
             id: 'latest',
-            versionCode: 129,
-            versionName: '2.8.119',
+            versionCode: 180,
+            versionName: '2.9.10',
             downloadUrl: '/uploads/smartcbt-latest.apk',
-            fileSizeMb: 17.50,
+            fileSizeMb: 19.0,
             isForceUpdate: false,
-            releaseNotes: 'Pembaruan Resmi Smart CBT v2.8.119 (Build 129)'
+            releaseNotes: '⚡ PEMBARUAN SISTEM RESMI: Smart CBT v2.9.10 (Build 180)'
         }
     });
     console.log('✅ appVersionConfig updated:', config);

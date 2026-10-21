@@ -647,7 +647,13 @@ export const getStudents = async (req: Request, res: Response) => {
             ];
         }
 
-        const students = await prisma.user.findMany({
+        const noPhoneSetting = await prisma.settings.findUnique({ where: { key: 'NO_SMARTPHONE_STUDENT_IDS' } });
+        let noPhoneIds: string[] = [];
+        if (noPhoneSetting && noPhoneSetting.value) {
+            try { noPhoneIds = JSON.parse(noPhoneSetting.value); } catch {}
+        }
+
+        const rawStudents = await prisma.user.findMany({
             where: whereClause,
             select: {
                 id: true,
@@ -658,9 +664,25 @@ export const getStudents = async (req: Request, res: Response) => {
                 nis: true,
                 nisn: true,
                 parentPhone: true,
+                profilePicUrl: true,
                 deviceBindingId: true,
+                hasNoSmartphone: true,
                 classRole: true,
-                createdAt: true
+                createdAt: true,
+                devices: {
+                    select: {
+                        id: true,
+                        deviceName: true,
+                        deviceModel: true,
+                        deviceBrand: true,
+                        status: true,
+                        lastSeen: true,
+                        appVersion: true,
+                        batteryLevel: true
+                    },
+                    orderBy: { lastSeen: 'desc' },
+                    take: 1
+                }
             },
             orderBy: [
                 { className: 'asc' },
@@ -668,10 +690,82 @@ export const getStudents = async (req: Request, res: Response) => {
             ]
         });
 
+        const students = rawStudents.map(s => {
+            const isNoPhone = Boolean(s.hasNoSmartphone || noPhoneIds.includes(s.id));
+            const activeDevice = (s.devices && s.devices.length > 0) ? s.devices[0] : null;
+            const isConnected = !isNoPhone && Boolean(activeDevice || s.deviceBindingId);
+
+            let phoneStatus: 'CONNECTED' | 'NOT_CONNECTED' | 'NO_PHONE' = 'NOT_CONNECTED';
+            if (isNoPhone) {
+                phoneStatus = 'NO_PHONE';
+            } else if (isConnected) {
+                phoneStatus = 'CONNECTED';
+            }
+
+            return {
+                ...s,
+                hasNoSmartphone: isNoPhone,
+                phoneStatus,
+                activeDevice
+            };
+        });
+
         res.json(students);
     } catch (error) {
         console.error('Error fetching students:', error);
         res.status(500).json({ message: 'Gagal mengambil data siswa' });
+    }
+};
+
+export const toggleStudentNoPhoneAdmin = async (req: Request, res: Response) => {
+    try {
+        const id = (req.params.id || req.body.studentId || req.body.id) as string;
+        const isNoPhone = req.body.isNoPhone;
+
+        if (!id) {
+            return res.status(400).json({ success: false, message: 'ID Siswa wajib disertakan.' });
+        }
+
+        const student = await prisma.user.findUnique({ where: { id } });
+        if (!student) {
+            return res.status(404).json({ success: false, message: 'Siswa tidak ditemukan.' });
+        }
+
+        const setting = await prisma.settings.findUnique({ where: { key: 'NO_SMARTPHONE_STUDENT_IDS' } });
+        let ids: string[] = [];
+        if (setting && setting.value) {
+            try { ids = JSON.parse(setting.value); } catch {}
+        }
+
+        const currentlyNoPhone = Boolean(student.hasNoSmartphone || ids.includes(id));
+        const targetState = (typeof isNoPhone === 'boolean') ? isNoPhone : !currentlyNoPhone;
+
+        if (targetState) {
+            if (!ids.includes(id)) ids.push(id);
+        } else {
+            ids = ids.filter(i => i !== id);
+        }
+
+        await prisma.$transaction([
+            prisma.user.update({
+                where: { id },
+                data: { hasNoSmartphone: targetState }
+            }),
+            prisma.settings.upsert({
+                where: { key: 'NO_SMARTPHONE_STUDENT_IDS' },
+                create: { key: 'NO_SMARTPHONE_STUDENT_IDS', value: JSON.stringify(ids) },
+                update: { value: JSON.stringify(ids) }
+            })
+        ]);
+
+        return res.json({
+            success: true,
+            isNoSmartphone: targetState,
+            message: `Status siswa ${student.name} berhasil diubah: ${targetState ? '⚪ Siswa Tanpa HP (Fasilitas Lab CBT)' : '📱 Siswa Memiliki HP Reguler'}`
+        });
+    } catch (error) {
+        console.error('Error toggling no-phone status:', error);
+        return res.status(500).json({ success: false, message: 'Gagal mengubah status kepemilikan HP siswa.' });
     }
 };
 

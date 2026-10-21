@@ -3,6 +3,7 @@ import prisma from '../utils/db';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { extractWebToken } from '../middlewares/authMiddleware';
+import { sendFcmToUser } from '../services/fcmService';
 const getJwtSecret = () => process.env.JWT_SECRET || 'cbt_prod_secret_f9a83b27c64e10d592a8174fec01849a62bc38102d7e481b9201948271039841';
 
 const DYNAMIC_QR_SECRET_SALT = process.env.GATEPASS_QR_SECRET || 'SMARTCBT_BK_GATEPASS_HMAC_SECRET_2026';
@@ -355,8 +356,7 @@ export const updateGatepassStatusByBk = async (req: Request, res: Response) => {
                     approvedByBkId: bkUser?.id || null,
                     verifiedAt,
                     validUntil,
-                    singleUseCheckoutToken: singleUseToken,
-                    counselorNotes: counselorNotes || 'Disetujui Guru BK. Tunjukkan QR Code di HP kepada Satpam di gerbang.'
+                    singleUseCheckoutToken: singleUseToken
                 },
                 include: { student: true, approvedByBk: true }
             });
@@ -384,6 +384,37 @@ export const updateGatepassStatusByBk = async (req: Request, res: Response) => {
                     category: 'STUDENT_LEAVE'
                 }
             });
+
+            await tx.notificationMessage.create({
+                data: {
+                    recipientRole: 'PARENT',
+                    studentId: gatepass.studentId,
+                    studentName: studentName,
+                    className: studentClass,
+                    title: '🚨 Notifikasi Dispensasi Keluar Sekolah Disetujui',
+                    message: `Pemberitahuan resmi: Permohonan izin keluar darurat ananda ${studentName} (${studentClass}) untuk alasan "${gatepass.reason}" telah disetujui oleh Guru BK (${bkUser?.name || 'BK'}) pada pukul ${verifiedAt.toLocaleTimeString('id-ID')} WIB. Penjemput: ${gatepass.pickupBy || 'Mandiri'}.`,
+                    category: 'STUDENT_LEAVE'
+                }
+            }).catch(() => null);
+
+            await tx.notificationMessage.create({
+                data: {
+                    recipientRole: 'TEACHER',
+                    studentId: gatepass.studentId,
+                    studentName: studentName,
+                    className: studentClass,
+                    title: `📋 Izin Siswa Disetujui BK: ${studentName} (${studentClass})`,
+                    message: `Pemberitahuan Wali Kelas: Permohonan izin keluar ${norm.label} untuk ananda ${studentName} (${studentClass}) telah diverifikasi & disetujui oleh Guru BK (${bkUser?.name || 'BK'}). Menunggu pemeriksaan keluar di Pos Satpam.`,
+                    category: 'STUDENT_LEAVE'
+                }
+            }).catch(() => null);
+
+            sendFcmToUser(
+                gatepass.studentId,
+                '✅ Dispensasi / Izin Disetujui Guru BK!',
+                `Izin Anda (${norm.label}) telah disetujui. Tunjukkan QR Code Gatepass di HP kepada Satpam di pos gerbang sekolah.`,
+                { type: 'GATEPASS_APPROVED', studentId: gatepass.studentId, gatepassId: gatepass.id }
+            ).catch(() => null);
 
             return up;
         });
@@ -707,7 +738,7 @@ export const checkoutGatepassBySatpam = async (req: Request, res: Response) => {
     try {
         const satpamUser = (req as any).user;
         const { checkoutToken, qrPayload } = req.body;
-        const rawInput = String(checkoutToken || qrPayload || '').trim();
+        let rawInput = String(checkoutToken || qrPayload || '').trim();
 
         if (!rawInput) {
             return res.status(400).json({
@@ -716,16 +747,27 @@ export const checkoutGatepassBySatpam = async (req: Request, res: Response) => {
             });
         }
 
-        // Ekstrak token jika berformat SMARTCBT-EXITPASS:<id>:<token> atau SMARTCBT-GATEPASS:<token>
+        // Jika pindaian berupa Kartu Pelajar (STUDENT_MEMBER:<id>:<nisn>:...)
+        if (rawInput.startsWith('STUDENT_MEMBER:')) {
+            const sparts = rawInput.split(':');
+            rawInput = sparts[2] || sparts[1] || rawInput;
+        }
+
+        // Ekstrak token jika berformat SMARTCBT-GATEPASS-DYN:... atau SMARTCBT-EXITPASS:... atau SMARTCBT-GATEPASS:...
         let lookupToken = rawInput;
         let lookupId: string | null = null;
-        if (rawInput.startsWith('SMARTCBT-GATEPASS:')) {
+        if (rawInput.startsWith('SMARTCBT-GATEPASS-DYN:')) {
+            const parts = rawInput.split(':');
+            lookupId = parts[1] || null;
+            lookupToken = parts[2] || rawInput;
+        } else if (rawInput.startsWith('SMARTCBT-GATEPASS:')) {
             const parts = rawInput.split(':');
             lookupToken = parts[1] || rawInput;
             lookupId = parts[2] || null;
         } else if (rawInput.startsWith('SMARTCBT-EXITPASS:')) {
             const parts = rawInput.split(':');
             lookupId = parts[1] || null;
+            lookupToken = parts[2] || rawInput;
         }
 
         const gatepass = await prisma.gatepassRequest.findFirst({
@@ -738,7 +780,7 @@ export const checkoutGatepassBySatpam = async (req: Request, res: Response) => {
             },
             include: {
                 student: {
-                    select: { id: true, name: true, className: true, nisn: true, profilePicUrl: true }
+                    select: { id: true, name: true, className: true, nisn: true, profilePicUrl: true, parentPhone: true }
                 },
                 approvedByBk: {
                     select: { id: true, name: true }
@@ -835,7 +877,7 @@ export const checkoutGatepassBySatpam = async (req: Request, res: Response) => {
             const updated = await tx.gatepassRequest.findUnique({
                 where: { id: gatepass.id },
                 include: {
-                    student: { select: { id: true, name: true, className: true, nisn: true, profilePicUrl: true } },
+                    student: { select: { id: true, name: true, className: true, nisn: true, profilePicUrl: true, parentPhone: true } },
                     approvedByBk: { select: { id: true, name: true } },
                     checkoutSatpam: { select: { id: true, name: true } }
                 }
@@ -901,19 +943,143 @@ export const checkoutGatepassBySatpam = async (req: Request, res: Response) => {
                 }
             } catch (sessErr) {}
 
-            // 3. Kirim notifikasi konfirmasi keluar gerbang ke Orang Tua
             const exitTimeStr = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+
+            // Lookup penerima spesifik
+            const parentUser = await tx.user.findFirst({
+                where: {
+                    role: 'PARENT',
+                    OR: [
+                        ...(gatepass.student.nisn ? [{ nisn: gatepass.student.nisn }, { username: `P${gatepass.student.nisn}` }, { username: gatepass.student.nisn }] : []),
+                        ...(gatepass.student.parentPhone ? [{ username: gatepass.student.parentPhone }] : [])
+                    ]
+                },
+                select: { id: true }
+            }).catch(() => null);
+
+            let waliKelasUser: any = null;
+            if (gatepass.student.className) {
+                waliKelasUser = await tx.user.findFirst({
+                    where: {
+                        role: 'TEACHER',
+                        OR: [
+                            { teachingClasses: { contains: gatepass.student.className } },
+                            { tugasTambahan: { contains: 'WALI_KELAS' } }
+                        ]
+                    },
+                    select: { id: true }
+                }).catch(() => null);
+            }
+
+            let counselorUserId = gatepass.approvedByBkId;
+            if (!counselorUserId && gatepass.student.className) {
+                const classRow = await tx.class.findUnique({
+                    where: { name: gatepass.student.className },
+                    select: { counselorId: true }
+                }).catch(() => null);
+                counselorUserId = classRow?.counselorId || null;
+            }
+            if (!counselorUserId) {
+                const defaultBk = await tx.user.findFirst({
+                    where: { role: 'COUNSELOR', isActive: true },
+                    select: { id: true }
+                }).catch(() => null);
+                counselorUserId = defaultBk?.id || null;
+            }
+            
+            // Notifikasi ke Orang Tua
             await tx.notificationMessage.create({
                 data: {
                     recipientRole: 'PARENT',
+                    recipientId: parentUser?.id || null,
                     studentId: gatepass.studentId,
                     studentName: gatepass.student.name,
                     className: gatepass.student.className || '-',
-                    title: `✅ Siswa Telah Melewati Area SMP Negeri 1 Boyolangu: ${gatepass.student.name}`,
-                    message: `Konfirmasi Pos Keamanan: Ananda ${gatepass.student.name} (${gatepass.student.className || '-'}) telah melewati gerbang utama sekolah pada pukul ${exitTimeStr} WIB (Diverifikasi Satpam: ${satpamName}). Status Izin: ${norm.label}. Penjemput: ${gatepass.pickupBy || 'Mandiri'}.`,
+                    title: `🚪 Siswa Telah Melewati Pos Keamanan: ${gatepass.student.name}`,
+                    message: `Konfirmasi Pos Keamanan: Ananda ${gatepass.student.name} (${gatepass.student.className || '-'}) telah melewati gerbang utama sekolah pada pukul ${exitTimeStr} WIB (Diverifikasi Satpam: ${satpamName}). Status Izin: ${norm.label}. Alasan: ${gatepass.reason}. Penjemput: ${gatepass.pickupBy || 'Mandiri'}.`,
                     category: 'STUDENT_LEAVE'
                 }
-            });
+            }).catch(() => null);
+
+            // Notifikasi ke Siswa
+            await tx.notificationMessage.create({
+                data: {
+                    recipientRole: 'STUDENT',
+                    recipientId: gatepass.studentId,
+                    studentId: gatepass.studentId,
+                    studentName: gatepass.student.name,
+                    className: gatepass.student.className || '-',
+                    title: `🚪 Checkout Gerbang Berhasil (${norm.label})`,
+                    message: `Tiket Gatepass Anda telah diverifikasi oleh Satpam (${satpamName}) pada pukul ${exitTimeStr} WIB. Anda resmi meninggalkan lingkungan sekolah. Hati-hati di jalan!`,
+                    category: 'STUDENT_LEAVE'
+                }
+            }).catch(() => null);
+
+            // Notifikasi ke Wali Kelas
+            await tx.notificationMessage.create({
+                data: {
+                    recipientRole: 'TEACHER',
+                    recipientId: waliKelasUser?.id || null,
+                    studentId: gatepass.studentId,
+                    studentName: gatepass.student.name,
+                    className: gatepass.student.className || '-',
+                    title: `🚪 Siswa Kelas Anda Keluar Gerbang: ${gatepass.student.name} (${gatepass.student.className || '-'})`,
+                    message: `Laporan Pos Satpam: Siswa ${gatepass.student.name} (${gatepass.student.className || '-'}) telah meninggalkan sekolah melalui Pos Keamanan (Satpam: ${satpamName}) pada pukul ${exitTimeStr} WIB.\n• Status Izin: ${norm.label}\n• Alasan: ${gatepass.reason}\n• Penjemput: ${gatepass.pickupBy || 'Mandiri'}`,
+                    category: 'STUDENT_LEAVE'
+                }
+            }).catch(() => null);
+
+            // Notifikasi ke Guru BK
+            await tx.notificationMessage.create({
+                data: {
+                    recipientRole: 'COUNSELOR',
+                    recipientId: counselorUserId || null,
+                    studentId: gatepass.studentId,
+                    studentName: gatepass.student.name,
+                    className: gatepass.student.className || '-',
+                    title: `🚪 Siswa Bimbingan Telah Checkout Satpam: ${gatepass.student.name}`,
+                    message: `Konfirmasi Satpam: Siswa ${gatepass.student.name} (${gatepass.student.className || '-'}) telah dipindai dan keluar melalui pos gerbang oleh Satpam (${satpamName}) pada pukul ${exitTimeStr} WIB. Kategori: ${norm.label}.`,
+                    category: 'STUDENT_LEAVE'
+                }
+            }).catch(() => null);
+
+            // Kirim Push Notification FCM ke Siswa
+            sendFcmToUser(
+                gatepass.studentId,
+                `🚪 Checkout Gerbang Berhasil (${norm.label})`,
+                `Tiket Gatepass diverifikasi Satpam (${satpamName}) pada ${exitTimeStr} WIB. Hati-hati di jalan!`,
+                { type: 'GATEPASS_CHECKOUT', studentId: gatepass.studentId, gatepassId: gatepass.id }
+            ).catch(() => null);
+
+            // Kirim Push Notification FCM ke Orang Tua
+            if (parentUser?.id) {
+                sendFcmToUser(
+                    parentUser.id,
+                    `🚪 Siswa Telah Melewati Pos Keamanan: ${gatepass.student.name}`,
+                    `Konfirmasi Satpam: Ananda ${gatepass.student.name} (${gatepass.student.className || '-'}) keluar gerbang pada ${exitTimeStr} WIB (${norm.label}).`,
+                    { type: 'GATEPASS_CHECKOUT', studentId: gatepass.studentId, gatepassId: gatepass.id }
+                ).catch(() => null);
+            }
+
+            // Kirim Push Notification FCM ke Wali Kelas
+            if (waliKelasUser?.id) {
+                sendFcmToUser(
+                    waliKelasUser.id,
+                    `🚪 Siswa Kelas Anda Keluar Gerbang: ${gatepass.student.name}`,
+                    `Siswa ${gatepass.student.name} (${gatepass.student.className || '-'}) telah meninggalkan sekolah (${norm.label}).`,
+                    { type: 'GATEPASS_CHECKOUT', studentId: gatepass.studentId, gatepassId: gatepass.id }
+                ).catch(() => null);
+            }
+
+            // Kirim Push Notification FCM ke Guru BK
+            if (counselorUserId) {
+                sendFcmToUser(
+                    counselorUserId,
+                    `🚪 Siswa Bimbingan Telah Checkout Satpam: ${gatepass.student.name}`,
+                    `Siswa ${gatepass.student.name} (${gatepass.student.className || '-'}) telah checkout satpam (${norm.label}).`,
+                    { type: 'GATEPASS_CHECKOUT', studentId: gatepass.studentId, gatepassId: gatepass.id }
+                ).catch(() => null);
+            }
 
             return updated;
         });
@@ -1162,6 +1328,9 @@ export const verifyGatepassScan = async (req: Request, res: Response) => {
                         message: '⛔ QR Code Tidak Sah! Tanda tangan kriptografi anti-screenshot tidak cocok.'
                     });
                 }
+            } else if (parts.length >= 3) {
+                lookupId = parts[1];
+                lookupToken = parts[2];
             }
         } else if (rawInput.startsWith('SMARTCBT-GATEPASS:')) {
             const parts = rawInput.split(':');
@@ -1261,7 +1430,50 @@ export const verifyGatepassScan = async (req: Request, res: Response) => {
                         message: `Pemberitahuan Pos Keamanan: Ananda ${gatepass.student.name} (${gatepass.student.className || '-'}) telah kembali ke area sekolah pada pukul ${exitTimeStr} WIB (Diverifikasi Satpam: ${satpamName}).`,
                         category: 'STUDENT_LEAVE'
                     }
-                });
+                }).catch(() => null);
+
+                await tx.notificationMessage.create({
+                    data: {
+                        recipientRole: 'STUDENT',
+                        studentId: gatepass.studentId,
+                        studentName: gatepass.student.name,
+                        className: gatepass.student.className || '-',
+                        title: `🏫 Selamat Datang Kembali di Sekolah`,
+                        message: `Verifikasi Pos Keamanan berhasil. Anda telah tercatat kembali ke area sekolah pada pukul ${exitTimeStr} WIB oleh Satpam (${satpamName}). Silakan melanjutkan KBM.`,
+                        category: 'STUDENT_LEAVE'
+                    }
+                }).catch(() => null);
+
+                await tx.notificationMessage.create({
+                    data: {
+                        recipientRole: 'TEACHER',
+                        studentId: gatepass.studentId,
+                        studentName: gatepass.student.name,
+                        className: gatepass.student.className || '-',
+                        title: `🏫 Siswa Kelas Anda Telah Kembali: ${gatepass.student.name} (${gatepass.student.className || '-'})`,
+                        message: `Laporan Pos Satpam: Siswa ${gatepass.student.name} (${gatepass.student.className || '-'}) yang sebelumnya izin ${norm.label} telah kembali ke lingkungan sekolah pada pukul ${exitTimeStr} WIB.`,
+                        category: 'STUDENT_LEAVE'
+                    }
+                }).catch(() => null);
+
+                await tx.notificationMessage.create({
+                    data: {
+                        recipientRole: 'COUNSELOR',
+                        studentId: gatepass.studentId,
+                        studentName: gatepass.student.name,
+                        className: gatepass.student.className || '-',
+                        title: `🏫 Siswa Bimbingan Telah Kembali: ${gatepass.student.name}`,
+                        message: `Konfirmasi Satpam: Siswa ${gatepass.student.name} (${gatepass.student.className || '-'}) telah diverifikasi kembali ke sekolah pada pukul ${exitTimeStr} WIB.`,
+                        category: 'STUDENT_LEAVE'
+                    }
+                }).catch(() => null);
+
+                sendFcmToUser(
+                    gatepass.studentId,
+                    `🏫 Selamat Datang Kembali di Sekolah`,
+                    `Verifikasi kedatangan kembali oleh Satpam (${satpamName}) pada ${exitTimeStr} WIB berhasil.`,
+                    { type: 'GATEPASS_RETURN', studentId: gatepass.studentId, gatepassId: gatepass.id }
+                ).catch(() => null);
             });
 
             return res.json({
@@ -1341,18 +1553,65 @@ export const verifyGatepassScan = async (req: Request, res: Response) => {
                 }
             });
 
-            // Kirim notifikasi ke orang tua siswa
+            // Notifikasi ke Orang Tua
             await tx.notificationMessage.create({
                 data: {
                     recipientRole: 'PARENT',
                     studentId: gatepass.studentId,
                     studentName: gatepass.student.name,
                     className: gatepass.student.className || '-',
-                    title: `🚪 Siswa Telah Melewati Area SMP Negeri 1 Boyolangu: ${gatepass.student.name}`,
-                    message: `Konfirmasi Pos Keamanan: Ananda ${gatepass.student.name} (${gatepass.student.className || '-'}) telah melewati gerbang utama sekolah pada pukul ${exitTimeStr} WIB (Diverifikasi Satpam: ${satpamName}). Status Izin: ${norm.label}. Penjemput: ${gatepass.pickupBy || 'Mandiri'}.`,
+                    title: `🚪 Siswa Telah Melewati Pos Keamanan: ${gatepass.student.name}`,
+                    message: `Konfirmasi Pos Keamanan: Ananda ${gatepass.student.name} (${gatepass.student.className || '-'}) telah melewati gerbang utama sekolah pada pukul ${exitTimeStr} WIB (Diverifikasi Satpam: ${satpamName}). Status Izin: ${norm.label}. Alasan: ${gatepass.reason}. Penjemput: ${gatepass.pickupBy || 'Mandiri'}.`,
                     category: 'STUDENT_LEAVE'
                 }
-            });
+            }).catch(() => null);
+
+            // Notifikasi ke Siswa
+            await tx.notificationMessage.create({
+                data: {
+                    recipientRole: 'STUDENT',
+                    studentId: gatepass.studentId,
+                    studentName: gatepass.student.name,
+                    className: gatepass.student.className || '-',
+                    title: `🚪 Checkout Gerbang Berhasil (${norm.label})`,
+                    message: `Tiket Gatepass Anda telah diverifikasi oleh Satpam (${satpamName}) pada pukul ${exitTimeStr} WIB. Anda resmi meninggalkan lingkungan sekolah. Hati-hati di jalan!`,
+                    category: 'STUDENT_LEAVE'
+                }
+            }).catch(() => null);
+
+            // Notifikasi ke Wali Kelas
+            await tx.notificationMessage.create({
+                data: {
+                    recipientRole: 'TEACHER',
+                    studentId: gatepass.studentId,
+                    studentName: gatepass.student.name,
+                    className: gatepass.student.className || '-',
+                    title: `🚪 Siswa Kelas Anda Keluar Gerbang: ${gatepass.student.name} (${gatepass.student.className || '-'})`,
+                    message: `Laporan Pos Satpam: Siswa ${gatepass.student.name} (${gatepass.student.className || '-'}) telah meninggalkan sekolah melalui Pos Keamanan (Satpam: ${satpamName}) pada pukul ${exitTimeStr} WIB.\n• Status Izin: ${norm.label}\n• Alasan: ${gatepass.reason}\n• Penjemput: ${gatepass.pickupBy || 'Mandiri'}`,
+                    category: 'STUDENT_LEAVE'
+                }
+            }).catch(() => null);
+
+            // Notifikasi ke Guru BK
+            await tx.notificationMessage.create({
+                data: {
+                    recipientRole: 'COUNSELOR',
+                    studentId: gatepass.studentId,
+                    studentName: gatepass.student.name,
+                    className: gatepass.student.className || '-',
+                    title: `🚪 Siswa Bimbingan Telah Checkout Satpam: ${gatepass.student.name}`,
+                    message: `Konfirmasi Satpam: Siswa ${gatepass.student.name} (${gatepass.student.className || '-'}) telah dipindai dan keluar melalui pos gerbang oleh Satpam (${satpamName}) pada pukul ${exitTimeStr} WIB. Kategori: ${norm.label}.`,
+                    category: 'STUDENT_LEAVE'
+                }
+            }).catch(() => null);
+
+            // Kirim Push Notification FCM ke Siswa
+            sendFcmToUser(
+                gatepass.studentId,
+                `🚪 Checkout Gerbang Berhasil (${norm.label})`,
+                `Tiket Gatepass diverifikasi Satpam (${satpamName}) pada ${exitTimeStr} WIB. Hati-hati di jalan!`,
+                { type: 'GATEPASS_CHECKOUT', studentId: gatepass.studentId, gatepassId: gatepass.id }
+            ).catch(() => null);
 
             return updated;
         });
@@ -1361,7 +1620,11 @@ export const verifyGatepassScan = async (req: Request, res: Response) => {
             success: true,
             action: 'CHECKOUT',
             message: `✅ Checkout Gerbang SAH! Siswa ${completedGatepass.student.name} (${completedGatepass.student.className || '-'}) diizinkan meninggalkan sekolah.`,
-            data: completedGatepass
+            categoryLabel: norm.label,
+            data: {
+                ...completedGatepass,
+                categoryLabel: norm.label
+            }
         });
     } catch (error: any) {
         console.error('Error verifyGatepassScan:', error);
@@ -1414,8 +1677,17 @@ export const getSatpamGatepassList = async (req: Request, res: Response) => {
               )
             : gatepasses;
 
+        const enrichedData = filtered.map(g => ({
+            ...g,
+            categoryLabel: normalizeCategory(g.leaveCategory).label
+        }));
+
         const stats = {
             totalToday: gatepasses.length,
+            waitingExit: gatepasses.filter(g => g.status === 'ACTIVE_APPROVED').length,
+            currentlyOutside: gatepasses.filter(g => g.status === 'COMPLETED').length,
+            completedExit: gatepasses.filter(g => g.status === 'COMPLETED').length,
+            returnedToSchool: 0,
             activeApproved: gatepasses.filter(g => g.status === 'ACTIVE_APPROVED').length,
             completed: gatepasses.filter(g => g.status === 'COMPLETED').length,
             pending: gatepasses.filter(g => g.status === 'PENDING' || g.status === 'WAITING_BK_SCAN').length,
@@ -1425,8 +1697,8 @@ export const getSatpamGatepassList = async (req: Request, res: Response) => {
         return res.json({
             success: true,
             stats,
-            count: filtered.length,
-            data: filtered
+            count: enrichedData.length,
+            data: enrichedData
         });
     } catch (error: any) {
         console.error('Error getSatpamGatepassList:', error);
@@ -1637,6 +1909,8 @@ export const getStudentLeaveHistory = async (req: Request, res: Response) => {
                 counselorNotes: (g as any).counselorNotes || g.rejectionReason || null,
                 approvedByBk: g.approvedByBk?.name || null,
                 checkoutSatpam: g.checkoutSatpam?.name || null,
+                singleUseCheckoutToken: g.singleUseCheckoutToken || null,
+                validUntil: g.validUntil || null,
                 createdAt: g.createdAt,
                 verifiedAt: g.verifiedAt,
                 exitTimestamp: g.exitTimestamp

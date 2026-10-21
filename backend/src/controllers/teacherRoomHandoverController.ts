@@ -2,6 +2,19 @@ import { Request, Response } from 'express';
 import prisma from '../utils/db';
 import { formatTimeWib } from '../utils/dateUtils';
 
+function calculateDistanceMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const R = 6371e3;
+    const phi1 = (lat1 * Math.PI) / 180;
+    const phi2 = (lat2 * Math.PI) / 180;
+    const deltaPhi = ((lat2 - lat1) * Math.PI) / 180;
+    const deltaLambda = ((lon2 - lon1) * Math.PI) / 180;
+    const a =
+        Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
+        Math.cos(phi1) * Math.cos(phi2) * Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return Math.round(R * c);
+}
+
 // ========================================================
 // MODUL ESTAFET SESI MENGAJAR GURU (ROOM HANDOVER VIA NFC/QR)
 // DAN PRESENSI MATA PELAJARAN SISWA TERINTEGRASI GERBANG PAGI
@@ -81,7 +94,7 @@ export const ensureDefaultPhysicalRooms = async () => {
 export const checkInTeachingSession = async (req: Request, res: Response) => {
     try {
         const teacherId = (req as any).user?.id;
-        const { roomCode, nfcTagUid, qrSecretToken, forceHandover, subjectName } = req.body;
+        const { roomCode, nfcTagUid, qrSecretToken, forceHandover, subjectName, lat, lng, isFakeGps } = req.body;
 
         if (!teacherId) {
             return res.status(401).json({ success: false, message: 'Autentikasi guru diperlukan.' });
@@ -154,6 +167,25 @@ export const checkInTeachingSession = async (req: Request, res: Response) => {
                 success: false,
                 message: 'Stiker NFC / QR Ruangan tidak dikenali di sistem. Pastikan memindai stiker ruangan resmi SMPN 1 Boyolangu.'
             });
+        }
+
+        // ========================================================
+        // A0. VALIDASI GEOMAPPING RUANG KELAS (BUKAN LINGKUNGAN SEKOLAH UMUM)
+        // ========================================================
+        if (room.className && lat !== undefined && lng !== undefined && Number(lat) !== 0 && Number(lng) !== 0) {
+            const classInfo = await prisma.class.findFirst({
+                where: { name: room.className }
+            });
+            if (classInfo && classInfo.lat && classInfo.lng) {
+                const distMeters = calculateDistanceMeters(Number(lat), Number(lng), classInfo.lat, classInfo.lng);
+                const allowedRadius = (classInfo.radiusMeters || 15) + 20; // 35 meter batas toleransi ruang kelas
+                if (distMeters > allowedRadius) {
+                    return res.status(403).json({
+                        success: false,
+                        message: `📍 Presensi Kelas Ditolak!\n\nAnda terdeteksi berada di luar area ruang kelas ${room.className} (Jarak terdeteksi: ${Math.round(distMeters)} meter). Batas toleransi ruang kelas adalah ${allowedRadius} meter. Pastikan Anda sudah berada di dalam kelas saat presensi masuk.`
+                    });
+                }
+            }
         }
 
         // ========================================================
@@ -539,7 +571,7 @@ export const checkInTeachingSession = async (req: Request, res: Response) => {
 export const checkOutTeachingSession = async (req: Request, res: Response) => {
     try {
         const teacherId = (req as any).user?.id;
-        const { sessionId, teachingSummary, notes } = req.body;
+        const { sessionId, teachingSummary, notes, lat, lng } = req.body;
 
         if (!teacherId) {
             return res.status(401).json({ success: false, message: 'Autentikasi guru diperlukan.' });
@@ -560,6 +592,23 @@ export const checkOutTeachingSession = async (req: Request, res: Response) => {
                 success: false,
                 message: 'Tidak ada sesi mengajar aktif yang dapat ditutup.'
             });
+        }
+
+        // Validasi Geomapping Ruang Kelas saat Presensi Keluar
+        if (session.className && lat !== undefined && lng !== undefined && Number(lat) !== 0 && Number(lng) !== 0) {
+            const classInfo = await prisma.class.findFirst({
+                where: { name: session.className }
+            });
+            if (classInfo && classInfo.lat && classInfo.lng) {
+                const distMeters = calculateDistanceMeters(Number(lat), Number(lng), classInfo.lat, classInfo.lng);
+                const allowedRadius = (classInfo.radiusMeters || 15) + 30; // 45 meter toleransi radius kelas
+                if (distMeters > allowedRadius) {
+                    return res.status(403).json({
+                        success: false,
+                        message: `📍 Presensi Keluar Ditolak!\n\nAnda terdeteksi berada di luar area ruang kelas ${session.className} (Jarak terdeteksi: ${Math.round(distMeters)} meter). Presensi keluar kelas harus dilakukan saat Anda berada di dalam ruang kelas.`
+                    });
+                }
+            }
         }
 
         // Hitung rekapitulasi kehadiran siswa

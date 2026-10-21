@@ -11,14 +11,11 @@ import android.os.Environment
 import android.print.PrintAttributes
 import android.print.PrintManager
 import android.view.Gravity
+import android.view.View
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.widget.Button
-import android.widget.LinearLayout
-import android.widget.ProgressBar
-import android.widget.TextView
-import android.widget.Toast
+import android.widget.*
 import com.school.smartcbt.data.remote.ApiClient
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -222,7 +219,7 @@ object AttendancePdfHelper {
     /**
      * Membuka PrintManager bawaan Android menggunakan WebView untuk mencetak / menyimpan PDF A4
      */
-    private fun printViaWebView(activity: Activity, url: String, className: String?, dateStr: String) {
+    fun printViaWebView(activity: Activity, url: String, className: String?, dateStr: String) {
         val toast = Toast.makeText(activity, "⏳ Menyiapkan dokumen PDF resmi...", Toast.LENGTH_SHORT)
         toast.show()
 
@@ -308,8 +305,6 @@ object AttendancePdfHelper {
         val targetDate = date ?: SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
         val displayDate = SimpleDateFormat("dd MMMM yyyy", Locale("id", "ID")).format(Date())
 
-        val exportUrl = "$serverUrl/api/prayer/export-pdf?className=${Uri.encode(className)}&date=${Uri.encode(targetDate)}&prayerType=${Uri.encode(prayerType)}&token=${Uri.encode(token)}"
-
         val isAllClasses = className.equals("ALL", ignoreCase = true) || className.equals("Semua Kelas", ignoreCase = true)
         val titleText = if (isAllClasses) "Rekap Sholat Berjamaah Seluruh Kelas" else "🕌 Cetak Rekap Sholat Berjamaah"
         val classLabel = if (isAllClasses) "Seluruh Kelas" else "Kelas $className"
@@ -330,14 +325,52 @@ object AttendancePdfHelper {
         }
         root.addView(tvTitle)
 
+        // Periode Selector (Harian / Mingguan / Bulanan)
+        val tvPeriodLabel = TextView(activity).apply {
+            text = "Pilih Periode Laporan:"
+            textSize = 11.5f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(android.graphics.Color.parseColor("#334155"))
+            setPadding(0, (10 * density).toInt(), 0, (4 * density).toInt())
+        }
+        root.addView(tvPeriodLabel)
+
+        val periodOptions = listOf("Harian (Per Hari)", "1 Minggu Penuh (Senin-Jumat)", "Bulanan (1 Bulan - Buku Induk Afektif)")
+        val periodKeys = listOf("DAILY", "WEEKLY", "MONTHLY")
+        var selectedPeriod = "DAILY"
+
+        val spPeriod = Spinner(activity).apply {
+            adapter = ArrayAdapter(activity, android.R.layout.simple_spinner_dropdown_item, periodOptions)
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = (10 * density).toInt()
+            }
+            layoutParams = lp
+        }
+        root.addView(spPeriod)
+
         val tvSub = TextView(activity).apply {
             text = "Rombel: $classLabel\nTanggal: $displayDate\nIbadah: Sholat $prayerType Berjamaah\nFormat: Dokumen Resmi A4 Ber-Kop & Bertandatangan Digital"
             textSize = 12f
             setTextColor(android.graphics.Color.parseColor("#475569"))
-            setPadding(0, (6 * density).toInt(), 0, (16 * density).toInt())
+            setPadding(0, 0, 0, (16 * density).toInt())
             setLineSpacing(3f, 1f)
         }
         root.addView(tvSub)
+
+        spPeriod.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                selectedPeriod = periodKeys[position]
+                val pLabel = periodOptions[position]
+                tvSub.text = "Rombel: $classLabel\nPeriode: $pLabel ($displayDate)\nIbadah: Sholat $prayerType Berjamaah\nFormat: Dokumen Resmi A4 Ber-Kop & Bertandatangan Digital"
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+
+        fun buildExportUrl(): String {
+            return "$serverUrl/api/prayer/export-pdf?className=${Uri.encode(className)}&date=${Uri.encode(targetDate)}&prayerType=${Uri.encode(prayerType)}&period=${Uri.encode(selectedPeriod)}&token=${Uri.encode(token)}"
+        }
+
+        val exportUrl = buildExportUrl()
 
         var dialog: AlertDialog? = null
 

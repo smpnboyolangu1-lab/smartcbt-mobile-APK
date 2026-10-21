@@ -40,11 +40,11 @@ export const enforceMinimumAppVersion = (req: Request, res: Response, next: Next
     if (isBelow294) {
         return res.status(426).json({
             success: false,
-            message: `⛔ Akses Versi Ini Telah Ditutup: Anda menggunakan Smart CBT v${rawAppVersion}. Versi di bawah 2.9.4 telah dinonaktifkan demi stabilitas & keamanan sistem sekolah. Harap perbarui ke versi terbaru (v2.9.7) untuk melanjutkan.`,
+            message: `⛔ Akses Versi Ini Telah Ditutup: Anda menggunakan Smart CBT v${rawAppVersion}. Versi di bawah 2.9.4 telah dinonaktifkan demi stabilitas & keamanan sistem sekolah. Harap perbarui ke versi terbaru untuk melanjutkan.`,
             requireUpdate: true,
             currentVersion: rawAppVersion,
-            latestVersion: '2.9.7',
-            downloadUrl: 'https://github.com/smpnboyolangu1-lab/smartcbt-mobile-APK/releases/latest/download/SmartCBT_latest.apk'
+            latestVersion: '2.9.11',
+            downloadUrl: 'https://cbt.smpn1boyolangu.my.id/uploads/smartcbt-latest.apk'
         });
     }
 

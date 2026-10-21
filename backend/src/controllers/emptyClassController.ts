@@ -428,12 +428,26 @@ export const getClassMonitoringStatus = async (req: Request, res: Response) => {
         });
 
         // Ambil jadwal pelajaran hari ini
-        const schedulesToday = await (prisma as any).classPeriodSchedule.findMany({
-            where: {
-                day: currentDay,
-                isBreak: false
-            }
-        });
+        const [schedulesToday, homeroomTeachers, allSchedules] = await Promise.all([
+            (prisma as any).classPeriodSchedule.findMany({
+                where: {
+                    day: currentDay,
+                    isBreak: false
+                }
+            }),
+            prisma.user.findMany({
+                where: {
+                    role: { in: ['TEACHER', 'GURU', 'WALI_KELAS'] },
+                    className: { not: null }
+                },
+                select: { id: true, name: true, className: true }
+            }),
+            (prisma as any).classPeriodSchedule.findMany({
+                where: { isBreak: false },
+                orderBy: { periodIndex: 'asc' }
+            })
+        ]);
+        const walasMap = new Map<string, string>(homeroomTeachers.map(t => [t.className!.toUpperCase(), t.name]));
 
         const currentHour = now.getHours();
         const currentMinute = now.getMinutes();
@@ -591,19 +605,50 @@ export const getClassMonitoringStatus = async (req: Request, res: Response) => {
                 };
             }
 
-            const homeroom = dbClasses.find(c => c.name.toUpperCase() === clsName.toUpperCase());
-            const walasName = (homeroom as any)?.teacherName || 'Wali Kelas';
+            const walasName = walasMap.get(clsName.toUpperCase()) || `Wali Kelas ${clsName}`;
+            const anySchedule = allSchedules.find((s: any) => s.className && s.className.toUpperCase() === clsName.toUpperCase());
+
+            if (currentDay === 'Minggu' || currentDay === 'Sabtu') {
+                return {
+                    className: clsName,
+                    cam: `CAM ${camNumber}`,
+                    status: 'GREEN',
+                    badge: 'HARI LIBUR (TIDAK ADA KBM)',
+                    isAlarm: false,
+                    teacherName: walasName,
+                    subjectName: 'Libur Akhir Pekan',
+                    periodIndex: 'Libur',
+                    timeRange: '-',
+                    details: `KBM ditiadakan (Hari Libur Akhir Pekan). Ruang kelas dalam pengawasan wali kelas (${walasName}).`
+                };
+            }
+
+            if (anySchedule) {
+                return {
+                    className: clsName,
+                    cam: `CAM ${camNumber}`,
+                    status: 'GREEN',
+                    badge: 'KBM KONDUSIF',
+                    isAlarm: false,
+                    teacherName: anySchedule.teacherName || walasName,
+                    subjectName: anySchedule.subjectName || 'Bimbingan Akademik',
+                    periodIndex: `JP ${anySchedule.periodIndex || 1}`,
+                    timeRange: anySchedule.startTime && anySchedule.endTime ? `${anySchedule.startTime} - ${anySchedule.endTime}` : '07:00 - 14:00',
+                    details: `Status KBM kelas ${clsName} tertib & kondusif. Mapel terdaftar: ${anySchedule.subjectName || 'Akademik'} (${anySchedule.teacherName || walasName}).`
+                };
+            }
+
             return {
                 className: clsName,
                 cam: `CAM ${camNumber}`,
                 status: 'GREEN',
-                badge: 'KBM AKTIF / TERKENDALI',
+                badge: 'KBM TERKENDALI',
                 isAlarm: false,
                 teacherName: walasName,
-                subjectName: 'Bina Kelas & Karakter',
-                periodIndex: 'JP Terpadu',
+                subjectName: 'Pembinaan Kelas',
+                periodIndex: 'JP Reguler',
                 timeRange: '07:00 - 14:00',
-                details: `Ruang kelas kondusif dalam pengawasan Wali Kelas (${walasName}).`
+                details: `Ruang kelas tertib dalam pengawasan Wali Kelas (${walasName}).`
             };
         });
 

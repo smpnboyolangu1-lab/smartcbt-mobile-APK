@@ -90,6 +90,9 @@
             <button onclick="switchTab('VII')" id="tab-VII" class="tab-btn px-6 py-2 text-gray-600 active">Kelas VII</button>
             <button onclick="switchTab('VIII')" id="tab-VIII" class="tab-btn px-6 py-2 text-gray-600">Kelas VIII</button>
             <button onclick="switchTab('IX')" id="tab-IX" class="tab-btn px-6 py-2 text-gray-600">Kelas IX</button>
+            <button onclick="switchTab('SPECIAL')" id="tab-SPECIAL" class="tab-btn px-6 py-2 text-gray-600 flex items-center gap-1.5 font-bold text-teal-700">
+                <span>🕌</span> <span>Mushola &amp; Titik Khusus</span>
+            </button>
         </div>
 
         <!-- Table -->
@@ -408,6 +411,124 @@
         function renderTable() {
             const tbody = document.getElementById('kelasTableBody');
             tbody.innerHTML = '';
+
+            if (currentTab === 'SPECIAL') {
+                tbody.innerHTML = `
+                    <tr class="hover:bg-teal-50/50 border-b bg-teal-50/20">
+                        <td class="p-4">
+                            <span class="font-black text-teal-950 text-base flex items-center gap-2">
+                                <span>🕌</span> Masjid / Mushola SMPN 1 Boyolangu
+                            </span>
+                            <span class="text-[11px] text-teal-700 font-semibold block mt-0.5">Titik Presensi Sholat Dhuha (Pagi), Dhuhur (Siang) &amp; Sholat Jumat Berjamaah</span>
+                            <div class="mt-1 flex items-center gap-1.5 flex-wrap">
+                                <span class="bg-emerald-100 text-emerald-800 font-mono text-[10px] font-bold px-2 py-0.5 rounded border border-emerald-300">QR Dhuha: BARCODE_SHOLAT_DHUHA_MASJID</span>
+                                <span class="bg-teal-100 text-teal-800 font-mono text-[10px] font-bold px-2 py-0.5 rounded border border-teal-300">QR Dhuhur: BARCODE_SHOLAT_DHUHUR_MASJID</span>
+                                <span class="bg-cyan-100 text-cyan-800 font-mono text-[10px] font-bold px-2 py-0.5 rounded border border-cyan-300">QR Jumat: BARCODE_SHOLAT_JUMAT_MASJID</span>
+                            </div>
+                        </td>
+                        <td class="p-4"><span class="bg-teal-600 text-white px-2.5 py-1 rounded font-black text-xs">POS KHUSUS</span></td>
+                        <td class="p-4 text-xs font-semibold text-slate-700">Guru GPAI (B. Eny Astuti, B. Mavrik, dll)</td>
+                        <td class="p-4">
+                            <div class="flex flex-col gap-1 text-xs">
+                                <span class="font-mono text-teal-900 font-black">📍 -8.1249085, 111.8934869</span>
+                                <div class="flex items-center gap-2">
+                                    <span class="bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded text-[10px] border border-emerald-300">
+                                        Zona Toleransi: 60 Meter
+                                    </span>
+                                </div>
+                            </div>
+                        </td>
+                        <td class="p-4">
+                            <span class="bg-emerald-100 text-emerald-800 border border-emerald-300 px-2.5 py-1 rounded-lg text-xs font-black inline-flex items-center gap-1">
+                                🔒 Terkunci (Server)
+                            </span>
+                        </td>
+                        <td class="p-4 space-x-1.5 whitespace-nowrap">
+                            <a href="/admin/kelas/print-barcodes?filter=MUSHOLA" target="_blank" class="text-teal-700 hover:text-white hover:bg-teal-700 text-xs font-bold bg-teal-50 px-3 py-1.5 rounded-lg border border-teal-300 transition-all shadow-xs inline-flex items-center gap-1">
+                                <span>🖨️</span> Cetak Barcode A4
+                            </a>
+                            <a href="/admin/geofence-attendance" class="text-indigo-700 hover:text-white hover:bg-indigo-700 text-xs font-bold bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-300 transition-all shadow-xs inline-flex items-center gap-1">
+                                <span>🗺️</span> Geofence Maps
+                            </a>
+                        </td>
+                    </tr>
+                    <tr class="hover:bg-amber-50/50 border-b bg-amber-50/20">
+                        <td class="p-4">
+                            <span class="font-black text-amber-950 text-base flex items-center gap-2">
+                                <span>🏢</span> Ruang BK (Bimbingan Konseling)
+                            </span>
+                            <span class="text-[11px] text-amber-700 font-semibold block mt-0.5">Titik Presensi Keterlambatan Masuk &amp; Izin Pulang Lebih Awal</span>
+                            <div class="mt-1 flex items-center gap-1.5 flex-wrap">
+                                <span class="bg-amber-100 text-amber-800 font-mono text-[10px] font-bold px-2 py-0.5 rounded border border-amber-300">QR: GATE_IN_BK</span>
+                                <span class="bg-purple-100 text-purple-800 font-mono text-[10px] font-bold px-2 py-0.5 rounded border border-purple-300">QR: GATE_OUT_BK</span>
+                            </div>
+                        </td>
+                        <td class="p-4"><span class="bg-amber-600 text-white px-2.5 py-1 rounded font-black text-xs">POS KHUSUS</span></td>
+                        <td class="p-4 text-xs font-semibold text-slate-700">Koordinator Guru BK &amp; Piket</td>
+                        <td class="p-4">
+                            <div class="flex flex-col gap-1 text-xs">
+                                <span class="font-mono text-amber-900 font-black">📍 -8.125506, 111.893526</span>
+                                <div class="flex items-center gap-2">
+                                    <span class="bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded text-[10px] border border-amber-300">
+                                        Zona Toleransi: 20 Meter
+                                    </span>
+                                </div>
+                            </div>
+                        </td>
+                        <td class="p-4">
+                            <span class="bg-emerald-100 text-emerald-800 border border-emerald-300 px-2.5 py-1 rounded-lg text-xs font-black inline-flex items-center gap-1">
+                                🔒 Terkunci (Server)
+                            </span>
+                        </td>
+                        <td class="p-4 space-x-1.5 whitespace-nowrap">
+                            <a href="/admin/kelas/print-barcodes?filter=BK" target="_blank" class="text-amber-700 hover:text-white hover:bg-amber-700 text-xs font-bold bg-amber-50 px-3 py-1.5 rounded-lg border border-amber-300 transition-all shadow-xs inline-flex items-center gap-1">
+                                <span>🖨️</span> Cetak Barcode A4
+                            </a>
+                            <a href="/admin/geofence-attendance" class="text-indigo-700 hover:text-white hover:bg-indigo-700 text-xs font-bold bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-300 transition-all shadow-xs inline-flex items-center gap-1">
+                                <span>🗺️</span> Geofence Maps
+                            </a>
+                        </td>
+                    </tr>
+                    <tr class="hover:bg-pink-50/50 border-b bg-pink-50/20">
+                        <td class="p-4">
+                            <span class="font-black text-pink-950 text-base flex items-center gap-2">
+                                <span>🌸</span> Pos Pembinaan Keputrian Siswi Muslimah
+                            </span>
+                            <span class="text-[11px] text-pink-700 font-semibold block mt-0.5">Titik Presensi Keputrian Seluruh Siswi Putri Hari Jumat</span>
+                            <div class="mt-1 flex items-center gap-1.5 flex-wrap">
+                                <span class="bg-pink-100 text-pink-800 font-mono text-[10px] font-bold px-2 py-0.5 rounded border border-pink-300">QR: BARCODE_KEPUTRIAN_MASUK</span>
+                                <span class="bg-rose-100 text-rose-800 font-mono text-[10px] font-bold px-2 py-0.5 rounded border border-rose-300">QR: BARCODE_KEPUTRIAN_PULANG</span>
+                            </div>
+                        </td>
+                        <td class="p-4"><span class="bg-pink-600 text-white px-2.5 py-1 rounded font-black text-xs">POS KHUSUS</span></td>
+                        <td class="p-4 text-xs font-semibold text-slate-700">Pembina Keputrian (B. Eny Astuti &amp; B. Mavrik)</td>
+                        <td class="p-4">
+                            <div class="flex flex-col gap-1 text-xs">
+                                <span class="font-mono text-pink-900 font-black">📍 -8.125350, 111.893600</span>
+                                <div class="flex items-center gap-2">
+                                    <span class="bg-pink-100 text-pink-800 font-bold px-2 py-0.5 rounded text-[10px] border border-pink-300">
+                                        Zona Toleransi: 40 Meter
+                                    </span>
+                                </div>
+                            </div>
+                        </td>
+                        <td class="p-4">
+                            <span class="bg-emerald-100 text-emerald-800 border border-emerald-300 px-2.5 py-1 rounded-lg text-xs font-black inline-flex items-center gap-1">
+                                🔒 Terkunci (Server)
+                            </span>
+                        </td>
+                        <td class="p-4 space-x-1.5 whitespace-nowrap">
+                            <a href="/admin/kelas/print-barcodes?filter=KEPUTRIAN" target="_blank" class="text-pink-700 hover:text-white hover:bg-pink-700 text-xs font-bold bg-pink-50 px-3 py-1.5 rounded-lg border border-pink-300 transition-all shadow-xs inline-flex items-center gap-1">
+                                <span>🖨️</span> Cetak Barcode A4
+                            </a>
+                            <a href="/admin/geofence-attendance" class="text-indigo-700 hover:text-white hover:bg-indigo-700 text-xs font-bold bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-300 transition-all shadow-xs inline-flex items-center gap-1">
+                                <span>🗺️</span> Geofence Maps
+                            </a>
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
             
             const filtered = allKelas.filter(k => k.tingkat === currentTab);
 

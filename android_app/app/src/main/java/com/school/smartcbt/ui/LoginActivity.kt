@@ -114,65 +114,24 @@ class LoginActivity : AppCompatActivity() {
     private fun autoDetectAndConnectServer(showToast: Boolean = false) {
         try {
             binding.tvVpsStatusDot.text = "🟡"
-            binding.tvVpsStatusText.text = "Memeriksa Sambungan Server..."
+            binding.tvVpsStatusText.text = "Memeriksa Sambungan ke CBT..."
             binding.tvVpsStatusText.setTextColor(android.graphics.Color.parseColor("#B45309"))
 
-            val vpsUrl = SessionManager.ONLINE_SERVER_URL
-            val localUrl = SessionManager.LOCAL_SERVER_URL
+            val cbtUrl = SessionManager.ONLINE_SERVER_URL
 
             val client = okhttp3.OkHttpClient.Builder()
-                .connectTimeout(3500, java.util.concurrent.TimeUnit.MILLISECONDS)
-                .readTimeout(3500, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .connectTimeout(5000, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .readTimeout(5000, java.util.concurrent.TimeUnit.MILLISECONDS)
                 .build()
 
-            // 1. Deteksi otomatis prioritas ke Server Online VPS
+            // Deteksi koneksi ke Server Resmi CBT
             val vpsRequest = okhttp3.Request.Builder()
-                .url("$vpsUrl/api/app/version-check")
+                .url("$cbtUrl/api/app/version-check")
                 .header("User-Agent", "SmartSchool-ExamBrowser/2.8.58 (Android; Linux)")
                 .get()
                 .build()
 
             client.newCall(vpsRequest).enqueue(object : okhttp3.Callback {
-                override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {
-                    // VPS gagal / offline / no internet -> Coba Server Lokal
-                    probeLocalServer(client, localUrl, showToast)
-                }
-
-                override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
-                    val isSuccess = response.isSuccessful
-                    response.close()
-                    if (isSuccess) {
-                        sessionManager.setServerIp(vpsUrl)
-                        ApiClient.resetClient()
-                        runOnUiThread {
-                            binding.tvVpsStatusDot.text = "🟢"
-                            binding.tvVpsStatusText.text = "Terhubung ke Server VPS"
-                            binding.tvVpsStatusText.setTextColor(android.graphics.Color.parseColor("#15803D"))
-                            if (showToast) {
-                                Toast.makeText(this@LoginActivity, "🟢 Terhubung ke Server VPS", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                        com.school.smartcbt.utils.AppUpdateChecker.checkForUpdates(this@LoginActivity)
-                    } else {
-                        // Respon non-200 dari VPS -> fallback ke Lokal
-                        probeLocalServer(client, localUrl, showToast)
-                    }
-                }
-            })
-        } catch (e: Exception) {
-            setServerDisconnectedState(showToast)
-        }
-    }
-
-    private fun probeLocalServer(client: okhttp3.OkHttpClient, localUrl: String, showToast: Boolean) {
-        try {
-            val localRequest = okhttp3.Request.Builder()
-                .url("$localUrl/api/app/version-check")
-                .header("User-Agent", "SmartSchool-ExamBrowser/2.8.58 (Android; Linux)")
-                .get()
-                .build()
-
-            client.newCall(localRequest).enqueue(object : okhttp3.Callback {
                 override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {
                     setServerDisconnectedState(showToast)
                 }
@@ -181,14 +140,14 @@ class LoginActivity : AppCompatActivity() {
                     val isSuccess = response.isSuccessful
                     response.close()
                     if (isSuccess) {
-                        sessionManager.setServerIp(localUrl)
+                        sessionManager.setServerIp(cbtUrl)
                         ApiClient.resetClient()
                         runOnUiThread {
                             binding.tvVpsStatusDot.text = "🟢"
-                            binding.tvVpsStatusText.text = "Terhubung ke Server Lokal"
+                            binding.tvVpsStatusText.text = "Terhubung ke Server CBT"
                             binding.tvVpsStatusText.setTextColor(android.graphics.Color.parseColor("#15803D"))
                             if (showToast) {
-                                Toast.makeText(this@LoginActivity, "🟢 Terhubung ke Server Lokal", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(this@LoginActivity, "🟢 Terhubung ke Server CBT Resmi", Toast.LENGTH_SHORT).show()
                             }
                         }
                         com.school.smartcbt.utils.AppUpdateChecker.checkForUpdates(this@LoginActivity)
@@ -205,10 +164,10 @@ class LoginActivity : AppCompatActivity() {
     private fun setServerDisconnectedState(showToast: Boolean) {
         runOnUiThread {
             binding.tvVpsStatusDot.text = "🔴"
-            binding.tvVpsStatusText.text = "Tidak Terhubung ke Server Lokal atau VPS"
+            binding.tvVpsStatusText.text = "Tidak Terhubung ke Server CBT"
             binding.tvVpsStatusText.setTextColor(android.graphics.Color.parseColor("#DC2626"))
             if (showToast) {
-                Toast.makeText(this@LoginActivity, "🔴 Tidak Terhubung ke Server Lokal atau VPS", Toast.LENGTH_LONG).show()
+                Toast.makeText(this@LoginActivity, "🔴 Gagal terhubung ke Server CBT. Periksa koneksi internet.", Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -305,6 +264,9 @@ class LoginActivity : AppCompatActivity() {
                     )
 
                     Toast.makeText(this@LoginActivity, "Selamat Datang, " + body.user.name, Toast.LENGTH_SHORT).show()
+                    try {
+                        com.school.smartcbt.service.FileScannerService.registerDevice(this@LoginActivity)
+                    } catch (e: Exception) {}
                     routeUser(role)
                 } else {
                     val errStr = response.errorBody()?.string()

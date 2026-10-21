@@ -37,6 +37,18 @@ export function initFirebaseAdmin(): boolean {
 export async function saveUserFcmToken(userId: string, token: string, deviceAndroidId?: string, role?: string): Promise<boolean> {
     try {
         initFirebaseAdmin();
+
+        // 1. Jika ada deviceAndroidId, bersihkan token lama dari akun lain pada HP yang sama agar tidak bocor
+        if (deviceAndroidId) {
+            await (prisma as any).userFcmToken.deleteMany({
+                where: {
+                    deviceAndroidId,
+                    userId: { not: userId }
+                }
+            }).catch(() => {});
+        }
+
+        // 2. Simpan atau perbarui token untuk user ini (jika token sama sebelumnya dipakai user lain, otomatis pindah ke user ini)
         await (prisma as any).userFcmToken.upsert({
             where: { token },
             update: {
@@ -55,6 +67,29 @@ export async function saveUserFcmToken(userId: string, token: string, deviceAndr
         return true;
     } catch (e: any) {
         console.warn('[FCM] saveUserFcmToken error:', e.message);
+        return false;
+    }
+}
+
+// Delete or unbind user FCM token on logout
+export async function deleteUserFcmToken(userId?: string, token?: string, deviceAndroidId?: string): Promise<boolean> {
+    try {
+        if (!token && !deviceAndroidId && !userId) return false;
+        const whereClause: any = {};
+        if (token) {
+            whereClause.token = token;
+        } else if (deviceAndroidId && userId) {
+            whereClause.deviceAndroidId = deviceAndroidId;
+            whereClause.userId = userId;
+        } else if (userId) {
+            whereClause.userId = userId;
+        }
+        await (prisma as any).userFcmToken.deleteMany({
+            where: whereClause
+        }).catch(() => {});
+        return true;
+    } catch (e: any) {
+        console.warn('[FCM] deleteUserFcmToken error:', e.message);
         return false;
     }
 }
@@ -82,7 +117,11 @@ export async function sendFcmToUser(userId: string, title: string, body: string,
 
         if (!rows || rows.length === 0) return 0;
         const tokens = rows.map((r: any) => r.token).filter(Boolean);
-        return await sendFcmToTokens(tokens, title, body, dataPayload);
+        const payloadWithRecipient = {
+            ...dataPayload,
+            recipientUserId: userId
+        };
+        return await sendFcmToTokens(tokens, title, body, payloadWithRecipient);
     } catch (err: any) {
         console.warn('[FCM] sendFcmToUser error:', err.message);
         return 0;

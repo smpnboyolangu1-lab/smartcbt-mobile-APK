@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import crypto from 'crypto';
 import prisma from '../utils/db';
 import { sendFcmToUser } from '../services/fcmService';
-import { sendSingleWhatsApp } from '../services/whatsappBlastService';
+import { sendSingleWhatsApp, WHATSAPP_NOTIFICATION_POLICY } from '../services/whatsappBlastService';
 
 // Format date in WIB (Asia/Jakarta, UTC+7)
 export function getWibDateKey(date: Date = new Date()): string {
@@ -370,20 +370,22 @@ export async function scanClassAttendanceSession(req: Request, res: Response) {
             }
         }
 
-        // Sesuai D13: Notifikasi WhatsApp HANYA untuk siswa terlambat dan hanya ke nomor orang tua yang terinput
-        if (recordStatus === 'LATE' && student.parentPhone) {
+        // ============================================================
+        // KEBIJAKAN RESMI WHATSAPP: HANYA SISWA TERLAMBAT ATAU ALPA (FLAG AKTIF)
+        // ============================================================
+        if (WHATSAPP_NOTIFICATION_POLICY.isDispatchAllowed(recordStatus) && recordStatus === 'LATE' && student.parentPhone) {
             const [currH, currM] = timeStr.split(':').map(Number);
             const lateMinutes = Math.max(1, (currH * 60 + currM) - (7 * 60));
             const waLateNotice = `*PEMBERITAHUAN KETERLAMBATAN SISWA*\n` +
                 `*SMP NEGERI 1 BOYOLANGU*\n\n` +
                 `Yth. Bapak/Ibu Orang Tua / Wali Murid dari ananda *${student.name}* (Kelas ${student.className || '-'}),\n\n` +
-                `Kami menginformasikan bahwa ananda telah tiba di sekolah dengan status *TERLAMBAT*:\n` +
+                `Kami menginformasikan bahwa ananda telah tiba di sekolah dengan catatan keterlambatan:\n` +
                 `• *Waktu Tiba*: ${timeStr} WIB\n` +
                 `• *Keterlambatan*: *${lateMinutes} Menit* (Batas Tepat Waktu: 07:00 WIB)\n` +
                 `• *Jalur Presensi*: Scan QR Sesi Kelas (${student.className || '-'})\n` +
                 `• *Lokasi*: Ruang Kelas ${student.className || '-'}\n` +
                 `• *Tindak Lanjut*: Diarahkan oleh Tim Ketertiban / Pengurus Kelas sebelum pembelajaran dimulai.\n\n` +
-                `Laporan kedisiplinan ini dikirimkan secara otomatis oleh Sistem Presensi Cerdas SMPN 1 Boyolangu. Mohon bantuan Bapak/Ibu untuk membimbing ananda agar dapat berangkat lebih awal demi kelancaran proses pembelajaran. Terima kasih atas kerja samanya.`;
+                `Laporan kedisiplinan ini dikirimkan secara otomatis oleh Sistem Presensi Cerdas SMPN 1 Boyolangu. Mohon dukungan Bapak/Ibu untuk membimbing ananda agar dapat berangkat lebih awal demi kelancaran proses pembelajaran. Terima kasih atas kerja samanya.`;
 
             sendSingleWhatsApp(student.parentPhone, waLateNotice).catch(waErr => {
                 console.warn(`[WA ClassSession Late Alert] Gagal kirim WA ke ${student.parentPhone}:`, waErr.message);

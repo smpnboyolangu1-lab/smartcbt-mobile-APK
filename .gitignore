@@ -51,6 +51,17 @@ backend/storage/
 backend/uploads/biodata/
 backend/uploads/cbt/
 backend/uploads/siswa/
+backend/uploads/akta/
+backend/uploads/kk/
+backend/uploads/tahfiz_audio/
+backend/uploads/leaves/
+backend/uploads/letters/
+backend/uploads/app_releases/
+backend/uploads/apk/
+backend/uploads/candidates/
+backend/uploads/ebooks/
+backend/uploads/e-files/
+backend/uploads/homework-submissions/
 deploy_*.js
 deploy_*.ps1
 

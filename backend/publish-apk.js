@@ -50,7 +50,7 @@ async function main() {
         data: {
             versionCode: 175,
             versionName: '2.9.5',
-            downloadUrl: 'https://github.com/smpnboyolangu1-lab/smartcbt-mobile-APK/releases/download/v2.9.5/SmartCBT_v2.9.5.apk',
+            downloadUrl: '/uploads/smartcbt-latest.apk',
             fileSizeMb,
             releaseNotes,
             isForceUpdate: true
@@ -65,7 +65,7 @@ async function main() {
         update: {
             nomorVersi: '2.9.5',
             changelog: releaseNotes,
-            fileApkUrl: 'https://github.com/smpnboyolangu1-lab/smartcbt-mobile-APK/releases/download/v2.9.5/SmartCBT_v2.9.5.apk',
+            fileApkUrl: '/uploads/smartcbt-latest.apk',
             fileSizeMb,
             checksumSha256: sha256,
             isForceUpdate: true,
@@ -76,7 +76,7 @@ async function main() {
             nomorVersi: '2.9.5',
             versionCode: 175,
             changelog: releaseNotes,
-            fileApkUrl: 'https://github.com/smpnboyolangu1-lab/smartcbt-mobile-APK/releases/download/v2.9.5/SmartCBT_v2.9.5.apk',
+            fileApkUrl: '/uploads/smartcbt-latest.apk',
             fileSizeMb,
             checksumSha256: sha256,
             isForceUpdate: true,

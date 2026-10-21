@@ -103,6 +103,7 @@ class ScannerActivity : AppCompatActivity() {
     private var tvScannerSub: TextView? = null
     private var tvServerClock: TextView? = null
     private var tvServerDate: TextView? = null
+    private var paiScannedSuccessCount = 0
     private val clockHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private val clockTicker = object : Runnable {
         override fun run() {
@@ -533,7 +534,7 @@ class ScannerActivity : AppCompatActivity() {
             return
         }
 
-        if (scanMode == MODE_SATPAM_GATEPASS || scannedCode.startsWith("SMARTCBT-GATEPASS:") || scannedCode.startsWith("SMARTCBT-EXITPASS:") || scannedCode.startsWith("GP-CHK-")) {
+        if (scanMode == MODE_SATPAM_GATEPASS || scannedCode.startsWith("SMARTCBT-GATEPASS:") || scannedCode.startsWith("SMARTCBT-GATEPASS-DYN:") || scannedCode.startsWith("SMARTCBT-EXITPASS:") || scannedCode.startsWith("GP-CHK-")) {
             handleSatpamGatepassScan(scannedCode)
             return
         }
@@ -543,12 +544,21 @@ class ScannerActivity : AppCompatActivity() {
             return
         }
 
-        if (scanMode == MODE_PAI_STUDENT_CARD) {
+        if (scanMode == MODE_PAI_STUDENT_CARD || (scanMode == MODE_PRAYER && (scannedCode.startsWith("STUDENT_MEMBER:") || scannedCode.startsWith("STUDENT_") || scannedCode.startsWith("NISN:")))) {
             handlePaiStudentCardScan(scannedCode)
             return
         }
 
-        if (scanMode == MODE_PRAYER || scannedCode.contains("SHOLAT", ignoreCase = true) || scannedCode.contains("MASJID", ignoreCase = true)) {
+        val isPrayerBarcode = scanMode == MODE_PRAYER || 
+            scannedCode.contains("SHOLAT", ignoreCase = true) || 
+            scannedCode.contains("MASJID", ignoreCase = true) || 
+            scannedCode.contains("MUSHOLA", ignoreCase = true) || 
+            scannedCode.contains("KEPUTRIAN", ignoreCase = true) || 
+            scannedCode.contains("DHUHA", ignoreCase = true) || 
+            scannedCode.contains("BARCODE_SHOLAT", ignoreCase = true) ||
+            scannedCode.contains("PULANG_MUSHOLA", ignoreCase = true)
+
+        if (isPrayerBarcode) {
             handlePrayerScan(scannedCode)
             return
         }
@@ -624,7 +634,15 @@ class ScannerActivity : AppCompatActivity() {
                 val body = response.body()
                 val isSuccess = response.isSuccessful && body?.success == true
                 val gp = body?.data
-                val studentInfo = if (gp?.student != null) "\n\n👤 Siswa: ${gp.student.name ?: "-"} (${gp.student.className ?: "-"})\n🏷️ Kategori: ${gp.leaveCategory ?: "-"}\n💬 Alasan: ${gp.reason ?: "-"}" else ""
+                val normCategory = gp?.categoryLabel ?: when (gp?.leaveCategory?.lowercase()) {
+                    "sick" -> "🏥 Pulang Sakit (UKS/BK)"
+                    "dispensation" -> "🎖️ Dispensasi Lomba / Organisasi"
+                    "urgent_family" -> "🏠 Kepentingan Keluarga Mendesak"
+                    else -> gp?.leaveCategory ?: "Dispensasi Khusus"
+                }
+                val studentInfo = if (gp?.student != null) {
+                    "\n\n👤 Siswa: ${gp.student.name ?: "-"} (${gp.student.className ?: "-"})\n🏷️ Status Izin: $normCategory\n💬 Alasan: ${gp.reason ?: "-"}\n🚗 Penjemput: ${gp.pickupBy ?: "Mandiri"}"
+                } else ""
                 val errMsg = if (!isSuccess) {
                     try {
                         val rawErr = response.errorBody()?.string() ?: ""
@@ -642,11 +660,15 @@ class ScannerActivity : AppCompatActivity() {
                         if (body?.action == "RETURN" || satpamAction == "RETURN") "✅ SISWA KEMBALI MASUK" else "✅ IZIN KELUAR SAH (SATPAM)"
                     } else "⛔ GATEPASS DITOLAK",
                     subtitle = if (isSuccess) {
-                        if (body?.action == "RETURN" || satpamAction == "RETURN") "Tercatat Kembali Masuk Kampus" else "Siswa Diizinkan Melewati Gerbang"
+                        if (body?.action == "RETURN" || satpamAction == "RETURN") "Tercatat Kembali Masuk • $normCategory" else "Siswa Diizinkan Keluar • $normCategory"
                     } else "Verifikasi Pos Keamanan Gagal",
                     message = (if (isSuccess) (body?.message ?: "Gatepass berhasil diverifikasi.") else errMsg) + studentInfo,
                     gateType = if (satpamAction == "RETURN") "RETURN (Kembali Masuk)" else "CHECKOUT (Gatepass Keluar)",
-                    timeStr = timeNow
+                    timeStr = timeNow,
+                    customStudentName = gp?.student?.name,
+                    customClassName = gp?.student?.className,
+                    customNisn = gp?.student?.nisn,
+                    customPhotoUrl = gp?.student?.profilePicUrl
                 )
             }
             override fun onFailure(call: Call<com.school.smartcbt.data.model.SatpamCheckoutResponse>, t: Throwable) {
@@ -739,13 +761,16 @@ class ScannerActivity : AppCompatActivity() {
             return
         }
 
-        if (accuracy > 15.0f) {
+        val maxPrayerAccuracy = if (zoneDegradedThreshold > 15.0f) zoneDegradedThreshold else 100.0f
+        if (accuracy > maxPrayerAccuracy) {
             val timeNow = SimpleDateFormat("HH:mm:ss", Locale("id", "ID")).format(Date()) + " WIB"
+            val voiceMsg = "Sinyal GPS belum presisi di area mushola. Harap mendekat ke mushola sekolah."
+            com.school.smartcbt.utils.TtsVoiceHelper.speak(voiceMsg)
             showModernScanDialog(
                 isSuccess = false,
-                title = "⚠️ Sinyal Satelit Belum Presisi!",
-                subtitle = "Akurasi Wajib ≤ 15 Meter",
-                message = "Akurasi GPS saat ini ±${accuracy.toInt()} meter (melebihi batas maksimal 15 meter). Harap tunggu sinyal satelit terkunci presisi di area mushola sekolah.",
+                title = "⚠️ Sinyal Satelit Belum Terkunci!",
+                subtitle = "Akurasi GPS Melebihi Batas Maksimal",
+                message = "Akurasi GPS saat ini ±${accuracy.toInt()} meter (melebihi toleransi maksimal ±${maxPrayerAccuracy.toInt()}m). Harap mendekat ke area mushola sekolah agar sinyal satelit terkunci.",
                 gateType = "Akurasi ±${accuracy.toInt()}m (Belum Sah)",
                 timeStr = timeNow,
                 lat = lat,
@@ -779,11 +804,55 @@ class ScannerActivity : AppCompatActivity() {
                 val data = response.body()
                 val timeNow = SimpleDateFormat("HH:mm:ss", Locale("id", "ID")).format(Date()) + " WIB"
                 if (response.isSuccessful && data != null && data.success == true) {
-                    val isDhuha = prayerType.contains("DHUHA", ignoreCase = true) || scannedCode.contains("DHUHA", ignoreCase = true)
-                    val successTitle = if (isBerhalangan) "🌸 Presensi Keputrian Tercatat!" else if (isDhuha) "🕌 Presensi Sholat Dhuha Berhasil!" else "🕌 Presensi Sholat Dhuhur Berhasil!"
-                    val successSub = if (isBerhalangan) "Siswi Putri Berhalangan (Keputrian) • Mushola" else if (isDhuha) "Sholat Dhuha Berjamaah • Mushola SMPN 1 Boyolangu" else "Sholat Dhuhur Berjamaah • Mushola SMPN 1 Boyolangu"
-                    val successMsg = data.message ?: if (isBerhalangan) "Presensi kegiatan keputrian siswi putri di mushola telah dicatat resmi." else if (isDhuha) "Alhamdulillah, presensi sholat dhuha di mushola berhasil dicatat." else "Alhamdulillah, presensi sholat dhuhur berjamaah di mushola berhasil dicatat."
-                    val resolvedGateType = if (isBerhalangan) "Keputrian (Haid)" else if (isDhuha) "Sholat Dhuha Mushola" else "Sholat Dhuhur Mushola"
+                    val pKind = (data.prayerType ?: prayerType).uppercase(Locale.ROOT)
+                    val isDhuha = pKind.contains("DHUHA") || scannedCode.contains("DHUHA", ignoreCase = true)
+                    val isJumat = pKind.contains("JUMAT") || scannedCode.contains("JUMAT", ignoreCase = true)
+                    val isPulang = data.isGateOut == true || scannedCode.contains("PULANG", ignoreCase = true)
+                    val isKeputrian = isBerhalangan || pKind.contains("KEPUTRIAN") || scannedCode.contains("KEPUTRIAN", ignoreCase = true)
+
+                    if (isPulang) {
+                        sessionManager.saveTodayGateAttendance(
+                            type = "GATE_OUT",
+                            timeWib = timeNow,
+                            status = "PULANG"
+                        )
+                    }
+
+                    val successTitle = when {
+                        isPulang -> "🕌 Presensi Sholat & Pulang Berhasil!"
+                        isKeputrian -> "🌸 Presensi Keputrian Tercatat!"
+                        isDhuha -> "🕌 Presensi Sholat Dhuha Berhasil!"
+                        isJumat -> "🕌 Presensi Sholat Jumat Berhasil!"
+                        else -> "🕌 Presensi Sholat Dhuhur Berhasil!"
+                    }
+
+                    val successSub = when {
+                        isPulang -> "Presensi Kepulangan Mushola • SMPN 1 Boyolangu"
+                        isKeputrian -> "Siswi Putri Berhalangan (Keputrian) • Mushola"
+                        isDhuha -> "Sholat Dhuha Berjamaah • Mushola SMPN 1 Boyolangu"
+                        isJumat -> "Sholat Jumat Berjamaah • Mushola SMPN 1 Boyolangu"
+                        else -> "Sholat Dhuhur Berjamaah • Mushola SMPN 1 Boyolangu"
+                    }
+
+                    val successMsg = data.message ?: when {
+                        isPulang -> "Alhamdulillah, presensi sholat dan kepulangan di mushola berhasil dicatat resmi."
+                        isKeputrian -> "Presensi kegiatan keputrian siswi putri di mushola telah dicatat resmi."
+                        isDhuha -> "Alhamdulillah, presensi sholat dhuha di mushola berhasil dicatat."
+                        isJumat -> "Alhamdulillah, presensi sholat jumat berjamaah di mushola berhasil dicatat."
+                        else -> "Alhamdulillah, presensi sholat dhuhur berjamaah di mushola berhasil dicatat."
+                    }
+
+                    val resolvedGateType = when {
+                        isPulang -> "Pulang Mushola (Gate-Out)"
+                        isKeputrian -> "Keputrian (Haid)"
+                        isDhuha -> "Sholat Dhuha Mushola"
+                        isJumat -> "Sholat Jumat Mushola"
+                        else -> "Sholat Dhuhur Mushola"
+                    }
+
+                    val voiceToSpeak = data.ttsMessage ?: successMsg
+                    com.school.smartcbt.utils.TtsVoiceHelper.speak(voiceToSpeak)
+
                     showModernScanDialog(
                         isSuccess = true,
                         title = successTitle,
@@ -799,12 +868,26 @@ class ScannerActivity : AppCompatActivity() {
                     val cleanMsg = try {
                         org.json.JSONObject(err).optString("message", err)
                     } catch (e: Exception) { err }
-                    val finalMsg = if (cleanMsg.contains("haid", ignoreCase = true) || cleanMsg.contains("halangan", ignoreCase = true)) {
+
+                    val isReqClassroom = data?.requireClassroomFirst == true ||
+                        cleanMsg.contains("kelas terlebih dahulu", ignoreCase = true) || 
+                        cleanMsg.contains("presensi masuk di ruang kelas", ignoreCase = true)
+
+                    val finalMsg = if (isReqClassroom) {
+                        cleanMsg
+                    } else if (cleanMsg.contains("haid", ignoreCase = true) || cleanMsg.contains("halangan", ignoreCase = true)) {
                         cleanMsg
                     } else {
                         "$cleanMsg\n\n🌸 Catatan: Siswi perempuan yang berhalangan (haid) wajib melapor langsung ke Guru PAI kelas Anda untuk didata absen halangan resmi."
                     }
-                    val isReqClassroom = cleanMsg.contains("kelas terlebih dahulu", ignoreCase = true) || cleanMsg.contains("presensi masuk di ruang kelas", ignoreCase = true)
+
+                    val failureVoice = if (isReqClassroom) {
+                        "Presensi sholat ditolak. Anda wajib melakukan presensi di kelas terlebih dahulu."
+                    } else {
+                        cleanMsg
+                    }
+                    com.school.smartcbt.utils.TtsVoiceHelper.speak(failureVoice)
+
                     showModernScanDialog(
                         isSuccess = false,
                         title = if (isReqClassroom) "⚠️ Wajib Presensi Kelas Terlebih Dahulu" else "⚠️ Presensi Sholat Ditolak",
@@ -832,29 +915,41 @@ class ScannerActivity : AppCompatActivity() {
             "prayerType" to prayerType,
             "status" to "SHOLAT_BERJAMAAH"
         )
-        val progress = android.app.ProgressDialog(this).apply {
-            setMessage("Memverifikasi kartu siswa & sinkronisasi Gate In/Out...")
-            setCancelable(false)
-            show()
-        }
-        ApiClient.getClient(this).paiScanStudentCard(payload).enqueue(object : Callback<BasicResponse> {
-            override fun onResponse(call: Call<BasicResponse>, response: Response<BasicResponse>) {
-                progress.dismiss()
+
+        tvStatusText.text = "⚡ Memverifikasi kartu siswa..."
+        tvStatusText.setTextColor(Color.parseColor("#F59E0B"))
+
+        ApiClient.getClient(this).paiScanStudentCard(payload).enqueue(object : Callback<com.school.smartcbt.data.model.PaiCardScanResponse> {
+            override fun onResponse(call: Call<com.school.smartcbt.data.model.PaiCardScanResponse>, response: Response<com.school.smartcbt.data.model.PaiCardScanResponse>) {
                 if (response.isSuccessful && response.body()?.success == true) {
-                    val msg = response.body()?.message ?: "Kehadiran sholat & gate sekolah siswa berhasil dicatat!"
-                    AlertDialog.Builder(this@ScannerActivity)
-                        .setTitle("✅ Presensi Kartu Siswa Berhasil")
-                        .setMessage(msg)
-                        .setPositiveButton("Scan Siswa Lain") { _, _ ->
+                    paiScannedSuccessCount++
+                    val student = response.body()?.student
+                    val studentName = student?.name ?: "Siswa"
+                    val className = student?.className ?: ""
+                    val pType = student?.prayerType ?: prayerType
+                    val timeScan = student?.time ?: SimpleDateFormat("HH:mm", Locale("id", "ID")).format(Date())
+
+                    // 1. Audio Beep + TTS Suara Informatif
+                    if (pType.equals("KEPUTRIAN", ignoreCase = true)) {
+                        com.school.smartcbt.utils.TtsVoiceHelper.speakPaiScanKeputrianSuccess(studentName, className)
+                    } else {
+                        com.school.smartcbt.utils.TtsVoiceHelper.speakPaiScanSholatSuccess(studentName, className, pType)
+                    }
+
+                    // 2. Tampilkan HUD Informatif
+                    tvScannerSub?.text = "✅ Total Hadir: $paiScannedSuccessCount Siswa"
+                    tvStatusText.text = "✅ $studentName ($className) • Hadir $pType ($timeScan WIB)"
+                    tvStatusText.setTextColor(Color.parseColor("#10B981"))
+                    Toast.makeText(this@ScannerActivity, "✅ $studentName ($className) tercatat sholat & gate!", Toast.LENGTH_SHORT).show()
+
+                    // 3. Auto Re-Arm Scanner setelah 1.6 detik agar Guru tidak perlu menatap/klik tombol apa pun
+                    tvStatusText.postDelayed({
+                        if (!isFinishing && !isDestroyed) {
                             isProcessingScan = false
-                            tvStatusText.text = "Arahkan kamera ke barcode kartu siswa berikutnya..."
+                            tvStatusText.text = "📷 Arahkan kamera ke kartu siswa berikutnya (#${paiScannedSuccessCount + 1})..."
+                            tvStatusText.setTextColor(Color.WHITE)
                         }
-                        .setNegativeButton("Selesai") { _, _ ->
-                            setResult(RESULT_OK)
-                            finish()
-                        }
-                        .setCancelable(false)
-                        .show()
+                    }, 1600)
                 } else {
                     val rawErr = try {
                         val str = response.errorBody()?.string() ?: ""
@@ -862,31 +957,40 @@ class ScannerActivity : AppCompatActivity() {
                     } catch (e: Exception) {
                         response.body()?.message ?: "Gagal memproses kartu siswa"
                     }
-                    AlertDialog.Builder(this@ScannerActivity)
-                        .setTitle("❌ Gagal Scan Kartu")
-                        .setMessage(rawErr)
-                        .setPositiveButton("Coba Lagi") { _, _ ->
+
+                    // Audio Error + TTS Suara Informatif
+                    if (rawErr.contains("tidak ditemukan", ignoreCase = true)) {
+                        com.school.smartcbt.utils.TtsVoiceHelper.speakPaiCardNotFound()
+                    } else {
+                        com.school.smartcbt.utils.TtsVoiceHelper.playBeepError()
+                        com.school.smartcbt.utils.TtsVoiceHelper.speak(rawErr)
+                    }
+
+                    tvStatusText.text = "❌ $rawErr"
+                    tvStatusText.setTextColor(Color.parseColor("#EF4444"))
+
+                    // Auto Re-Arm Scanner setelah 2.2 detik
+                    tvStatusText.postDelayed({
+                        if (!isFinishing && !isDestroyed) {
                             isProcessingScan = false
-                            tvStatusText.text = "Arahkan kamera ke Barcode / QR Kartu Pelajar..."
+                            tvStatusText.text = "📷 Arahkan kamera ke Barcode / QR Kartu Pelajar..."
+                            tvStatusText.setTextColor(Color.WHITE)
                         }
-                        .setNegativeButton("Tutup") { _, _ ->
-                            finish()
-                        }
-                        .setCancelable(false)
-                        .show()
+                    }, 2200)
                 }
             }
 
-            override fun onFailure(call: Call<BasicResponse>, t: Throwable) {
-                progress.dismiss()
-                AlertDialog.Builder(this@ScannerActivity)
-                    .setTitle("⚠️ Masalah Jaringan")
-                    .setMessage(t.message ?: "Koneksi terputus")
-                    .setPositiveButton("Coba Lagi") { _, _ ->
+            override fun onFailure(call: Call<com.school.smartcbt.data.model.PaiCardScanResponse>, t: Throwable) {
+                com.school.smartcbt.utils.TtsVoiceHelper.playBeepError()
+                tvStatusText.text = "⚠️ Masalah Jaringan: ${t.message}"
+                tvStatusText.setTextColor(Color.parseColor("#EF4444"))
+                tvStatusText.postDelayed({
+                    if (!isFinishing && !isDestroyed) {
                         isProcessingScan = false
+                        tvStatusText.text = "📷 Arahkan kamera ke Barcode / QR Kartu Pelajar..."
+                        tvStatusText.setTextColor(Color.WHITE)
                     }
-                    .setCancelable(false)
-                    .show()
+                }, 2200)
             }
         })
     }
@@ -1502,7 +1606,11 @@ class ScannerActivity : AppCompatActivity() {
         isWarningYellow: Boolean = false,
         scannedCode: String? = null,
         isFakeGps: Boolean = false,
-        accuracy: Float? = null
+        accuracy: Float? = null,
+        customStudentName: String? = null,
+        customClassName: String? = null,
+        customNisn: String? = null,
+        customPhotoUrl: String? = null
     ) {
         if (isFinishing || isDestroyed) {
             return
@@ -1542,9 +1650,9 @@ class ScannerActivity : AppCompatActivity() {
         val btnSecondary = dialogView.findViewById<Button>(R.id.btnScanResultSecondary)
         val btnPrimary = dialogView.findViewById<Button>(R.id.btnScanResultPrimary)
 
-        val sName = sessionManager.getName().ifEmpty { "Siswa" }
-        val sClass = sessionManager.getClassName().ifEmpty { "VII-A" }
-        val sNisn = sessionManager.getNisn().ifEmpty { sessionManager.getUsername() }
+        val sName = customStudentName ?: sessionManager.getName().ifEmpty { "Siswa" }
+        val sClass = customClassName ?: sessionManager.getClassName().ifEmpty { "VII-A" }
+        val sNisn = customNisn ?: sessionManager.getNisn().ifEmpty { sessionManager.getUsername() }
 
         tvStudentName.text = sName
         tvStudentClassNisn.text = "Kelas $sClass • NISN: $sNisn"
@@ -1559,7 +1667,7 @@ class ScannerActivity : AppCompatActivity() {
             tvGpsStatus?.text = "-"
         }
 
-        val picUrl = sessionManager.getProfilePicUrl()
+        val picUrl = customPhotoUrl ?: sessionManager.getProfilePicUrl()
         if (!picUrl.isNullOrEmpty() && ivStudentPhoto != null) {
             val baseServer = sessionManager.getServerIp().trimEnd('/')
             val fullUrl = if (picUrl.startsWith("http")) picUrl else "$baseServer${if (picUrl.startsWith("/")) "" else "/"}$picUrl"
@@ -1572,11 +1680,49 @@ class ScannerActivity : AppCompatActivity() {
             try {
                 com.school.smartcbt.utils.TtsVoiceHelper.playBeepSuccess()
             } catch (e: Exception) {}
+            val isGatepassCheckout = gateType.contains("CHECKOUT", ignoreCase = true) || gateType.contains("gatepass", ignoreCase = true)
+            val isGatepassReturn = gateType.contains("RETURN", ignoreCase = true) || gateType.contains("kembali", ignoreCase = true)
             val isMushola = gateType.contains("mushola", ignoreCase = true) || gateType.contains("sholat", ignoreCase = true)
             val isMatpel = gateType.contains("matpel", ignoreCase = true) || gateType.contains("pelajaran", ignoreCase = true) || gateType.contains("kbm", ignoreCase = true)
-            val isGateOut = gateType.contains("pulang", ignoreCase = true) || gateType.contains("out", ignoreCase = true)
+            val isGateOut = !isGatepassCheckout && !isGatepassReturn && (gateType.contains("pulang", ignoreCase = true) || gateType.contains("out", ignoreCase = true))
             
-            if (isMushola) {
+            if (isGatepassCheckout) {
+                layoutHeaderBanner.setBackgroundResource(R.drawable.bg_biodata_header_gradient)
+                tvScanResultIcon.text = "🛡️"
+                tvScanResultIcon.setTextColor(Color.parseColor("#D97706"))
+                tvScanResultTitle.text = "IZIN KELUAR SAH (SATPAM) ✅"
+                tvScanResultSubtitle.text = subtitle
+                
+                tvScanTypeLabel?.text = "POS KEAMANAN & GERBANG SEKOLAH"
+                tvLocationVerified?.text = "📍 Terverifikasi di Pos Keamanan SMP Negeri 1 Boyolangu"
+                
+                tvGateTypeBadge?.text = "🛡️ GATEPASS KELUAR"
+                tvGateTypeBadge?.setBackgroundColor(Color.parseColor("#FEF3C7"))
+                tvGateTypeBadge?.setTextColor(Color.parseColor("#92400E"))
+                btnPrimary.setBackgroundColor(Color.parseColor("#059669"))
+                btnPrimary.text = "Selesai (Siswa Diizinkan Keluar)"
+                layoutParentNotifBadge.visibility = View.VISIBLE
+                tvParentNotifText.text = "Laporan & Notifikasi Terkirim ke Orang Tua, Wali Kelas & BK"
+                tvParentNotifDetail?.text = "Siswa $sName telah diverifikasi keluar gerbang sekolah pada $timeStr WIB."
+            } else if (isGatepassReturn) {
+                layoutHeaderBanner.setBackgroundResource(R.drawable.bg_matpel_header_gradient)
+                tvScanResultIcon.text = "🏫"
+                tvScanResultIcon.setTextColor(Color.parseColor("#2563EB"))
+                tvScanResultTitle.text = "KEMBALI KE SEKOLAH (SATPAM) ✅"
+                tvScanResultSubtitle.text = subtitle
+                
+                tvScanTypeLabel?.text = "POS KEAMANAN (KEMBALI KE SEKOLAH)"
+                tvLocationVerified?.text = "📍 Terverifikasi di Pos Satpam SMP Negeri 1 Boyolangu"
+                
+                tvGateTypeBadge?.text = "🎯 KEMBALI KE SEKOLAH"
+                tvGateTypeBadge?.setBackgroundColor(Color.parseColor("#DBEAFE"))
+                tvGateTypeBadge?.setTextColor(Color.parseColor("#1E40AF"))
+                btnPrimary.setBackgroundColor(Color.parseColor("#2563EB"))
+                btnPrimary.text = "Selesai (Siswa Kembali)"
+                layoutParentNotifBadge.visibility = View.VISIBLE
+                tvParentNotifText.text = "Laporan Kepulangan Kembali Terkirim ke Wali Kelas & BK"
+                tvParentNotifDetail?.text = "Siswa $sName telah kembali ke lingkungan sekolah pada $timeStr WIB."
+            } else if (isMushola) {
                 layoutHeaderBanner.setBackgroundResource(R.drawable.bg_mushola_header_gradient)
                 tvScanResultIcon.text = "🕌"
                 tvScanResultIcon.setTextColor(Color.parseColor("#059669"))
@@ -1659,25 +1805,27 @@ class ScannerActivity : AppCompatActivity() {
                 }
             }
 
-            val isMusholaOrPrayer = isMushola || gateType.contains("mushola", ignoreCase = true) || gateType.contains("sholat", ignoreCase = true) || gateType.contains("keputrian", ignoreCase = true)
-            if (isMusholaOrPrayer) {
-                if (gateType.contains("DHUHA", ignoreCase = true) || message.contains("dhuha", ignoreCase = true)) {
-                    com.school.smartcbt.utils.TtsVoiceHelper.speakSholatDhuha(sName)
-                } else if (gateType.contains("KEPUTRIAN", ignoreCase = true) || gateType.contains("HAID", ignoreCase = true) || message.contains("keputrian", ignoreCase = true) || message.contains("uzur", ignoreCase = true)) {
-                    com.school.smartcbt.utils.TtsVoiceHelper.speakKeputrian(sName)
-                } else if (gateType.contains("DHUHUR", ignoreCase = true) || message.contains("dhuhur", ignoreCase = true)) {
-                    com.school.smartcbt.utils.TtsVoiceHelper.speakSholatDhuhur(sName)
-                } else {
-                    com.school.smartcbt.utils.TtsVoiceHelper.speakMushola(sName)
-                }
-            } else if (isMatpel) {
-                com.school.smartcbt.utils.TtsVoiceHelper.speak("Presensi mata pelajaran berhasil, $sName.")
-            } else if (isGateOut) {
-                com.school.smartcbt.utils.TtsVoiceHelper.speakPulang(sName)
-            } else if (gateType.contains("RETURN", ignoreCase = true)) {
-                com.school.smartcbt.utils.TtsVoiceHelper.speakSatpamReturn(sName)
-            } else if (gateType.contains("CHECKOUT", ignoreCase = true)) {
+            if (isGatepassCheckout) {
                 com.school.smartcbt.utils.TtsVoiceHelper.speakSatpamCheckout(sName)
+            } else if (isGatepassReturn) {
+                com.school.smartcbt.utils.TtsVoiceHelper.speakSatpamReturn(sName)
+            } else {
+                val isMusholaOrPrayer = isMushola || gateType.contains("mushola", ignoreCase = true) || gateType.contains("sholat", ignoreCase = true) || gateType.contains("keputrian", ignoreCase = true)
+                if (isMusholaOrPrayer) {
+                    if (gateType.contains("DHUHA", ignoreCase = true) || message.contains("dhuha", ignoreCase = true)) {
+                        com.school.smartcbt.utils.TtsVoiceHelper.speakSholatDhuha(sName)
+                    } else if (gateType.contains("KEPUTRIAN", ignoreCase = true) || gateType.contains("HAID", ignoreCase = true) || message.contains("keputrian", ignoreCase = true) || message.contains("uzur", ignoreCase = true)) {
+                        com.school.smartcbt.utils.TtsVoiceHelper.speakKeputrian(sName)
+                    } else if (gateType.contains("DHUHUR", ignoreCase = true) || message.contains("dhuhur", ignoreCase = true)) {
+                        com.school.smartcbt.utils.TtsVoiceHelper.speakSholatDhuhur(sName)
+                    } else {
+                        com.school.smartcbt.utils.TtsVoiceHelper.speakMushola(sName)
+                    }
+                } else if (isMatpel) {
+                    com.school.smartcbt.utils.TtsVoiceHelper.speak("Presensi mata pelajaran berhasil, $sName.")
+                } else if (isGateOut) {
+                    com.school.smartcbt.utils.TtsVoiceHelper.speakPulang(sName)
+                }
             }
             btnSecondary.visibility = View.GONE
 
@@ -2032,6 +2180,16 @@ class ScannerActivity : AppCompatActivity() {
                     subtitle = "KBM Masih Berlangsung",
                     reason = "Presensi kepulangan (Gate-Out) baru dibuka saat jam kepulangan resmi sekolah sesuai jadwal operasional hari ini.",
                     suggestion = "Silakan ikuti KBM hingga selesai. Jika ada keperluan darurat atau sakit, ajukan izin melalui menu Perizinan (Gatepass) di aplikasi."
+                )
+            }
+
+            // 3b. BARCODE PULANG DI KELAS DITUTUP KARENA ADA JADWAL SHOLAT DI MUSHOLA
+            lower.contains("barcode pulang di kelas ditutup") || lower.contains("isclassgateclosedduetoprayer") || (lower.contains("jadwal sholat") && lower.contains("mushola")) -> {
+                ScanFailureExplanation(
+                    title = "🕌 BARCODE PULANG KELAS DITUTUP!",
+                    subtitle = "Ada Jadwal Sholat Berjamaah di Mushola",
+                    reason = "Barcode kepulangan di ruang kelas dinonaktifkan karena kelas Anda memiliki jadwal sholat berjamaah di mushola hari ini. Barcode kepulangan dialihkan ke Mushola Sekolah.",
+                    suggestion = "👉 Silakan segera menuju ke MUSHOLA SEKOLAH untuk menunaikan ibadah sholat dan memindai barcode kepulangan di Mushola (bagi siswi yang berhalangan/haid, pindai di pos Keputrian Mushola)."
                 )
             }
 

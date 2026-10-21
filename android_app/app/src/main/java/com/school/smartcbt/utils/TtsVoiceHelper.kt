@@ -146,6 +146,33 @@ object TtsVoiceHelper {
         speak("Peringatan. Barcode pulang di ruang kelas ditutup karena kelas Anda memiliki jadwal sholat di mushola. Silakan sholat dan pindai barcode kepulangan di mushola.")
     }
 
+    // ================= PRESENSI SHOLAT MUSHOLA (GURU PAI SCAN KARTU) =================
+    fun speakPaiScanSholatSuccess(name: String, className: String, prayerType: String) {
+        val cleanName = cleanStudentName(name)
+        val cleanClass = if (className.isNotBlank() && className != "-") "Kelas $className" else ""
+        playBeepSuccess()
+        speak("$cleanName, $cleanClass, Hadir Sholat $prayerType berjamaah.")
+    }
+
+    fun speakPaiScanKeputrianSuccess(name: String, className: String) {
+        val cleanName = cleanStudentName(name)
+        val cleanClass = if (className.isNotBlank() && className != "-") "Kelas $className" else ""
+        playBeepSuccess()
+        speak("$cleanName, $cleanClass, Hadir Pembinaan Keputrian.")
+    }
+
+    fun speakPaiScanAlreadyDone(name: String, prayerType: String, time: String) {
+        val cleanName = cleanStudentName(name)
+        playBeepError()
+        val timeInfo = if (time.isNotBlank()) "pukul $time" else ""
+        speak("$cleanName sudah tercatat presensi $prayerType $timeInfo.")
+    }
+
+    fun speakPaiCardNotFound() {
+        playBeepError()
+        speak("Presensi ditolak. Kartu pelajar tidak terdaftar di database sekolah.")
+    }
+
     // ================= KASIR E-KANTIN =================
     fun speakPaymentSuccess(name: String, amount: Long) {
         val cleanName = cleanStudentName(name)

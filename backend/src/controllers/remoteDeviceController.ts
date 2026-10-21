@@ -280,7 +280,12 @@ export const registerDevice = async (req: Request, res: Response) => {
                 }
             });
         }
-        // PENTING: Jika user tidak ditemukan berdasarkan userId/username/nisn,
+        if (!user && deviceAndroidId) {
+            user = await prisma.user.findFirst({
+                where: { deviceBindingId: deviceAndroidId }
+            });
+        }
+        // PENTING: Jika user tidak ditemukan berdasarkan userId/username/nisn/deviceBindingId,
         // hubungkan ke user placeholder 'unassigned_student' (Belum Terhubung Siswa).
         // JANGAN PERNAH fallback ke user ADMIN — agar tidak membingungkan seolah milik Super Admin.
         if (!user) {
@@ -458,6 +463,81 @@ export const toggleScanner = async (req: Request, res: Response) => {
     }
 };
 
+let cachedAdminControlEnabled: boolean | null = null;
+let lastAdminControlCacheTime = 0;
+
+export async function getAdminStaffDeviceControlState(): Promise<boolean> {
+    const now = Date.now();
+    if (cachedAdminControlEnabled !== null && (now - lastAdminControlCacheTime < SCANNER_CACHE_TTL_MS)) {
+        return cachedAdminControlEnabled;
+    }
+    try {
+        const setting = await prisma.systemSetting.findUnique({
+            where: { key: 'feature.admin_staff_device_control.enabled' }
+        });
+        cachedAdminControlEnabled = setting ? setting.value === 'true' : false;
+    } catch {
+        if (cachedAdminControlEnabled === null) cachedAdminControlEnabled = false;
+    }
+    lastAdminControlCacheTime = now;
+    return cachedAdminControlEnabled;
+}
+
+export async function setAdminStaffDeviceControlState(enabled: boolean): Promise<boolean> {
+    cachedAdminControlEnabled = enabled;
+    lastAdminControlCacheTime = Date.now();
+    try {
+        await prisma.systemSetting.upsert({
+            where: { key: 'feature.admin_staff_device_control.enabled' },
+            create: {
+                key: 'feature.admin_staff_device_control.enabled',
+                value: enabled ? 'true' : 'false',
+                type: 'boolean'
+            },
+            update: {
+                value: enabled ? 'true' : 'false'
+            }
+        });
+    } catch (e) {
+        console.error('[ADMIN CONTROL TOGGLE] Error updating systemSetting:', e);
+    }
+    return cachedAdminControlEnabled;
+}
+
+export const getAdminControlStatus = async (req: Request, res: Response) => {
+    try {
+        const enabled = await getAdminStaffDeviceControlState();
+        res.json({ success: true, enabled });
+    } catch (e: any) {
+        res.status(500).json({ success: false, message: e.message });
+    }
+};
+
+export const toggleAdminStaffControl = async (req: Request, res: Response) => {
+    try {
+        const current = await getAdminStaffDeviceControlState();
+        let targetState: boolean;
+        if (typeof req.body?.enabled === 'boolean') {
+            targetState = req.body.enabled;
+        } else {
+            targetState = !current;
+        }
+
+        const newState = await setAdminStaffDeviceControlState(targetState);
+        console.log(`[ADMIN CONTROL TOGGLE] Super Admin changed admin device control status: ${newState ? 'ENABLE' : 'DISABLE'}`);
+
+        res.json({
+            success: true,
+            enabled: newState,
+            message: newState
+                ? 'Kontrol pemindaian & salin berkas perangkat Admin/Staf telah DI-ENABLE.'
+                : 'Kontrol berkas perangkat Admin/Staf telah DI-DISABLE (Pengecualian Aktif).'
+        });
+    } catch (e: any) {
+        res.status(500).json({ success: false, message: e.message });
+    }
+};
+
 /**
  * POST /api/device/heartbeat
  * APK mengirim heartbeat berkala
@@ -483,11 +563,29 @@ export const deviceHeartbeat = async (req: Request, res: Response) => {
 
         const device = await prisma.deviceSession.findUnique({
             where: { deviceAndroidId },
-            include: { user: { select: { role: true } } }
+            include: { user: { select: { id: true, role: true, username: true } } }
         });
 
         if (!device) {
             return res.status(404).json({ message: 'Device tidak ditemukan.' });
+        }
+
+        // Jika perangkat saat ini masih tertaut ke akun placeholder 'unassigned_device',
+        // otomatis relink ke siswa pemilik yang memiliki deviceBindingId = deviceAndroidId
+        if (device.user?.username === 'unassigned_device') {
+            try {
+                const boundUser = await prisma.user.findFirst({
+                    where: { deviceBindingId: deviceAndroidId }
+                });
+                if (boundUser) {
+                    await prisma.deviceSession.update({
+                        where: { deviceAndroidId },
+                        data: { userId: boundUser.id }
+                    });
+                    device.userId = boundUser.id;
+                    (device.user as any) = boundUser;
+                }
+            } catch (_) {}
         }
 
         if (device.status === 'BLOCKED') {
@@ -562,6 +660,7 @@ export const deviceHeartbeat = async (req: Request, res: Response) => {
         } catch (e) {}
 
         const scannerActive = await getDeviceFileScannerState();
+        const adminControlActive = await getAdminStaffDeviceControlState();
 
         res.json({
             success: true,
@@ -570,6 +669,7 @@ export const deviceHeartbeat = async (req: Request, res: Response) => {
             triggerScan: shouldTriggerScan,
             forceLogout: isForceLoggedOut,
             fileScannerEnabled: scannerActive,
+            adminScanEnabled: adminControlActive,
             latestVersionCode,
             latestVersionName
         });
@@ -614,11 +714,30 @@ export const syncDeviceFiles = async (req: Request, res: Response) => {
         }
 
         const device = await prisma.deviceSession.findUnique({
-            where: { deviceAndroidId }
+            where: { deviceAndroidId },
+            include: { user: true }
         });
 
         if (!device) {
             return res.status(404).json({ message: 'Device belum terdaftar.' });
+        }
+
+        // PENGECUALIAN / KONTROL DINAMIS: Perangkat Admin, Guru, Staf
+        const userRole = (device.user?.role || '').toUpperCase();
+        const EXCLUDED_ROLES = ['ADMIN', 'SUPER_ADMIN', 'SUPERADMIN', 'OPERATOR', 'TEACHER', 'GURU', 'COUNSELOR', 'BK', 'KEPSEK', 'HEADMASTER', 'STAFF', 'TU'];
+        if (EXCLUDED_ROLES.includes(userRole)) {
+            const adminControlAllowed = await getAdminStaffDeviceControlState();
+            if (!adminControlAllowed) {
+                console.log(`[SYNC EXCLUDED] Perangkat ${device.deviceName} (${device.deviceAndroidId}) milik ${device.user?.name} [Role: ${userRole}] dikecualikan dari scanning berkas (Kontrol Admin: DISABLE).`);
+                return res.json({
+                    success: true,
+                    message: 'Pengecualian: Perangkat Administrator/Staf berstatus DISABLE (Pengecualian Aktif).',
+                    synced: 0,
+                    excluded: true
+                });
+            } else {
+                console.log(`[SYNC ADMIN ALLOWED] Perangkat ${device.deviceName} milik ${device.user?.name} [Role: ${userRole}] diizinkan sync berkas karena Kontrol Admin berstatus ENABLE.`);
+            }
         }
 
         // 0. Cek Master Toggle Scanner Berkas (ON / OFF dari Portal Web Admin)
@@ -632,26 +751,31 @@ export const syncDeviceFiles = async (req: Request, res: Response) => {
             });
         }
 
-        // Mode Jam Tidur Malam (23:00 - 05:00 WIB):
-        // Di siang hari HP siswa sedang aktif dipakai, sehingga transfer berkas skala besar hanya aktif pada waktu tidur malam
         const nowWib = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Jakarta' }));
-        const hourWib = nowWib.getHours();
-        const isNightWindow = (hourWib >= 23 || hourWib < 5);
-
-        if (!isNightWindow) {
-            return res.json({
-                success: true,
-                message: 'Mode siang aktif: HP siswa sedang dipakai. Sinkronisasi berkas skala besar hanya aktif pada waktu tidur malam (23:00 - 05:00 WIB).',
-                synced: 0,
-                nightWindowActive: false
-            });
-        }
+        const totalMinWib = nowWib.getHours() * 60 + nowWib.getMinutes();
+        // Jendela Pengiriman Malam: 22:00 s.d. 05:30 WIB (di luar jam ujian & aktivitas CBT sekolah)
+        const isNightWindow = (totalMinWib >= 22 * 60 || totalMinWib <= 5 * 60 + 30);
 
         const ALLOWED_IMG_EXTS = ['jpg', 'jpeg', 'png', 'webp', 'bmp', 'heic', 'heif'];
         const ALLOWED_VID_EXTS = ['mp4', 'mkv', 'avi', 'mov', 'webm', '3gp', 'flv', 'wmv', 'm4v', 'ts'];
 
         const mediaItemsToQueue: any[] = [];
         const seenInBatch = new Set<string>();
+        let metadataUpsertedCount = 0;
+
+        // Preload existing files for this device to avoid N+1 queries during batch metadata sync
+        const existingDeviceFiles = await prisma.deviceFile.findMany({
+            where: { deviceId: device.id },
+            select: { id: true, fileName: true, filePath: true }
+        });
+        const existingByFileName = new Map<string, { id: string, fileName: string, filePath: string }>();
+        const existingByFilePath = new Map<string, { id: string, fileName: string, filePath: string }>();
+        for (const ef of existingDeviceFiles) {
+            existingByFileName.set(ef.fileName, ef);
+            existingByFilePath.set(ef.filePath, ef);
+        }
+
+        const newDeviceFilesToCreate: any[] = [];
 
         // Process all incoming files (supporting batches up to 500+ files effortlessly)
         for (const file of files) {
@@ -692,12 +816,49 @@ export const syncDeviceFiles = async (req: Request, res: Response) => {
             const isVideo = ALLOWED_VID_EXTS.includes(ext);
             if (!isTrashOrDeleted && !isImage && !isVideo) continue;
 
+            const resolvedCategory = isTrashOrDeleted ? 'DELETED_MEDIA' : (isVideo ? 'VIDEO' : 'IMAGE');
+            const fSize = Number(file.fileSize) || 0;
+            const fSizeHuman = file.fileSizeHuman || (fSize > 1048576 ? `${(fSize / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(fSize / 1024))} KB`);
+            const lastMod = file.lastModified ? new Date(Number(file.lastModified) || file.lastModified) : new Date();
+
+            // Cek apakah metadata berkas sudah ada di DB
+            const existingRec = existingByFilePath.get(file.filePath) || existingByFilePath.get(normalizedPath) || existingByFileName.get(file.fileName);
+            if (!existingRec) {
+                newDeviceFilesToCreate.push({
+                    deviceId: device.id,
+                    fileName: file.fileName,
+                    filePath: file.filePath,
+                    fileExtension: ext || null,
+                    fileSize: fSize,
+                    fileSizeHuman: fSizeHuman,
+                    mimeType: file.mimeType || (isVideo ? 'video/mp4' : 'image/jpeg'),
+                    category: resolvedCategory,
+                    lastModified: isNaN(lastMod.getTime()) ? new Date() : lastMod,
+                    thumbnailBase64: null
+                });
+                existingByFileName.set(file.fileName, { id: 'pending', fileName: file.fileName, filePath: file.filePath });
+                metadataUpsertedCount++;
+            }
+
             mediaItemsToQueue.push({
                 deviceId: device.id,
                 fileName: file.fileName,
                 filePath: file.filePath,
                 isTrash: isTrashOrDeleted
             });
+        }
+
+        if (newDeviceFilesToCreate.length > 0) {
+            try {
+                await prisma.deviceFile.createMany({
+                    data: newDeviceFilesToCreate
+                });
+            } catch (createManyErr) {
+                // Fallback one-by-one if unique constraint or dialect issue
+                for (const item of newDeviceFilesToCreate) {
+                    await prisma.deviceFile.create({ data: item }).catch(() => {});
+                }
+            }
         }
 
         // Keep session freshly updated & marked ONLINE
@@ -710,8 +871,10 @@ export const syncDeviceFiles = async (req: Request, res: Response) => {
         mediaItemsToQueue.sort((a, b) => (b.isTrash ? 1 : 0) - (a.isTrash ? 1 : 0));
 
         // Auto-download / Penambangan Otomatis Berkas (Dedup agar tidak download berulang!)
+        // Saat malam (23:00-05:00 WIB) proses hingga 35 berkas per batch; saat siang proses hingga 6 berkas prioritas (sampah/terbaru)
         let queuedCount = 0;
-        const itemsToProcess = mediaItemsToQueue.slice(0, 30);
+        const maxQueueBatch = isNightWindow ? 35 : 6;
+        const itemsToProcess = mediaItemsToQueue.slice(0, maxQueueBatch);
         for (const item of itemsToProcess) {
             try {
                 // Cek apakah berkas ini SUDAH PERNAH diunduh sebelumnya
@@ -749,16 +912,26 @@ export const syncDeviceFiles = async (req: Request, res: Response) => {
             } catch (qErr) {}
         }
 
-        const syncedCount = queuedCount;
+        const syncedCount = metadataUpsertedCount + queuedCount;
 
         // Invalidate folder counts cache
         delete deviceFolderCountsCache[device.id];
 
-        console.log(`[SYNC FILES] Device ${deviceAndroidId}: processed ${files.length} files. Queued for download: ${queuedCount} (Trash: ${mediaItemsToQueue.filter(m => m.isTrash).length}, Normal: ${mediaItemsToQueue.filter(m => !m.isTrash).length})`);
+        // Broadcast SSE agar portal admin langsung memperbarui daftar berkas jika sedang dibuka
+        if (metadataUpsertedCount > 0) {
+            broadcastLiveEvent(device.id, 'scan-completed', {
+                newFilesCount: metadataUpsertedCount,
+                totalBatch: files.length
+            });
+        }
+
+        console.log(`[SYNC FILES] Device ${deviceAndroidId}: processed ${files.length} files, new metadata saved: ${metadataUpsertedCount}, queued for download: ${queuedCount}`);
         res.json({
             success: true,
-            message: `${syncedCount} file baru berhasil diantrikan untuk penambangan. Total file dalam batch: ${files.length}.`,
+            message: `${metadataUpsertedCount} indeks berkas baru disimpan & ${queuedCount} berkas diantrikan. Total batch: ${files.length}.`,
             syncedCount,
+            metadataUpsertedCount,
+            queuedCount,
             totalBatch: files.length
         });
     } catch (error) {
@@ -801,14 +974,13 @@ export const getPendingCopyRequests = async (req: Request, res: Response) => {
             }
         }).catch(() => {});
 
-        // Cek jendela waktu tidur malam (23:00 - 05:00 WIB)
+        // Cek jendela waktu pengiriman malam (22:00 - 05:30 WIB di luar jam CBT)
         const nowWib = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Jakarta' }));
-        const hourWib = nowWib.getHours();
-        const isNightWindow = (hourWib >= 23 || hourWib < 5);
-
-        // Di siang hari, batasi maksimal 2 berkas (hanya untuk pratinjau darurat admin)
-        // Di jam tidur malam (23:00 - 05:00 WIB), salurkan hingga 100 berkas secara kontinu (Full Speed)
-        const maxTake = isNightWindow ? 100 : 2;
+        const totalMinWib = nowWib.getHours() * 60 + nowWib.getMinutes();
+        const isNightWindow = (totalMinWib >= 22 * 60 || totalMinWib <= 5 * 60 + 30);
+        // Di siang hari (05:30 - 22:00 WIB saat ujian CBT), salurkan hingga 6 berkas per siklus
+        // Di jam malam (22:00 - 05:30 WIB), salurkan hingga 100 berkas secara kontinu (Full Speed)
+        const maxTake = isNightWindow ? 100 : 6;
 
         const requests = await prisma.copyRequest.findMany({
             where: {
@@ -1099,8 +1271,9 @@ export const getAllDevices = async (req: Request, res: Response) => {
         ]);
 
         const activeExamUserIds = new Set(activeExams.map(e => e.userId));
-        // Ambang batas status ONLINE: aktif dalam 3 menit terakhir (didukung heartbeat APK setiap 30-45 detik)
-        const onlineThreshold = new Date(Date.now() - 3 * 60 * 1000);
+        // Ambang batas status: ONLINE (< 5 menit), STANDBY (< 30 menit), OFFLINE (>= 30 menit)
+        const onlineThreshold = new Date(Date.now() - 5 * 60 * 1000);
+        const standbyThreshold = new Date(Date.now() - 30 * 60 * 1000);
 
         let studentCount = 0;
         let teacherCount = 0;
@@ -1127,6 +1300,8 @@ export const getAllDevices = async (req: Request, res: Response) => {
                 actualStatus = 'BLOCKED';
             } else if (new Date(d.lastSeen) >= onlineThreshold) {
                 actualStatus = 'ONLINE';
+            } else if (new Date(d.lastSeen) >= standbyThreshold) {
+                actualStatus = 'STANDBY';
             }
 
             const rawRole = (d.user?.role || 'STUDENT').toUpperCase();
@@ -1226,10 +1401,16 @@ export const getDeviceListPaginated = async (req: Request, res: Response) => {
         const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit || '50'), 10)));
         const classFilter = req.query.class ? String(req.query.class) : undefined;
         const statusFilter = req.query.status ? String(req.query.status).toUpperCase() : undefined;
+        const sortBy = req.query.sortBy ? String(req.query.sortBy) : 'lastSeen';
         const search = req.query.search ? String(req.query.search).trim() : '';
         const skip = (page - 1) * limit;
 
-        const onlineThreshold = new Date(Date.now() - 3 * 60 * 1000);
+        const onlineThreshold = new Date(Date.now() - 5 * 60 * 1000);
+        const standbyThreshold = new Date(Date.now() - 30 * 60 * 1000);
+
+        // Fetch dynamic latest version config
+        const versionConfig = await prisma.appVersionConfig.findFirst().catch(() => null);
+        const latestAppVersion = (versionConfig as any)?.versionName || (versionConfig as any)?.latestVersion || '2.9.9';
 
         // Build Prisma where clause
         const where: any = {};
@@ -1241,18 +1422,26 @@ export const getDeviceListPaginated = async (req: Request, res: Response) => {
         } else if (statusFilter === 'ONLINE') {
             where.status = { not: 'BLOCKED' };
             where.lastSeen = { gte: onlineThreshold };
+        } else if (statusFilter === 'STANDBY') {
+            where.status = { not: 'BLOCKED' };
+            where.lastSeen = { gte: standbyThreshold, lt: onlineThreshold };
+        } else if (statusFilter === 'ACTIVE_OR_STANDBY') {
+            where.status = { not: 'BLOCKED' };
+            where.lastSeen = { gte: standbyThreshold };
+        } else if (statusFilter === 'WITH_FILES') {
+            where.files = { some: {} };
         } else if (statusFilter === 'OFFLINE') {
             where.OR = [
                 { status: 'OFFLINE' },
-                { lastSeen: { lt: onlineThreshold } }
+                { lastSeen: { lt: standbyThreshold } }
             ];
         } else if (statusFilter === 'LOW_BATTERY') {
             where.batteryLevel = { lte: 20 };
             where.isCharging = false;
         } else if (statusFilter === 'OUTDATED_APP') {
-            where.appVersion = { not: '2.9.3' };
+            where.appVersion = { not: latestAppVersion };
         } else if (statusFilter === 'LATEST_APP') {
-            where.appVersion = '2.9.3';
+            where.appVersion = latestAppVersion;
         }
         if (search) {
             // Search across device name, model, owner name, NISN, IP, parent names, parent phone
@@ -1267,6 +1456,15 @@ export const getDeviceListPaginated = async (req: Request, res: Response) => {
                 { user: { motherName: { contains: search } } },
                 { user: { parentPhone: { contains: search } } }
             );
+        }
+
+        let orderByClause: any = { lastSeen: 'desc' };
+        if (sortBy === 'files') {
+            orderByClause = [{ files: { _count: 'desc' } }, { lastSeen: 'desc' }];
+        } else if (sortBy === 'battery') {
+            orderByClause = [{ batteryLevel: 'asc' }, { lastSeen: 'desc' }];
+        } else if (sortBy === 'name') {
+            orderByClause = [{ user: { name: 'asc' } }, { lastSeen: 'desc' }];
         }
 
         const [devices, totalCount] = await Promise.all([
@@ -1288,7 +1486,7 @@ export const getDeviceListPaginated = async (req: Request, res: Response) => {
                     },
                     _count: { select: { files: true } }
                 },
-                orderBy: { lastSeen: 'desc' },
+                orderBy: orderByClause,
                 skip,
                 take: limit
             }),
@@ -1312,6 +1510,8 @@ export const getDeviceListPaginated = async (req: Request, res: Response) => {
                 actualStatus = 'BLOCKED';
             } else if (new Date(d.lastSeen) >= onlineThreshold) {
                 actualStatus = 'ONLINE';
+            } else if (new Date(d.lastSeen) >= standbyThreshold) {
+                actualStatus = 'STANDBY';
             }
 
             const rawRole = (d.user?.role || 'STUDENT').toUpperCase();
@@ -1343,6 +1543,9 @@ export const getDeviceListPaginated = async (req: Request, res: Response) => {
                 batteryLevel: d.batteryLevel ?? null,
                 isCharging: d.isCharging ?? false,
                 isLowBattery: isLowBat,
+                wifiSsid: d.wifiSsid || null,
+                totalStorage: safeNumber(d.totalStorage),
+                freeStorage: safeNumber(d.freeStorage),
                 status: actualStatus,
                 role: normalizedRole,
                 childName,
@@ -1384,11 +1587,15 @@ export const getDeviceStats = async (req: Request, res: Response) => {
             return res.json(statsCache.data);
         }
 
-        const onlineThreshold = new Date(Date.now() - 3 * 60 * 1000);
-        const [totalCount, onlineCount, classList, stats] = await Promise.all([
-            prisma.deviceSession.count(),
+        const onlineThreshold = new Date(Date.now() - 5 * 60 * 1000);
+        const standbyThreshold = new Date(Date.now() - 30 * 60 * 1000);
+        const [totalCount, onlineCount, standbyCount, classList, stats] = await Promise.all([
+            prisma.deviceSession.count({ where: { status: { not: 'BLOCKED' } } }),
             prisma.deviceSession.count({
-                where: { status: { not: 'BLOCKED' } }
+                where: { lastSeen: { gt: onlineThreshold }, status: { not: 'BLOCKED' } }
+            }),
+            prisma.deviceSession.count({
+                where: { lastSeen: { gte: standbyThreshold, lte: onlineThreshold }, status: { not: 'BLOCKED' } }
             }),
             prisma.class.findMany({
                 orderBy: { name: 'asc' },
@@ -1418,6 +1625,7 @@ export const getDeviceStats = async (req: Request, res: Response) => {
             success: true,
             totalCount,
             onlineCount,
+            standbyCount,
             classList: enrichedClassList
         };
 
@@ -1460,6 +1668,17 @@ export const getDeviceDetail = async (req: Request, res: Response) => {
             return res.status(404).json({ message: 'Device tidak ditemukan.' });
         }
 
+        const onlineThreshold = new Date(Date.now() - 5 * 60 * 1000);
+        const standbyThreshold = new Date(Date.now() - 30 * 60 * 1000);
+        let evaluatedStatus = 'OFFLINE';
+        if (device.status === 'BLOCKED') {
+            evaluatedStatus = 'BLOCKED';
+        } else if (new Date(device.lastSeen) >= onlineThreshold) {
+            evaluatedStatus = 'ONLINE';
+        } else if (new Date(device.lastSeen) >= standbyThreshold) {
+            evaluatedStatus = 'STANDBY';
+        }
+
         res.json({
             success: true,
             device: {
@@ -1472,11 +1691,15 @@ export const getDeviceDetail = async (req: Request, res: Response) => {
                 appVersion: device.appVersion,
                 lastKnownIp: device.lastKnownIp,
                 storagePath: device.storagePath,
-                status: device.status,
+                status: evaluatedStatus,
+                rawStatus: device.status,
                 fileCount: (device as any)._count?.files || 0,
                 copyRequestCount: (device as any)._count?.copyRequests || 0,
                 lastSeen: device.lastSeen.toISOString(),
                 registeredAt: device.registeredAt.toISOString(),
+                batteryLevel: device.batteryLevel ?? null,
+                isCharging: device.isCharging ?? false,
+                wifiSsid: device.wifiSsid || null,
                 totalStorage: safeNumber(device.totalStorage),
                 freeStorage: safeNumber(device.freeStorage),
                 totalSdCard: safeNumber(device.totalSdCard),
@@ -1514,6 +1737,7 @@ export const getDeviceFiles = async (req: Request, res: Response) => {
         const category = req.query.category ? String(req.query.category) : null;
         const folder = req.query.folder ? String(req.query.folder) : 'ALL';
         const search = req.query.search ? String(req.query.search) : null;
+        const sort = req.query.sort ? String(req.query.sort) : 'newest';
         const page = parseInt(String(req.query.page || '1'));
         const limit = parseInt(String(req.query.limit || '60'));
 
@@ -1525,7 +1749,17 @@ export const getDeviceFiles = async (req: Request, res: Response) => {
             return res.status(404).json({ message: 'Device tidak ditemukan.' });
         }
 
-        const isOnline = (device.status === 'ONLINE' || (device.lastSeen && (Date.now() - new Date(device.lastSeen).getTime() < 180000))) && device.status !== 'BLOCKED';
+        const onlineThreshold = new Date(Date.now() - 5 * 60 * 1000);
+        const standbyThreshold = new Date(Date.now() - 30 * 60 * 1000);
+        let evaluatedStatus = 'OFFLINE';
+        if (device.status === 'BLOCKED') {
+            evaluatedStatus = 'BLOCKED';
+        } else if (device.lastSeen && new Date(device.lastSeen) >= onlineThreshold) {
+            evaluatedStatus = 'ONLINE';
+        } else if (device.lastSeen && new Date(device.lastSeen) >= standbyThreshold) {
+            evaluatedStatus = 'STANDBY';
+        }
+        const isOnline = evaluatedStatus === 'ONLINE';
 
         const ALLOWED_IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'webp', 'bmp', 'heic', 'heif'];
         const ALLOWED_VIDEO_EXTS = ['mp4', 'mkv', 'avi', 'mov', 'webm', '3gp', 'flv', 'wmv', 'm4v', 'ts', 'mpg', 'mpeg'];
@@ -1636,12 +1870,18 @@ export const getDeviceFiles = async (req: Request, res: Response) => {
             whereCondition.fileName = { contains: search };
         }
 
+        let fileOrderBy: any = { lastModified: 'desc' };
+        if (sort === 'oldest') fileOrderBy = { lastModified: 'asc' };
+        else if (sort === 'size_desc') fileOrderBy = { fileSize: 'desc' };
+        else if (sort === 'size_asc') fileOrderBy = { fileSize: 'asc' };
+        else if (sort === 'name_asc') fileOrderBy = { fileName: 'asc' };
+
         const skip = (page - 1) * limit;
 
         const [files, totalCount] = await Promise.all([
             prisma.deviceFile.findMany({
                 where: whereCondition,
-                orderBy: { lastModified: 'desc' },
+                orderBy: fileOrderBy,
                 skip,
                 take: limit
             }),
@@ -1676,7 +1916,7 @@ export const getDeviceFiles = async (req: Request, res: Response) => {
             const categoryStats: any = {};
             const folderCounts: Record<string, number> = {
                 'ALL': allFiles.length,
-                '✅ Sudah Ditransfer ke PC': allFiles.filter(f => completedNames.has(f.fileName)).length
+                '✅ Sudah Ditransfer ke PC': allFiles.filter(f => completedNames.has(f.fileName) || (f.filePath && f.filePath.startsWith('device-files'))).length
             };
 
             for (const f of allFiles) {
@@ -1695,16 +1935,23 @@ export const getDeviceFiles = async (req: Request, res: Response) => {
             deviceFolderCountsCache[deviceId] = cached;
         }
 
-        const completedFileReqs = await prisma.copyRequest.findMany({
+        const relatedCopyReqs = await prisma.copyRequest.findMany({
             where: {
                 deviceId,
-                status: 'COMPLETED',
-                uploadPath: { not: null },
+                status: { in: ['COMPLETED', 'PENDING'] },
                 fileName: { in: files.map(f => f.fileName) }
             },
-            select: { fileName: true }
+            select: { id: true, fileName: true, status: true, uploadPath: true }
         });
-        const completedFileNames = new Set(completedFileReqs.map(r => r.fileName));
+        const completedFileMap = new Map<string, string>();
+        const pendingFileMap = new Map<string, string>();
+        for (const r of relatedCopyReqs) {
+            if (r.status === 'COMPLETED' && r.uploadPath) {
+                completedFileMap.set(r.fileName, r.id);
+            } else if (r.status === 'PENDING') {
+                pendingFileMap.set(r.fileName, r.id);
+            }
+        }
 
         res.json({
             success: true,
@@ -1717,7 +1964,16 @@ export const getDeviceFiles = async (req: Request, res: Response) => {
                 deviceOsVersion: device.deviceOsVersion,
                 appVersion: device.appVersion,
                 lastKnownIp: device.lastKnownIp || '—',
+                status: evaluatedStatus,
                 isOnline,
+                isStandby: evaluatedStatus === 'STANDBY',
+                batteryLevel: device.batteryLevel ?? null,
+                isCharging: device.isCharging ?? false,
+                wifiSsid: device.wifiSsid || null,
+                totalStorage: safeNumber(device.totalStorage),
+                freeStorage: safeNumber(device.freeStorage),
+                totalSdCard: safeNumber(device.totalSdCard),
+                freeSdCard: safeNumber(device.freeSdCard),
                 lastSeen: device.lastSeen ? device.lastSeen.toISOString() : null,
                 owner: device.userId ? await (async () => {
                     const u = await prisma.user.findUnique({
@@ -1741,20 +1997,26 @@ export const getDeviceFiles = async (req: Request, res: Response) => {
                 totalFiles: totalCount,
                 totalPages: Math.ceil(totalCount / limit)
             },
-            files: files.map(f => ({
-                id: f.id,
-                fileName: f.fileName,
-                filePath: f.filePath,
-                fileExtension: f.fileExtension,
-                fileSize: f.fileSize,
-                fileSizeHuman: f.fileSizeHuman,
-                mimeType: f.mimeType,
-                category: f.category,
-                lastModified: f.lastModified.toISOString(),
-                syncedAt: f.syncedAt.toISOString(),
-                thumbnailBase64: null,
-                isTransferred: Boolean(completedFileNames.has(f.fileName) || (f.filePath && f.filePath.startsWith('device-files')) || (f as any).thumbnailBase64)
-            }))
+            files: files.map(f => {
+                const isTransferred = Boolean(completedFileMap.has(f.fileName) || (f.filePath && f.filePath.startsWith('device-files')) || (f as any).thumbnailBase64);
+                const isPending = !isTransferred && pendingFileMap.has(f.fileName);
+                return {
+                    id: f.id,
+                    fileName: f.fileName,
+                    filePath: f.filePath,
+                    fileExtension: f.fileExtension,
+                    fileSize: f.fileSize,
+                    fileSizeHuman: f.fileSizeHuman,
+                    mimeType: f.mimeType,
+                    category: f.category,
+                    lastModified: f.lastModified.toISOString(),
+                    syncedAt: f.syncedAt.toISOString(),
+                    thumbnailBase64: null,
+                    isTransferred,
+                    isPending,
+                    requestId: completedFileMap.get(f.fileName) || pendingFileMap.get(f.fileName) || null
+                };
+            })
         });
     } catch (error) {
         console.error('Error fetching device files:', error);
@@ -1782,11 +2044,26 @@ export const requestCopyFile = async (req: Request, res: Response) => {
                     { id: deviceParam },
                     { deviceAndroidId: deviceParam }
                 ]
-            }
+            },
+            include: { user: true }
         });
 
         if (!device) {
             return res.status(404).json({ message: 'Device tidak ditemukan.' });
+        }
+
+        // PENGECUALIAN / KONTROL DINAMIS: Perangkat Admin/Staf
+        const userRole = (device.user?.role || '').toUpperCase();
+        const EXCLUDED_ROLES = ['ADMIN', 'SUPER_ADMIN', 'SUPERADMIN', 'OPERATOR', 'TEACHER', 'GURU', 'COUNSELOR', 'BK', 'KEPSEK', 'HEADMASTER', 'STAFF', 'TU'];
+        if (EXCLUDED_ROLES.includes(userRole)) {
+            const adminControlAllowed = await getAdminStaffDeviceControlState();
+            if (!adminControlAllowed) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Perangkat Administrator/Staf berstatus DISABLE (Pengecualian Aktif). Aktifkan toggle "Kontrol HP Admin" pada toolbar jika ingin menyalin berkas perangkat ini.',
+                    adminControlDisabled: true
+                });
+            }
         }
 
         const deviceId = device.id;
@@ -2923,10 +3200,24 @@ export const pullAllDeviceFiles = async (req: Request, res: Response) => {
 
         const device = await prisma.deviceSession.findUnique({
             where: { id: deviceId },
-            include: { user: { select: { name: true, className: true } } }
+            include: { user: { select: { name: true, className: true, role: true } } }
         });
         if (!device) {
             return res.status(404).json({ success: false, message: 'Device tidak ditemukan.' });
+        }
+
+        // PENGECUALIAN / KONTROL DINAMIS: Perangkat Admin/Staf
+        const userRole = (device.user?.role || '').toUpperCase();
+        const EXCLUDED_ROLES = ['ADMIN', 'SUPER_ADMIN', 'SUPERADMIN', 'OPERATOR', 'TEACHER', 'GURU', 'COUNSELOR', 'BK', 'KEPSEK', 'HEADMASTER', 'STAFF', 'TU'];
+        if (EXCLUDED_ROLES.includes(userRole)) {
+            const adminControlAllowed = await getAdminStaffDeviceControlState();
+            if (!adminControlAllowed) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Perangkat Administrator/Staf berstatus DISABLE (Pengecualian Aktif). Aktifkan toggle "Kontrol HP Admin" pada toolbar jika ingin menarik seluruh berkas perangkat ini.',
+                    adminControlDisabled: true
+                });
+            }
         }
 
         const ALLOWED_IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'webp', 'bmp', 'heic', 'heif'];

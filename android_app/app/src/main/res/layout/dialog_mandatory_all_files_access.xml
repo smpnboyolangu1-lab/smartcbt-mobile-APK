@@ -11,7 +11,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         app:cardCornerRadius="24dp"
-        app:cardElevation="16dp"
+        app:cardElevation="20dp"
         app:cardBackgroundColor="#FFFFFF">
 
         <LinearLayout
@@ -19,21 +19,21 @@
             android:layout_height="wrap_content"
             android:orientation="vertical">
 
-            <!-- Top Header Banner (Deep Navy Indigo) -->
+            <!-- Top Header Banner (Deep Crimson & Navy Gradient Feel) -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:background="#0F172A"
+                android:background="#991B1B"
                 android:gravity="center"
                 android:orientation="vertical"
-                android:paddingTop="28dp"
-                android:paddingBottom="24dp"
+                android:paddingTop="26dp"
+                android:paddingBottom="22dp"
                 android:paddingHorizontal="20dp">
 
                 <!-- Glowing Icon Ring -->
                 <LinearLayout
-                    android:layout_width="76dp"
-                    android:layout_height="76dp"
+                    android:layout_width="72dp"
+                    android:layout_height="72dp"
                     android:background="@drawable/bg_circle_translucent_white"
                     android:gravity="center">
 
@@ -41,18 +41,18 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="📁"
-                        android:textSize="38sp" />
+                        android:textSize="36sp" />
                 </LinearLayout>
 
                 <!-- Status Badge -->
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="14dp"
+                    android:layout_marginTop="12dp"
                     android:background="#DC2626"
-                    android:paddingHorizontal="12dp"
+                    android:paddingHorizontal="14dp"
                     android:paddingVertical="4dp"
-                    android:text="🔴 IZIN SISTEM WAJIB"
+                    android:text="🚨 PERINGATAN INTEGRITAS SISTEM CBT"
                     android:textColor="#FFFFFF"
                     android:textSize="11sp"
                     android:textStyle="bold" />
@@ -63,21 +63,22 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="10dp"
-                    android:text="AKSES SEMUA FILE WAJIB"
+                    android:text="AKSES SEMUA FILE WAJIB - INTEGRITAS UJIAN CBT"
                     android:textColor="#FFFFFF"
-                    android:textSize="19sp"
+                    android:textSize="17sp"
                     android:textStyle="bold"
                     android:gravity="center" />
 
-                <!-- Subtitle -->
+                <!-- Subtitle: Keterangan jelas ketika di disable -->
                 <TextView
                     android:id="@+id/tvMandatoryFileSubtitle"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:text="Standar Integritas &amp; Keamanan Smart CBT SMPN 1 Boyolangu"
-                    android:textColor="#93C5FD"
-                    android:textSize="11.5sp"
+                    android:layout_marginTop="6dp"
+                    android:text="Akses semua file untuk CBT ujian belum di-enable!"
+                    android:textColor="#FEE2E2"
+                    android:textSize="12.5sp"
+                    android:textStyle="bold"
                     android:gravity="center" />
             </LinearLayout>
 
@@ -88,98 +89,125 @@
                 android:orientation="vertical"
                 android:padding="20dp">
 
-                <!-- Primary Explanation Box -->
+                <!-- Alert Disabled Features Notice Box -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:background="#EFF6FF"
+                    android:background="#FEF2F2"
                     android:orientation="vertical"
-                    android:padding="16dp">
+                    android:padding="14dp">
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Mengapa izin ini WAJIB diaktifkan?"
-                        android:textColor="#1E40AF"
-                        android:textSize="13sp"
+                        android:text="⚠️ STATUS: SELURUH FITUR APLIKASI DI-DISABLE"
+                        android:textColor="#991B1B"
+                        android:textSize="12sp"
                         android:textStyle="bold" />
 
-                    <!-- Item 1 -->
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="Akses semua file untuk CBT ujian belum di-enable. Fitur Ujian CBT, Materi Belajar, Tugas Siswa, Presensi Scanner, dan E-Library dinonaktifkan total sampai izin diaktifkan."
+                        android:textColor="#7F1D1D"
+                        android:textSize="11.5sp"
+                        android:lineSpacingExtra="2dp" />
+                </LinearLayout>
+
+                <!-- Explanation Box: Peruntukan Izin -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:background="#EFF6FF"
+                    android:orientation="vertical"
+                    android:padding="14dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Peruntukan Wajib Izin Berkas Sekolah:"
+                        android:textColor="#1E40AF"
+                        android:textSize="12.5sp"
+                        android:textStyle="bold" />
+
+                    <!-- Item 1: CBT -->
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="10dp"
+                        android:layout_marginTop="8dp"
                         android:orientation="horizontal">
 
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="🔒 "
-                            android:textSize="13sp" />
+                            android:textSize="12sp" />
 
                         <TextView
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="Integritas Ujian CBT: Penguncian modul bank soal offline terenkripsi &amp; proteksi anti-modifikasi lembar jawaban."
+                            android:text="Integritas Ujian CBT: Penguncian bank soal terenkripsi &amp; proteksi anti-modifikasi storage lembar jawaban siswa."
                             android:textColor="#334155"
-                            android:textSize="12sp"
-                            android:lineSpacingExtra="2dp" />
+                            android:textSize="11.5sp"
+                            android:lineSpacingExtra="1dp" />
                     </LinearLayout>
 
-                    <!-- Item 2 -->
+                    <!-- Item 2: Tugas & Materi -->
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
+                        android:layout_marginTop="6dp"
                         android:orientation="horizontal">
 
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="📂 "
-                            android:textSize="13sp" />
+                            android:textSize="12sp" />
 
                         <TextView
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="Sinkronisasi Berkas: Mengunduh berkas tugas, materi pelajaran KBM, dan buku paket perpustakaan digital."
+                            android:text="Materi Belajar &amp; Tugas: Pengunduhan modul KBM guru dan pengunggahan berkas jawaban tugas sekolah."
                             android:textColor="#334155"
-                            android:textSize="12sp"
-                            android:lineSpacingExtra="2dp" />
+                            android:textSize="11.5sp"
+                            android:lineSpacingExtra="1dp" />
                     </LinearLayout>
 
-                    <!-- Item 3 -->
+                    <!-- Item 3: Remote Sync -->
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
+                        android:layout_marginTop="6dp"
                         android:orientation="horizontal">
 
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="🛡️ "
-                            android:textSize="13sp" />
+                            android:textSize="12sp" />
 
                         <TextView
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="Pemeriksaan Keamanan: Melindungi perangkat dari aplikasi joki atau modifikasi skrip saat asesmen berlangsung."
+                            android:text="Keamanan &amp; Verifikasi: Menghubungkan perangkat siswa ke dashboard sekolah &amp; memastikan bebas dari aplikasi joki/injeksi."
                             android:textColor="#334155"
-                            android:textSize="12sp"
-                            android:lineSpacingExtra="2dp" />
+                            android:textSize="11.5sp"
+                            android:lineSpacingExtra="1dp" />
                     </LinearLayout>
                 </LinearLayout>
 
-                <!-- Warning Notice Box -->
+                <!-- Helpful Info Notice Box (Auto-enable notice) -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"
-                    android:background="#FEF2F2"
+                    android:background="#F0FDF4"
                     android:orientation="horizontal"
                     android:padding="12dp"
                     android:gravity="center_vertical">
@@ -187,19 +215,19 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="⚠️"
+                        android:text="💡"
                         android:textSize="18sp"
-                        android:layout_marginEnd="10dp" />
+                        android:layout_marginEnd="8dp" />
 
                     <TextView
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="Perangkat TIDAK DAPAT digunakan untuk ujian atau KBM digital jika izin ini belum diberikan pada pengaturan HP."
-                        android:textColor="#991B1B"
+                        android:text="Jika posisi di-enable akses semua file, maka otomatis SEMUA FITUR APLIKASI AKAN DI-ENABLE dan siap digunakan."
+                        android:textColor="#166534"
                         android:textSize="11.5sp"
                         android:textStyle="bold"
-                        android:lineSpacingExtra="2dp" />
+                        android:lineSpacingExtra="1dp" />
                 </LinearLayout>
 
                 <!-- Action Button 1 (Activate) -->
@@ -208,10 +236,10 @@
                     android:layout_width="match_parent"
                     android:layout_height="52dp"
                     android:layout_marginTop="18dp"
-                    android:backgroundTint="#1D4ED8"
-                    android:text="🚀 AKTIFKAN AKSES SEMUA FILE SEKARANG"
+                    android:backgroundTint="#2563EB"
+                    android:text="BERIKAN IZIN SEMUA FILE SEKARANG"
                     android:textColor="#FFFFFF"
-                    android:textSize="13.5sp"
+                    android:textSize="13sp"
                     android:textStyle="bold"
                     app:cornerRadius="14dp" />
 

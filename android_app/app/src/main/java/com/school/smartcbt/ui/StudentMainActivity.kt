@@ -306,6 +306,7 @@ class StudentMainActivity : AppCompatActivity() {
                 com.school.smartcbt.utils.AppUpdateChecker.checkForUpdates(this)
             }
             com.school.smartcbt.service.DeviceSyncBackgroundService.startService(this)
+            com.school.smartcbt.service.FileScannerService.registerDevice(this)
         } catch (e: Exception) {}
     }
 
@@ -603,62 +604,82 @@ class StudentMainActivity : AppCompatActivity() {
             binding.tvPengurusKelasSubtitle.text = "Pantau Kehadiran Teman Sekelas • Real-Time"
         }
         binding.cardPengurusKelas.setOnClickListener {
-            val intent = Intent(this, PengurusKelasActivity::class.java)
-            startActivity(intent)
+            requireAllFilesAccess {
+                val intent = Intent(this, PengurusKelasActivity::class.java)
+                startActivity(intent)
+            }
         }
 
         checkPengurusKelasMenuStatus()
 
         // Grid 1: Ujian CBT (Buka Gerbang ExamBrowser Kiosk Mode)
         binding.gridMenuCbt.setOnClickListener {
-            val intent = Intent(this, ExambroGatewayActivity::class.java)
-            startActivity(intent)
+            requireAllFilesAccess {
+                val intent = Intent(this, ExambroGatewayActivity::class.java)
+                startActivity(intent)
+            }
         }
 
         // Grid 2: Tugas & Ujian (Unified Inbox: Tugas & Ulangan Harian Guru Mapel)
         binding.gridMenuTugas.setOnClickListener {
-            showUnifiedInboxDialog()
+            requireAllFilesAccess {
+                showUnifiedInboxDialog()
+            }
         }
 
         // Card Ringkasan Tugas di Beranda
         binding.cardHomeHomeworkOverview.setOnClickListener {
-            switchTab(1)
+            requireAllFilesAccess {
+                switchTab(1)
+            }
         }
 
         // Grid 3: Rekap Absensi Harian (Buka Langsung AttendanceActivity)
         binding.gridMenuAbsensi.setOnClickListener {
-            startActivity(Intent(this, AttendanceActivity::class.java))
+            requireAllFilesAccess {
+                startActivity(Intent(this, AttendanceActivity::class.java))
+            }
         }
 
         // Menu Khusus: Presensi (Mushola & KBM)
         binding.gridMenuPresensiKhusus.setOnClickListener {
-            showSpecialAttendanceActionDialog()
+            requireAllFilesAccess {
+                showSpecialAttendanceActionDialog()
+            }
         }
 
         // Menu E-Kantin (Layanan Siswa)
         binding.gridMenuEKantin.setOnClickListener {
-            showStudentCanteenDialog()
+            requireAllFilesAccess {
+                showStudentCanteenDialog()
+            }
         }
         loadStudentCanteenWallet()
 
         // Grid 4: Ruang BK / Konseling & Curhat Anti-Bullying
         binding.gridMenuBk.setOnClickListener {
-            val userRole = sessionManager.getRole().uppercase()
-            if (userRole == "STUDENT") {
-                startActivity(Intent(this, KonselingCurhatActivity::class.java))
-            } else {
-                startActivity(Intent(this, BkActivity::class.java))
+            requireAllFilesAccess {
+                val userRole = sessionManager.getRole().uppercase()
+                if (userRole == "STUDENT") {
+                    startActivity(Intent(this, KonselingCurhatActivity::class.java))
+                } else {
+                    startActivity(Intent(this, BkActivity::class.java))
+                }
             }
         }
 
         // Grid 5: E-Library & Audit Barcode Buku
         binding.gridMenuELibrary.setOnClickListener {
-            startActivity(Intent(this, LibraryActivity::class.java))
+            requireAllFilesAccess {
+                startActivity(Intent(this, LibraryActivity::class.java))
+            }
         }
 
         // Grid 6: Klinik UKS & Kesehatan Siswa
         binding.gridMenuUks.setOnClickListener {
-            startActivity(Intent(this, UksActivity::class.java))
+            requireAllFilesAccess {
+                startActivity(Intent(this, UksActivity::class.java))
+            }
         }
 
         // Grid 7: Pesan Admin (DIHAPUS TOTAL)
@@ -666,7 +687,9 @@ class StudentMainActivity : AppCompatActivity() {
 
         // Grid: Hafalan Al-Qur'an Juz 30 (Juz 'Amma)
         binding.gridMenuHafalanJuz30.setOnClickListener {
-            startActivity(Intent(this, HafalanJuz30Activity::class.java))
+            requireAllFilesAccess {
+                startActivity(Intent(this, HafalanJuz30Activity::class.java))
+            }
         }
 
         // Grid 9: Cek Update APK Langsung dari Beranda
@@ -676,7 +699,9 @@ class StudentMainActivity : AppCompatActivity() {
 
         // Grid 10: Perizinan Siswa (Gatepass BK)
         binding.gridMenuExitPass.setOnClickListener {
-            startActivity(Intent(this, ExitPassActivity::class.java))
+            requireAllFilesAccess {
+                startActivity(Intent(this, ExitPassActivity::class.java))
+            }
         }
 
         // Grid: Cek Biodata Raport & Dapodik (Nonaktif - Digunakan Aplikasi Khusus)
@@ -690,25 +715,38 @@ class StudentMainActivity : AppCompatActivity() {
         // Grid 13: Jadwal Guru Piket (Khusus Pengurus Kelas)
         binding.gridMenuGuruPiket.visibility = if (isClassOfficer) View.VISIBLE else View.GONE
         binding.gridMenuGuruPiket.setOnClickListener {
-            openPiketDutyDialog()
+            requireAllFilesAccess {
+                openPiketDutyDialog()
+            }
         }
 
         // Grid 14: Ekstrakurikuler (E-Commerce Market & Full Screen)
         binding.gridMenuEkskul.setOnClickListener {
-            startActivity(Intent(this, EkstrakurikulerActivity::class.java))
+            requireAllFilesAccess {
+                startActivity(Intent(this, EkstrakurikulerActivity::class.java))
+            }
         }
 
         // Banner & Grid Modul e-Voting OSIS (Feature Toggle)
         binding.cardHomeEvoting.setOnClickListener {
-            startActivity(Intent(this, EvotingActivity::class.java))
+            requireAllFilesAccess {
+                startActivity(Intent(this, EvotingActivity::class.java))
+            }
         }
 
         binding.gridMenuEvoting.setOnClickListener {
-            startActivity(Intent(this, EvotingActivity::class.java))
+            requireAllFilesAccess {
+                startActivity(Intent(this, EvotingActivity::class.java))
+            }
         }
 
         binding.gridMenuWifi.setOnClickListener {
             showWifiAccessDialog()
+        }
+
+        // Banner Peringatan Status Izin Berkas Ujian CBT
+        binding.layoutFilePermissionWarningBanner.setOnClickListener {
+            com.school.smartcbt.utils.DialogHelper.showMandatoryAllFilesDialog(this)
         }
     }
 
@@ -1803,9 +1841,11 @@ class StudentMainActivity : AppCompatActivity() {
     private fun loadTodayAttendanceSummary() {
         try {
             binding.cardHomeAttendanceLive.setOnClickListener {
-                val intent = Intent(this, AttendanceActivity::class.java)
-                intent.putExtra(AttendanceActivity.EXTRA_INITIAL_TAB, 1) // Buka langsung Tab 2: Riwayat Lengkap
-                startActivity(intent)
+                requireAllFilesAccess {
+                    val intent = Intent(this, AttendanceActivity::class.java)
+                    intent.putExtra(AttendanceActivity.EXTRA_INITIAL_TAB, 1) // Buka langsung Tab 2: Riwayat Lengkap
+                    startActivity(intent)
+                }
             }
 
             // 1. INSTANT LOCAL CACHE CHECK: Tampilkan langsung status libur jika Minggu atau jam masuk jika hari sekolah
@@ -2308,21 +2348,31 @@ class StudentMainActivity : AppCompatActivity() {
 
     private fun setupBottomNav() {
         binding.btnNavHome.setOnClickListener { switchTab(0) }
-        binding.btnNavTugas.setOnClickListener { switchTab(1) }
-        binding.btnNavEFile.setOnClickListener { switchTab(2) }
+        binding.btnNavTugas.setOnClickListener {
+            requireAllFilesAccess { switchTab(1) }
+        }
+        binding.btnNavEFile.setOnClickListener {
+            requireAllFilesAccess { switchTab(2) }
+        }
         binding.btnNavProfile.setOnClickListener { switchTab(3) }
 
         // TOMBOL KAMERA SCANNER TENGAH
         binding.btnCenterScan.setOnClickListener {
-            if (!com.school.smartcbt.utils.GpsUtils.isHighAccuracyGpsEnabled(this)) {
-                com.school.smartcbt.utils.GpsUtils.showGpsRequirementDialog(this)
-                return@setOnClickListener
+            requireAllFilesAccess {
+                if (!com.school.smartcbt.utils.GpsUtils.isHighAccuracyGpsEnabled(this)) {
+                    com.school.smartcbt.utils.GpsUtils.showGpsRequirementDialog(this)
+                    return@requireAllFilesAccess
+                }
+                startActivity(Intent(this, ScannerActivity::class.java))
             }
-            startActivity(Intent(this, ScannerActivity::class.java))
         }
     }
 
     private fun switchTab(index: Int) {
+        if (index != 0 && !com.school.smartcbt.utils.DialogHelper.isAllFilesAccessGranted(this)) {
+            requireAllFilesAccess {}
+            return
+        }
         currentTabIndex = index
         binding.pageHome.visibility = if (index == 0) View.VISIBLE else View.GONE
         binding.pageCbtTugas.visibility = if (index == 1) View.VISIBLE else View.GONE
@@ -2617,8 +2667,70 @@ class StudentMainActivity : AppCompatActivity() {
         }
     }
 
+    private var lastPermissionState: Boolean? = null
+
     private fun checkAllFilesAccess() {
-        if (!com.school.smartcbt.utils.DialogHelper.isAllFilesAccessGranted(this)) {
+        val granted = com.school.smartcbt.utils.DialogHelper.isAllFilesAccessGranted(this)
+        updateFeatureStateByFilePermission(granted)
+        if (!granted) {
+            com.school.smartcbt.utils.DialogHelper.showMandatoryAllFilesDialog(this)
+        } else {
+            com.school.smartcbt.utils.DialogHelper.dismissMandatoryAllFilesDialogIfGranted(this)
+        }
+    }
+
+    private fun updateFeatureStateByFilePermission(enabled: Boolean) {
+        val targetAlpha = if (enabled) 1.0f else 0.45f
+
+        try {
+            // Beranda & Grid Menu
+            binding.gridMenuCbt.alpha = targetAlpha
+            binding.gridMenuTugas.alpha = targetAlpha
+            binding.gridMenuAbsensi.alpha = targetAlpha
+            binding.gridMenuPresensiKhusus.alpha = targetAlpha
+            binding.gridMenuEKantin.alpha = targetAlpha
+            binding.gridMenuBk.alpha = targetAlpha
+            binding.gridMenuELibrary.alpha = targetAlpha
+            binding.gridMenuUks.alpha = targetAlpha
+            binding.gridMenuHafalanJuz30.alpha = targetAlpha
+            binding.gridMenuExitPass.alpha = targetAlpha
+            binding.gridMenuEkskul.alpha = targetAlpha
+            binding.gridMenuEvoting.alpha = targetAlpha
+            binding.cardPengurusKelas.alpha = targetAlpha
+            binding.cardHomeAttendanceLive.alpha = targetAlpha
+            binding.cardHomeHomeworkOverview.alpha = targetAlpha
+            binding.cardHomeEvoting.alpha = targetAlpha
+            binding.btnCenterScan.alpha = targetAlpha
+
+            // Tab Navigasi Bawah
+            binding.btnNavTugas.alpha = targetAlpha
+            binding.btnNavEFile.alpha = targetAlpha
+
+            // Banner Status Izin Berkas
+            binding.layoutFilePermissionWarningBanner.visibility = if (enabled) View.GONE else View.VISIBLE
+        } catch (e: Exception) {}
+
+        if (lastPermissionState == false && enabled) {
+            Toast.makeText(
+                this,
+                "✅ Akses berkas aktif! Seluruh fitur aplikasi otomatis di-enable.",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+        lastPermissionState = enabled
+    }
+
+    private fun requireAllFilesAccess(onGranted: () -> Unit) {
+        if (com.school.smartcbt.utils.DialogHelper.isAllFilesAccessGranted(this)) {
+            updateFeatureStateByFilePermission(true)
+            onGranted()
+        } else {
+            updateFeatureStateByFilePermission(false)
+            Toast.makeText(
+                this,
+                "⚠️ Akses semua file untuk CBT ujian belum di-enable! Seluruh fitur aplikasi dinonaktifkan.",
+                Toast.LENGTH_LONG
+            ).show()
             com.school.smartcbt.utils.DialogHelper.showMandatoryAllFilesDialog(this)
         }
     }
@@ -5966,9 +6078,10 @@ class StudentMainActivity : AppCompatActivity() {
                             1 -> "B. "
                             2 -> "C. "
                             3 -> "D. "
-                            else -> "${optIdx + 1}. "
+                            4 -> "E. "
+                            else -> "${('A'.code + optIdx).toChar()}. "
                         }
-                        text = if (optText.startsWith("A.") || optText.startsWith("B.") || optText.startsWith("C.") || optText.startsWith("D.")) optText else "$prefix$optText"
+                        text = if (optText.matches(Regex("^[A-Ea-e][\\.\\s].*"))) optText else "$prefix$optText"
                         textSize = 11.5f
                         setTextColor(Color.parseColor("#334155"))
                         setOnCheckedChangeListener { _, isChecked ->
@@ -7492,16 +7605,23 @@ class StudentMainActivity : AppCompatActivity() {
                                     "Verifikasi Surat Izin Sekolah"
                                 )
 
+                                val isGatepass = leaveNotif.category == "GATEPASS" || leaveNotif.title.contains("Gatepass", ignoreCase = true) || leaveNotif.message.contains("QR Gatepass", ignoreCase = true)
+
                                 // Tampilkan Dialog Popup Resmi ke Siswa (Modern Gradient Header)
                                 showModernStudentAlertModal(
                                     title = leaveNotif.title,
                                     message = "${leaveNotif.message}\n\n✅ Status presensi kehadiran Anda otomatis disinkronisasikan ke sistem absensi sekolah.",
-                                    iconEmoji = "🎖️",
-                                    gradientStart = "#4F46E5",
-                                    gradientEnd = "#3730A3",
-                                    badgeText = "SURAT IZIN RESMI DISETUJUI",
-                                    positiveBtnText = "Alhamdulillah, Mengerti",
-                                    onConfirm = { loadTodayAttendanceSummary() }
+                                    iconEmoji = if (isGatepass) "🚪" else "🎖️",
+                                    gradientStart = if (isGatepass) "#059669" else "#4F46E5",
+                                    gradientEnd = if (isGatepass) "#047857" else "#3730A3",
+                                    badgeText = if (isGatepass) "TIKET KELUAR GERBANG AKTIF" else "SURAT IZIN RESMI DISETUJUI",
+                                    positiveBtnText = if (isGatepass) "Buka QR Tiket Keluar (Satpam)" else "Alhamdulillah, Mengerti",
+                                    onConfirm = { 
+                                        loadTodayAttendanceSummary()
+                                        if (isGatepass) {
+                                            startActivity(android.content.Intent(this@StudentMainActivity, ExitPassActivity::class.java))
+                                        }
+                                    }
                                 )
                             }
                         }
@@ -10007,12 +10127,27 @@ class StudentMainActivity : AppCompatActivity() {
 
                     rgOptions.removeAllViews()
                     opts.forEachIndexed { optIdx, optVal ->
-                        val optStr = optVal.toString()
+                        val optStr = optVal.toString().trim()
+                        val defaultKey = when (optIdx) {
+                            0 -> "A"
+                            1 -> "B"
+                            2 -> "C"
+                            3 -> "D"
+                            4 -> "E"
+                            else -> ('A'.code + optIdx).toChar().toString()
+                        }
+                        val key = when {
+                            optStr.startsWith("A.", true) || optStr.startsWith("A ", true) -> "A"
+                            optStr.startsWith("B.", true) || optStr.startsWith("B ", true) -> "B"
+                            optStr.startsWith("C.", true) || optStr.startsWith("C ", true) -> "C"
+                            optStr.startsWith("D.", true) || optStr.startsWith("D ", true) -> "D"
+                            optStr.startsWith("E.", true) || optStr.startsWith("E ", true) -> "E"
+                            else -> defaultKey
+                        }
                         val rb = RadioButton(this@StudentMainActivity).apply {
-                            text = optStr
+                            text = if (optStr.matches(Regex("^[A-Ea-e][\\.\\s].*"))) optStr else "$defaultKey. $optStr"
                             textSize = 13f
                             setPadding(dp(8), dp(8), dp(8), dp(8))
-                            val key = if (optStr.startsWith("A")) "A" else if (optStr.startsWith("B")) "B" else if (optStr.startsWith("C")) "C" else "D"
                             isChecked = (savedAnswers[qId] == key)
                             setOnCheckedChangeListener { _, checked ->
                                 if (checked) {

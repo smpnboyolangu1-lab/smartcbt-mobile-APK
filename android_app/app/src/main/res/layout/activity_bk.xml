@@ -105,7 +105,9 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="vertical"
-                        android:padding="16dp">
+                        android:paddingHorizontal="16dp"
+                        android:paddingTop="16dp"
+                        android:paddingBottom="18dp">
 
                         <LinearLayout
                             android:layout_width="match_parent"
@@ -153,26 +155,26 @@
                                     android:background="#581C87"
                                     android:paddingHorizontal="8dp"
                                     android:paddingVertical="2dp"
-                                    android:text="✨"
+                                    android:text="✨ Konselor Sekolah"
                                     android:textColor="#FFFFFF"
                                     android:textSize="10sp"
                                     android:textStyle="bold" />
 
                                 <TextView
                                     android:id="@+id/tvBkSupervisedClasses"
-                                    android:layout_width="wrap_content"
+                                    android:layout_width="match_parent"
                                     android:layout_height="wrap_content"
                                     android:layout_marginTop="6dp"
-                                    android:text="✨"
+                                    android:text="✨ Kelas Binaan"
                                     android:textColor="#EED2FF"
                                     android:textSize="11.5sp"
                                     android:textStyle="bold" />
 
                                 <TextView
                                     android:id="@+id/tvBkSupervisedStats"
-                                    android:layout_width="wrap_content"
+                                    android:layout_width="match_parent"
                                     android:layout_height="wrap_content"
-                                    android:layout_marginTop="2dp"
+                                    android:layout_marginTop="3dp"
                                     android:text="📊 0 Kelas Binaan • 0 Siswa Binaan Total"
                                     android:textColor="#F3E8FF"
                                     android:textSize="10.5sp" />
@@ -181,22 +183,22 @@
                     </LinearLayout>
                 </androidx.cardview.widget.CardView>
 
-                <!-- Quick Summary KPI Cards (3 Kolom Sejajar) -->
-                <!-- Quick Summary KPI Cards (4 Kolom Sejajar) -->
+                <!-- Quick Summary KPI Cards (4 Kolom Sejajar Rapi) -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:layout_marginBottom="14dp"
-                    android:weightSum="3">
+                    android:baselineAligned="false"
+                    android:weightSum="4">
 
                     <!-- Card 1: Total Siswa Binaan (cardQuickClassCount) -->
                     <androidx.cardview.widget.CardView
                         android:id="@+id/cardQuickClassCount"
                         android:layout_width="0dp"
-                        android:layout_height="match_parent"
+                        android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:layout_marginEnd="4dp"
+                        android:layout_marginEnd="3dp"
                         android:clickable="true"
                         android:focusable="true"
                         app:cardCornerRadius="12dp"
@@ -205,7 +207,7 @@
 
                         <LinearLayout
                             android:layout_width="match_parent"
-                            android:layout_height="match_parent"
+                            android:layout_height="wrap_content"
                             android:orientation="horizontal">
 
                             <View
@@ -218,24 +220,29 @@
                                 android:layout_height="wrap_content"
                                 android:layout_weight="1"
                                 android:orientation="vertical"
-                                android:padding="8dp">
+                                android:paddingHorizontal="6dp"
+                                android:paddingVertical="8dp">
 
                                 <TextView
-                                    android:layout_width="wrap_content"
+                                    android:layout_width="match_parent"
                                     android:layout_height="wrap_content"
+                                    android:singleLine="true"
+                                    android:ellipsize="end"
                                     android:text="👥 SISWA"
                                     android:textColor="#059669"
-                                    android:textSize="9.5sp"
+                                    android:textSize="9sp"
                                     android:textStyle="bold" />
 
                                 <TextView
                                     android:id="@+id/tvQuickClassCount"
-                                    android:layout_width="wrap_content"
+                                    android:layout_width="match_parent"
                                     android:layout_height="wrap_content"
                                     android:layout_marginTop="2dp"
-                                    android:text="Memuat..."
+                                    android:singleLine="true"
+                                    android:ellipsize="end"
+                                    android:text="0 Siswa"
                                     android:textColor="#0F172A"
-                                    android:textSize="12sp"
+                                    android:textSize="11.5sp"
                                     android:textStyle="bold" />
                             </LinearLayout>
                         </LinearLayout>
@@ -245,9 +252,9 @@
                     <androidx.cardview.widget.CardView
                         android:id="@+id/cardQuickLeavesCount"
                         android:layout_width="0dp"
-                        android:layout_height="match_parent"
+                        android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:layout_marginHorizontal="2dp"
+                        android:layout_marginHorizontal="3dp"
                         android:clickable="true"
                         android:focusable="true"
                         app:cardCornerRadius="12dp"
@@ -256,7 +263,7 @@
 
                         <LinearLayout
                             android:layout_width="match_parent"
-                            android:layout_height="match_parent"
+                            android:layout_height="wrap_content"
                             android:orientation="horizontal">
 
                             <View
@@ -269,24 +276,29 @@
                                 android:layout_height="wrap_content"
                                 android:layout_weight="1"
                                 android:orientation="vertical"
-                                android:padding="8dp">
+                                android:paddingHorizontal="6dp"
+                                android:paddingVertical="8dp">
 
                                 <TextView
-                                    android:layout_width="wrap_content"
+                                    android:layout_width="match_parent"
                                     android:layout_height="wrap_content"
+                                    android:singleLine="true"
+                                    android:ellipsize="end"
                                     android:text="🚨 KASUS"
                                     android:textColor="#DC2626"
-                                    android:textSize="9.5sp"
+                                    android:textSize="9sp"
                                     android:textStyle="bold" />
 
                                 <TextView
                                     android:id="@+id/tvQuickLeavesCount"
-                                    android:layout_width="wrap_content"
+                                    android:layout_width="match_parent"
                                     android:layout_height="wrap_content"
                                     android:layout_marginTop="2dp"
+                                    android:singleLine="true"
+                                    android:ellipsize="end"
                                     android:text="0 Aktif"
                                     android:textColor="#0F172A"
-                                    android:textSize="12sp"
+                                    android:textSize="11.5sp"
                                     android:textStyle="bold" />
                             </LinearLayout>
                         </LinearLayout>
@@ -296,9 +308,9 @@
                     <androidx.cardview.widget.CardView
                         android:id="@+id/cardQuickCounselingCount"
                         android:layout_width="0dp"
-                        android:layout_height="match_parent"
+                        android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:layout_marginHorizontal="2dp"
+                        android:layout_marginHorizontal="3dp"
                         android:clickable="true"
                         android:focusable="true"
                         app:cardCornerRadius="12dp"
@@ -307,7 +319,7 @@
 
                         <LinearLayout
                             android:layout_width="match_parent"
-                            android:layout_height="match_parent"
+                            android:layout_height="wrap_content"
                             android:orientation="horizontal">
 
                             <View
@@ -320,23 +332,29 @@
                                 android:layout_height="wrap_content"
                                 android:layout_weight="1"
                                 android:orientation="vertical"
-                                android:padding="8dp">
+                                android:paddingHorizontal="6dp"
+                                android:paddingVertical="8dp">
 
                                 <TextView
-                                    android:layout_width="wrap_content"
+                                    android:layout_width="match_parent"
                                     android:layout_height="wrap_content"
+                                    android:singleLine="true"
+                                    android:ellipsize="end"
                                     android:text="💬 KONSELING"
                                     android:textColor="#2563EB"
-                                    android:textSize="9.5sp"
+                                    android:textSize="9sp"
                                     android:textStyle="bold" />
 
                                 <TextView
-                                    android:layout_width="wrap_content"
+                                    android:id="@+id/tvQuickCounselingCount"
+                                    android:layout_width="match_parent"
                                     android:layout_height="wrap_content"
                                     android:layout_marginTop="2dp"
+                                    android:singleLine="true"
+                                    android:ellipsize="end"
                                     android:text="0 Sesi"
                                     android:textColor="#0F172A"
-                                    android:textSize="12sp"
+                                    android:textSize="11.5sp"
                                     android:textStyle="bold" />
                             </LinearLayout>
                         </LinearLayout>
@@ -346,9 +364,9 @@
                     <androidx.cardview.widget.CardView
                         android:id="@+id/cardQuickPointsCount"
                         android:layout_width="0dp"
-                        android:layout_height="match_parent"
+                        android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:layout_marginStart="4dp"
+                        android:layout_marginStart="3dp"
                         android:clickable="true"
                         android:focusable="true"
                         app:cardCornerRadius="12dp"
@@ -357,7 +375,7 @@
 
                         <LinearLayout
                             android:layout_width="match_parent"
-                            android:layout_height="match_parent"
+                            android:layout_height="wrap_content"
                             android:orientation="horizontal">
 
                             <View
@@ -370,24 +388,29 @@
                                 android:layout_height="wrap_content"
                                 android:layout_weight="1"
                                 android:orientation="vertical"
-                                android:padding="8dp">
+                                android:paddingHorizontal="6dp"
+                                android:paddingVertical="8dp">
 
                                 <TextView
-                                    android:layout_width="wrap_content"
+                                    android:layout_width="match_parent"
                                     android:layout_height="wrap_content"
-                                    android:text="âš–ï¸ POIN"
+                                    android:singleLine="true"
+                                    android:ellipsize="end"
+                                    android:text="⚖️ POIN"
                                     android:textColor="#F59E0B"
-                                    android:textSize="9.5sp"
+                                    android:textSize="9sp"
                                     android:textStyle="bold" />
 
                                 <TextView
                                     android:id="@+id/tvQuickPointsCount"
-                                    android:layout_width="wrap_content"
+                                    android:layout_width="match_parent"
                                     android:layout_height="wrap_content"
                                     android:layout_marginTop="2dp"
-                                    android:text="0 Poin"
+                                    android:singleLine="true"
+                                    android:ellipsize="end"
+                                    android:text="0 Kasus"
                                     android:textColor="#0F172A"
-                                    android:textSize="12sp"
+                                    android:textSize="11.5sp"
                                     android:textStyle="bold" />
                             </LinearLayout>
                         </LinearLayout>
@@ -437,7 +460,7 @@
                     </LinearLayout>
                 </androidx.cardview.widget.CardView>
 
-                <!-- Grid Card Menu Utama Layanan BK (E-Commerce Style) -->
+                <!-- Grid Card Menu Utama Layanan BK (Terpadu & Rapi) -->
                 <androidx.cardview.widget.CardView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -461,20 +484,104 @@
                                 android:layout_width="0dp"
                                 android:layout_height="wrap_content"
                                 android:layout_weight="1"
-                                android:text="Layanan BK ▸"
+                                android:text="Layanan &amp; Instrumen BK ▸"
                                 android:textColor="#0F172A"
                                 android:textSize="14sp"
                                 android:textStyle="bold" />
                             <TextView
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:text="Lihat Semua"
+                                android:background="#F3E8FF"
+                                android:paddingHorizontal="8dp"
+                                android:paddingVertical="2dp"
+                                android:text="Terpadu"
                                 android:textColor="#7C3AED"
-                                android:textSize="11sp"
+                                android:textSize="10sp"
                                 android:textStyle="bold" />
                         </LinearLayout>
 
-                        <!-- Row 1: Surat Izin, Presensi, Buku Poin, Konseling -->
+                        <!-- Banner Khusus: Rekap Global Sholat Seluruh Rombel & Deteksi Alpa -->
+                        <androidx.cardview.widget.CardView
+                            android:id="@+id/cardBkGlobalPrayer"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="12dp"
+                            app:cardCornerRadius="14dp"
+                            app:cardElevation="0dp"
+                            app:cardBackgroundColor="#F0FDF4"
+                            android:clickable="true"
+                            android:focusable="true">
+
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:orientation="horizontal"
+                                android:gravity="center_vertical"
+                                android:padding="12dp">
+
+                                <TextView
+                                    android:layout_width="40dp"
+                                    android:layout_height="40dp"
+                                    android:background="#DCFCE7"
+                                    android:gravity="center"
+                                    android:text="🕌"
+                                    android:textSize="20sp" />
+
+                                <LinearLayout
+                                    android:layout_width="0dp"
+                                    android:layout_height="wrap_content"
+                                    android:layout_weight="1"
+                                    android:layout_marginStart="10dp"
+                                    android:orientation="vertical">
+
+                                    <LinearLayout
+                                        android:layout_width="wrap_content"
+                                        android:layout_height="wrap_content"
+                                        android:gravity="center_vertical"
+                                        android:orientation="horizontal">
+
+                                        <TextView
+                                            android:layout_width="wrap_content"
+                                            android:layout_height="wrap_content"
+                                            android:text="Rekap Global Sholat 33 Rombel"
+                                            android:textColor="#14532D"
+                                            android:textSize="12.5sp"
+                                            android:textStyle="bold" />
+
+                                        <TextView
+                                            android:layout_width="wrap_content"
+                                            android:layout_height="wrap_content"
+                                            android:layout_marginStart="6dp"
+                                            android:background="#16A34A"
+                                            android:paddingHorizontal="6dp"
+                                            android:paddingVertical="1dp"
+                                            android:text="BK Global"
+                                            android:textColor="#FFFFFF"
+                                            android:textSize="8.5sp"
+                                            android:textStyle="bold" />
+                                    </LinearLayout>
+
+                                    <TextView
+                                        android:id="@+id/tvBkGlobalPrayerSub"
+                                        android:layout_width="wrap_content"
+                                        android:layout_height="wrap_content"
+                                        android:layout_marginTop="2dp"
+                                        android:text="Monitoring ibadah, rekap makro rombel, &amp; deteksi siswa alpa sholat"
+                                        android:textColor="#166534"
+                                        android:textSize="10sp" />
+                                </LinearLayout>
+
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="›"
+                                    android:textColor="#16A34A"
+                                    android:textSize="18sp"
+                                    android:textStyle="bold" />
+                            </LinearLayout>
+                        </androidx.cardview.widget.CardView>
+
+                        <!-- Row 1: Izin Ortu, Presensi, Buku Poin, Konseling -->
                         <LinearLayout
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
@@ -640,7 +747,7 @@
                             </LinearLayout>
                         </LinearLayout>
 
-                        <!-- Row 2: Dispensasi QR, Presensi Hari Ini, Pusat Bantuan, Cek Update -->
+                        <!-- Row 2: Izin Keluar, Hari Ini, Kotak Pengaduan (Anti-Bullying), Asesmen & Skrining -->
                         <LinearLayout
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
@@ -648,7 +755,7 @@
                             android:orientation="horizontal"
                             android:weightSum="4">
 
-                            <!-- Menu 5: Dispensasi -->
+                            <!-- Menu 5: Dispensasi / Izin Keluar -->
                             <LinearLayout
                                 android:id="@+id/gridMenuGatepass"
                                 android:layout_width="0dp"
@@ -718,7 +825,156 @@
                                     android:textSize="11sp" />
                             </LinearLayout>
 
-                            <!-- Menu 8: Update -->
+                            <!-- Menu 7: Deteksi Dini (SDQ, Sosiometri, AKPD) -->
+                            <LinearLayout
+                                android:id="@+id/cardHubSdq"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:clickable="true"
+                                android:focusable="true"
+                                android:gravity="center"
+                                android:orientation="vertical">
+
+                                <androidx.cardview.widget.CardView
+                                    android:layout_width="52dp"
+                                    android:layout_height="52dp"
+                                    app:cardCornerRadius="16dp"
+                                    app:cardElevation="0dp"
+                                    app:cardBackgroundColor="#0284C7">
+                                    <TextView
+                                        android:layout_width="wrap_content"
+                                        android:layout_height="wrap_content"
+                                        android:layout_gravity="center"
+                                        android:text="🧠"
+                                        android:textSize="22sp" />
+                                </androidx.cardview.widget.CardView>
+
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginTop="6dp"
+                                    android:gravity="center"
+                                    android:text="Asesmen BK"
+                                    android:textColor="#0F172A"
+                                    android:textSize="11sp" />
+                            </LinearLayout>
+
+                            <!-- Menu 8: Pengaduan Bullying (Kotak Rahasia) -->
+                            <LinearLayout
+                                android:id="@+id/cardHubWhistleblow"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:clickable="true"
+                                android:focusable="true"
+                                android:gravity="center"
+                                android:orientation="vertical">
+
+                                <androidx.cardview.widget.CardView
+                                    android:layout_width="52dp"
+                                    android:layout_height="52dp"
+                                    app:cardCornerRadius="16dp"
+                                    app:cardElevation="0dp"
+                                    app:cardBackgroundColor="#E11D48">
+                                    <TextView
+                                        android:layout_width="wrap_content"
+                                        android:layout_height="wrap_content"
+                                        android:layout_gravity="center"
+                                        android:text="🛡️"
+                                        android:textSize="22sp" />
+                                </androidx.cardview.widget.CardView>
+
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginTop="6dp"
+                                    android:gravity="center"
+                                    android:text="Pengaduan"
+                                    android:textColor="#0F172A"
+                                    android:textSize="11sp" />
+                            </LinearLayout>
+                        </LinearLayout>
+
+                        <!-- Row 3: Kontrak & Reward, E-RPL & Laporan, Update APK, Wali Kelas -->
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="16dp"
+                            android:orientation="horizontal"
+                            android:weightSum="4">
+
+                            <!-- Menu 9: Kontrak Perilaku & Poin Reward -->
+                            <LinearLayout
+                                android:id="@+id/cardHubBehaviorContract"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:clickable="true"
+                                android:focusable="true"
+                                android:gravity="center"
+                                android:orientation="vertical">
+
+                                <androidx.cardview.widget.CardView
+                                    android:layout_width="52dp"
+                                    android:layout_height="52dp"
+                                    app:cardCornerRadius="16dp"
+                                    app:cardElevation="0dp"
+                                    app:cardBackgroundColor="#CA8A04">
+                                    <TextView
+                                        android:layout_width="wrap_content"
+                                        android:layout_height="wrap_content"
+                                        android:layout_gravity="center"
+                                        android:text="⭐"
+                                        android:textSize="22sp" />
+                                </androidx.cardview.widget.CardView>
+
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginTop="6dp"
+                                    android:gravity="center"
+                                    android:text="Reward &amp; SP"
+                                    android:textColor="#0F172A"
+                                    android:textSize="11sp" />
+                            </LinearLayout>
+
+                            <!-- Menu 10: E-RPL & Laporan A4 -->
+                            <LinearLayout
+                                android:id="@+id/cardHubRpl"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:clickable="true"
+                                android:focusable="true"
+                                android:gravity="center"
+                                android:orientation="vertical">
+
+                                <androidx.cardview.widget.CardView
+                                    android:layout_width="52dp"
+                                    android:layout_height="52dp"
+                                    app:cardCornerRadius="16dp"
+                                    app:cardElevation="0dp"
+                                    app:cardBackgroundColor="#0F766E">
+                                    <TextView
+                                        android:layout_width="wrap_content"
+                                        android:layout_height="wrap_content"
+                                        android:layout_gravity="center"
+                                        android:text="📑"
+                                        android:textSize="22sp" />
+                                </androidx.cardview.widget.CardView>
+
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginTop="6dp"
+                                    android:gravity="center"
+                                    android:text="RPL &amp; Laporan"
+                                    android:textColor="#0F172A"
+                                    android:textSize="11sp" />
+                            </LinearLayout>
+
+                            <!-- Menu 11: Update -->
                             <LinearLayout
                                 android:id="@+id/gridMenuUpdate"
                                 android:layout_width="0dp"
@@ -752,17 +1008,8 @@
                                     android:textColor="#0F172A"
                                     android:textSize="11sp" />
                             </LinearLayout>
-                        </LinearLayout>
 
-                        <!-- Row 3: Wali Kelas -->
-                        <LinearLayout
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="16dp"
-                            android:orientation="horizontal"
-                            android:weightSum="4">
-
-                            <!-- Menu 9: Wali Kelas -->
+                            <!-- Menu 12: Wali Kelas -->
                             <LinearLayout
                                 android:id="@+id/gridMenuWaliKelas"
                                 android:layout_width="0dp"
@@ -806,21 +1053,25 @@
                                     android:textSize="9sp"
                                     android:visibility="gone" />
                             </LinearLayout>
-
-                            <!-- Spacer Slot 2, 3, 4: Agar Menu Wali Kelas tetap 100% tegak lurus di Kolom 1 -->
-                            <Space
-                                android:layout_width="0dp"
-                                android:layout_height="0dp"
-                                android:layout_weight="1" />
-                            <Space
-                                android:layout_width="0dp"
-                                android:layout_height="0dp"
-                                android:layout_weight="1" />
-                            <Space
-                                android:layout_width="0dp"
-                                android:layout_height="0dp"
-                                android:layout_weight="1" />
                         </LinearLayout>
+                    </LinearLayout>
+                </androidx.cardview.widget.CardView>
+
+                <!-- Hidden Legacy Kemendikbud Separate Box (Merged into Top Grid Above) -->
+                <androidx.cardview.widget.CardView
+                    android:id="@+id/cardBkKemendikbudModules"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:visibility="gone">
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal">
+                        <LinearLayout android:id="@+id/cardHubSociometry" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+                        <LinearLayout android:id="@+id/cardHubAkpd" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+                        <LinearLayout android:id="@+id/cardHubReward" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+                        <LinearLayout android:id="@+id/cardHubMonthlyReport" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+                        <LinearLayout android:id="@+id/cardHubSecurityEthics" android:layout_width="wrap_content" android:layout_height="wrap_content" />
                     </LinearLayout>
                 </androidx.cardview.widget.CardView>
 
@@ -1283,7 +1534,7 @@
                             android:id="@+id/tvBkTingkatLabel"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="1ï¸âƒ£ Pilih Tingkat Kelas:"
+                            android:text="1️⃣ Pilih Tingkat Kelas:"
                             android:textColor="#334155"
                             android:textSize="11.5sp"
                             android:textStyle="bold" />
@@ -1306,7 +1557,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="12dp"
-                            android:text="2ï¸âƒ£ Pilih Sub Kelas (Geser ke Samping):"
+                            android:text="2️⃣ Pilih Sub Kelas (Geser ke Samping):"
                             android:textColor="#334155"
                             android:textSize="11.5sp"
                             android:textStyle="bold" />
@@ -1644,7 +1895,7 @@
                             android:layout_marginTop="8dp"
                             android:background="#DBEAFE"
                             android:padding="8dp"
-                            android:text="â„¹ï¸ Izin sakit orang tua (tanpa surat dokter) otomatis maks 3 hari. Surat Dokter resmi berlaku sesuai rekomendasi dokter &amp; otomatis tercatat di rekap presensi kelas."
+                            android:text="ℹ️ Izin sakit orang tua (tanpa surat dokter) otomatis maks 3 hari. Surat Dokter resmi berlaku sesuai rekomendasi dokter &amp; otomatis tercatat di rekap presensi kelas."
                             android:textColor="#1E40AF"
                             android:textSize="10.5sp" />
 
@@ -1953,6 +2204,36 @@
                         android:textColor="#64748B"
                         android:textSize="11sp" />
                 </LinearLayout>
+
+                <!-- Search Bar Kasus Konseling -->
+                <EditText
+                    android:id="@+id/etSearchBkConsultations"
+                    android:layout_width="match_parent"
+                    android:layout_height="40dp"
+                    android:layout_marginTop="8dp"
+                    android:background="@drawable/bg_badge_rounded"
+                    android:backgroundTint="#F1F5F9"
+                    android:drawableStart="@android:drawable/ic_menu_search"
+                    android:drawablePadding="8dp"
+                    android:hint="Cari nama siswa, subjek kasus, atau kelas..."
+                    android:paddingHorizontal="12dp"
+                    android:textColor="#0F172A"
+                    android:textColorHint="#94A3B8"
+                    android:textSize="12sp" />
+
+                <!-- Filter Status Horizontal: Semua, Menunggu, Tatap Muka, Dibalas, Selesai -->
+                <HorizontalScrollView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:layout_marginBottom="6dp"
+                    android:scrollbars="none">
+                    <LinearLayout
+                        android:id="@+id/llBkStatusChips"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal" />
+                </HorizontalScrollView>
 
                 <LinearLayout
                     android:id="@+id/containerBkMessages"
@@ -2445,7 +2726,7 @@
                 android:layout_marginTop="20dp"
                 android:layout_marginBottom="24dp"
                 android:gravity="center"
-                android:text="Smart CBT v2.8.140 • SMP Negeri 1 Boyolangu"
+                android:text="Smart CBT v1.0.0 • SMP Negeri 1 Boyolangu"
                 android:textColor="#94A3B8"
                 android:textSize="11sp" />
         </LinearLayout>

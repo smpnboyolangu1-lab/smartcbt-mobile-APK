@@ -1416,7 +1416,7 @@ export const getStudentMyHealthHistory = async (req: Request, res: Response) => 
             }),
             prisma.uksVisit.findMany({
                 where: { checkOutTime: null, bedNumber: { not: null } },
-                select: { bedNumber: true }
+                select: { bedNumber: true, user: { select: { name: true, className: true } } }
             })
         ]);
 
@@ -1441,7 +1441,7 @@ export const getStudentMyHealthHistory = async (req: Request, res: Response) => 
                 weight: weight,
                 bmi: bmi,
                 bmiStatus: nutStatus,
-                totalSickDays: Math.max(totalSickDays, 1),
+                totalSickDays: totalSickDays,
                 faintCount,
                 faintingCount: faintCount,
                 isRestingAtUks: !!activeBed,
@@ -2294,7 +2294,11 @@ export const getBkClassRecap = async (req: Request, res: Response) => {
             select: { teachingClasses: true, role: true, className: true }
         });
 
-        // 1. Ambil kelas yang diampu guru BK ini dari BkKelasPlot dan User teachingClasses / className
+        // 1. Ambil seluruh master kelas di SMPN 1 Boyolangu (33 Rombel)
+        const allClasses = await prisma.class.findMany({ orderBy: { name: 'asc' } });
+        const allClassNames = allClasses.map(c => c.name);
+
+        // Ambil kelas yang diampu khusus oleh guru BK ini (jika ada plot spesifik)
         const plots = await (prisma as any).bkKelasPlot.findMany({
             where: { guruBkId: user.id, isActive: true },
             include: { kelas: true },
@@ -2302,34 +2306,28 @@ export const getBkClassRecap = async (req: Request, res: Response) => {
         });
         const plotClassNames = plots.map((p: any) => p.kelas?.name).filter(Boolean);
 
-        let allowedClasses: string[] = [];
+        let allowedClasses: string[] = allClassNames;
         if (plotClassNames.length > 0) {
-            allowedClasses = plotClassNames;
+            // Prioritaskan kelas binaan, namun tetap berikan akses penuh ke seluruh rombel sekolah
+            allowedClasses = Array.from(new Set([...plotClassNames, ...allClassNames]));
         } else if (teacher?.teachingClasses) {
             try {
-                if (teacher.teachingClasses.startsWith('[')) {
-                    allowedClasses = JSON.parse(teacher.teachingClasses);
-                } else {
-                    allowedClasses = teacher.teachingClasses.split(',').map((s: string) => s.trim().replace(/^["']|["']$/g, '')).filter(Boolean);
+                const parsed = teacher.teachingClasses.startsWith('[') 
+                    ? JSON.parse(teacher.teachingClasses)
+                    : teacher.teachingClasses.split(',').map((s: string) => s.trim().replace(/^["']|["']$/g, '')).filter(Boolean);
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                    allowedClasses = Array.from(new Set([...parsed, ...allClassNames]));
                 }
-            } catch {
-                allowedClasses = teacher.teachingClasses.split(',').map((s: string) => s.trim().replace(/^["'\[\]]|["'\[\]]$/g, '')).filter(Boolean);
-            }
+            } catch {}
         }
 
-        if (allowedClasses.length === 0 && teacher?.className) {
-            allowedClasses = [teacher.className];
+        if (allowedClasses.length === 0) {
+            allowedClasses = allClassNames;
         }
 
-        // HANYA Admin / Operator yang default ke semua kelas jika belum diplot
-        if (allowedClasses.length === 0 && (user.role === 'ADMIN' || user.role === 'OPERATOR')) {
-            const allClasses = await prisma.class.findMany({ orderBy: { name: 'asc' } });
-            allowedClasses = allClasses.map(c => c.name);
-        }
-
-        // Kelompokkan kelas berdasarkan Tingkat (VII, VIII, IX)
+        // Kelompokkan kelas secara lengkap berdasarkan Tingkat (Kelas VII, Kelas VIII, Kelas IX)
         const tingkatGroups: { [key: string]: string[] } = {};
-        allowedClasses.forEach(c => {
+        allClassNames.forEach(c => {
             const m = c.match(/^(VII|VIII|IX|X|XI|XII|7|8|9|10|11|12)/i);
             const tingkat = m ? (m[1].toUpperCase().startsWith('7') ? 'Kelas VII' : m[1].toUpperCase().startsWith('8') ? 'Kelas VIII' : m[1].toUpperCase().startsWith('9') ? 'Kelas IX' : `Kelas ${m[1].toUpperCase()}`) : 'Kelas Lainnya';
             if (!tingkatGroups[tingkat]) tingkatGroups[tingkat] = [];
@@ -2339,13 +2337,13 @@ export const getBkClassRecap = async (req: Request, res: Response) => {
 
         // Tentukan target kelas
         let targetClass = requestedClass;
-        if (!targetClass && allowedClasses.length > 0) {
-            targetClass = allowedClasses[0];
+        if (!targetClass || targetClass === 'Semua Kelas Ampuan') {
+            targetClass = plotClassNames.length > 0 ? plotClassNames[0] : (allClassNames[0] || 'VII-A');
         }
 
-        // Ambil daftar siswa di kelas tersebut
+        // Ambil daftar siswa riil di kelas tersebut
         const whereStudent: any = { role: 'STUDENT', isActive: true };
-        if (targetClass && targetClass !== 'ALL') {
+        if (targetClass && targetClass !== 'ALL' && targetClass !== 'Semua Kelas Ampuan') {
             whereStudent.className = targetClass;
         } else if (allowedClasses.length > 0) {
             whereStudent.className = { in: allowedClasses };

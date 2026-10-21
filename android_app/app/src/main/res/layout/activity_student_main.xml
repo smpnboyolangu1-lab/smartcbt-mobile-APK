@@ -169,6 +169,71 @@
                         </LinearLayout>
                     </LinearLayout>
 
+                    <!-- Banner Peringatan Blocking Izin Berkas Ujian CBT -->
+                    <androidx.cardview.widget.CardView
+                        android:id="@+id/layoutFilePermissionWarningBanner"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:visibility="gone"
+                        app:cardBackgroundColor="#FEF2F2"
+                        app:cardCornerRadius="14dp"
+                        app:cardElevation="3dp">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical"
+                            android:padding="12dp">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="🚨"
+                                android:textSize="24sp"
+                                android:layout_marginEnd="10dp" />
+
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:orientation="vertical">
+
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="FITUR APLIKASI DI-DISABLE"
+                                    android:textColor="#991B1B"
+                                    android:textSize="12sp"
+                                    android:textStyle="bold" />
+
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginTop="2dp"
+                                    android:text="Akses semua file untuk CBT ujian belum di-enable. Klik di sini untuk mengaktifkan izin &amp; meng-enable semua fitur."
+                                    android:textColor="#B91C1C"
+                                    android:textSize="11sp"
+                                    android:lineSpacingExtra="1dp" />
+                            </LinearLayout>
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="AKTIFKAN"
+                                android:textColor="#FFFFFF"
+                                android:textSize="10.5sp"
+                                android:textStyle="bold"
+                                android:background="#DC2626"
+                                android:paddingHorizontal="10dp"
+                                android:paddingVertical="5dp"
+                                android:layout_marginStart="8dp" />
+                        </LinearLayout>
+                    </androidx.cardview.widget.CardView>
+
                     <!-- Presensi Digital Gerbang Hari Ini Box -->
                     <LinearLayout
                         android:layout_width="match_parent"
@@ -338,7 +403,7 @@
                                             android:background="#10B981"
                                             android:paddingHorizontal="6dp"
                                             android:paddingVertical="2dp"
-                                            android:text="â— SESI JP"
+                                            android:text="● SESI JP"
                                             android:textColor="#FFFFFF"
                                             android:textSize="8.5sp"
                                             android:textStyle="bold" />
@@ -400,7 +465,7 @@
                                             android:background="#1E293B"
                                             android:gravity="center"
                                             android:paddingVertical="2dp"
-                                            android:text="â± OK"
+                                            android:text="⏱ OK"
                                             android:textColor="#10B981"
                                             android:textSize="8sp"
                                             android:textStyle="bold" />
@@ -442,7 +507,7 @@
                                         android:layout_marginTop="8dp"
                                         android:backgroundTint="#2563EB"
                                         android:padding="0dp"
-                                        android:text="âš¡ Presensi Mapel"
+                                        android:text="⚡ Presensi Mapel"
                                         android:textColor="#FFFFFF"
                                         android:textSize="10sp"
                                         android:textStyle="bold"
@@ -554,7 +619,7 @@
                                 <TextView
                                     android:layout_width="wrap_content"
                                     android:layout_height="wrap_content"
-                                    android:text="â¯"
+                                    android:text="❯"
                                     android:textColor="#94A3B8"
                                     android:textSize="18sp"
                                     android:textStyle="bold" />
@@ -687,7 +752,7 @@
                                     android:id="@+id/tvEvotingStatusIndicator"
                                     android:layout_width="wrap_content"
                                     android:layout_height="wrap_content"
-                                    android:text="â— SESI BUKA"
+                                    android:text="● SESI BUKA"
                                     android:textColor="#10B981"
                                     android:textSize="11sp"
                                     android:textStyle="bold" />
@@ -724,7 +789,7 @@
                                     android:layout_width="0dp"
                                     android:layout_height="wrap_content"
                                     android:layout_weight="1"
-                                    android:text="Buka Surat Suara Digital â†’"
+                                    android:text="Buka Surat Suara Digital →"
                                     android:textColor="#818CF8"
                                     android:textSize="12sp"
                                     android:textStyle="bold" />
@@ -2321,7 +2386,7 @@
                                     <TextView
                                         android:layout_width="wrap_content"
                                         android:layout_height="wrap_content"
-                                        android:text="âœï¸ Sekretaris"
+                                        android:text="📝 Sekretaris"
                                         android:textColor="#059669"
                                         android:textSize="10.5sp"
                                         android:textStyle="bold" />
@@ -2589,7 +2654,7 @@
                     android:layout_marginTop="20dp"
                     android:layout_marginBottom="40dp"
                     android:gravity="center"
-                    android:text="Smart CBT v2.8.137 • SMP Negeri 1 Boyolangu"
+                    android:text="Smart CBT v1.0.0 • SMP Negeri 1 Boyolangu"
                     android:textColor="#94A3B8"
                     android:textSize="11sp" />
 

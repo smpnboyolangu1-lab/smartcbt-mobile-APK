@@ -4,7 +4,8 @@ data class ConsultationUserDto(
     val id: String? = null,
     val name: String? = null,
     val username: String? = null,
-    val className: String? = null
+    val className: String? = null,
+    val nisn: String? = null
 )
 
 data class ConsultationDto(
@@ -18,7 +19,11 @@ data class ConsultationDto(
     val isAnonymous: Boolean,
     val createdAt: String,
     val student: ConsultationUserDto? = null,
-    val counselor: ConsultationUserDto? = null
+    val counselor: ConsultationUserDto? = null,
+    val evidenceUrl: String? = null,
+    val isWhistleblower: Boolean? = false,
+    val bullySuspect: String? = null,
+    val location: String? = null
 )
 
 data class SendReportRequest(

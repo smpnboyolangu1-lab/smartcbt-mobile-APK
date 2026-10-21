@@ -430,8 +430,9 @@ export const verifyLeaveRequest = async (req: Request, res: Response) => {
         const { status, rejectionNote, approvedDaysOverride } = req.body; // 'APPROVED' or 'REJECTED'
         const user = (req as any).user;
         const role = String(user?.role || '').toUpperCase();
-        if (role !== 'BK' && role !== 'COUNSELOR' && role !== 'ADMIN' && role !== 'OPERATOR') {
-            return res.status(403).json({ message: 'Wewenang verifikasi surat izin resmi dipegang khusus oleh Guru BK / Admin Sekolah.' });
+        const isHomeroom = Boolean(user?.homeroomClass || (user?.rolesTambahan && user.rolesTambahan.includes('wali_kelas')));
+        if (role !== 'BK' && role !== 'COUNSELOR' && role !== 'ADMIN' && role !== 'OPERATOR' && !isHomeroom) {
+            return res.status(403).json({ message: 'Wewenang verifikasi surat izin resmi dipegang khusus oleh Guru BK / Wali Kelas / Admin Sekolah.' });
         }
 
         if (!status || (status !== 'APPROVED' && status !== 'REJECTED')) {
@@ -981,7 +982,7 @@ export const revokeStudentLeaveRequest = async (req: Request, res: Response) => 
         // Hapus presensi SICK/PERMISSION yang otomatis terbuat untuk rentang tanggal tersebut
         await prisma.attendance.deleteMany({
             where: {
-                studentId: leaveReq.studentId,
+                userId: leaveReq.studentId,
                 status: { in: ['SICK', 'SAKIT', 'PERMISSION', 'IZIN'] },
                 scanTime: { gte: start, lte: end }
             }

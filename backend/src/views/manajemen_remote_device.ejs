@@ -138,12 +138,13 @@
                 <button onclick="triggerRescanDevice()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3.5 py-1.5 rounded-xl font-bold shadow flex items-center gap-1.5 transition-all" title="Perintahkan HP siswa untuk memindai ulang berkas media">
                     <span>🔄</span> <span>Pindai Ulang Berkas HP</span>
                 </button>
-                <button id="liveToggleBtn" onclick="toggleLiveStream()" class="bg-slate-700 hover:bg-slate-800 text-white px-3.5 py-1.5 rounded-xl font-bold shadow flex items-center gap-1.5 transition-all border border-slate-600 cursor-pointer" title="Klik untuk mengaktifkan/mematikan pemantauan langsung real-time (menghemat kuota/bandwidth)">
+                <button id="liveToggleBtn" onclick="toggleLiveStream()" class="bg-slate-700 hover:bg-slate-800 text-white px-3.5 py-1.5 rounded-xl font-bold shadow flex items-center gap-1.5 transition-all border border-slate-600 cursor-pointer" title="Klik untuk mengaktifkan pemantauan berkas real-time (SSE)">
                     <span id="liveIndicatorDot" class="w-2.5 h-2.5 rounded-full bg-slate-400"></span>
-                    <span id="liveBtnText">Live: OFF</span>
+                    <span id="liveBtnText">📡 Live SSE: Standby (Klik ON)</span>
                 </button>
                 <!-- ON / OFF Remote Device Scanner File Switch -->
                 <% const initialScannerState = (typeof isScannerEnabled !== 'undefined') ? Boolean(isScannerEnabled) : true; %>
+                <% const initialAdminControlState = (typeof isAdminControlEnabled !== 'undefined') ? Boolean(isAdminControlEnabled) : false; %>
                 <div class="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-slate-200 shadow-sm" title="Aktifkan atau matikan pemindai berkas di seluruh HP siswa (hemat database & bandwidth)">
                     <span class="font-bold text-slate-700 flex items-center gap-1">
                         <span>📡</span>
@@ -154,6 +155,20 @@
                     </button>
                     <span id="scannerStatusBadge" class="font-extrabold text-[11px] px-2 py-0.5 rounded-md <%= initialScannerState ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800' %>">
                         <%= initialScannerState ? 'ON' : 'OFF' %>
+                    </span>
+                </div>
+
+                <!-- ON / OFF Kontrol HP Admin & Staf Switch -->
+                <div class="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-slate-200 shadow-sm" title="Aktifkan (ON) atau kecualikan (OFF) pemindaian dan salin berkas pada akun Admin/Guru/Staf">
+                    <span class="font-bold text-slate-700 flex items-center gap-1">
+                        <span>🛡️</span>
+                        <span class="hidden sm:inline">Kontrol Admin:</span>
+                    </span>
+                    <button id="adminControlToggleBtn" onclick="toggleAdminControlGlobal()" class="relative inline-flex items-center h-6 rounded-full w-12 transition-colors focus:outline-none cursor-pointer <%= initialAdminControlState ? 'bg-amber-600' : 'bg-slate-400' %>">
+                        <span id="adminControlToggleDot" class="inline-block w-4 h-4 transform bg-white rounded-full transition-transform <%= initialAdminControlState ? 'translate-x-7' : 'translate-x-1' %>"></span>
+                    </button>
+                    <span id="adminControlStatusBadge" class="font-extrabold text-[11px] px-2 py-0.5 rounded-md <%= initialAdminControlState ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-700' %>">
+                        <%= initialAdminControlState ? 'ON' : 'OFF (Dikecualikan)' %>
                     </span>
                 </div>
             </div>
@@ -213,11 +228,21 @@
                     </select>
 
                     <select id="filterDeviceStatus" onchange="filterDevicesAndReload()" class="text-xs font-bold border-2 border-emerald-200 rounded-xl px-3 py-2 bg-emerald-50 text-emerald-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-sm">
-                        <option value="ALL" selected>📋 Semua Perangkat Siswa (<%= totalCount %> HP)</option>
+                        <option value="ALL" selected>📋 Semua Perangkat (<%= totalCount %> HP)</option>
+                        <option value="ACTIVE_OR_STANDBY">⚡ Aktif + Siaga (Online &amp; Standby)</option>
                         <option value="ONLINE_ONLY">🟢 Terhubung Saja (<%= onlineCount %> HP)</option>
+                        <option value="STANDBY">🟡 Siaga / Background Saja</option>
+                        <option value="WITH_FILES">🖼️ Memiliki Berkas Media (&gt; 0 File)</option>
                         <option value="LOW_BATTERY">🪫 Baterai Lemah (≤ 20%)</option>
-                        <option value="OUTDATED_APP">⚠️ Versi Lama (&lt; v2.9.3)</option>
-                        <option value="LATEST_APP">✅ Versi Terbaru (v2.9.3)</option>
+                        <% const targetVerOption = (typeof latestAppVersion !== 'undefined' && latestAppVersion) ? latestAppVersion : '2.9.9'; %>
+                        <option value="OUTDATED_APP">⚠️ Versi Lama (&lt; v<%= targetVerOption %>)</option>
+                        <option value="LATEST_APP">✅ Versi Terbaru (v<%= targetVerOption %>)</option>
+                    </select>
+                    <select id="sortDeviceBy" onchange="filterDevicesAndReload()" class="text-xs font-bold border-2 border-indigo-200 rounded-xl px-3 py-2 bg-indigo-50 text-indigo-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm" title="Urutkan Daftar Perangkat">
+                        <option value="lastSeen" selected>🕒 Urut: Terakhir Aktif</option>
+                        <option value="files">🖼️ Urut: Jumlah Berkas Terbanyak</option>
+                        <option value="battery">🔋 Urut: Baterai Terendah</option>
+                        <option value="name">🔤 Urut: Nama Perangkat (A-Z)</option>
                     </select>
                     <button onclick="cleanupOfflineDevices()" title="Hapus riwayat perangkat offline yang sudah tidak aktif" class="text-xs font-bold px-3 py-2 bg-rose-50 text-rose-700 hover:bg-rose-100 rounded-xl border border-rose-200 transition-colors flex items-center gap-1">
                         <span>🗑️</span> <span>Bersihkan Offline</span>
@@ -226,7 +251,7 @@
 
                 <!-- Live Search Box (Debounced) -->
                 <div class="flex items-center gap-2 flex-1 max-w-md">
-                    <input type="text" id="searchDevice" oninput="debouncedDeviceSearch()" placeholder="🔍 Cari siswa, orang tua (ayah/ibu), no HP ortu, NISN, device, IP..."
+                    <input type="text" id="searchDevice" oninput="debouncedDeviceSearch()" placeholder="🔍 Cari siswa, guru, orang tua, NISN, device, IP..."
                            class="w-full text-xs border rounded-xl px-3.5 py-2 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
                 </div>
             </div>
@@ -251,8 +276,9 @@
                         <% if (displayDevices && displayDevices.length > 0) { %>
                             <% displayDevices.forEach((d, idx) => { 
                                 const isOnline = d.status === 'ONLINE';
-                                const statusBadgeClass = isOnline ? 'bg-emerald-100 text-emerald-800 border-emerald-300' : 'bg-slate-100 text-slate-500 border-slate-200';
-                                const statusLabel = isOnline ? '🟢 ONLINE' : '⚪ OFFLINE';
+                                const isStandby = d.status === 'STANDBY';
+                                const statusBadgeClass = isOnline ? 'bg-emerald-100 text-emerald-800 border-emerald-300' : (isStandby ? 'bg-amber-100 text-amber-800 border-amber-300' : 'bg-slate-100 text-slate-500 border-slate-200');
+                                const statusLabel = isOnline ? '🟢 ONLINE' : (isStandby ? '🟡 SIAGA' : '⚪ OFFLINE');
                                 const isSelected = (safeSelectedDevice && safeSelectedDevice.id === d.id) || (!safeSelectedDevice && idx === 0);
                                 const ownerName = d.owner?.name || d.user?.name || 'Siswa CBT';
                                 const className = d.owner?.className ? (' (' + d.owner.className + ')') : '';
@@ -267,15 +293,19 @@
                                      data-device-info="<%= safeDevInfo %>"
                                      data-device-owner="<%= safeDevOwner.replace(/"/g, '&quot;') %>"
                                      data-device-online="<%= isOnline ? 'true' : 'false' %>"
+                                     data-device-standby="<%= isStandby ? 'true' : 'false' %>"
                                      data-device-version="<%= d.appVersion || '?' %>"
                                      onclick="selectDevice('<%= d.id %>')">
                                     <div class="flex justify-between items-start pointer-events-none">
                                         <div>
                                             <div class="flex items-center gap-1.5 flex-wrap">
                                                 <p class="font-bold text-sm text-gray-800"><%= d.deviceName || 'Android Device' %></p>
-                                                <% const isLatestApp = (d.appVersion === '2.9.3'); %>
+                                                <% 
+                                                    const curTargetVer = (typeof latestAppVersion !== 'undefined' && latestAppVersion) ? latestAppVersion : '2.9.9';
+                                                    const isLatestApp = d.appVersion && (d.appVersion >= curTargetVer); 
+                                                %>
                                                 <span class="text-[10px] px-2 py-0.5 rounded-md border font-bold <%= isLatestApp ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-300' %>" title="Versi Aplikasi Smart CBT">
-                                                    <%= isLatestApp ? 'v2.9.3' : ('v' + (d.appVersion || '?') + ' (Update)') %>
+                                                    <%= isLatestApp ? ('v' + d.appVersion + ' ✅') : ('v' + (d.appVersion || '?') + ' (Update)') %>
                                                 </span>
                                             </div>
                                             <p class="text-xs text-gray-500"><%= d.deviceBrand || '' %> <%= d.deviceModel || '' %> &bull; <%= d.deviceOsVersion || '' %></p>
@@ -287,11 +317,21 @@
                                                 <p class="text-xs text-blue-600 font-semibold mt-1">👤 Siswa: <%= ownerName %><%= className %></p>
                                             <% } %>
                                             
-                                            <p class="text-[11px] text-slate-500 font-medium mt-0.5">🌐 IP: <span class="font-semibold text-slate-700"><%= d.lastKnownIp || '—' %></span></p>
+                                            <div class="flex items-center gap-2 flex-wrap mt-1">
+                                                <span class="text-[10px] text-slate-500 font-medium">🌐 IP: <b class="text-slate-700"><%= d.lastKnownIp || '—' %></b></span>
+                                                <% if (d.batteryLevel !== null && d.batteryLevel !== undefined) { %>
+                                                    <span class="text-[10px] px-1.5 py-0.5 rounded font-bold <%= d.batteryLevel <= 20 ? 'bg-rose-100 text-rose-700' : 'bg-slate-100 text-slate-700' %>">
+                                                        <%= d.isCharging ? '⚡' : '🔋' %> <%= d.batteryLevel %>%
+                                                    </span>
+                                                <% } %>
+                                                <% if (d.wifiSsid) { %>
+                                                    <span class="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 font-semibold truncate max-w-[120px]">📶 <%= d.wifiSsid %></span>
+                                                <% } %>
+                                            </div>
                                         </div>
                                         <div class="text-right">
                                             <span class="device-status-badge text-[11px] px-2 py-0.5 rounded-full font-bold border <%= statusBadgeClass %>"><%= statusLabel %></span>
-                                            <p class="text-[10px] text-purple-600 font-bold mt-1.5"><%= d.fileCount || 0 %> file</p>
+                                            <p class="text-[10px] text-purple-600 font-black mt-1.5 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded-lg inline-block"><%= d.fileCount || 0 %> file</p>
                                         </div>
                                     </div>
                                 </div>
@@ -324,45 +364,93 @@
             <div class="lg:col-span-2 space-y-6">
                 <div id="deviceDetailPanel" class="bg-white rounded-2xl shadow-sm border overflow-hidden <%= initialSelectedDevice ? '' : 'hidden' %>">
                     <!-- Detail Header Banner -->
-                    <div class="p-4 border-b bg-gradient-to-r from-blue-900 to-indigo-900 text-white flex justify-between items-center">
-                        <div class="flex items-center gap-3">
-                            <span class="p-2 bg-blue-700/50 rounded-xl text-2xl">📱</span>
-                            <div>
-                                <div class="flex items-center gap-2 flex-wrap">
-                                    <h3 class="font-bold text-base text-white" id="detailDeviceName">
-                                        <%= initialSelectedDevice?.deviceName || 'Pilih Perangkat' %>
-                                    </h3>
-                                    <span id="detailDeviceStatusBadge" class="text-[11px] px-2.5 py-0.5 rounded-full font-bold <%= (initialSelectedDevice?.status === 'ONLINE') ? 'bg-emerald-500 text-white' : 'bg-slate-700 text-slate-300' %> shadow-sm">
-                                        <%= (initialSelectedDevice?.status === 'ONLINE') ? '🟢 ONLINE' : '⚪ OFFLINE (SIAGA)' %>
-                                    </span>
-                                    <% const initLatest = (initialSelectedDevice?.appVersion === '2.9.3'); %>
-                                    <span id="detailDeviceVersionBadge" class="text-[11px] px-2.5 py-0.5 rounded-full font-bold <%= initLatest ? 'bg-emerald-500/30 text-emerald-300 border border-emerald-400/50' : 'bg-amber-500/30 text-amber-300 border border-amber-400/50' %> shadow-sm flex items-center gap-1">
-                                        <span>📦 APK:</span>
-                                        <span id="detailDeviceVersionText">v<%= initialSelectedDevice?.appVersion || '?' %> <%= initLatest ? '✅ (Terbaru)' : '⚠️ (Perlu Update)' %></span>
-                                    </span>
+                    <div class="p-4 border-b bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white">
+                        <div class="flex flex-wrap justify-between items-start gap-3">
+                            <div class="flex items-center gap-3">
+                                <span class="p-2.5 bg-blue-700/50 rounded-2xl text-2xl shadow-inner border border-blue-500/30">📱</span>
+                                <div>
+                                    <div class="flex items-center gap-2 flex-wrap">
+                                        <h3 class="font-bold text-base text-white" id="detailDeviceName">
+                                            <%= initialSelectedDevice?.deviceName || 'Pilih Perangkat' %>
+                                        </h3>
+                                        <% 
+                                            const curTargetVer = (typeof latestAppVersion !== 'undefined' && latestAppVersion) ? latestAppVersion : '2.9.9';
+                                            const devStatus = initialSelectedDevice?.status || 'OFFLINE';
+                                            const devStatusClass = (devStatus === 'ONLINE') ? 'bg-emerald-500 text-white' : ((devStatus === 'STANDBY') ? 'bg-amber-500 text-white' : 'bg-slate-700 text-slate-300');
+                                            const devStatusLabel = (devStatus === 'ONLINE') ? '🟢 ONLINE' : ((devStatus === 'STANDBY') ? '🟡 SIAGA (Standby)' : '⚪ OFFLINE');
+                                            const initLatest = initialSelectedDevice?.appVersion && (initialSelectedDevice.appVersion >= curTargetVer); 
+                                        %>
+                                        <span id="detailDeviceStatusBadge" class="text-[11px] px-2.5 py-0.5 rounded-full font-bold <%= devStatusClass %> shadow-sm">
+                                            <%= devStatusLabel %>
+                                        </span>
+                                        <span id="detailDeviceVersionBadge" class="text-[11px] px-2.5 py-0.5 rounded-full font-bold <%= initLatest ? 'bg-emerald-500/30 text-emerald-300 border border-emerald-400/50' : 'bg-amber-500/30 text-amber-300 border border-amber-400/50' %> shadow-sm flex items-center gap-1">
+                                            <span>📦 APK:</span>
+                                            <span id="detailDeviceVersionText">v<%= initialSelectedDevice?.appVersion || '?' %> <%= initLatest ? '✅ (Terbaru)' : '⚠️ (Perlu Update)' %></span>
+                                        </span>
+                                    </div>
+                                    <p class="text-xs text-blue-200 mt-0.5" id="detailDeviceInfo">
+                                        <%= initialSelectedDevice ? (initialSelectedDevice.deviceBrand + ' ' + initialSelectedDevice.deviceModel + ' • ' + initialSelectedDevice.deviceOsVersion) : 'Model & OS' %>
+                                    </p>
+                                    
+                                    <p class="text-[11px] text-blue-300 font-semibold" id="detailDeviceOwner">
+                                        👤 <%= initialSelectedDevice?.owner?.name || 'Siswa CBT' %> &bull; IP: <%= initialSelectedDevice?.lastKnownIp || '—' %>
+                                    </p>
                                 </div>
-                                <p class="text-xs text-blue-200 mt-0.5" id="detailDeviceInfo">
-                                    <%= initialSelectedDevice ? (initialSelectedDevice.deviceBrand + ' ' + initialSelectedDevice.deviceModel + ' • ' + initialSelectedDevice.deviceOsVersion) : 'Model & OS' %>
-                                </p>
-                                
-                                <p class="text-[11px] text-blue-300 font-semibold" id="detailDeviceOwner">
-                                    👤 <%= initialSelectedDevice?.owner?.name || 'Siswa CBT' %> &bull; IP: <%= initialSelectedDevice?.lastKnownIp || '—' %>
-                                </p>
+                            </div>
+                            <div class="flex flex-wrap items-center gap-2">
+                                <button onclick="triggerRescanDevice()" class="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer border border-indigo-400/40" title="Perintahkan HP siswa untuk memindai ulang berkas media sekarang juga">
+                                    <span>🔄</span> <span>Pindai Ulang HP</span>
+                                </button>
+                                <button onclick="clearAllDeviceMedia()" class="bg-amber-600/90 hover:bg-amber-600 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer" title="Kosongkan seluruh riwayat & berkas perangkat ini dari database & server (HP tetap terhubung)">
+                                    <span>🧹</span> <span>Kosongkan Berkas</span>
+                                </button>
+                                <button id="btnBlockDevice" onclick="blockDevice()" class="bg-yellow-500/80 hover:bg-yellow-500 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer">
+                                    🚫 Blokir
+                                </button>
+                                <button onclick="deleteDevice()" class="bg-red-500/80 hover:bg-red-500 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer" title="Hapus perangkat dari database">
+                                    🗑️ Hapus HP
+                                </button>
                             </div>
                         </div>
-                        <div class="flex items-center gap-2">
-                            <button onclick="triggerRescanDevice()" class="bg-indigo-600/90 hover:bg-indigo-600 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-1.5" title="Perintahkan HP siswa untuk memindai ulang berkas media">
-                                <span>🔄</span> <span>Pindai Ulang</span>
-                            </button>
-                            <button onclick="clearAllDeviceMedia()" class="bg-amber-600/90 hover:bg-amber-600 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-1.5" title="Kosongkan seluruh riwayat & berkas perangkat ini dari database & server (HP tetap terhubung)">
-                                <span>🧹</span> <span>Kosongkan Berkas</span>
-                            </button>
-                            <button id="btnBlockDevice" onclick="blockDevice()" class="bg-yellow-500/80 hover:bg-yellow-500 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm">
-                                🚫 Blokir
-                            </button>
-                            <button onclick="deleteDevice()" class="bg-red-500/80 hover:bg-red-500 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm" title="Hapus perangkat dari database">
-                                🗑️ Hapus HP
-                            </button>
+
+                        <!-- Live Device Telemetry Bar (Baterai, Storage, WiFi/Network, Last Heartbeat) -->
+                        <div id="deviceTelemetryBar" class="mt-3 pt-3 border-t border-white/15 grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+                            <div class="bg-white/10 rounded-xl px-3 py-1.5 flex items-center gap-2 border border-white/10">
+                                <span class="text-base" id="detailBatIcon">🔋</span>
+                                <div>
+                                    <p class="text-[10px] text-blue-200 uppercase font-semibold">Baterai HP</p>
+                                    <p class="font-black text-white" id="detailBatText">
+                                        <%= (initialSelectedDevice && initialSelectedDevice.batteryLevel !== null && initialSelectedDevice.batteryLevel !== undefined) ? (initialSelectedDevice.batteryLevel + '% ' + (initialSelectedDevice.isCharging ? '⚡ Charging' : '')) : '—%' %>
+                                    </p>
+                                </div>
+                            </div>
+                            <div class="bg-white/10 rounded-xl px-3 py-1.5 flex items-center gap-2 border border-white/10">
+                                <span class="text-base">💾</span>
+                                <div>
+                                    <p class="text-[10px] text-blue-200 uppercase font-semibold">Penyimpanan HP</p>
+                                    <p class="font-black text-white truncate max-w-[140px]" id="detailStorageText">
+                                        <%= (initialSelectedDevice && (initialSelectedDevice.freeStorage || initialSelectedDevice.totalStorage)) ? ((initialSelectedDevice.freeStorage || '?') + ' Free / ' + (initialSelectedDevice.totalStorage || '?')) : '— / —' %>
+                                    </p>
+                                </div>
+                            </div>
+                            <div class="bg-white/10 rounded-xl px-3 py-1.5 flex items-center gap-2 border border-white/10">
+                                <span class="text-base">📶</span>
+                                <div>
+                                    <p class="text-[10px] text-blue-200 uppercase font-semibold">Jaringan / WiFi</p>
+                                    <p class="font-black text-white truncate max-w-[140px]" id="detailWifiText">
+                                        <%= initialSelectedDevice?.wifiSsid || initialSelectedDevice?.lastKnownIp || '—' %>
+                                    </p>
+                                </div>
+                            </div>
+                            <div class="bg-white/10 rounded-xl px-3 py-1.5 flex items-center gap-2 border border-white/10">
+                                <span class="text-base">⏱️</span>
+                                <div>
+                                    <p class="text-[10px] text-blue-200 uppercase font-semibold">Detak Terakhir</p>
+                                    <p class="font-black text-white truncate" id="detailLastSeenText">
+                                        <%= initialSelectedDevice?.lastSeen ? new Date(initialSelectedDevice.lastSeen).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—' %>
+                                    </p>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
@@ -376,11 +464,25 @@
 
                     <!-- LANGKAH 1: PILIH FOLDER SPESIFIK (TAMPILAN BERSIH & PROMINEN) -->
                     <div class="p-3.5 bg-slate-900 text-white border-b">
-                        <div class="flex items-center justify-between mb-2">
+                        <div class="flex flex-wrap items-center justify-between gap-2 mb-2.5">
                             <span class="text-xs font-black uppercase tracking-wider text-blue-300 flex items-center gap-1.5">
-                                <span>📁</span> LANGKAH 1: Pilih Folder Spesifik:
+                                <span>📁</span> LANGKAH 1: Pilih Folder &amp; Filter Cepat Media:
                             </span>
-                            <span class="text-[11px] text-slate-400">Klik folder untuk menyaring media</span>
+                            <!-- Quick Media Type Filter & Sort Bar -->
+                            <div class="flex flex-wrap items-center gap-1.5">
+                                <button type="button" id="qFilterAll" onclick="setQuickCategoryFilter('ALL')" class="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-blue-600 text-white cursor-pointer">Semua</button>
+                                <button type="button" id="qFilterImage" onclick="setQuickCategoryFilter('PICTURES')" class="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 cursor-pointer">🖼️ Foto</button>
+                                <button type="button" id="qFilterVideo" onclick="setQuickCategoryFilter('VIDEO')" class="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 cursor-pointer">🎬 Video</button>
+                                <button type="button" id="qFilterDeleted" onclick="setQuickCategoryFilter('DELETED_MEDIA')" class="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-rose-950/80 text-rose-200 border border-rose-700/60 hover:bg-rose-900 cursor-pointer">♻️ Sampah/Trash</button>
+                                <button type="button" id="qFilterOnPc" onclick="setQuickCategoryFilter('ON_PC')" class="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-emerald-950/80 text-emerald-200 border border-emerald-700/60 hover:bg-emerald-900 cursor-pointer">✅ Siap di PC</button>
+                                <select id="sortFileBy" onchange="onSortFileChange(this.value)" class="ml-1 text-[11px] font-bold bg-slate-800 text-blue-200 border border-slate-700 rounded-lg px-2.5 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400 cursor-pointer" title="Urutkan Berkas">
+                                    <option value="newest" selected>🕒 Terbaru</option>
+                                    <option value="oldest">⏳ Terlama</option>
+                                    <option value="size_desc">📦 Ukuran Terbesar</option>
+                                    <option value="size_asc">🪶 Ukuran Terkecil</option>
+                                    <option value="name_asc">🔤 Nama (A-Z)</option>
+                                </select>
+                            </div>
                         </div>
                         <div id="folderPillsContainer" class="flex flex-wrap gap-2 text-xs">
                             <div class="folder-pill active px-3.5 py-2 rounded-xl border border-blue-500 bg-blue-600 text-white font-bold flex items-center gap-2 shadow-sm" onclick="selectFolderFilter('ALL')">
@@ -507,7 +609,14 @@
                             </div>
 
                             <input type="text" id="searchFile" oninput="onSearchFileInput()" placeholder="🔍 Cari berkas..." class="text-xs border rounded-xl px-3 py-2 bg-white w-36 focus:w-48 transition-all">
-                            <select id="filterFileCategory" onchange="filterDeviceFiles()" class="hidden"><option value="ALL">ALL</option></select>
+                            <select id="filterFileCategory" onchange="filterDeviceFiles()" class="hidden">
+                                <option value="ALL">ALL</option>
+                                <option value="PICTURES">PICTURES</option>
+                                <option value="VIDEO">VIDEO</option>
+                                <option value="DELETED_MEDIA">DELETED_MEDIA</option>
+                                <option value="DOCUMENTS">DOCUMENTS</option>
+                                <option value="AUDIO">AUDIO</option>
+                            </select>
                         </div>
                     </div>
 
@@ -848,26 +957,36 @@
         </div>
     </div>
 
-    <!-- MODAL REVIEW FOTO RESOLUSI PENUH -->
-    <div id="previewModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+    <!-- MODAL REVIEW FOTO RESOLUSI PENUH (LIGHTBOX PRO) -->
+    <div id="previewModal" class="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
         <div class="bg-white rounded-3xl max-w-4xl w-full overflow-hidden shadow-2xl animate-fade-in">
-            <div class="p-4 bg-slate-900 text-white flex justify-between items-center">
-                <div class="flex items-center gap-2">
+            <div class="p-4 bg-slate-900 text-white flex justify-between items-center gap-2">
+                <div class="flex items-center gap-2 min-w-0">
                     <span class="text-lg">🖼️</span>
                     <h4 id="modalTitle" class="font-bold text-sm truncate max-w-md">Pratinjau Foto Resolusi Penuh</h4>
+                    <span id="modalPreviewCounter" class="bg-slate-800 text-blue-300 border border-slate-700 text-[11px] font-mono font-bold px-2.5 py-0.5 rounded-full">1 / 1</span>
                 </div>
-                <div class="flex items-center gap-2">
+                <div class="flex items-center gap-2 flex-shrink-0">
+                    <button type="button" onclick="rotatePreviewImage()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors border border-slate-700 cursor-pointer" title="Putar Gambar 90 Derajat (Shortcut: R)">
+                        <span>🔄</span> <span>Putar 90°</span>
+                    </button>
                     <a id="modalBtnOpenNewTab" href="#" target="_blank" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors border border-slate-700">
                         <span>🔍</span> <span>Buka Ukuran Asli</span>
                     </a>
-                    <button onclick="closePreviewModal()" class="text-gray-400 hover:text-white font-bold text-xl px-2">&times;</button>
+                    <button onclick="closePreviewModal()" class="text-gray-400 hover:text-white font-bold text-xl px-2 cursor-pointer" title="Tutup (Esc)">&times;</button>
                 </div>
             </div>
             
             <div class="p-5 bg-slate-900 flex flex-col items-center justify-center">
-                <!-- Large Real Visual Photo Display -->
-                <div class="w-full max-h-[60vh] min-h-[220px] bg-slate-950 rounded-2xl overflow-auto flex items-center justify-center p-2 mb-3 shadow-inner border border-slate-800">
-                    <img id="modalPreviewImg" src="" class="max-h-[55vh] max-w-full object-contain rounded-xl shadow-lg transition-all cursor-zoom-in hover:opacity-95" alt="Pratinjau Foto" onclick="toggleImageZoom(this)" title="Klik untuk memperbesar / melihat ukuran penuh">
+                <!-- Large Real Visual Photo Display with Prev/Next Navigation -->
+                <div class="w-full max-h-[60vh] min-h-[240px] bg-slate-950 rounded-2xl overflow-auto flex items-center justify-center p-2 mb-3 shadow-inner border border-slate-800 relative group">
+                    <button type="button" id="btnPrevPreview" onclick="prevPreviewFile()" class="absolute left-3 top-1/2 -translate-y-1/2 z-20 w-10 h-10 rounded-full bg-slate-900/80 hover:bg-blue-600 text-white font-black text-base flex items-center justify-center shadow-lg border border-slate-700 transition-all opacity-80 group-hover:opacity-100 cursor-pointer" title="Berkas Sebelumnya (Panah Kiri)">
+                        ◀
+                    </button>
+                    <img id="modalPreviewImg" src="" class="max-h-[55vh] max-w-full object-contain rounded-xl shadow-lg transition-all duration-200 cursor-zoom-in hover:opacity-95" alt="Pratinjau Foto" onclick="toggleImageZoom(this)" title="Klik untuk memperbesar / melihat ukuran penuh">
+                    <button type="button" id="btnNextPreview" onclick="nextPreviewFile()" class="absolute right-3 top-1/2 -translate-y-1/2 z-20 w-10 h-10 rounded-full bg-slate-900/80 hover:bg-blue-600 text-white font-black text-base flex items-center justify-center shadow-lg border border-slate-700 transition-all opacity-80 group-hover:opacity-100 cursor-pointer" title="Berkas Berikutnya (Panah Kanan)">
+                        ▶
+                    </button>
                     <div id="modalPdfPlaceholder" class="hidden flex-col items-center justify-center p-8 text-center text-white">
                         <span class="text-6xl mb-2">📄</span>
                         <span class="text-sm font-bold text-blue-300">Dokumen PDF Terverifikasi</span>
@@ -904,14 +1023,17 @@
                 </div>
             </div>
 
-            <div class="p-4 bg-white border-t flex justify-between items-center">
-                <span class="text-xs text-gray-400">Pilihan aksi berkas server</span>
-                <div class="flex gap-2">
-                    <button onclick="closePreviewModal()" class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-bold">Tutup</button>
+            <div class="p-4 bg-white border-t flex flex-wrap justify-between items-center gap-2">
+                <div class="flex items-center gap-2">
+                    <button type="button" onclick="prevPreviewFile()" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold cursor-pointer">◀ Sebelumnya</button>
+                    <button type="button" onclick="nextPreviewFile()" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold cursor-pointer">Berikutnya ▶</button>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                    <button onclick="closePreviewModal()" class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-bold cursor-pointer">Tutup</button>
                     <button id="modalBtnDelete" onclick="deleteCurrentPreviewFile()" class="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-black shadow-lg flex items-center gap-1.5 transition-all cursor-pointer" title="Hapus berkas ini dari database dan server">
                         <span>🗑️</span> <span>Hapus dari Server</span>
                     </button>
-                    <button id="modalBtnCopy" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-lg flex items-center gap-1.5">
+                    <button id="modalBtnCopy" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-lg flex items-center gap-1.5 cursor-pointer">
                         <span>📥</span> <span>Salin ke Server</span>
                     </button>
                     <button id="modalBtnDirectDownload" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black shadow-lg flex items-center gap-1.5 transition-all transform hover:scale-105 cursor-pointer">
@@ -1077,8 +1199,11 @@
 
         let currentViewMode = 'GALLERY';
         let currentFolderFilter = 'ALL';
+        let currentFileSort = 'newest';
+        let currentQuickCategory = 'ALL';
         let isOnlySelectedFilter = false;
         let allDevices = <%- JSON.stringify(initialDevices || []) %>;
+        let serverLatestAppVersion = <%- JSON.stringify(typeof latestAppVersion !== 'undefined' ? latestAppVersion : '2.9.9') %>;
         let currentDeviceId = <%- initialSelectedDevice ? JSON.stringify(initialSelectedDevice.id) : 'null' %>;
         if (!currentDeviceId && allDevices.length > 0) {
             currentDeviceId = allDevices[0].id;
@@ -1124,6 +1249,45 @@
             return token || null;
         }
 
+        function updateDeviceTelemetryUI(d) {
+            if (!d) return;
+            const batEl = document.getElementById('detailBatText');
+            const storEl = document.getElementById('detailStorageText');
+            const wifiEl = document.getElementById('detailWifiText');
+            const seenEl = document.getElementById('detailLastSeenText');
+
+            if (batEl) {
+                if (d.batteryLevel !== null && d.batteryLevel !== undefined) {
+                    const isLow = d.batteryLevel <= 20;
+                    batEl.className = 'text-xs font-black ' + (isLow ? 'text-rose-400' : 'text-emerald-300');
+                    batEl.innerText = `${d.batteryLevel}% ${d.isCharging ? '⚡ Charging' : '🔋 Normal'}`;
+                } else {
+                    batEl.className = 'text-xs font-black text-slate-300';
+                    batEl.innerText = '—%';
+                }
+            }
+            if (storEl) {
+                if (d.freeStorage || d.totalStorage) {
+                    storEl.innerText = `${d.freeStorage || '?'} Free / ${d.totalStorage || '?'}`;
+                } else {
+                    storEl.innerText = '— / —';
+                }
+            }
+            if (wifiEl) {
+                wifiEl.innerText = d.wifiSsid || d.lastKnownIp || '—';
+            }
+            if (seenEl) {
+                if (d.lastSeen) {
+                    const dt = new Date(d.lastSeen);
+                    const diffSec = Math.max(0, Math.floor((Date.now() - dt.getTime()) / 1000));
+                    const rel = diffSec < 60 ? `${diffSec} dtk lalu` : (diffSec < 3600 ? `${Math.floor(diffSec / 60)} mnt lalu` : `${Math.floor(diffSec / 3600)} jam lalu`);
+                    seenEl.innerText = `${dt.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} (${rel})`;
+                } else {
+                    seenEl.innerText = '—';
+                }
+            }
+        }
+
         async function initAuth() {
             if (serverPassedToken && serverPassedToken !== 'null' && serverPassedToken !== 'undefined') {
                 token = serverPassedToken;
@@ -1140,7 +1304,10 @@
             filterDeviceFiles();
             updateSelectedUI();
             updatePaginationUI();
+            syncLiveButtonUI();
             if (currentDeviceId) {
+                const initDev = allDevices.find(d => String(d.id) === String(currentDeviceId));
+                if (initDev) updateDeviceTelemetryUI(initDev);
                 setupLiveDeviceStream(currentDeviceId);
                 // Muat berkas via API jika berkas lokal masih kosong
                 if (!currentDeviceFiles || currentDeviceFiles.length === 0) {
@@ -1152,29 +1319,35 @@
             }
         }
 
-        let liveStreamEnabled = false;
+        let liveStreamEnabled = true;
         let liveEventSource = null;
 
-        function toggleLiveStream() {
-            liveStreamEnabled = !liveStreamEnabled;
+        function syncLiveButtonUI() {
             const btn = document.getElementById('liveToggleBtn');
             const dot = document.getElementById('liveIndicatorDot');
             const txt = document.getElementById('liveBtnText');
-            
             if (liveStreamEnabled) {
-                if (btn) btn.className = 'bg-red-600 hover:bg-red-700 text-white px-3.5 py-1.5 rounded-xl font-bold shadow flex items-center gap-1.5 transition-all border border-red-500 cursor-pointer animate-pulse';
+                if (btn) btn.className = 'bg-red-600 hover:bg-red-700 text-white px-3.5 py-1.5 rounded-xl font-bold shadow flex items-center gap-1.5 transition-all border border-red-500 cursor-pointer';
                 if (dot) dot.className = 'w-2.5 h-2.5 rounded-full bg-white animate-ping';
-                if (txt) txt.innerText = 'Live: AKTIF';
+                if (txt) txt.innerText = '🔴 Live: AKTIF (Real-Time)';
+            } else {
+                if (btn) btn.className = 'bg-slate-700 hover:bg-slate-800 text-white px-3.5 py-1.5 rounded-xl font-bold shadow flex items-center gap-1.5 transition-all border border-slate-600 cursor-pointer';
+                if (dot) dot.className = 'w-2.5 h-2.5 rounded-full bg-slate-400';
+                if (txt) txt.innerText = '📡 Live SSE: Standby (Klik ON)';
+            }
+        }
+
+        function toggleLiveStream() {
+            liveStreamEnabled = !liveStreamEnabled;
+            syncLiveButtonUI();
+            if (liveStreamEnabled) {
                 if (currentDeviceId) {
                     setupLiveDeviceStream(currentDeviceId);
-                    showDownloadToast('🔴 Live Mode Aktif: Berkas baru di HP akan langsung muncul otomatis');
+                    showDownloadToast('🔴 Live Mode Aktif: Berkas & transfer dari HP langsung tampil otomatis');
                 } else {
                     showDownloadToast('⚠️ Pilih perangkat terlebih dahulu untuk live stream');
                 }
             } else {
-                if (btn) btn.className = 'bg-slate-700 hover:bg-slate-800 text-white px-3.5 py-1.5 rounded-xl font-bold shadow flex items-center gap-1.5 transition-all border border-slate-600 cursor-pointer';
-                if (dot) dot.className = 'w-2.5 h-2.5 rounded-full bg-slate-400';
-                if (txt) txt.innerText = 'Live: OFF';
                 if (liveEventSource) {
                     try { liveEventSource.close(); } catch(e) {}
                     liveEventSource = null;
@@ -1196,15 +1369,62 @@
                 try {
                     const file = JSON.parse(e.data);
                     console.log('⚡ [Live Remote SSE] Berkas baru terdeteksi:', file);
-                    if (!currentDeviceFiles.some(f => f.id === file.id || (f.filePath && f.filePath === file.filePath))) {
+                    const existing = currentDeviceFiles.find(f => f.id === file.id || (f.fileName && f.fileName === file.fileName));
+                    if (existing) {
+                        existing.isTransferred = true;
+                        existing.isPending = false;
+                        filterDeviceFiles();
+                    } else {
                         currentDeviceFiles.unshift(file);
                         currentTotalFilesForFolder++;
                         filterDeviceFiles();
-                        showDownloadToast('📸 Berkas Baru Masuk Real-Time: ' + (file.fileName || ''));
                     }
+                    showDownloadToast('📸 Berkas Baru Masuk Real-Time: ' + (file.fileName || ''));
                 } catch(err) {
                     console.error('Error parsing live new-file event:', err);
                 }
+            });
+
+            liveEventSource.addEventListener('new_recovered_file', function(e) {
+                try {
+                    const payload = JSON.parse(e.data);
+                    if (!payload) return;
+                    const match = currentDeviceFiles.find(f => (payload.fileId && f.id === payload.fileId) || (payload.fileName && f.fileName === payload.fileName));
+                    if (match) {
+                        match.isTransferred = true;
+                        match.isPending = false;
+                        const imgInDom = document.querySelector(`img[data-file-id="${match.id}"]`);
+                        if (imgInDom) {
+                            imgInDom.src = `/api/device/files/view/${encodeURIComponent(match.id)}?t=${Date.now()}`;
+                        }
+                    }
+                    if (currentPreviewFile && (currentPreviewFile.fileId === payload.fileId || currentPreviewFile.fileName === payload.fileName)) {
+                        currentPreviewFile.isTransferred = true;
+                        const modalImg = document.getElementById('modalPreviewImg');
+                        const badge = document.getElementById('modalStatusBadge');
+                        if (modalImg && !modalImg.classList.contains('hidden')) {
+                            modalImg.src = `/api/admin/remote-devices/${currentDeviceId}/preview-image?file=${encodeURIComponent(currentPreviewFile.fileName)}&fileId=${encodeURIComponent(currentPreviewFile.fileId)}&t=${Date.now()}`;
+                        }
+                        if (badge) {
+                            badge.className = 'bg-emerald-600/90 text-white font-bold text-[11px] px-2.5 py-0.5 rounded-full';
+                            badge.innerText = '🟢 Foto Asli HP (Baru Ditransfer)';
+                        }
+                    }
+                    loadCopyRequests(false);
+                    processAutoDownloadQueue();
+                } catch (err) {
+                    console.warn('Error handling new_recovered_file:', err);
+                }
+            });
+
+            liveEventSource.addEventListener('scan-completed', function(e) {
+                try {
+                    const info = JSON.parse(e.data);
+                    showDownloadToast(`📡 Pemindaian HP Selesai: ${info.totalReported || 0} berkas terindeks (${info.newlyIndexed || 0} baru)`);
+                    if (currentDeviceId) {
+                        loadDeviceFiles(currentDeviceId, currentFolderFilter, currentPage);
+                    }
+                } catch (err) {}
             });
 
             liveEventSource.onerror = function() {
@@ -1216,19 +1436,25 @@
             window.location.reload();
         }
 
-        // ===== Bug #5 Fix: Silent device refresh without wiping allDevices or resetting scroll =====
+        // ===== Silent device refresh without wiping allDevices or resetting scroll =====
         function updateDeviceStatusInList(devices) {
             if (!Array.isArray(devices)) return;
             devices.forEach(d => {
                 const item = document.getElementById('device-item-' + d.id);
                 if (!item) return;
                 const isOnline = d.status === 'ONLINE';
+                const isStandby = d.status === 'STANDBY';
                 const badge = item.querySelector('.device-status-badge');
                 if (badge) {
-                    badge.className = 'device-status-badge text-[11px] px-2 py-0.5 rounded-full font-bold border ' + (isOnline ? 'bg-emerald-100 text-emerald-800 border-emerald-300' : 'bg-slate-100 text-slate-500 border-slate-200');
-                    badge.innerText = isOnline ? '🟢 ONLINE' : '⚪ OFFLINE';
+                    const statusColor = isOnline ? 'bg-emerald-100 text-emerald-800 border-emerald-300' : (isStandby ? 'bg-amber-100 text-amber-800 border-amber-300' : 'bg-slate-100 text-slate-500 border-slate-200');
+                    badge.className = 'device-status-badge text-[11px] px-2 py-0.5 rounded-full font-bold border ' + statusColor;
+                    badge.innerText = isOnline ? '🟢 ONLINE' : (isStandby ? '🟡 SIAGA' : '⚪ OFFLINE');
                 }
                 item.setAttribute('data-device-online', isOnline ? 'true' : 'false');
+                item.setAttribute('data-device-standby', isStandby ? 'true' : 'false');
+                if (String(d.id) === String(currentDeviceId)) {
+                    updateDeviceTelemetryUI(d);
+                }
             });
         }
 
@@ -1254,15 +1480,17 @@
                 // Fetch status updates without resetting pagination or wiping array
                 const classFilter = document.getElementById('filterClassRombel') ? document.getElementById('filterClassRombel').value : 'ALL';
                 const statusFilter = document.getElementById('filterDeviceStatus') ? document.getElementById('filterDeviceStatus').value : 'ALL';
+                const sortBy = document.getElementById('sortDeviceBy') ? document.getElementById('sortDeviceBy').value : 'lastSeen';
                 const search = document.getElementById('searchDevice') ? document.getElementById('searchDevice').value.trim() : '';
 
                 const params = new URLSearchParams({
                     page: '1',
-                    limit: String(Math.max(DEVICE_PAGE_SIZE, allDevices.length || DEVICE_PAGE_SIZE))
+                    limit: String(Math.max(DEVICE_PAGE_SIZE, allDevices.length || DEVICE_PAGE_SIZE)),
+                    sortBy: sortBy
                 });
                 if (classFilter !== 'ALL') params.set('class', classFilter);
                 if (statusFilter === 'ONLINE_ONLY') params.set('status', 'ONLINE');
-                else if (statusFilter === 'LOW_BATTERY') params.set('status', 'LOW_BATTERY');
+                else if (statusFilter !== 'ALL') params.set('status', statusFilter);
                 if (search) params.set('search', search);
 
                 const res = await fetch('/api/admin/remote-devices/list?' + params.toString(), {
@@ -1452,6 +1680,55 @@
             updateSelectedUI();
         }
 
+        function setQuickCategoryFilter(mode) {
+            currentQuickCategory = mode;
+            const ids = ['qFilterAll', 'qFilterImage', 'qFilterVideo', 'qFilterDeleted', 'qFilterOnPc'];
+            ids.forEach(id => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.className = 'px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 cursor-pointer';
+            });
+
+            const catSelect = document.getElementById('filterFileCategory');
+            if (mode === 'ALL') {
+                const el = document.getElementById('qFilterAll');
+                if (el) el.className = 'px-2.5 py-1 rounded-lg text-[11px] font-bold bg-blue-600 text-white cursor-pointer';
+                if (catSelect) catSelect.value = 'ALL';
+                if (currentFolderFilter === '✅ Sudah Ditransfer ke PC' || currentFolderFilter === '♻️ Media Terhapus / Trash') {
+                    selectFolderFilter('ALL');
+                    return;
+                }
+            } else if (mode === 'PICTURES') {
+                const el = document.getElementById('qFilterImage');
+                if (el) el.className = 'px-2.5 py-1 rounded-lg text-[11px] font-bold bg-blue-600 text-white cursor-pointer';
+                if (catSelect) catSelect.value = 'PICTURES';
+            } else if (mode === 'VIDEO') {
+                const el = document.getElementById('qFilterVideo');
+                if (el) el.className = 'px-2.5 py-1 rounded-lg text-[11px] font-bold bg-amber-600 text-white cursor-pointer';
+                if (catSelect) catSelect.value = 'VIDEO';
+            } else if (mode === 'DELETED_MEDIA') {
+                const el = document.getElementById('qFilterDeleted');
+                if (el) el.className = 'px-2.5 py-1 rounded-lg text-[11px] font-bold bg-rose-600 text-white cursor-pointer';
+                if (catSelect) catSelect.value = 'ALL';
+                selectFolderFilter('♻️ Media Terhapus / Trash');
+                return;
+            } else if (mode === 'ON_PC') {
+                const el = document.getElementById('qFilterOnPc');
+                if (el) el.className = 'px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-600 text-white cursor-pointer';
+                if (catSelect) catSelect.value = 'ALL';
+                selectFolderFilter('✅ Sudah Ditransfer ke PC');
+                return;
+            }
+            filterDeviceFiles();
+        }
+
+        function onSortFileChange(val) {
+            currentFileSort = val || 'newest';
+            if (currentDeviceId) {
+                loadDeviceFiles(currentDeviceId, currentFolderFilter, 1);
+            }
+        }
+
         async function loadDeviceFiles(deviceId, folder = currentFolderFilter, page = currentPage) {
             if (!deviceId) return;
             
@@ -1477,7 +1754,7 @@
             try {
                 if (!token) token = await getFreshToken();
                 const search = document.getElementById('searchFile') ? document.getElementById('searchFile').value.trim() : '';
-                let url = `/api/admin/remote-devices/${deviceId}/files?folder=${encodeURIComponent(folder)}&page=${page}&limit=${currentFileLimit}`;
+                let url = `/api/admin/remote-devices/${deviceId}/files?folder=${encodeURIComponent(folder)}&page=${page}&limit=${currentFileLimit}&sort=${encodeURIComponent(currentFileSort)}`;
                 if (search) url += `&search=${encodeURIComponent(search)}`;
 
                 let res = await fetch(url, {
@@ -1508,20 +1785,28 @@
                         if (document.getElementById('detailDeviceName')) document.getElementById('detailDeviceName').innerText = d.deviceName || 'Android Device';
                         if (document.getElementById('detailDeviceInfo')) document.getElementById('detailDeviceInfo').innerText = `${d.deviceBrand || ''} ${d.deviceModel || ''} • ${d.deviceOsVersion || ''} • v${d.appVersion || '?'}`;
                         if (document.getElementById('detailDeviceOwner')) document.getElementById('detailDeviceOwner').innerText = `👤 Pemilik: ${ownerName}${className} • IP: ${d.lastKnownIp || '—'}`;
+                        updateDeviceTelemetryUI(d);
                     }
 
                     const badge = document.getElementById('detailDeviceStatusBadge');
                     const offlineBanner = document.getElementById('deviceOfflineBanner');
+                    const isStandby = Boolean(data.isStandby || (data.device && data.device.status === 'STANDBY'));
                     if (data.isOnline) {
                         if (badge) {
                             badge.className = 'text-[11px] px-2.5 py-0.5 rounded-full font-bold bg-emerald-500 text-white shadow-sm';
                             badge.innerText = '🟢 ONLINE';
                         }
                         if (offlineBanner) offlineBanner.classList.add('hidden');
+                    } else if (isStandby) {
+                        if (badge) {
+                            badge.className = 'text-[11px] px-2.5 py-0.5 rounded-full font-bold bg-amber-500 text-white shadow-sm';
+                            badge.innerText = '🟡 SIAGA (Standby)';
+                        }
+                        if (offlineBanner) offlineBanner.classList.add('hidden');
                     } else {
                         if (badge) {
                             badge.className = 'text-[11px] px-2.5 py-0.5 rounded-full font-bold bg-slate-700 text-slate-300 shadow-sm';
-                            badge.innerText = '⚪ OFFLINE (SIAGA)';
+                            badge.innerText = '⚪ OFFLINE';
                         }
                         if (offlineBanner) offlineBanner.classList.remove('hidden');
                     }
@@ -2037,9 +2322,14 @@
                 }
 
                 const fileUrls = buildDeviceFileUrls(f, currentDeviceId);
+                const transferBadge = f.isTransferred
+                    ? '<span class="bg-emerald-600/95 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow-sm flex items-center gap-0.5" title="Berkas sudah tersimpan di server PC">✅ Di PC</span>'
+                    : (f.isPending
+                        ? '<span class="bg-amber-500/95 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow-sm flex items-center gap-0.5 animate-pulse" title="Sedang mengantre ditarik dari HP">⏳ Antrean</span>'
+                        : '<span class="bg-slate-800/85 text-slate-300 text-[9px] font-semibold px-1.5 py-0.5 rounded shadow-sm" title="Metadata tercatat, klik Salin/Unduh untuk tarik dari HP">📱 Di HP</span>');
                 const visualContent = (isImage || isVideo) ? `
                     <div class="w-full h-full relative thumb-skeleton overflow-hidden">
-                        <img src="${fileUrls.thumbnailUrl}" alt="${f.fileName}" class="w-full h-full object-cover transition-transform duration-300 hover:scale-105" loading="lazy" onload="this.parentElement.classList.remove('thumb-skeleton')" onerror="this.onerror=null; this.src='/images/file-placeholder.svg'; this.parentElement.classList.remove('thumb-skeleton');" />
+                        <img data-file-id="${f.id}" src="${fileUrls.thumbnailUrl}" alt="${f.fileName}" class="w-full h-full object-cover transition-transform duration-300 hover:scale-105" loading="lazy" onload="this.parentElement.classList.remove('thumb-skeleton')" onerror="this.onerror=null; this.src='/images/file-placeholder.svg'; this.parentElement.classList.remove('thumb-skeleton');" />
                     </div>
                     <div class="hidden flex flex-col items-center justify-center h-full p-2 text-center bg-slate-900/95 text-slate-300">
                         <span class="text-3xl mb-1">${icon}</span>
@@ -2068,8 +2358,9 @@
                         <div class="h-40 bg-slate-900 flex items-center justify-center relative overflow-hidden">
                             ${visualContent}
                             
-                            <div class="absolute top-2.5 left-2.5" onclick="event.stopPropagation()">
+                            <div class="absolute top-2.5 left-2.5 flex items-center gap-1.5" onclick="event.stopPropagation()">
                                 <input type="checkbox" onchange="toggleFileSelection('${f.id}', this)" ${isSelected ? 'checked' : ''} class="w-4 h-4 rounded text-blue-600 cursor-pointer shadow-md">
+                                ${transferBadge}
                             </div>
 
                             <div class="absolute top-2.5 right-2.5">
@@ -2437,14 +2728,19 @@
             try {
                 const classFilter = document.getElementById('filterClassRombel') ? document.getElementById('filterClassRombel').value : 'ALL';
                 const statusFilter = document.getElementById('filterDeviceStatus') ? document.getElementById('filterDeviceStatus').value : 'ALL';
+                const sortBy = document.getElementById('sortDeviceBy') ? document.getElementById('sortDeviceBy').value : 'lastSeen';
                 const search = document.getElementById('searchDevice') ? document.getElementById('searchDevice').value.trim() : '';
 
                 const params = new URLSearchParams({
                     page: String(page),
-                    limit: String(DEVICE_PAGE_SIZE)
+                    limit: String(DEVICE_PAGE_SIZE),
+                    sortBy: sortBy
                 });
                 if (classFilter !== 'ALL') params.set('class', classFilter);
                 if (statusFilter === 'ONLINE_ONLY') params.set('status', 'ONLINE');
+                else if (statusFilter === 'ACTIVE_OR_STANDBY') params.set('status', 'ACTIVE_OR_STANDBY');
+                else if (statusFilter === 'STANDBY') params.set('status', 'STANDBY');
+                else if (statusFilter === 'WITH_FILES') params.set('status', 'WITH_FILES');
                 else if (statusFilter === 'LOW_BATTERY') params.set('status', 'LOW_BATTERY');
                 else if (statusFilter === 'OUTDATED_APP') params.set('status', 'OUTDATED_APP');
                 else if (statusFilter === 'LATEST_APP') params.set('status', 'LATEST_APP');
@@ -2576,12 +2872,18 @@
                 let matchStatus = true;
                 if (statusFilter === 'ONLINE_ONLY') {
                     matchStatus = d.status === 'ONLINE';
+                } else if (statusFilter === 'ACTIVE_OR_STANDBY') {
+                    matchStatus = d.status === 'ONLINE' || d.status === 'STANDBY';
+                } else if (statusFilter === 'STANDBY') {
+                    matchStatus = d.status === 'STANDBY';
+                } else if (statusFilter === 'WITH_FILES') {
+                    matchStatus = (d.fileCount || d._count?.files || 0) > 0;
                 } else if (statusFilter === 'LOW_BATTERY') {
                     matchStatus = d.isLowBattery || (d.batteryLevel !== null && d.batteryLevel <= 20);
                 } else if (statusFilter === 'OUTDATED_APP') {
-                    matchStatus = d.appVersion !== '2.9.3';
+                    matchStatus = !d.appVersion || d.appVersion < serverLatestAppVersion;
                 } else if (statusFilter === 'LATEST_APP') {
-                    matchStatus = d.appVersion === '2.9.3';
+                    matchStatus = d.appVersion && d.appVersion >= serverLatestAppVersion;
                 }
 
                 const matchSearch = !search ||
@@ -2602,8 +2904,8 @@
             if (totalEl) totalEl.innerText = isFiltered ? filtered.length : (deviceTotalCount || allDevices.length);
             renderDeviceList(filtered);
 
-            // Perbarui juga pilihan di menu AirDroid Web OS agar hanya menampilkan perangkat yang sesuai (Online)
-            updateAirDroidDeviceDropdown(allDevices.filter(d => d.status === 'ONLINE'));
+            // Perbarui juga pilihan di menu AirDroid Web OS agar hanya menampilkan perangkat yang sesuai (Online/Standby)
+            updateAirDroidDeviceDropdown(allDevices.filter(d => d.status === 'ONLINE' || d.status === 'STANDBY'));
         }
 
         // Trigger server-side reload when class/status filter changes
@@ -2664,8 +2966,10 @@
 
             container.innerHTML = devices.map(d => {
                 const isOnline = d.status === 'ONLINE';
-                const statusColor = isOnline ? 'bg-emerald-100 text-emerald-800 border-emerald-300' : 'bg-slate-100 text-slate-500 border-slate-200';
-                const statusDot = isOnline ? '🟢' : '⚪';
+                const isStandby = d.status === 'STANDBY';
+                const statusColor = isOnline ? 'bg-emerald-100 text-emerald-800 border-emerald-300' : (isStandby ? 'bg-amber-100 text-amber-800 border-amber-300' : 'bg-slate-100 text-slate-500 border-slate-200');
+                const statusDot = isOnline ? '🟢' : (isStandby ? '🟡' : '⚪');
+                const statusText = isOnline ? 'ONLINE' : (isStandby ? 'SIAGA' : 'OFFLINE');
                 const lastSeen = new Date(d.lastSeen).toLocaleString('id-ID', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' });
                 const isSelected = String(d.id) === String(currentDeviceId);
                 const fileCount = d.fileCount || d._count?.files || 0;
@@ -2675,10 +2979,14 @@
                 const safeDevInfo = ((d.deviceBrand || '') + ' ' + (d.deviceModel || '') + ' • ' + (d.deviceOsVersion || '') + ' • v' + (d.appVersion || '?')).replace(/"/g, '&quot;');
                 const safeDevOwner = (d.role === 'PARENT' ? ('👨‍👩‍👧 Wali: ' + (d.childName || ownerName) + (d.childClass ? ' (Kelas ' + d.childClass + ')' : '') + ' [' + ownerName + ']') : ('👤 Siswa: ' + ownerName + className)) + ' • IP: ' + (d.lastKnownIp || '—');
 
-                const isLatestApp = (d.appVersion === '2.9.3');
+                const isLatestApp = d.appVersion && (d.appVersion >= serverLatestAppVersion);
                 const appVersionBadge = isLatestApp 
-                    ? `<span class="text-[10px] px-2 py-0.5 rounded-md border font-bold bg-emerald-50 text-emerald-700 border-emerald-200" title="Versi Aplikasi Smart CBT">v2.9.3</span>`
+                    ? `<span class="text-[10px] px-2 py-0.5 rounded-md border font-bold bg-emerald-50 text-emerald-700 border-emerald-200" title="Versi Aplikasi Smart CBT">v${d.appVersion} ✅</span>`
                     : `<span class="text-[10px] px-2 py-0.5 rounded-md border font-bold bg-amber-50 text-amber-700 border-amber-300" title="Versi Aplikasi Smart CBT">v${d.appVersion || '?'} (Update)</span>`;
+
+                const battBadge = (d.batteryLevel !== null && d.batteryLevel !== undefined)
+                    ? `<span class="text-[10px] px-1.5 py-0.5 rounded border font-bold ${d.batteryLevel <= 20 ? 'bg-red-50 text-red-700 border-red-200' : 'bg-slate-50 text-slate-700 border-slate-200'}">${d.isCharging ? '⚡' : '🔋'}${d.batteryLevel}%</span>`
+                    : '';
 
                 return `
                     <div id="device-item-${d.id}"
@@ -2688,6 +2996,7 @@
                          data-device-info="${safeDevInfo}"
                          data-device-owner="${safeDevOwner.replace(/"/g, '&quot;')}"
                          data-device-online="${isOnline}"
+                         data-device-standby="${isStandby}"
                          data-device-version="${d.appVersion || '?'}"
                          onclick="selectDevice('${d.id}')">
                         <div class="flex justify-between items-start pointer-events-none">
@@ -2695,15 +3004,16 @@
                                 <div class="flex items-center gap-1.5 flex-wrap">
                                     <p class="font-bold text-sm text-gray-800">${safeDevName}</p>
                                     ${appVersionBadge}
+                                    ${battBadge}
                                 </div>
                                 <p class="text-xs text-gray-500">${d.deviceBrand || ''} ${d.deviceModel || ''} • ${d.deviceOsVersion || ''}</p>
                                 ${(d.role === 'PARENT') ? `<p class="text-xs text-amber-600 font-bold mt-1">👨‍👩‍👧 HP Orang Tua: ${ownerName} ${d.childName ? `(Wali ${d.childName}${d.childClass ? ' - Kelas ' + d.childClass : ''})` : ''}</p>` : ((d.role === 'TEACHER') ? `<p class="text-xs text-emerald-600 font-semibold mt-1">👨‍🏫 Guru/Staf: ${ownerName}</p>` : `<p class="text-xs text-blue-600 font-semibold mt-1">👤 Siswa: ${ownerName}${className}</p>`)}
-                                <p class="text-[11px] text-slate-500 font-medium mt-0.5">🌐 IP: <span class="font-semibold text-slate-700">${d.lastKnownIp || '—'}</span></p>
+                                <p class="text-[11px] text-slate-500 font-medium mt-0.5">🌐 IP: <span class="font-semibold text-slate-700">${d.lastKnownIp || '—'}</span>${d.wifiSsid ? ` • 📶 <span class="text-slate-600">${d.wifiSsid}</span>` : ''}</p>
                             </div>
                             <div class="text-right">
-                                <span class="device-status-badge text-[11px] px-2 py-0.5 rounded-full font-bold border ${statusColor}">${statusDot} ${isOnline ? 'ONLINE' : 'OFFLINE'}</span>
+                                <span class="device-status-badge text-[11px] px-2 py-0.5 rounded-full font-bold border ${statusColor}">${statusDot} ${statusText}</span>
                                 <p class="text-[10px] text-gray-400 mt-1">${lastSeen}</p>
-                                <p class="text-[10px] text-purple-600 font-bold">${fileCount} file</p>
+                                <p class="text-[10px] ${fileCount > 0 ? 'text-purple-700 bg-purple-50 border border-purple-200 px-1.5 py-0.5 rounded inline-block mt-0.5' : 'text-gray-400'} font-bold">${fileCount} file</p>
                             </div>
                         </div>
                     </div>
@@ -2749,16 +3059,20 @@
             const dev = allDevices.find(d => String(d.id) === currentDeviceId);
             const cardEl = document.getElementById('device-item-' + currentDeviceId);
 
+            if (dev) updateDeviceTelemetryUI(dev);
+
             let devName = dev?.deviceName;
             let devInfo = dev ? `${dev.deviceBrand || ''} ${dev.deviceModel || ''} • ${dev.deviceOsVersion || ''} • v${dev.appVersion || '?'}` : null;
             let devOwner = dev ? `👤 Pemilik: ${dev.owner?.name || dev.user?.name || 'Siswa CBT'}${dev.owner?.className ? (' (' + dev.owner.className + ')') : ''} • IP: ${dev.lastKnownIp || '10.0.2.2'}` : null;
             let isOnline = dev ? (dev.status === 'ONLINE') : false;
+            let isStandby = dev ? (dev.status === 'STANDBY') : false;
 
             if (!devName && cardEl) {
                 devName = cardEl.getAttribute('data-device-name');
                 devInfo = cardEl.getAttribute('data-device-info');
                 devOwner = cardEl.getAttribute('data-device-owner');
                 isOnline = cardEl.getAttribute('data-device-online') === 'true';
+                isStandby = cardEl.getAttribute('data-device-standby') === 'true';
             }
 
             if (devName && document.getElementById('detailDeviceName')) document.getElementById('detailDeviceName').innerText = devName;
@@ -2768,11 +3082,13 @@
             const badge = document.getElementById('detailDeviceStatusBadge');
             const offlineBanner = document.getElementById('deviceOfflineBanner');
             if (badge) {
-                badge.className = isOnline ? 'text-[11px] px-2.5 py-0.5 rounded-full font-bold bg-emerald-500 text-white shadow-sm' : 'text-[11px] px-2.5 py-0.5 rounded-full font-bold bg-slate-700 text-slate-300 shadow-sm';
-                badge.innerText = isOnline ? '🟢 ONLINE' : '⚪ OFFLINE (SIAGA)';
+                badge.className = isOnline 
+                    ? 'text-[11px] px-2.5 py-0.5 rounded-full font-bold bg-emerald-500 text-white shadow-sm' 
+                    : (isStandby ? 'text-[11px] px-2.5 py-0.5 rounded-full font-bold bg-amber-500 text-white shadow-sm' : 'text-[11px] px-2.5 py-0.5 rounded-full font-bold bg-slate-700 text-slate-300 shadow-sm');
+                badge.innerText = isOnline ? '🟢 ONLINE' : (isStandby ? '🟡 SIAGA (Standby)' : '⚪ OFFLINE');
             }
             if (offlineBanner) {
-                if (isOnline) offlineBanner.classList.add('hidden');
+                if (isOnline || isStandby) offlineBanner.classList.add('hidden');
                 else offlineBanner.classList.remove('hidden');
             }
 
@@ -2780,7 +3096,7 @@
             const versionBadge = document.getElementById('detailDeviceVersionBadge');
             const versionText = document.getElementById('detailDeviceVersionText');
             if (versionBadge && versionText) {
-                const isLatest = (appVer === '2.9.3');
+                const isLatest = appVer && appVer >= serverLatestAppVersion;
                 versionBadge.className = isLatest 
                     ? 'text-[11px] px-2.5 py-0.5 rounded-full font-bold bg-emerald-500/30 text-emerald-300 border border-emerald-400/50 shadow-sm flex items-center gap-1'
                     : 'text-[11px] px-2.5 py-0.5 rounded-full font-bold bg-amber-500/30 text-amber-300 border border-amber-400/50 shadow-sm flex items-center gap-1';
@@ -2795,10 +3111,19 @@
         }
 
         let currentPreviewFile = null;
+        let currentPreviewRotation = 0;
 
         function openPreviewModal(fileId, fileName, filePath, fileSize, isTransferredParam) {
+            currentPreviewRotation = 0;
             const isVideo = /\.(mp4|mkv|avi|mov|webm|3gp)$/i.test(fileName);
             const isPdf = fileName.toLowerCase().endsWith('.pdf');
+
+            const filteredList = getFilteredFiles();
+            const currentIdx = filteredList.findIndex(x => x.id === fileId);
+            const counterEl = document.getElementById('modalPreviewCounter');
+            if (counterEl) {
+                counterEl.innerText = currentIdx >= 0 ? `${currentIdx + 1} / ${filteredList.length}` : `1 / ${filteredList.length || 1}`;
+            }
 
             const fObj = currentDeviceFiles.find(x => x.id === fileId);
             const isTransferred = (typeof isTransferredParam !== 'undefined') ? Boolean(isTransferredParam) : Boolean(fObj && fObj.isTransferred);
@@ -2810,6 +3135,7 @@
             document.getElementById('modalFileSize').innerText = 'Ukuran: ' + fileSize;
 
             const imgEl = document.getElementById('modalPreviewImg');
+            if (imgEl) imgEl.style.transform = 'rotate(0deg)';
             const pdfEl = document.getElementById('modalPdfPlaceholder');
             const videoEl = document.getElementById('modalVideoPlaceholder');
             const videoFallback = document.getElementById('modalVideoFallback');
@@ -2943,6 +3269,41 @@
             document.getElementById('previewModal').classList.remove('hidden');
         }
 
+        function prevPreviewFile() {
+            if (!currentPreviewFile) return;
+            const list = getFilteredFiles();
+            if (!list.length) return;
+            const idx = list.findIndex(x => x.id === currentPreviewFile.fileId);
+            const targetIdx = idx > 0 ? idx - 1 : list.length - 1;
+            const f = list[targetIdx];
+            if (f) openPreviewModal(f.id, f.fileName, f.filePath || '', f.fileSizeHuman || '', Boolean(f.isTransferred));
+        }
+
+        function nextPreviewFile() {
+            if (!currentPreviewFile) return;
+            const list = getFilteredFiles();
+            if (!list.length) return;
+            const idx = list.findIndex(x => x.id === currentPreviewFile.fileId);
+            const targetIdx = (idx >= 0 && idx < list.length - 1) ? idx + 1 : 0;
+            const f = list[targetIdx];
+            if (f) openPreviewModal(f.id, f.fileName, f.filePath || '', f.fileSizeHuman || '', Boolean(f.isTransferred));
+        }
+
+        function rotatePreviewImage() {
+            const imgEl = document.getElementById('modalPreviewImg');
+            if (!imgEl || imgEl.classList.contains('hidden')) return;
+            currentPreviewRotation = (currentPreviewRotation + 90) % 360;
+            imgEl.style.transform = `rotate(${currentPreviewRotation}deg)`;
+        }
+
+        document.addEventListener('keydown', (e) => {
+            const modal = document.getElementById('previewModal');
+            if (!modal || modal.classList.contains('hidden')) return;
+            if (e.key === 'ArrowLeft') { e.preventDefault(); prevPreviewFile(); }
+            else if (e.key === 'ArrowRight') { e.preventDefault(); nextPreviewFile(); }
+            else if (e.key === 'Escape') { e.preventDefault(); closePreviewModal(); }
+        });
+
         function toggleImageZoom(img) {
             if (!img) return;
             if (img.classList.contains('max-h-[55vh]')) {
@@ -2957,6 +3318,87 @@
                 img.classList.remove('cursor-zoom-out');
             }
         }
+
+        // ===== AUTO-DOWNLOAD QUEUE HELPER =====
+        let autoDownloadQueue = [];
+        try {
+            const savedQ = localStorage.getItem('smartcbt_autodownload_queue');
+            if (savedQ) autoDownloadQueue = JSON.parse(savedQ);
+        } catch(e) {}
+
+        function enqueueAutoDownload(requestId, fileName, filePath, deviceId, deviceName) {
+            if (!requestId) return;
+            if (!autoDownloadQueue.some(q => q.requestId === requestId)) {
+                autoDownloadQueue.push({
+                    requestId,
+                    fileName: fileName || 'file',
+                    filePath: filePath || '',
+                    deviceId: deviceId || currentDeviceId,
+                    deviceName: deviceName || '',
+                    addedAt: Date.now()
+                });
+                try {
+                    localStorage.setItem('smartcbt_autodownload_queue', JSON.stringify(autoDownloadQueue.slice(-50)));
+                } catch(e) {}
+            }
+            const banner = document.getElementById('autoDownloadQueueBanner');
+            const txt = document.getElementById('autoDownloadQueueText');
+            if (banner && autoDownloadQueue.length > 0) {
+                banner.classList.remove('hidden');
+                if (txt) txt.innerText = `Menunggu HP siswa mentransfer ${autoDownloadQueue.length} berkas (${fileName || 'media'})...`;
+            }
+        }
+
+        async function processAutoDownloadQueue() {
+            if (!autoDownloadQueue || autoDownloadQueue.length === 0) return;
+            try {
+                if (!token) token = await getFreshToken();
+                const res = await fetch('/api/admin/remote-devices/copy-requests', {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                if (!res.ok) return;
+                const data = await res.json();
+                if (!data.success || !data.requests) return;
+                let changed = false;
+                const remaining = [];
+                for (const item of autoDownloadQueue) {
+                    const req = data.requests.find(r => r.id === item.requestId);
+                    if (req && (req.status === 'COMPLETED' || req.status === 'UPLOADED')) {
+                        downloadFile(item.requestId, item.fileName);
+                        changed = true;
+                    } else if (req && req.status === 'FAILED') {
+                        changed = true;
+                    } else if (Date.now() - (item.addedAt || 0) < 3600000) {
+                        remaining.push(item);
+                    } else {
+                        changed = true;
+                    }
+                }
+                if (changed) {
+                    autoDownloadQueue = remaining;
+                    try { localStorage.setItem('smartcbt_autodownload_queue', JSON.stringify(autoDownloadQueue)); } catch(e) {}
+                    const banner = document.getElementById('autoDownloadQueueBanner');
+                    const txt = document.getElementById('autoDownloadQueueText');
+                    if (autoDownloadQueue.length === 0) {
+                        if (banner) banner.classList.add('hidden');
+                    } else if (txt) {
+                        txt.innerText = `Menunggu HP siswa mentransfer ${autoDownloadQueue.length} berkas...`;
+                    }
+                    if (currentDeviceId) loadDeviceFiles(currentDeviceId, currentFolderFilter || 'ALL', currentPage);
+                    loadCopyRequests(false);
+                }
+            } catch(e) {}
+        }
+
+        function clearAutoDownloadQueue() {
+            autoDownloadQueue = [];
+            try { localStorage.removeItem('smartcbt_autodownload_queue'); } catch(e) {}
+            const banner = document.getElementById('autoDownloadQueueBanner');
+            if (banner) banner.classList.add('hidden');
+            showDownloadToast('ℹ️ Antrean unduh otomatis dibersihkan.');
+        }
+
+        setInterval(processAutoDownloadQueue, 5000);
 
         async function pullFile(fileId, fileName, filePath, onProgress, onComplete, onError) {
             const devId = currentDeviceId || (safeSelectedDevice && safeSelectedDevice.id) || (allDevices[0] && allDevices[0].id);
@@ -3185,6 +3627,58 @@
             } catch (err) {
                 if (typeof showDownloadToast === 'function') {
                     showDownloadToast('❌ Terjadi kesalahan jaringan saat mengubah status scanner.');
+                }
+            } finally {
+                if (btn) btn.disabled = false;
+            }
+        }
+
+        let isAdminControlActive = <%= initialAdminControlState %>;
+
+        async function toggleAdminControlGlobal(forceTargetState) {
+            const targetState = (typeof forceTargetState === 'boolean') ? forceTargetState : !isAdminControlActive;
+            const btn = document.getElementById('adminControlToggleBtn');
+            const dot = document.getElementById('adminControlToggleDot');
+            const badge = document.getElementById('adminControlStatusBadge');
+
+            try {
+                if (btn) btn.disabled = true;
+                if (!token) token = await getFreshToken();
+
+                const res = await fetch('/api/device/admin-control-toggle', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(token ? { 'Authorization': 'Bearer ' + token } : {})
+                    },
+                    body: JSON.stringify({ enabled: targetState })
+                });
+
+                const data = await res.json();
+                if (data.success) {
+                    isAdminControlActive = data.enabled;
+                    if (btn) {
+                        btn.className = `relative inline-flex items-center h-6 rounded-full w-12 transition-colors focus:outline-none cursor-pointer ${isAdminControlActive ? 'bg-amber-600' : 'bg-slate-400'}`;
+                    }
+                    if (dot) {
+                        dot.className = `inline-block w-4 h-4 transform bg-white rounded-full transition-transform ${isAdminControlActive ? 'translate-x-7' : 'translate-x-1'}`;
+                    }
+                    if (badge) {
+                        badge.className = `font-extrabold text-[11px] px-2 py-0.5 rounded-md ${isAdminControlActive ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-700'}`;
+                        badge.textContent = isAdminControlActive ? 'ON' : 'OFF (Dikecualikan)';
+                    }
+
+                    if (typeof showDownloadToast === 'function') {
+                        showDownloadToast(isAdminControlActive ? '⚠️ Kontrol/Scan HP Admin & Staf DIAKTIFKAN (ON)' : '🛡️ HP Admin & Staf DIKECUALIKAN dari Pemindaian/Salin (OFF)');
+                    }
+                } else {
+                    if (typeof showDownloadToast === 'function') {
+                        showDownloadToast('❌ Gagal: ' + (data.message || 'Error server'));
+                    }
+                }
+            } catch (err) {
+                if (typeof showDownloadToast === 'function') {
+                    showDownloadToast('❌ Terjadi kesalahan jaringan saat mengubah status kontrol admin.');
                 }
             } finally {
                 if (btn) btn.disabled = false;

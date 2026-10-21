@@ -34,7 +34,8 @@ object ApiClient {
     fun getBaseServerUrl(context: Context): String {
         val sessionManager = SessionManager(context)
         var serverIp = sessionManager.getServerIp().trim()
-        if (serverIp.contains("localhost") || serverIp.contains("127.0.0.1") || serverIp.contains("192.168.101.46")) {
+        if (serverIp.contains("localhost") || serverIp.contains("127.0.0.1") || serverIp.contains("192.168") ||
+            serverIp.contains("10.") || serverIp.contains("172.") || !serverIp.contains("cbt.smpn1boyolangu")) {
             serverIp = SessionManager.ONLINE_SERVER_URL
             sessionManager.setServerIp(SessionManager.ONLINE_SERVER_URL)
         }

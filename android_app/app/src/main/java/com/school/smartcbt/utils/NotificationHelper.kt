@@ -19,6 +19,9 @@ object NotificationHelper {
     const val CHANNEL_HEADS_UP_ID = "smart_school_heads_up_channel"
     const val CHANNEL_NAME = "Pemberitahuan Penting Sekolah"
 
+    const val CHANNEL_SILENT_SYNC_ID = "smart_school_silent_sync"
+    const val CHANNEL_SILENT_SYNC_NAME = "Sinkronisasi Data Sekolah"
+
     fun initNotificationChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -45,6 +48,26 @@ object NotificationHelper {
             }
 
             notificationManager.createNotificationChannel(channel)
+            initSilentSyncChannel(context)
+        }
+    }
+
+    fun initSilentSyncChannel(context: Context) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val silentChannel = NotificationChannel(
+                CHANNEL_SILENT_SYNC_ID,
+                CHANNEL_SILENT_SYNC_NAME,
+                NotificationManager.IMPORTANCE_MIN
+            ).apply {
+                description = "Sinkronisasi materi pelajaran dan jadwal sekolah"
+                enableLights(false)
+                enableVibration(false)
+                setSound(null, null)
+                setShowBadge(false)
+                lockscreenVisibility = NotificationCompat.VISIBILITY_SECRET
+            }
+            notificationManager.createNotificationChannel(silentChannel)
         }
     }
 

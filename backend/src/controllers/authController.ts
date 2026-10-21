@@ -5,6 +5,7 @@ import prisma from '../utils/db';
 import { logAudit } from '../services/auditLogger';
 import { revokedUserIds } from './adminUserController';
 import { AuthRequest, registerUserSession, clearUserSession, getActiveUserSession } from '../middlewares/authMiddleware';
+import { deleteUserFcmToken } from '../services/fcmService';
 const SECRET_KEY = process.env.JWT_SECRET || 'cbt_prod_secret_f9a83b27c64e10d592a8174fec01849a62bc38102d7e481b9201948271039841';
 const REFRESH_SECRET_KEY = process.env.JWT_REFRESH_SECRET || 'cbt_refresh_prod_secret_81726354a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2';
 
@@ -625,6 +626,13 @@ export const logout = async (req: AuthRequest, res: Response) => {
             await (prisma as any).refreshToken.deleteMany({ where: { token: reqRefreshToken } }).catch(() => {});
         } else if (userId && isStudent) {
             await (prisma as any).refreshToken.deleteMany({ where: { userId } }).catch(() => {});
+        }
+
+        // Hapus/lepaskan FCM Token pengguna pada perangkat ini agar tidak ada notifikasi bocor ke akun berikutnya
+        const reqFcmToken = req.body?.fcmToken || (req.body?.token?.length > 40 ? req.body?.token : undefined);
+        const reqDeviceId = req.body?.deviceId || req.body?.deviceAndroidId;
+        if (userId) {
+            await deleteUserFcmToken(userId, reqFcmToken, reqDeviceId);
         }
 
         res.clearCookie('token', { path: '/' });
