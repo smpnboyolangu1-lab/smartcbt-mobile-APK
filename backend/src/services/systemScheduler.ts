@@ -1,5 +1,5 @@
 import prisma from '../utils/db';
-import { getWibDayBounds } from '../utils/dateUtils';
+import { getWibDayBounds, formatTimeWib } from '../utils/dateUtils';
 import { broadcastMonitoringEvent, resetExamTokenTimer, setClassExamToken } from '../controllers/cbtController';
 import { autoNotifyUnscannedGateOutStudents } from '../controllers/attendanceController';
 import { sendFcmToUser, sendSilentFcmWakeupToTokens } from './fcmService';
@@ -35,6 +35,9 @@ export function initMasterSchedulers() {
 
             // 3. AUTO-CLOSE TUGAS YANG MELEWATI BATAS TOLERANSI
             await processHomeworkClosing(now);
+
+            // 3b. PERINGATAN BATAS WAKTU PR KE WALI KELAS (H-1 JAM SEBELUM DEADLINE)
+            await processHomeworkDeadlineWarningToWaliKelas(now);
 
             // 4. MONITORING KELAS KOSONG SETIAP 5 MENIT (SIBOY A4 & A5)
             if (currentMinute % 5 === 0) {
@@ -90,6 +93,7 @@ export function initMasterSchedulers() {
         const now = new Date();
         processHomeworkPublishing(now).catch(() => {});
         processHomeworkClosing(now).catch(() => {});
+        processHomeworkDeadlineWarningToWaliKelas(now).catch(() => {});
         processEmptyClassMonitoring(now).catch(() => {});
         processPrayerReminders(now).catch(() => {});
         processExpiredStudentExams(now).catch(() => {});
@@ -183,6 +187,125 @@ async function processHomeworkClosing(now: Date) {
             }
         }
     } catch (e) {}
+}
+
+/**
+ * 3b. PERINGATAN BATAS WAKTU PR KE WALI KELAS (H-1 JAM SEBELUM DEADLINE)
+ * Mengecek apakah ada tugas/PR yang deadline-nya tersisa <= 60 menit dari sekarang.
+ * Jika ada siswa di kelas binaan yang belum mengumpulkan tugas tersebut, kirimkan notifikasi
+ * instan (FCM Push Notification + DB NotificationMessage) ke Wali Kelas terkait.
+ */
+export async function processHomeworkDeadlineWarningToWaliKelas(now: Date = new Date()) {
+    try {
+        const oneHourLater = new Date(now.getTime() + 60 * 60 * 1000);
+
+        // Cari tugas/PR aktif dengan deadline dalam rentang 1 jam ke depan
+        const upcomingHomeworks = await (prisma as any).homework.findMany({
+            where: {
+                status: 'PUBLISHED',
+                deadline: {
+                    gt: now,
+                    lte: oneHourLater
+                }
+            },
+            include: {
+                subject: true,
+                class: true,
+                submissions: {
+                    select: { userId: true, submittedAt: true }
+                }
+            }
+        });
+
+        if (!upcomingHomeworks || upcomingHomeworks.length === 0) return;
+
+        for (const hw of upcomingHomeworks) {
+            const className = hw.class?.name;
+            if (!className) continue;
+
+            // Cari seluruh siswa aktif di kelas ini
+            const activeStudents = await prisma.user.findMany({
+                where: {
+                    role: 'STUDENT',
+                    isActive: true,
+                    className: className
+                },
+                select: { id: true, name: true, username: true }
+            });
+
+            if (activeStudents.length === 0) continue;
+
+            // Hitung siswa yang belum mengumpulkan
+            const submittedSet = new Set((hw.submissions || []).map((s: any) => s.userId));
+            const unsubmittedStudents = activeStudents.filter(st => !submittedSet.has(st.id));
+
+            // Jika semua siswa sudah mengumpulkan, tidak perlu kirim peringatan
+            if (unsubmittedStudents.length === 0) continue;
+
+            // Cari Wali Kelas dari kelas ini
+            const waliKelas = await prisma.user.findFirst({
+                where: {
+                    role: { in: ['TEACHER', 'COUNSELOR'] },
+                    isActive: true,
+                    OR: [
+                        { className: className },
+                        { tugasTambahan: { contains: `WALI_${className}` } },
+                        { tugasTambahan: { contains: `WALI:${className}` } },
+                        { tugasTambahan: { contains: className } }
+                    ]
+                }
+            });
+
+            if (!waliKelas) continue;
+
+            // Cek apakah notifikasi H-1 jam untuk tugas ini sudah pernah dikirim ke Wali Kelas ini
+            const alreadyNotified = await (prisma as any).notificationMessage.findFirst({
+                where: {
+                    recipientId: waliKelas.id,
+                    category: 'HOMEWORK_DEADLINE_WALI',
+                    message: { contains: `[ID:${hw.id}]` }
+                }
+            });
+
+            if (alreadyNotified) continue;
+
+            // Format waktu deadline WIB
+            const deadlineTimeWib = formatTimeWib(hw.deadline, false);
+            const subjectName = hw.subject?.name || 'Mata Pelajaran';
+            const title = `⏰ Peringatan Batas Waktu PR: ${subjectName}`;
+            const message = `Bapak/Ibu Wali Kelas ${className}, terdapat ${unsubmittedStudents.length} dari ${activeStudents.length} siswa binaan Anda yang belum mengumpulkan tugas "${hw.title}". Batas waktu (deadline) berakhir dalam 1 jam lagi (pukul ${deadlineTimeWib} WIB). [ID:${hw.id}]`;
+
+            // 1. Simpan ke database NotificationMessage
+            await (prisma as any).notificationMessage.create({
+                data: {
+                    recipientId: waliKelas.id,
+                    recipientPhone: waliKelas.parentPhone || waliKelas.username,
+                    recipientRole: 'TEACHER',
+                    className: className,
+                    title: title,
+                    message: message,
+                    category: 'HOMEWORK_DEADLINE_WALI',
+                    isRead: false,
+                    sentAt: new Date()
+                }
+            });
+
+            // 2. Kirim FCM Push Notification ke HP Wali Kelas
+            await sendFcmToUser(waliKelas.id, title, message, {
+                type: 'HOMEWORK_DEADLINE_WARNING_WALI',
+                homeworkId: hw.id,
+                className: className,
+                subject: subjectName,
+                unsubmittedCount: String(unsubmittedStudents.length),
+                totalStudents: String(activeStudents.length),
+                deadline: hw.deadline.toISOString()
+            });
+
+            console.log(`⏰ [Scheduler] Peringatan deadline PR "${hw.title}" dikirim ke Wali Kelas ${waliKelas.name} (${className}): ${unsubmittedStudents.length} siswa belum kumpul.`);
+        }
+    } catch (err) {
+        console.warn('⚠️ [Scheduler] Gagal memproses peringatan deadline PR ke Wali Kelas:', err);
+    }
 }
 
 /**

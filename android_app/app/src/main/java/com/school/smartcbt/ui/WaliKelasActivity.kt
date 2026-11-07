@@ -64,6 +64,15 @@ class WaliKelasActivity : AppCompatActivity() {
         loadDashboard()
         loadStudents()
 
+        // Buka langsung Dialog Monitoring Akademik jika dipicu dari Notifikasi Peringatan Deadline PR H-1
+        if (intent.getBooleanExtra("EXTRA_OPEN_AKADEMIK", false) || intent.getStringExtra("type") == "HOMEWORK_DEADLINE_WARNING_WALI") {
+            binding.root.postDelayed({
+                if (!isFinishing && !isDestroyed) {
+                    showMonitoringAkademikDialog()
+                }
+            }, 400)
+        }
+
         // Sinkronisasi Token Push Notifikasi Firebase (FCM)
         try {
             com.school.smartcbt.utils.FcmHelper.syncFcmToken(this)

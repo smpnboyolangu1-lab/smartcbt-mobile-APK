@@ -210,6 +210,9 @@ class MainActivity : AppCompatActivity() {
             if (triggerUpdate) {
                 targetIntent.putExtra("EXTRA_TRIGGER_UPDATE", true)
             }
+            intent.extras?.let { extras ->
+                targetIntent.putExtras(extras)
+            }
             startActivity(targetIntent)
         } else {
             val loginIntent = Intent(this, LoginActivity::class.java)

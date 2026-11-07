@@ -13,8 +13,8 @@ android {
         applicationId = "com.school.smartcbt"
         minSdk = 24
         targetSdk = 34
-        versionCode = 192
-        versionName = "2.9.20"
+        versionCode = 193
+        versionName = "2.9.21"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

@@ -200,6 +200,21 @@ class TeacherMainActivity : AppCompatActivity() {
         try {
             TeacherTppHelper.checkTppNotificationBadge(this)
         } catch (e: Exception) {}
+
+        // Handle incoming notification intent (Peringatan Batas Waktu PR ke Wali Kelas, dll)
+        handleIncomingNotificationIntent(intent)
+    }
+
+    private fun handleIncomingNotificationIntent(targetIntent: Intent?) {
+        if (targetIntent == null) return
+        val notifType = targetIntent.getStringExtra("type") ?: ""
+        if (notifType == "HOMEWORK_DEADLINE_WARNING_WALI") {
+            val waliIntent = Intent(this, WaliKelasActivity::class.java).apply {
+                putExtra("EXTRA_OPEN_AKADEMIK", true)
+                putExtras(targetIntent)
+            }
+            startActivity(waliIntent)
+        }
     }
 
     private fun applyTeacherRoleMenuVisibility() {
@@ -856,7 +871,9 @@ class TeacherMainActivity : AppCompatActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        setIntent(intent)
         handleNfcIntent(intent)
+        handleIncomingNotificationIntent(intent)
     }
 
     private fun loadProctorTokenBanner() {
