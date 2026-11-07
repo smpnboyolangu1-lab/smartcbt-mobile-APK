@@ -41,7 +41,6 @@ backend/uploads/device-files/
 backend/uploads/avatars/
 
 # Keep release APK for backend serving
-!backend/uploads/SmartCBT_v2.8.90.apk
 !backend/uploads/smartcbt-latest.apk
 
 # Local DB server & storage
