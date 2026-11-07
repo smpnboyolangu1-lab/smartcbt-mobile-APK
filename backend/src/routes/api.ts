@@ -186,7 +186,7 @@ router.get('/biodata/print/:siswa_id', async (req, res) => {
         const studentId = req.params.siswa_id;
         const siswaUser = await prisma.user.findFirst({
             where: {
-                OR: [{ id: studentId }, { username: studentId }]
+                OR: [{ id: studentId }, { username: studentId }, { nisn: studentId }]
             }
         });
         const targetStudentId = siswaUser?.id || studentId;
@@ -1572,6 +1572,10 @@ const biodataUploadStorage = multer.diskStorage({
             dest = path.join(__dirname, '../../uploads/biodata/akta');
         } else if (file.fieldname === 'bantuan') {
             dest = path.join(__dirname, '../../uploads/biodata/bantuan');
+        } else if (file.fieldname === 'foto') {
+            dest = path.join(__dirname, '../../uploads/biodata/foto');
+        } else if (file.fieldname === 'dinsos') {
+            dest = path.join(__dirname, '../../uploads/biodata/dinsos');
         }
         if (!fs.existsSync(dest)) {
             fs.mkdirSync(dest, { recursive: true });

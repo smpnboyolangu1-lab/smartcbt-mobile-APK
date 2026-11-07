@@ -8,11 +8,15 @@ const biodataUploadDir = path.join(__dirname, '../../uploads/biodata');
 const kkDir = path.join(biodataUploadDir, 'kk');
 const aktaDir = path.join(biodataUploadDir, 'akta');
 const bantuanDir = path.join(biodataUploadDir, 'bantuan');
+const fotoDir = path.join(biodataUploadDir, 'foto');
+const dinsosDir = path.join(biodataUploadDir, 'dinsos');
 
 if (!fs.existsSync(biodataUploadDir)) fs.mkdirSync(biodataUploadDir, { recursive: true });
 if (!fs.existsSync(kkDir)) fs.mkdirSync(kkDir, { recursive: true });
 if (!fs.existsSync(aktaDir)) fs.mkdirSync(aktaDir, { recursive: true });
 if (!fs.existsSync(bantuanDir)) fs.mkdirSync(bantuanDir, { recursive: true });
+if (!fs.existsSync(fotoDir)) fs.mkdirSync(fotoDir, { recursive: true });
+if (!fs.existsSync(dinsosDir)) fs.mkdirSync(dinsosDir, { recursive: true });
 
 // ========================================================
 // 1. SYSTEM SETTINGS & FEATURE TOGGLE HELPERS
@@ -544,14 +548,24 @@ export const getMyBiodataSubmission = async (req: Request, res: Response) => {
             }
         });
 
-        const [bioSiswa, bioAyah, bioIbu, bioWali, bioAfirmasi, dokSiswa] = await Promise.all([
+        const [bioSiswa, bioAyah, bioIbu, bioWali, bioAfirmasi, dokSiswaList] = await Promise.all([
             (prisma as any).biodataSiswa.findUnique({ where: { studentId } }),
             (prisma as any).biodataAyah.findUnique({ where: { studentId } }),
             (prisma as any).biodataIbu.findUnique({ where: { studentId } }),
             (prisma as any).biodataWali.findUnique({ where: { studentId } }),
             (prisma as any).biodataAfirmasi.findUnique({ where: { studentId } }),
-            (prisma as any).dokumenSiswa.findFirst({ where: { studentId } })
+            (prisma as any).dokumenSiswa.findMany({ where: { studentId } })
         ]);
+
+        const dokMap = new Map<string, string>();
+        for (const d of (dokSiswaList || [])) {
+            if (d.jenis && d.fileUrl) dokMap.set(d.jenis, d.fileUrl);
+        }
+        const fileKkUrl = dokMap.get('KK') || null;
+        const fileAktaUrl = dokMap.get('AKTA') || null;
+        const fileBantuanUrl = dokMap.get('KARTU_BANTUAN') || null;
+        const fileDinsosUrl = dokMap.get('SURAT_DINSOS') || dokMap.get('DTKS') || null;
+        const foto3x4Url = dokMap.get('FOTO') || null;
 
         const submission = await (prisma as any).studentProfileSubmission.findFirst({
             where: { studentId },
@@ -566,9 +580,9 @@ export const getMyBiodataSubmission = async (req: Request, res: Response) => {
                 studentId,
                 status: 'DRAFT',
                 rejectionReason: null,
-                kkFileUrl: dokSiswa?.fileKkUrl || null,
-                aktaFileUrl: dokSiswa?.fileAktaUrl || null,
-                bantuanFileUrl: dokSiswa?.fileBantuanUrl || null,
+                kkFileUrl: fileKkUrl,
+                aktaFileUrl: fileAktaUrl,
+                bantuanFileUrl: fileBantuanUrl,
                 step1Data: JSON.stringify({
                     nama: student?.name || bioSiswa?.namaLengkap || '',
                     nisn: student?.nisn || bioSiswa?.nisn || '',
@@ -577,7 +591,7 @@ export const getMyBiodataSubmission = async (req: Request, res: Response) => {
                     tanggalLahir: student?.dob || bioSiswa?.tanggalLahir || '',
                     jenisKelamin: student?.gender || bioSiswa?.jk || 'L',
                     agama: student?.religion || bioSiswa?.agama || 'Islam',
-                    fotoUrl: dokSiswa?.foto3x4Url || student?.profilePicUrl || bioSiswa?.fotoUrl || null
+                    fotoUrl: foto3x4Url || student?.profilePicUrl || bioSiswa?.fotoUrl || null
                 }),
                 step2Data: JSON.stringify({
                     alamat: bioSiswa?.alamatLengkap || student?.address || '',
@@ -612,26 +626,30 @@ export const getMyBiodataSubmission = async (req: Request, res: Response) => {
                     assistanceType: bioAfirmasi?.jenisKartu || 'KIP (Kartu Indonesia Pintar)',
                     assistanceNumber: bioAfirmasi?.nomorKartu || '',
                     desil: bioAfirmasi?.desilDtks ? `Desil ${bioAfirmasi.desilDtks}` : 'Non-Desil',
-                    dinsosFileUploaded: !!(bioAfirmasi?.dtksUrl || dokSiswa?.fileDinsosUrl),
-                    dinsosUrl: bioAfirmasi?.dtksUrl || dokSiswa?.fileDinsosUrl || null,
-                    bantuanFileUploaded: !!(dokSiswa?.fileBantuanUrl)
+                    dinsosFileUploaded: !!(bioAfirmasi?.dtksUrl || fileDinsosUrl),
+                    dinsosUrl: bioAfirmasi?.dtksUrl || fileDinsosUrl || null,
+                    bantuanFileUploaded: !!fileBantuanUrl
                 }),
                 step5Data: JSON.stringify({
-                    kkUploaded: !!(dokSiswa?.fileKkUrl),
-                    aktaUploaded: !!(dokSiswa?.fileAktaUrl),
-                    bantuanUploaded: !!(dokSiswa?.fileBantuanUrl)
+                    kkUploaded: !!fileKkUrl,
+                    aktaUploaded: !!fileAktaUrl,
+                    bantuanUploaded: !!fileBantuanUrl
                 })
             };
         } else {
             // Jika submission ada tapi ada field kosong, lengkapi dari data master portal
             try {
+                if (!effectiveSubmission.kkFileUrl && fileKkUrl) effectiveSubmission.kkFileUrl = fileKkUrl;
+                if (!effectiveSubmission.aktaFileUrl && fileAktaUrl) effectiveSubmission.aktaFileUrl = fileAktaUrl;
+                if (!effectiveSubmission.bantuanFileUrl && fileBantuanUrl) effectiveSubmission.bantuanFileUrl = fileBantuanUrl;
+
                 const s1 = JSON.parse(effectiveSubmission.step1Data || '{}');
                 if (!s1.nama && (student?.name || bioSiswa?.namaLengkap)) s1.nama = student?.name || bioSiswa?.namaLengkap;
                 if (!s1.nisn && (student?.nisn || bioSiswa?.nisn)) s1.nisn = student?.nisn || bioSiswa?.nisn;
                 if (!s1.nik && (student?.nik || bioSiswa?.nik)) s1.nik = student?.nik || bioSiswa?.nik;
                 if (!s1.tempatLahir && (student?.pob || bioSiswa?.tempatLahir)) s1.tempatLahir = student?.pob || bioSiswa?.tempatLahir;
                 if (!s1.tanggalLahir && (student?.dob || bioSiswa?.tanggalLahir)) s1.tanggalLahir = student?.dob || bioSiswa?.tanggalLahir;
-                if (!s1.fotoUrl && (dokSiswa?.foto3x4Url || student?.profilePicUrl)) s1.fotoUrl = dokSiswa?.foto3x4Url || student?.profilePicUrl;
+                if (!s1.fotoUrl && (foto3x4Url || student?.profilePicUrl)) s1.fotoUrl = foto3x4Url || student?.profilePicUrl;
                 effectiveSubmission.step1Data = JSON.stringify(s1);
 
                 const s2 = JSON.parse(effectiveSubmission.step2Data || '{}');
@@ -779,6 +797,14 @@ export const actionBiodataSubmission = async (req: Request, res: Response) => {
                 if (submission.step3Data) s3 = JSON.parse(submission.step3Data);
             } catch (e) {}
 
+            const reviewedData = req.body.reviewedData || {};
+            const finalName = reviewedData.name || s1.nama || submission.student.name;
+            const finalNik = reviewedData.nik || s1.nik || (submission.student as any).nik || null;
+            const finalPob = reviewedData.pob || s1.tempatLahir || submission.student.pob;
+            const finalDob = reviewedData.dob || s1.tanggalLahir || submission.student.dob;
+            const finalGender = reviewedData.gender || s1.jenisKelamin || submission.student.gender;
+            const finalReligion = reviewedData.religion || s1.agama || submission.student.religion;
+
             const fullAddress = s2.alamat
                 ? `${s2.alamat}${s2.rt ? ` RT ${s2.rt}` : ''}${s2.rw ? ` RW ${s2.rw}` : ''}${s2.desa ? `, Desa ${s2.desa}` : ''}${s2.kecamatan ? `, Kec. ${s2.kecamatan}` : ''}${s2.kabupaten ? `, ${s2.kabupaten}` : ''}`
                 : submission.student.address;
@@ -787,12 +813,12 @@ export const actionBiodataSubmission = async (req: Request, res: Response) => {
             await prisma.user.update({
                 where: { id: submission.studentId },
                 data: {
-                    name: s1.nama || submission.student.name,
-                    nik: s1.nik || (submission.student as any).nik || null,
-                    pob: s1.tempatLahir || submission.student.pob,
-                    dob: s1.tanggalLahir || submission.student.dob,
-                    gender: s1.jenisKelamin || submission.student.gender,
-                    religion: s1.agama || submission.student.religion,
+                    name: finalName,
+                    nik: finalNik,
+                    pob: finalPob,
+                    dob: finalDob,
+                    gender: finalGender,
+                    religion: finalReligion,
                     address: fullAddress,
                     fatherName: s3.namaAyah || submission.student.fatherName,
                     motherName: s3.namaIbu || submission.student.motherName,
@@ -800,6 +826,50 @@ export const actionBiodataSubmission = async (req: Request, res: Response) => {
                     profilePicUrl: s1.fotoUrl || (submission as any).fotoUrl || undefined
                 }
             });
+
+            // Sinkronisasi status ke tabel `BiodataSiswa` agar sinkron dengan Buku Induk Kesiswaan & TU
+            try {
+                await (prisma as any).biodataSiswa.upsert({
+                    where: { studentId: submission.studentId },
+                    create: {
+                        studentId: submission.studentId,
+                        namaLengkap: finalName,
+                        nik: finalNik,
+                        tempatLahir: finalPob,
+                        tanggalLahir: finalDob,
+                        jk: finalGender,
+                        agama: finalReligion,
+                        status: 'APPROVED',
+                        verifiedBy: reviewerName,
+                        verifiedAt: new Date(),
+                        catatanRevisi: null,
+                        konfirmasiAkhir: true
+                    },
+                    update: {
+                        namaLengkap: finalName,
+                        nik: finalNik,
+                        tempatLahir: finalPob,
+                        tanggalLahir: finalDob,
+                        jk: finalGender,
+                        agama: finalReligion,
+                        status: 'APPROVED',
+                        verifiedBy: reviewerName,
+                        verifiedAt: new Date(),
+                        catatanRevisi: null,
+                        konfirmasiAkhir: true
+                    }
+                });
+
+                // Pra-terbitkan berkas PDF Resmi Formulir Biodata 3 Halaman Folio F4
+                try {
+                    const { PdfService } = await import('../services/pdfService');
+                    await PdfService.generateFormulirLengkap(submission.studentId);
+                } catch (pdfErr: any) {
+                    console.warn('[BiodataSubmission] Warning generate PDF:', pdfErr.message);
+                }
+            } catch (bioErr: any) {
+                console.warn('[BiodataSubmission] Warning sync biodataSiswa:', bioErr.message);
+            }
 
             // Update submission status menjadi APPROVED
             const updated = await (prisma as any).studentProfileSubmission.update({
@@ -851,6 +921,19 @@ export const actionBiodataSubmission = async (req: Request, res: Response) => {
                     reviewedAt: new Date()
                 }
             });
+
+            // Sinkronisasi status REVISI ke BiodataSiswa
+            try {
+                await (prisma as any).biodataSiswa.updateMany({
+                    where: { studentId: submission.studentId },
+                    data: {
+                        status: 'REVISI',
+                        catatanRevisi: rejectionReason.trim()
+                    }
+                });
+            } catch (bioErr: any) {
+                console.warn('[BiodataSubmission] Warning sync biodataSiswa revisi:', bioErr.message);
+            }
 
             // Notifikasi revisi ke Orang Tua
             try {

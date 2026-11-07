@@ -255,6 +255,7 @@
                     <!-- Dokumen Viewport -->
                     <div class="doc-viewport flex-1" id="docViewport" onmousedown="startDocPan(event)">
                         <img id="docImage" src="" alt="Berkas Lampiran" class="doc-image" onerror="handleImageError(this)">
+                        <iframe id="docPdfFrame" src="" class="w-full h-full rounded-xl hidden border-0 bg-white"></iframe>
                         <div id="docPlaceholder" class="hidden text-center text-slate-500 p-6">
                             <p class="text-4xl mb-2">📁</p>
                             <p class="text-xs font-semibold">Tidak ada berkas yang diunggah</p>
@@ -846,14 +847,30 @@
                 url = activeSubmission?.bantuanFileUrl || s4.bantuanFileUrl || payloadObj.bantuanFileUrl;
             }
 
+            const pdfFrame = document.getElementById('docPdfFrame');
             if (url) {
-                img.src = url;
-                img.classList.remove('hidden');
+                const isPdf = url.toLowerCase().split('?')[0].endsWith('.pdf');
+                if (isPdf && pdfFrame) {
+                    img.classList.add('hidden');
+                    pdfFrame.src = url;
+                    pdfFrame.classList.remove('hidden');
+                } else {
+                    if (pdfFrame) {
+                        pdfFrame.classList.add('hidden');
+                        pdfFrame.src = '';
+                    }
+                    img.src = url;
+                    img.classList.remove('hidden');
+                }
                 placeholder.classList.add('hidden');
                 extLink.href = url;
                 extLink.classList.remove('hidden');
             } else {
                 img.classList.add('hidden');
+                if (pdfFrame) {
+                    pdfFrame.classList.add('hidden');
+                    pdfFrame.src = '';
+                }
                 placeholder.classList.remove('hidden');
                 extLink.classList.add('hidden');
             }
@@ -1094,11 +1111,21 @@
                 return;
             }
 
+            const reviewedData = {
+                name: document.getElementById('revStudentName').value.trim(),
+                nisn: document.getElementById('revStudentNisn').value.trim(),
+                nik: document.getElementById('revStudentNik').value.trim(),
+                pob: document.getElementById('revStudentPob').value.trim(),
+                dob: document.getElementById('revStudentDob').value.trim(),
+                gender: document.getElementById('revStudentGender').value,
+                religion: document.getElementById('revStudentReligion').value
+            };
+
             try {
                 const res = await fetch(`/api/v1/admin/biodata/${activeSubmission.id}/action`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'APPROVE' })
+                    body: JSON.stringify({ action: 'APPROVE', reviewedData })
                 });
                 const result = await res.json();
                 if (result.success) {

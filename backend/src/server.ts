@@ -146,10 +146,12 @@ app.use(['/uploads/kk', '/uploads/akta', '/uploads/siswa'], (req, res, next) => 
       path.join(process.cwd(), 'uploads/kk', studentFolder, filename),
       path.join(process.cwd(), 'uploads/akta', studentFolder, filename)
     ] : []),
-    // 3. Biodata folders: uploads/biodata/kk/:file, uploads/biodata/akta/:file
+    // 3. Biodata folders: uploads/biodata/kk/:file, uploads/biodata/akta/:file, foto, bantuan, dinsos
     path.join(process.cwd(), 'uploads/biodata/kk', filename),
     path.join(process.cwd(), 'uploads/biodata/akta', filename),
     path.join(process.cwd(), 'uploads/biodata/bantuan', filename),
+    path.join(process.cwd(), 'uploads/biodata/foto', filename),
+    path.join(process.cwd(), 'uploads/biodata/dinsos', filename),
     path.join(process.cwd(), 'uploads/kk', filename),
     path.join(process.cwd(), 'uploads/akta', filename),
     path.join(process.cwd(), 'uploads', filename)

@@ -456,7 +456,8 @@ export class PdfService {
             where: {
                 OR: [
                     { id: studentId },
-                    { username: studentId }
+                    { username: studentId },
+                    { nisn: studentId }
                 ]
             }
         });
