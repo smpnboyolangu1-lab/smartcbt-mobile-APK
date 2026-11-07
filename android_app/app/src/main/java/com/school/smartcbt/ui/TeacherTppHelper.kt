@@ -65,7 +65,7 @@ object TeacherTppHelper {
      * Dialog Cek TPP Mandiri untuk Guru (Tampilan Triwulan & Bulanan dengan Header Berwarna)
      */
     fun showMyTppDialog(activity: TeacherMainActivity) {
-        val dialog = AlertDialog.Builder(activity, android.R.style.Theme_Light_NoTitleBar_Fullscreen).create()
+        val dialog = activity.createFullscreenDialog()
         val density = activity.resources.displayMetrics.density
 
         val root = LinearLayout(activity).apply {
@@ -76,63 +76,35 @@ object TeacherTppHelper {
 
         var currentYear = Calendar.getInstance().get(Calendar.YEAR)
         var viewMode = "TRIWULAN" // "TRIWULAN" atau "BULANAN"
-        var selectedTw = 1 // Default Triwulan 1 (klik TW 1 -> tampil bulan Jan-Mar)
+        val currentMonth = Calendar.getInstance().get(Calendar.MONTH) + 1
+        val activeTw = when (currentMonth) {
+            in 1..3 -> 1
+            in 4..6 -> 2
+            in 7..9 -> 3
+            else -> 4
+        }
+        val activeTwName = when (activeTw) {
+            1 -> "Triwulan 1 (Januari - Maret)"
+            2 -> "Triwulan 2 (April - Juni)"
+            3 -> "Triwulan 3 (Juli - September)"
+            else -> "Triwulan 4 (Oktober - Desember)"
+        }
+        var selectedTw = activeTw // Sistem cerdas: default TW aktif mengikuti bulan berjalan (misal Okt/Nov/Des -> TW 4)
+        var refreshAction: (() -> Unit)? = null
 
-        // 1. HEADER DIALOG UTAMA (Gradien Biru Tua Elegan)
-        val headerCard = CardView(activity).apply {
-            radius = 0f
-            cardElevation = 4f * density
-            setCardBackgroundColor(Color.parseColor("#1E3A8A"))
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        }
-        val headerInner = LinearLayout(activity).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            val p = (16 * density).toInt()
-            setPadding(p, p, p, p)
-        }
-        val btnBack = TextView(activity).apply {
-            text = "✕"
-            textSize = 20f
-            setTypeface(null, Typeface.BOLD)
-            setTextColor(Color.WHITE)
-            val bp = (8 * density).toInt()
-            setPadding(0, 0, bp, 0)
-            setOnClickListener { dialog.dismiss() }
-        }
-        headerInner.addView(btnBack)
-
-        val headerTextLayout = LinearLayout(activity).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        }
-        headerTextLayout.addView(TextView(activity).apply {
-            text = "💰 Layanan TPP Guru"
-            textSize = 16f
-            setTypeface(null, Typeface.BOLD)
-            setTextColor(Color.WHITE)
-        })
-        headerTextLayout.addView(TextView(activity).apply {
-            text = "Pengecekan Status Pencairan & Laporan Triwulan • SMPN 1 Boyolangu"
-            textSize = 11f
-            setTextColor(Color.parseColor("#BFDBFE"))
-            setPadding(0, 2, 0, 0)
-        })
-        headerInner.addView(headerTextLayout)
-
-        val btnRefresh = TextView(activity).apply {
-            text = "🔄"
-            textSize = 18f
-            setTextColor(Color.WHITE)
-            val rp = (6 * density).toInt()
-            setPadding(rp, rp, rp, rp)
-        }
-        headerInner.addView(btnRefresh)
-        headerCard.addView(headerInner)
-        root.addView(headerCard)
+        // 1. HEADER DIALOG FULLSCREEN (Konsisten Native SIBOY Fresh dengan Inset Status Bar & Emerald Gradient)
+        val header = activity.createFullscreenHeader(
+            title = "💰 Layanan & Status TPP Guru",
+            subtitle = "Pengecekan Status Pencairan & Laporan Triwulan • SMPN 1 Boyolangu",
+            onClose = { dialog.dismiss() },
+            actionBtnText = "🔄 Refresh",
+            onActionClick = { refreshAction?.invoke() }
+        )
+        root.addView(header)
 
         val scrollContent = ScrollView(activity).apply {
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
+            isFillViewport = true
         }
         val contentInner = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
@@ -432,10 +404,10 @@ object TeacherTppHelper {
                     }
 
                     val tvTwGuide = TextView(activity).apply {
-                        text = "📌 Pilih Triwulan (Klik untuk menampilkan rincian bulan):"
-                        textSize = 12f
+                        text = "⚡ Siklus TPP Cerdas: Periode Aktif $activeTwName\n(Sistem otomatis mengunci triwulan lain di luar bulan berjalan)"
+                        textSize = 11.5f
                         setTypeface(null, Typeface.BOLD)
-                        setTextColor(Color.parseColor("#1E293B"))
+                        setTextColor(Color.parseColor("#065F46"))
                         setPadding(0, 0, 0, (8 * density).toInt())
                     }
                     twBarInner.addView(tvTwGuide)
@@ -491,17 +463,30 @@ object TeacherTppHelper {
 
                     fun updateTwTabs() {
                         for ((twNum, btn) in twButtons) {
-                            val isSelected = twNum == selectedTw
-                            btn.background = GradientDrawable().apply {
-                                setColor(if (isSelected) Color.parseColor("#1E3A8A") else Color.parseColor("#F8FAFC"))
-                                setStroke((1 * density).toInt(), if (isSelected) Color.parseColor("#1E3A8A") else Color.parseColor("#CBD5E1"))
-                                cornerRadius = 8f * density
+                            val isActiveQuarter = (twNum == activeTw)
+                            if (isActiveQuarter) {
+                                btn.text = "⭐ TW $twNum\n(AKTIF)"
+                                btn.background = GradientDrawable().apply {
+                                    setColor(Color.parseColor("#065F46"))
+                                    setStroke((2 * density).toInt(), Color.parseColor("#059669"))
+                                    cornerRadius = 8f * density
+                                }
+                                btn.setTextColor(Color.WHITE)
+                                btn.setTypeface(null, Typeface.BOLD)
+                                btn.alpha = 1.0f
+                            } else {
+                                btn.text = "TW $twNum 🔒\n(Kunci)"
+                                btn.background = GradientDrawable().apply {
+                                    setColor(Color.parseColor("#F1F5F9"))
+                                    setStroke((1 * density).toInt(), Color.parseColor("#CBD5E1"))
+                                    cornerRadius = 8f * density
+                                }
+                                btn.setTextColor(Color.parseColor("#94A3B8"))
+                                btn.setTypeface(null, Typeface.NORMAL)
+                                btn.alpha = 0.55f
                             }
-                            btn.setTextColor(if (isSelected) Color.WHITE else Color.parseColor("#475569"))
-                            btn.setTypeface(null, if (isSelected) Typeface.BOLD else Typeface.NORMAL)
                         }
-                        btnAllTw.text = if (selectedTw == 0) "✓ Menampilkan Semua Triwulan" else "🔍 Tampilkan Semua Triwulan Sekaligus"
-                        btnAllTw.setTextColor(if (selectedTw == 0) Color.parseColor("#1E3A8A") else Color.parseColor("#64748B"))
+                        btnAllTw.visibility = View.GONE
                     }
 
                     fun renderCards() {
@@ -986,13 +971,23 @@ object TeacherTppHelper {
 
                     for ((twNum, btn) in twButtons) {
                         btn.setOnClickListener {
-                            selectedTw = twNum
-                            renderCards()
+                            if (twNum == activeTw) {
+                                selectedTw = activeTw
+                                renderCards()
+                            } else {
+                                val disabledTwDesc = when (twNum) {
+                                    1 -> "Triwulan 1 (Januari - Maret)"
+                                    2 -> "Triwulan 2 (April - Juni)"
+                                    3 -> "Triwulan 3 (Juli - September)"
+                                    else -> "Triwulan 4 (Oktober - Desember)"
+                                }
+                                AlertDialog.Builder(activity)
+                                    .setTitle("🔒 Triwulan Terkunci")
+                                    .setMessage("Akses untuk $disabledTwDesc dinonaktifkan.\n\nSistem cerdas mendeteksi saat ini adalah periode $activeTwName. Sesuai regulasi TPP, hanya Triwulan $activeTw yang dapat diakses dan dilaporkan.")
+                                    .setPositiveButton("Mengerti", null)
+                                    .show()
+                            }
                         }
-                    }
-                    btnAllTw.setOnClickListener {
-                        selectedTw = if (selectedTw == 0) 1 else 0
-                        renderCards()
                     }
 
                     renderCards()
@@ -1011,7 +1006,7 @@ object TeacherTppHelper {
             })
         }
 
-        btnRefresh.setOnClickListener {
+        refreshAction = {
             loadTppData(currentYear)
         }
 
@@ -1718,7 +1713,7 @@ object TeacherTppHelper {
      * Dialog Monitoring TPP untuk Tim Kurikulum (Tanpa Nominal Rupiah - Privasi Terjamin)
      */
     fun showKurikulumTppMonitoringDialog(activity: TeacherMainActivity) {
-        val dialog = AlertDialog.Builder(activity, android.R.style.Theme_Light_NoTitleBar_Fullscreen).create()
+        val dialog = activity.createFullscreenDialog()
         val density = activity.resources.displayMetrics.density
 
         val root = LinearLayout(activity).apply {
@@ -1729,60 +1724,40 @@ object TeacherTppHelper {
 
         var selectedTw = 1
         val selectedYear = Calendar.getInstance().get(Calendar.YEAR)
+        var lastMonitoringData: KurikulumTppMonitoringResponse? = null
+        var refreshKurikulumAction: (() -> Unit)? = null
 
-        // Header Dialog Kurikulum
-        val headerCard = CardView(activity).apply {
-            radius = 0f
-            cardElevation = 4f * density
-            setCardBackgroundColor(Color.parseColor("#312E81")) // Indigo
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        }
-        val headerInner = LinearLayout(activity).apply {
+        // Header Dialog Kurikulum Modern dengan Inset Status Bar & Indigo Gradient
+        val header = activity.createFullscreenHeader(
+            title = "🏛️ Rekapitulasi TPP Guru (33 Rombel)",
+            subtitle = "Rekap Laporan Pencairan Seluruh Guru • SMPN 1 Boyolangu",
+            onClose = { dialog.dismiss() },
+            actionBtnText = "🔄 Refresh",
+            onActionClick = { refreshKurikulumAction?.invoke() }
+        )
+        root.addView(header)
+
+        // Sub-header Action Bar untuk Tombol Salin Rekap dan Unduh PDF
+        val subActionBar = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            val p = (16 * density).toInt()
-            setPadding(p, p, p, p)
+            setBackgroundColor(Color.parseColor("#1E1B4B"))
+            val p = (12 * density).toInt()
+            setPadding(p, (6 * density).toInt(), p, (10 * density).toInt())
         }
-        headerInner.addView(TextView(activity).apply {
-            text = "✕"
-            textSize = 20f
-            setTypeface(null, Typeface.BOLD)
-            setTextColor(Color.WHITE)
-            val bp = (8 * density).toInt()
-            setPadding(0, 0, bp, 0)
-            setOnClickListener { dialog.dismiss() }
-        })
-        val headerTextLayout = LinearLayout(activity).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        }
-        headerTextLayout.addView(TextView(activity).apply {
-            text = "🏛️ Rekapitulasi TPP Guru (33 Rombel)"
-            textSize = 15f
-            setTypeface(null, Typeface.BOLD)
-            setTextColor(Color.WHITE)
-        })
-        headerTextLayout.addView(TextView(activity).apply {
-            text = "Rekap Laporan Pencairan dari Seluruh Guru (Privasi: Tanpa Nominal)"
-            textSize = 10.5f
-            setTextColor(Color.parseColor("#C7D2FE"))
-            setPadding(0, 2, 0, 0)
-        })
-        headerInner.addView(headerTextLayout)
-
-        var lastMonitoringData: KurikulumTppMonitoringResponse? = null
 
         val btnCopyRecap = TextView(activity).apply {
             text = "📋 Salin Rekap"
-            textSize = 11f
+            textSize = 11.5f
             setTypeface(null, Typeface.BOLD)
             setTextColor(Color.WHITE)
             background = GradientDrawable().apply {
                 setColor(Color.parseColor("#4338CA"))
-                cornerRadius = 6f * density
+                cornerRadius = 8f * density
             }
-            val p = (8 * density).toInt()
-            setPadding(p, (4 * density).toInt(), p, (4 * density).toInt())
+            val hp = (12 * density).toInt()
+            val vp = (6 * density).toInt()
+            setPadding(hp, vp, hp, vp)
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 marginEnd = (8 * density).toInt()
             }
@@ -1815,22 +1790,21 @@ object TeacherTppHelper {
                 Toast.makeText(activity, "✅ Rekap laporan TPP berhasil disalin ke clipboard!", Toast.LENGTH_LONG).show()
             }
         }
-        headerInner.addView(btnCopyRecap)
+        subActionBar.addView(btnCopyRecap)
 
         val btnExportPdf = TextView(activity).apply {
             text = "🖨️ Unduh PDF"
-            textSize = 11f
+            textSize = 11.5f
             setTypeface(null, Typeface.BOLD)
             setTextColor(Color.WHITE)
             background = GradientDrawable().apply {
                 setColor(Color.parseColor("#059669"))
-                cornerRadius = 6f * density
+                cornerRadius = 8f * density
             }
-            val p = (8 * density).toInt()
-            setPadding(p, (4 * density).toInt(), p, (4 * density).toInt())
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                marginEnd = (8 * density).toInt()
-            }
+            val hp = (12 * density).toInt()
+            val vp = (6 * density).toInt()
+            setPadding(hp, vp, hp, vp)
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             setOnClickListener {
                 val sm = SessionManager(activity)
                 val base = sm.getServerIp().trimEnd('/')
@@ -1844,21 +1818,12 @@ object TeacherTppHelper {
                 }
             }
         }
-        headerInner.addView(btnExportPdf)
-
-        val btnRefresh = TextView(activity).apply {
-            text = "🔄"
-            textSize = 18f
-            setTextColor(Color.WHITE)
-            val rp = (6 * density).toInt()
-            setPadding(rp, rp, rp, rp)
-        }
-        headerInner.addView(btnRefresh)
-        headerCard.addView(headerInner)
-        root.addView(headerCard)
+        subActionBar.addView(btnExportPdf)
+        root.addView(subActionBar)
 
         val scrollContent = ScrollView(activity).apply {
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
+            isFillViewport = true
         }
         val contentInner = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
@@ -2175,7 +2140,7 @@ object TeacherTppHelper {
             })
         }
 
-        btnRefresh.setOnClickListener {
+        refreshKurikulumAction = {
             loadMonitoring(selectedTw)
         }
 

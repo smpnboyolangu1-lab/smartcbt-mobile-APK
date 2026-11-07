@@ -1,6 +1,9 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/db';
 import { formatTimeWib } from '../utils/dateUtils';
+import jwt from 'jsonwebtoken';
+import { extractWebToken, getSecretKey } from '../middlewares/authMiddleware';
+import { getWibDayName, getWibTimeStr, mergeConsecutivePeriods } from './scheduleEngineController';
 
 function calculateDistanceMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
     const R = 6371e3;
@@ -15,6 +18,220 @@ function calculateDistanceMeters(lat1: number, lon1: number, lat2: number, lon2:
     return Math.round(R * c);
 }
 
+export const normalizeClassName = (raw: string | null | undefined): string => {
+    if (!raw) return '';
+    let s = raw.trim().toUpperCase().replace(/[\s_]+/g, '-');
+    while (s.match(/^(ROOM|RUANG|KELAS)-+/)) {
+        s = s.replace(/^(ROOM|RUANG|KELAS)-+/, '');
+    }
+    s = s.replace(/^7-?/, 'VII-');
+    s = s.replace(/^8-?/, 'VIII-');
+    s = s.replace(/^9-?/, 'IX-');
+    s = s.replace(/^(VII|VIII|IX)([A-K])$/, '$1-$2');
+    return s;
+};
+
+export const timeStrToMinutes = (timeStr: string): number => {
+    if (!timeStr) return 0;
+    const parts = timeStr.trim().split(':');
+    const h = parseInt(parts[0], 10) || 0;
+    const m = parseInt(parts[1], 10) || 0;
+    return (h * 60) + m;
+};
+
+export const minutesToTimeStr = (min: number): string => {
+    const clamped = Math.max(0, Math.min(min, 1439));
+    const h = Math.floor(clamped / 60);
+    const m = clamped % 60;
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+};
+
+export interface ScheduleValidationResult {
+    isAllowed: boolean;
+    errorType?: 'NO_SCHEDULE_TODAY' | 'TOO_EARLY' | 'SCHEDULE_EXPIRED';
+    message: string;
+    activeSlot?: any;
+    targetClassName: string;
+    windowOpenTime?: string;
+    scheduleStartTime?: string;
+    scheduleEndTime?: string;
+    subjectName?: string;
+}
+
+export const validateTeacherClassSchedule = async (
+    teacher: any,
+    targetClass: string | null | undefined,
+    currentDate = new Date()
+): Promise<ScheduleValidationResult> => {
+    if (!targetClass) {
+        return {
+            isAllowed: true,
+            targetClassName: 'UMUM',
+            message: 'Ruangan umum / non-kelas.'
+        };
+    }
+
+    const normTarget = normalizeClassName(targetClass);
+
+    // Role ADMIN dan OPERATOR memiliki hak bypass untuk kebutuhan monitoring & pemeliharaan teknis
+    if (teacher.role === 'ADMIN' || teacher.role === 'OPERATOR') {
+        return {
+            isAllowed: true,
+            targetClassName: normTarget,
+            message: 'Akses administrator / operator sistem.'
+        };
+    }
+
+    const currentWibDay = getWibDayName(currentDate);
+    const currentWibTime = getWibTimeStr(currentDate);
+    const nowMinutes = timeStrToMinutes(currentWibTime);
+
+    // 1. Ambil jadwal hari ini di ClassPeriodSchedule
+    const schedules = await (prisma as any).classPeriodSchedule.findMany({
+        where: {
+            day: { equals: currentWibDay, mode: 'insensitive' },
+            isBreak: false,
+            OR: [
+                { teacherId: teacher.id },
+                ...(teacher.name ? [{ teacherName: { contains: teacher.name, mode: 'insensitive' } }] : [])
+            ]
+        },
+        orderBy: { periodIndex: 'asc' }
+    });
+
+    const mergedSchedules = mergeConsecutivePeriods(schedules);
+    let targetSlots = mergedSchedules.filter((s: any) => normalizeClassName(s.className) === normTarget);
+
+    // 2. Fallback: Cek TeachingSchedule jika di ClassPeriodSchedule kosong
+    if (targetSlots.length === 0) {
+        try {
+            const tsRows = await (prisma as any).teachingSchedule.findMany({
+                where: {
+                    guruId: teacher.id,
+                    hari: { equals: currentWibDay, mode: 'insensitive' }
+                }
+            });
+            for (const ts of tsRows) {
+                const classObj = await prisma.class.findFirst({
+                    where: { id: ts.kelasId }
+                }).catch(() => null);
+                const tsClassName = classObj?.name || ts.kelasId;
+                if (normalizeClassName(tsClassName) === normTarget) {
+                    targetSlots.push({
+                        id: ts.id,
+                        day: ts.hari,
+                        startTime: ts.jamMulai,
+                        endTime: ts.jamSelesai,
+                        className: tsClassName,
+                        subjectName: teacher.teachingSubject || 'Mata Pelajaran'
+                    });
+                }
+            }
+        } catch (e) {}
+    }
+
+    // 3. Fallback: Cek penugasan guru piket / inval (substitute teacher) hari ini
+    if (targetSlots.length === 0) {
+        try {
+            const hasInval = await (prisma as any).leaveRequest?.findFirst({
+                where: {
+                    substituteTeacherId: teacher.id,
+                    status: 'APPROVED'
+                }
+            });
+            if (hasInval) {
+                const origSchedules = await (prisma as any).classPeriodSchedule.findMany({
+                    where: {
+                        teacherId: hasInval.teacherId,
+                        day: { equals: currentWibDay, mode: 'insensitive' },
+                        isBreak: false
+                    },
+                    orderBy: { periodIndex: 'asc' }
+                });
+                const origMerged = mergeConsecutivePeriods(origSchedules);
+                const invalSlots = origMerged.filter((s: any) => normalizeClassName(s.className) === normTarget);
+                if (invalSlots.length > 0) {
+                    targetSlots = invalSlots;
+                }
+            }
+        } catch (e) {}
+    }
+
+    // Jika tidak ada jadwal sama sekali di kelas ini hari ini
+    if (targetSlots.length === 0) {
+        return {
+            isAllowed: false,
+            errorType: 'NO_SCHEDULE_TODAY',
+            message: `⛔ Presensi Ditolak!\n\nAnda tidak memiliki jadwal mengajar di kelas ${targetClass} pada hari ${currentWibDay}.\n\nPresensi masuk kelas hanya diperbolehkan pada kelas dan jam pelajaran yang sesuai dengan jadwal mengajar Anda.`,
+            targetClassName: normTarget
+        };
+    }
+
+    // 4. Periksa jendela waktu: 30 Menit sebelum jam mengajar sampai jam pelajaran selesai
+    let activeSlot: any = null;
+    let upcomingSlot: any = null;
+    let expiredSlot: any = null;
+
+    for (const slot of targetSlots) {
+        const startMin = timeStrToMinutes(slot.startTime);
+        const endMin = timeStrToMinutes(slot.endTime);
+        const windowOpenMin = startMin - 30; // Tepat 30 menit sebelum jam KBM dimulai
+        const windowCloseMin = endMin + 15; // Sampai jam KBM selesai (+15 menit toleransi penyelesaian)
+
+        if (nowMinutes >= windowOpenMin && nowMinutes <= windowCloseMin) {
+            activeSlot = slot;
+            break;
+        } else if (nowMinutes < windowOpenMin) {
+            if (!upcomingSlot || timeStrToMinutes(slot.startTime) < timeStrToMinutes(upcomingSlot.startTime)) {
+                upcomingSlot = slot;
+            }
+        } else {
+            expiredSlot = slot;
+        }
+    }
+
+    if (activeSlot) {
+        const windowOpenTime = minutesToTimeStr(timeStrToMinutes(activeSlot.startTime) - 30);
+        return {
+            isAllowed: true,
+            activeSlot,
+            targetClassName: normTarget,
+            windowOpenTime,
+            scheduleStartTime: activeSlot.startTime,
+            scheduleEndTime: activeSlot.endTime,
+            subjectName: activeSlot.subjectName,
+            message: `✅ Sesi KBM Diizinkan (${activeSlot.startTime} - ${activeSlot.endTime} WIB).`
+        };
+    }
+
+    if (upcomingSlot) {
+        const startMin = timeStrToMinutes(upcomingSlot.startTime);
+        const windowOpenMin = startMin - 30;
+        const windowOpenTime = minutesToTimeStr(windowOpenMin);
+        return {
+            isAllowed: false,
+            errorType: 'TOO_EARLY',
+            message: `⏳ Presensi Belum Dibuka!\n\nJadwal mengajar Anda di kelas ${targetClass} (${upcomingSlot.subjectName}) adalah pukul ${upcomingSlot.startTime} - ${upcomingSlot.endTime} WIB.\n\nTombol presensi masuk baru dapat diakses pukul ${windowOpenTime} WIB (30 menit sebelum jam mengajar).`,
+            targetClassName: normTarget,
+            windowOpenTime,
+            scheduleStartTime: upcomingSlot.startTime,
+            scheduleEndTime: upcomingSlot.endTime,
+            subjectName: upcomingSlot.subjectName
+        };
+    }
+
+    const lastSlot = expiredSlot || targetSlots[targetSlots.length - 1];
+    return {
+        isAllowed: false,
+        errorType: 'SCHEDULE_EXPIRED',
+        message: `⏰ Jam Pelajaran Telah Berakhir!\n\nJadwal mengajar Anda di kelas ${targetClass} (${lastSlot.subjectName}) pukul ${lastSlot.startTime} - ${lastSlot.endTime} WIB telah selesai untuk hari ini.`,
+        targetClassName: normTarget,
+        scheduleStartTime: lastSlot.startTime,
+        scheduleEndTime: lastSlot.endTime,
+        subjectName: lastSlot.subjectName
+    };
+};
+
 // ========================================================
 // MODUL ESTAFET SESI MENGAJAR GURU (ROOM HANDOVER VIA NFC/QR)
 // DAN PRESENSI MATA PELAJARAN SISWA TERINTEGRASI GERBANG PAGI
@@ -28,9 +245,9 @@ export const ensureDefaultPhysicalRooms = async () => {
         const count = await (prisma as any).physicalRoom.count();
         if (count === 0) {
             const classes = [
-                'VII-A', 'VII-B', 'VII-C', 'VII-D', 'VII-E', 'VII-F', 'VII-G', 'VII-H', 'VII-I', 'VII-J',
-                'VIII-A', 'VIII-B', 'VIII-C', 'VIII-D', 'VIII-E', 'VIII-F', 'VIII-G', 'VIII-H', 'VIII-I', 'VIII-J',
-                'IX-A', 'IX-B', 'IX-C', 'IX-D', 'IX-E', 'IX-F', 'IX-G', 'IX-H', 'IX-I', 'IX-J'
+                'VII-A', 'VII-B', 'VII-C', 'VII-D', 'VII-E', 'VII-F', 'VII-G', 'VII-H', 'VII-I', 'VII-J', 'VII-K',
+                'VIII-A', 'VIII-B', 'VIII-C', 'VIII-D', 'VIII-E', 'VIII-F', 'VIII-G', 'VIII-H', 'VIII-I', 'VIII-J', 'VIII-K',
+                'IX-A', 'IX-B', 'IX-C', 'IX-D', 'IX-E', 'IX-F', 'IX-G', 'IX-H', 'IX-I', 'IX-J', 'IX-K'
             ];
 
             const roomData = classes.map((c, idx) => ({
@@ -39,47 +256,15 @@ export const ensureDefaultPhysicalRooms = async () => {
                 nfcTagUid: `NFC_TAG_${c.replace('-', '_')}`,
                 qrSecretToken: `QR_ROOM_${c.replace('-', '_')}_SEC_2026`,
                 className: c,
-                building: idx < 10 ? 'Gedung A (Kelas VII)' : idx < 20 ? 'Gedung B (Kelas VIII)' : 'Gedung C (Kelas IX)',
-                floor: (idx % 10) < 5 ? 1 : 2,
+                building: idx < 11 ? 'Gedung A (Kelas VII)' : idx < 22 ? 'Gedung B (Kelas VIII)' : 'Gedung C (Kelas IX)',
+                floor: (idx % 11) < 6 ? 1 : 2,
                 isActive: true
             }));
-
-            // Ruang khusus
-            roomData.push({
-                roomCode: 'ROOM_LAB_KOMP_1',
-                roomName: 'Laboratorium Komputer 1',
-                nfcTagUid: 'NFC_TAG_LAB_KOMP_1',
-                qrSecretToken: 'QR_ROOM_LAB_KOMP_1_SEC_2026',
-                className: null as any,
-                building: 'Gedung TI Lt. 2',
-                floor: 2,
-                isActive: true
-            });
-            roomData.push({
-                roomCode: 'ROOM_MUSHOLA',
-                roomName: 'Mushola Sekolah Al-Ikhlas',
-                nfcTagUid: 'NFC_TAG_MUSHOLA',
-                qrSecretToken: 'QR_ROOM_MUSHOLA_SEC_2026',
-                className: null as any,
-                building: 'Area Ibadah Utama',
-                floor: 1,
-                isActive: true
-            });
-            roomData.push({
-                roomCode: 'ROOM_BK',
-                roomName: 'Ruang Bimbingan Konseling (BK)',
-                nfcTagUid: 'NFC_TAG_RUANG_BK',
-                qrSecretToken: 'QR_ROOM_RUANG_BK_SEC_2026',
-                className: null as any,
-                building: 'Gedung Layanan Siswa Lt. 1',
-                floor: 1,
-                isActive: true
-            });
 
             for (const item of roomData) {
                 await (prisma as any).physicalRoom.create({ data: item });
             }
-            console.log(`✅ Initialized ${roomData.length} physical rooms for teacher room handover.`);
+            console.log(`✅ Initialized ${roomData.length} physical classroom rooms for teacher room handover.`);
         }
     } catch (e: any) {
         console.warn('Init physical rooms notice:', e.message);
@@ -169,6 +354,13 @@ export const checkInTeachingSession = async (req: Request, res: Response) => {
             });
         }
 
+        if (!room.className) {
+            return res.status(400).json({
+                success: false,
+                message: 'Presensi KBM wajib memilih ruang kelas rombel (contoh: VII-A, VIII-B). Presensi siswa dicatat berdasarkan rombel kelas.'
+            });
+        }
+
         // ========================================================
         // A0. VALIDASI GEOMAPPING RUANG KELAS (BUKAN LINGKUNGAN SEKOLAH UMUM)
         // ========================================================
@@ -189,62 +381,27 @@ export const checkInTeachingSession = async (req: Request, res: Response) => {
         }
 
         // ========================================================
-        // A. VALIDASI ANTI-SALAH KAMAR DENGAN SMART RESOLVER
+        // A. VALIDASI JADWAL MENGAJAR & JENDELA WAKTU H-30 MENIT (KETAT)
         // ========================================================
-        // Periksa apakah kelas ruangan ini sesuai dengan jadwal rombel yang diampu guru
+        let assignedSubject = subjectName || teacher.teachingSubject;
+
         if (room.className && teacher.role === 'TEACHER') {
-            const targetClass = room.className.trim().toUpperCase();
-            let isAllowed = false;
+            const scheduleValidation = await validateTeacherClassSchedule(teacher, room.className);
 
-            // 1. Cek dari teachingClasses guru
-            if (teacher.teachingClasses) {
-                const allowedClasses = teacher.teachingClasses
-                    .split(',')
-                    .map((c: string) => c.trim().toUpperCase().replace(/\s+/g, '-'));
-                const targetNormalized = targetClass.replace(/\s+/g, '-');
-                if (allowedClasses.includes(targetNormalized) || allowedClasses.includes(targetClass)) {
-                    isAllowed = true;
-                }
-            }
-
-            // 2. Cek apakah ada jadwal mengajar guru di kelas ini pada database
-            if (!isAllowed) {
-                const hasSchedule = await (prisma as any).schedule.findFirst({
-                    where: {
-                        teacherId: teacher.id,
-                        className: { in: [targetClass, targetClass.replace('-', ' '), targetClass.replace(/\s+/g, '-')] }
-                    }
+            if (!scheduleValidation.isAllowed) {
+                return res.status(422).json({
+                    success: false,
+                    error: scheduleValidation.errorType || 'INVALID_SCHEDULE',
+                    message: scheduleValidation.message,
+                    windowOpenTime: scheduleValidation.windowOpenTime,
+                    scheduleStartTime: scheduleValidation.scheduleStartTime,
+                    scheduleEndTime: scheduleValidation.scheduleEndTime,
+                    targetClass: room.className
                 });
-                if (hasSchedule) isAllowed = true;
             }
 
-            // 3. Cek apakah guru adalah wali kelas dari kelas ini
-            if (!isAllowed && teacher.homeroomClass) {
-                const homeroomNorm = teacher.homeroomClass.toUpperCase().replace(/\s+/g, '-');
-                const targetNorm = targetClass.replace(/\s+/g, '-');
-                if (homeroomNorm === targetNorm) isAllowed = true;
-            }
-
-            // 4. Jika teachingClasses tidak diset, izinkan agar guru tidak terblokir
-            if (!teacher.teachingClasses) {
-                isAllowed = true;
-            }
-
-            // 5. Cek apakah ada penugasan guru piket / inval
-            if (!isAllowed) {
-                const hasInval = await (prisma as any).leaveRequest?.findFirst({
-                    where: {
-                        substituteTeacherId: teacher.id,
-                        status: 'APPROVED'
-                    }
-                }).catch(() => null);
-
-                if (hasInval) isAllowed = true;
-            }
-
-            if (!isAllowed) {
-                console.log(`[Handover] Guru ${teacher.name} membuka sesi fleksibel di ruangan ${room.roomName} (${room.className})`);
-                isAllowed = true;
+            if (scheduleValidation.activeSlot?.subjectName) {
+                assignedSubject = scheduleValidation.activeSlot.subjectName;
             }
         }
 
@@ -319,15 +476,17 @@ export const checkInTeachingSession = async (req: Request, res: Response) => {
         // C. BUAT SESI MENGAJAR BARU DI RUANGAN
         // ========================================================
         const targetClassName = room.className || teacher.teachingClasses?.split(',')[0] || 'UMUM';
-        let assignedSubject = subjectName || teacher.teachingSubject;
         if (!assignedSubject) {
-            const sched = await (prisma as any).schedule.findFirst({
+            const normTarget = normalizeClassName(targetClassName);
+            const sched = await (prisma as any).classPeriodSchedule.findFirst({
                 where: {
-                    teacherId: teacher.id,
-                    className: { in: [targetClassName, targetClassName.replace('-', ' '), targetClassName.replace(/\s+/g, '-')] }
+                    OR: [
+                        { teacherId: teacher.id },
+                        ...(teacher.name ? [{ teacherName: { contains: teacher.name, mode: 'insensitive' } }] : [])
+                    ]
                 }
             });
-            if (sched?.subject) assignedSubject = sched.subject;
+            if (sched?.subjectName) assignedSubject = sched.subjectName;
         }
         if (!assignedSubject) assignedSubject = 'Mata Pelajaran';
 
@@ -1036,14 +1195,148 @@ export const studentSelfAttendSession = async (req: Request, res: Response) => {
  * 7. Ambil Daftar Ruangan Fisik Sekolah
  * GET /api/v1/teacher/rooms
  */
-export const getPhysicalRoomsList = async (_req: Request, res: Response) => {
+export const getPhysicalRoomsList = async (req: Request, res: Response) => {
     try {
         await ensureDefaultPhysicalRooms();
         const rooms = await (prisma as any).physicalRoom.findMany({
-            where: { isActive: true },
+            where: {
+                isActive: true,
+                className: { not: null }
+            },
             orderBy: [{ building: 'asc' }, { roomName: 'asc' }]
         });
-        return res.json({ success: true, data: rooms });
+
+        // Ekstraksi guru jika terotentikasi
+        let teacher: any = (req as any).user;
+        if (!teacher) {
+            const token = extractWebToken(req);
+            if (token) {
+                try {
+                    const decoded: any = jwt.verify(token, getSecretKey());
+                    const uid = decoded?.id || decoded?.userId;
+                    if (uid) {
+                        teacher = await prisma.user.findUnique({ where: { id: uid } });
+                    }
+                } catch (e) {}
+            }
+        }
+
+        if (!teacher || teacher.role !== 'TEACHER') {
+            // Jika bukan guru, kembalikan daftar ruangan standar
+            return res.json({ success: true, data: rooms });
+        }
+
+        const now = new Date();
+        const currentWibDay = getWibDayName(now);
+        const currentWibTime = getWibTimeStr(now);
+        const nowMinutes = timeStrToMinutes(currentWibTime);
+
+        // Ambil sesi KBM yang sedang aktif oleh guru ini jika ada
+        const activeTeachingSession = await (prisma as any).teachingSession.findFirst({
+            where: { teacherId: teacher.id, status: 'IN_PROGRESS' }
+        });
+
+        // Ambil seluruh jadwal hari ini milik guru
+        const schedules = await (prisma as any).classPeriodSchedule.findMany({
+            where: {
+                day: { equals: currentWibDay, mode: 'insensitive' },
+                isBreak: false,
+                OR: [
+                    { teacherId: teacher.id },
+                    ...(teacher.name ? [{ teacherName: { contains: teacher.name, mode: 'insensitive' } }] : [])
+                ]
+            },
+            orderBy: { periodIndex: 'asc' }
+        });
+
+        const mergedSchedules = mergeConsecutivePeriods(schedules);
+
+        const enrichedRooms = rooms.map((room: any) => {
+            const isAlreadyCheckedIn = activeTeachingSession?.roomId === room.id;
+
+            // Jika ruangan fisik tidak memiliki rombel kelas (misal Lab, Mushola, BK)
+            if (!room.className) {
+                return {
+                    ...room,
+                    isScheduledToday: true,
+                    canCheckIn: !isAlreadyCheckedIn,
+                    isAlreadyCheckedIn,
+                    statusReason: isAlreadyCheckedIn ? '🟢 Sedang Aktif di Ruangan Ini' : 'Ruang Fasilitas Umum'
+                };
+            }
+
+            const roomClassNorm = normalizeClassName(room.className);
+            const classSlots = mergedSchedules.filter((s: any) => normalizeClassName(s.className) === roomClassNorm);
+
+            if (classSlots.length === 0) {
+                return {
+                    ...room,
+                    isScheduledToday: false,
+                    canCheckIn: false,
+                    isAlreadyCheckedIn,
+                    statusReason: isAlreadyCheckedIn ? '🟢 Sesi Sedang Berjalan' : '⛔ Tidak ada jadwal mengajar di kelas ini hari ini'
+                };
+            }
+
+            // Ada jadwal hari ini di kelas ini
+            let activeSlot = null;
+            let upcomingSlot = null;
+            let expiredSlot = null;
+
+            for (const slot of classSlots) {
+                const startMin = timeStrToMinutes(slot.startTime);
+                const endMin = timeStrToMinutes(slot.endTime);
+                const windowOpenMin = startMin - 30; // 30 Menit sebelum jam mengajar
+                const windowCloseMin = endMin + 15;
+
+                if (nowMinutes >= windowOpenMin && nowMinutes <= windowCloseMin) {
+                    activeSlot = slot;
+                    break;
+                } else if (nowMinutes < windowOpenMin) {
+                    if (!upcomingSlot || timeStrToMinutes(slot.startTime) < timeStrToMinutes(upcomingSlot.startTime)) {
+                        upcomingSlot = slot;
+                    }
+                } else {
+                    expiredSlot = slot;
+                }
+            }
+
+            const chosenSlot = activeSlot || upcomingSlot || expiredSlot || classSlots[0];
+            const startMin = timeStrToMinutes(chosenSlot.startTime);
+            const windowOpenMin = startMin - 30;
+            const windowOpenTime = minutesToTimeStr(windowOpenMin);
+
+            let canCheckIn = false;
+            let statusReason = '';
+
+            if (isAlreadyCheckedIn) {
+                canCheckIn = false;
+                statusReason = `🟢 Sedang Aktif KBM (${chosenSlot.subjectName})`;
+            } else if (activeSlot) {
+                canCheckIn = true;
+                statusReason = `🟢 Siap Presensi Masuk (Jadwal: ${activeSlot.startTime} - ${activeSlot.endTime} WIB)`;
+            } else if (upcomingSlot) {
+                canCheckIn = false;
+                statusReason = `⏳ Presensi dibuka pukul ${windowOpenTime} WIB (30 menit sebelum KBM ${upcomingSlot.startTime})`;
+            } else {
+                canCheckIn = false;
+                statusReason = `⏰ Jadwal KBM hari ini (${chosenSlot.startTime} - ${chosenSlot.endTime} WIB) telah selesai`;
+            }
+
+            return {
+                ...room,
+                isScheduledToday: true,
+                canCheckIn,
+                isAlreadyCheckedIn,
+                scheduleSubject: chosenSlot.subjectName,
+                scheduleStartTime: chosenSlot.startTime,
+                scheduleEndTime: chosenSlot.endTime,
+                windowOpenTime,
+                statusReason
+            };
+        });
+
+        return res.json({ success: true, data: enrichedRooms });
     } catch (e: any) {
         return res.status(500).json({ success: false, message: e.message });
     }

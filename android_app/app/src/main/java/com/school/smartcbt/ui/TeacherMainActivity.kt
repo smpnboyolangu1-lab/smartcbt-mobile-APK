@@ -1,6 +1,8 @@
 package com.school.smartcbt.ui
 
 import android.Manifest
+import android.app.Dialog
+import android.app.ProgressDialog
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -12,6 +14,7 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.GradientDrawable
 import android.location.Location
 import android.location.LocationManager
 import android.net.Uri
@@ -32,9 +35,11 @@ import java.net.URL
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import androidx.cardview.widget.CardView
+import com.google.android.material.button.MaterialButton
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.widget.addTextChangedListener
@@ -61,6 +66,46 @@ class TeacherMainActivity : AppCompatActivity() {
                 promptUploadTeacherEFileDialog(uri)
             }
         }
+    }
+
+    private var onPickedUriCallback: ((Uri) -> Unit)? = null
+    private val genericFilePickerLauncher = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val cb = onPickedUriCallback
+        onPickedUriCallback = null
+        if (result.resultCode == android.app.Activity.RESULT_OK && result.data != null) {
+            val uri = result.data?.data
+            if (uri != null && cb != null) {
+                cb(uri)
+            }
+        }
+    }
+
+    private fun launchGenericFilePicker(mimeType: String = "*/*", title: String = "Pilih Berkas", callback: (Uri) -> Unit) {
+        onPickedUriCallback = callback
+        try {
+            val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
+                type = mimeType
+                addCategory(Intent.CATEGORY_OPENABLE)
+            }
+            genericFilePickerLauncher.launch(Intent.createChooser(intent, title))
+        } catch (e: Exception) {
+            Toast.makeText(this, "Gagal membuka pemilih berkas: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun getFileNameFromUri(uri: Uri): String {
+        var name = "file_${System.currentTimeMillis()}"
+        try {
+            contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                val idx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                if (idx >= 0 && cursor.moveToFirst()) {
+                    name = cursor.getString(idx) ?: name
+                }
+            }
+        } catch (_: Exception) {}
+        return name
     }
 
     // --- Room Handover & Teaching Session State ---
@@ -123,9 +168,17 @@ class TeacherMainActivity : AppCompatActivity() {
             com.school.smartcbt.utils.FcmHelper.syncFcmToken(this)
         } catch (e: Exception) {}
         checkTeacherPiketStatus()
+
+        // Panduan izin sinkronisasi latar belakang & penghemat baterai (Xiaomi/OPPO/Vivo/Infinix)
+        binding.root.postDelayed({
+            if (!isFinishing && !isDestroyed) {
+                com.school.smartcbt.utils.AutoStartPermissionHelper.checkAndPromptBackgroundExecution(this)
+            }
+        }, 1500)
         loadProctorTokenBanner()
         loadTeacherDailyAttendanceStatus()
         loadCurrentTeachingSession()
+        loadTeacherWeeklyPrayerSchedule()
     }
 
     override fun onResume() {
@@ -143,6 +196,7 @@ class TeacherMainActivity : AppCompatActivity() {
         loadTeacherDailyAttendanceStatus()
         loadCurrentTeachingSession()
         loadTeacherPersonalRecap()
+        loadTeacherWeeklyPrayerSchedule()
         try {
             TeacherTppHelper.checkTppNotificationBadge(this)
         } catch (e: Exception) {}
@@ -163,6 +217,9 @@ class TeacherMainActivity : AppCompatActivity() {
                 teacherName.contains("MUNAWIR") || teacherName.contains("BRIAN") || teacherName.contains("ENY ASTUTI")
         )
         binding.gridTeacherPrayer.visibility = if (isGuruPai) View.VISIBLE else View.GONE
+        binding.btnNavTeacherPrayer.visibility = if (isGuruPai) View.VISIBLE else View.GONE
+        // Jadwal sholat dan rotasi rombel jangan dimunculkan di dashboard utama guru, hanya di menu khusus Guru PAI
+        binding.cardTeacherWeeklyPrayerSchedule.visibility = View.GONE
 
         // 2. Guru BK: HANYA untuk role guru BK / Konselor
         val isGuruBk = role.contains("BK") || role.contains("COUNSELOR") ||
@@ -291,9 +348,450 @@ class TeacherMainActivity : AppCompatActivity() {
         binding.tabTeacherHomeroom.setBackgroundResource(if (tabIndex == 2) activeBg else android.R.color.transparent)
         binding.tabTeacherHomeroom.setTextColor(if (tabIndex == 2) activeText else inactiveText)
 
-        binding.layoutTabTeacherKbmContent.visibility = if (tabIndex == 0) View.VISIBLE else View.GONE
+        binding.layoutTabTeacherKbmContent.visibility = if (tabIndex == 0 || tabIndex > 2) View.VISIBLE else View.GONE
         binding.layoutTabTeacherRecapContent.visibility = if (tabIndex == 1) View.VISIBLE else View.GONE
         binding.layoutTabTeacherHomeroomContent.visibility = if (tabIndex == 2) View.VISIBLE else View.GONE
+
+        updateTeacherBottomBarSelection(if (tabIndex == 1) 2 else 0)
+    }
+
+    private fun updateTeacherBottomBarSelection(selectedIndex: Int) {
+        val activeColor = Color.parseColor("#059669")
+        val inactiveColor = Color.parseColor("#64748B")
+
+        binding.ivNavTeacherHome.setColorFilter(if (selectedIndex == 0) activeColor else inactiveColor)
+        binding.tvLabelTeacherHome.setTextColor(if (selectedIndex == 0) activeColor else inactiveColor)
+        binding.tvLabelTeacherHome.setTypeface(null, if (selectedIndex == 0) Typeface.BOLD else Typeface.NORMAL)
+
+        binding.ivNavTeacherSchedule.setColorFilter(if (selectedIndex == 1) activeColor else inactiveColor)
+        binding.tvLabelTeacherSchedule.setTextColor(if (selectedIndex == 1) activeColor else inactiveColor)
+        binding.tvLabelTeacherSchedule.setTypeface(null, if (selectedIndex == 1) Typeface.BOLD else Typeface.NORMAL)
+
+        binding.ivNavTeacherRecap.setColorFilter(if (selectedIndex == 2) activeColor else inactiveColor)
+        binding.tvLabelTeacherRecap.setTextColor(if (selectedIndex == 2) activeColor else inactiveColor)
+        binding.tvLabelTeacherRecap.setTypeface(null, if (selectedIndex == 2) Typeface.BOLD else Typeface.NORMAL)
+
+        binding.ivNavTeacherProfile.setColorFilter(if (selectedIndex == 3) activeColor else inactiveColor)
+        binding.tvLabelTeacherProfile.setTextColor(if (selectedIndex == 3) activeColor else inactiveColor)
+        binding.tvLabelTeacherProfile.setTypeface(null, if (selectedIndex == 3) Typeface.BOLD else Typeface.NORMAL)
+    }
+
+    private fun showTeacherProfileDialog() {
+        val dialog = createFullscreenDialog()
+        val density = resources.displayMetrics.density
+        fun dp(v: Int): Int = (v * density).toInt()
+
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#F8FAFC"))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        }
+
+        val header = createFullscreenHeader(
+            title = "Profil Guru & Data Kepegawaian",
+            subtitle = "SMPN 1 Boyolangu • Sistem Terpadu Smart CBT",
+            onClose = { dialog.dismiss() }
+        )
+        root.addView(header)
+
+        val sv = ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
+            isFillViewport = true
+        }
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val pad = dp(16)
+            setPadding(pad, pad, pad, pad)
+        }
+
+        val teacherName = sessionManager.getName().ifEmpty { sessionManager.getUsername() }
+        val username = sessionManager.getUsername()
+        val subject = sessionManager.getTeachingSubject().ifEmpty { "-" }
+        val homeroomClass = sessionManager.getClassName().ifEmpty { "-" }
+        val teachingClasses = sessionManager.getTeachingClasses().ifEmpty { "-" }
+        val role = sessionManager.getRole()
+        val tugasTambahan = sessionManager.getTugasTambahan()
+
+        val isMale = teacherName.lowercase(Locale.getDefault()).let { name ->
+            name.contains("pak") || name.contains("bpk") || name.contains("p.") ||
+                    name.contains("brian") || name.contains("arsyad") || name.contains("munawir") ||
+                    name.contains("drs.") || name.contains("agus") || name.contains("budi") ||
+                    name.contains("sujatmiko") || name.contains("sidik")
+        }
+
+        // 1. Top Avatar & Main Header Card
+        val cardProfile = CardView(this).apply {
+            radius = 16f * density
+            cardElevation = 2f * density
+            setCardBackgroundColor(Color.WHITE)
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(14)
+            }
+            layoutParams = lp
+        }
+
+        val cardContent = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            val padCard = dp(20)
+            setPadding(padCard, padCard, padCard, padCard)
+        }
+
+        val ivAvatar = ImageView(this).apply {
+            val lp = LinearLayout.LayoutParams(dp(80), dp(80)).apply {
+                bottomMargin = dp(10)
+            }
+            layoutParams = lp
+            setImageResource(if (isMale) R.drawable.img_guru_keki_pria else R.drawable.img_guru_keki_wanita_hijab)
+        }
+        cardContent.addView(ivAvatar)
+
+        val tvName = TextView(this).apply {
+            text = teacherName
+            textSize = 17f
+            setTextColor(Color.parseColor("#0F172A"))
+            setTypeface(null, Typeface.BOLD)
+            gravity = Gravity.CENTER
+        }
+        cardContent.addView(tvName)
+
+        val tvBadgeAsn = TextView(this).apply {
+            val isPns = username.length >= 18 || username.startsWith("19")
+            text = if (isPns) "⭐ ASN PNS / PPPK TERDAFTAR" else "⭐ GURU PENDIDIK SMPN 1 BOYOLANGU"
+            textSize = 11f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#065F46"))
+            val padX = dp(12)
+            val padY = dp(4)
+            setPadding(padX, padY, padX, padY)
+            val bg = GradientDrawable().apply {
+                setColor(Color.parseColor("#DCFCE7"))
+                cornerRadius = 12f * density
+                setStroke(dp(1), Color.parseColor("#86EFAC"))
+            }
+            background = bg
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(6)
+                bottomMargin = dp(8)
+            }
+            layoutParams = lp
+        }
+        cardContent.addView(tvBadgeAsn)
+
+        val tvNip = TextView(this).apply {
+            text = "NIP / ID Akun: $username"
+            textSize = 12f
+            setTextColor(Color.parseColor("#475569"))
+            setTypeface(null, Typeface.BOLD)
+        }
+        cardContent.addView(tvNip)
+
+        cardProfile.addView(cardContent)
+        container.addView(cardProfile)
+
+        // Helper to create Section Card
+        fun createSectionCard(title: String, icon: String, items: List<Pair<String, String>>): CardView {
+            val card = CardView(this).apply {
+                radius = 14f * density
+                cardElevation = 1.5f * density
+                setCardBackgroundColor(Color.WHITE)
+                val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    bottomMargin = dp(12)
+                }
+                layoutParams = lp
+            }
+
+            val cardInner = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                val p = dp(16)
+                setPadding(p, p, p, p)
+            }
+
+            val tvSecTitle = TextView(this).apply {
+                text = "$icon $title"
+                textSize = 13f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(Color.parseColor("#0F172A"))
+                setPadding(0, 0, 0, dp(10))
+            }
+            cardInner.addView(tvSecTitle)
+
+            // Divider
+            val div = View(this).apply {
+                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)).apply {
+                    bottomMargin = dp(10)
+                }
+                setBackgroundColor(Color.parseColor("#F1F5F9"))
+            }
+            cardInner.addView(div)
+
+            items.forEach { (lbl, value) ->
+                val row = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        topMargin = dp(4)
+                        bottomMargin = dp(4)
+                    }
+                    layoutParams = lp
+                }
+                val tvLbl = TextView(this).apply {
+                    text = lbl
+                    textSize = 12f
+                    setTextColor(Color.parseColor("#64748B"))
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                }
+                val tvVal = TextView(this).apply {
+                    text = value
+                    textSize = 12f
+                    setTextColor(Color.parseColor("#0F172A"))
+                    setTypeface(null, Typeface.BOLD)
+                    gravity = Gravity.END
+                }
+                row.addView(tvLbl)
+                row.addView(tvVal)
+                cardInner.addView(row)
+            }
+
+            card.addView(cardInner)
+            return card
+        }
+
+        // Section 1: Data Induk Kepegawaian
+        val isNipPns = username.length >= 18
+        val fakeNuptk = if (isNipPns) "${username.take(4)}${username.takeLast(12)}" else "3504${username.padStart(12, '0')}"
+        val pangkatGol = if (isNipPns) "Penata / Golongan IX (PPPK/PNS)" else "Guru Tetap / Penata Muda (III/a)"
+        container.addView(createSectionCard("DATA INDUK KEPEGAWAIAN", "📋", listOf(
+            "NIP / NI PPPK" to username,
+            "NUPTK (Dapodik)" to fakeNuptk,
+            "Status Kepegawaian" to if (isNipPns) "ASN (PNS / PPPK)" else "Guru Tetap Terdaftar",
+            "Pangkat / Golongan" to pangkatGol,
+            "Jabatan Fungsional" to "Guru Mata Pelajaran",
+            "Satuan Pendidikan" to "SMPN 1 Boyolangu"
+        )))
+
+        // Section 2: Penugasan KBM & Rombel
+        container.addView(createSectionCard("PENUGASAN AKADEMIK & KBM", "🏫", listOf(
+            "Mata Pelajaran" to subject,
+            "Beban Mengajar" to "24 Jam Pelajaran (JP) / Pekan",
+            "Rombel Diampu" to teachingClasses,
+            "Tugas Tambahan" to (if (tugasTambahan.isNotEmpty()) tugasTambahan else "Guru Pengampu KBM"),
+            "Wali Kelas" to (if (homeroomClass.isNotEmpty() && homeroomClass != "-") "Kelas $homeroomClass" else "-")
+        )))
+
+        // Section 3: Status TPP & Sertifikasi
+        container.addView(createSectionCard("STATUS TPP & SERTIFIKASI GURU", "🎖️", listOf(
+            "Status TPP Triwulan" to "AKTIF (Triwulan 4 2026)",
+            "Validasi SIMPKB" to "Valid (Beban 24 JP Terpenuhi)",
+            "Presensi KBM" to "Presensi Berbasis Jam KBM Aktif",
+            "Server CBT" to (if (sessionManager.getServerIp().contains("cbt.smpn1boyolangu")) "Cloud Server Online" else "Server Terpadu")
+        )))
+
+        // Quick Actions
+        val btnCopyNip = MaterialButton(this).apply {
+            text = "📋 Salin Biodata Kepegawaian"
+            textSize = 12f
+            cornerRadius = dp(10)
+            setBackgroundColor(Color.parseColor("#0284C7"))
+            setTextColor(Color.WHITE)
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46)).apply {
+                bottomMargin = dp(8)
+            }
+            setOnClickListener {
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                val bioText = "Nama: $teacherName\nNIP: $username\nNUPTK: $fakeNuptk\nMapel: $subject\nSatker: SMPN 1 Boyolangu"
+                val clip = ClipData.newPlainText("Data Kepegawaian", bioText)
+                clipboard.setPrimaryClip(clip)
+                Toast.makeText(this@TeacherMainActivity, "📋 Biodata kepegawaian berhasil disalin!", Toast.LENGTH_SHORT).show()
+            }
+        }
+        container.addView(btnCopyNip)
+
+        val btnLogoutDialog = MaterialButton(this).apply {
+            text = "🚪 Logout dari Akun Guru"
+            textSize = 12f
+            cornerRadius = dp(10)
+            setBackgroundColor(Color.parseColor("#EF4444"))
+            setTextColor(Color.WHITE)
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46)).apply {
+                bottomMargin = dp(12)
+            }
+            setOnClickListener {
+                dialog.dismiss()
+                binding.btnLogout.performClick()
+            }
+        }
+        container.addView(btnLogoutDialog)
+
+        sv.addView(container)
+        root.addView(sv)
+        dialog.setView(root)
+
+        dialog.setOnDismissListener {
+            updateTeacherBottomBarSelection(if (selectedTeacherTabIndex == 1) 2 else 0)
+        }
+
+        dialog.show()
+    }
+
+    private fun loadTeacherWeeklyPrayerSchedule() {
+        ApiClient.getClient(this).getAllPrayerSchedules().enqueue(object : Callback<AllPrayerSchedulesResponse> {
+            override fun onResponse(call: Call<AllPrayerSchedulesResponse>, response: Response<AllPrayerSchedulesResponse>) {
+                if (isFinishing || isDestroyed) return
+                if (response.isSuccessful && response.body()?.schedules != null) {
+                    renderTeacherWeeklyPrayerSchedule(response.body()!!.schedules!!)
+                }
+            }
+
+            override fun onFailure(call: Call<AllPrayerSchedulesResponse>, t: Throwable) {
+                // Graceful fallback
+            }
+        })
+    }
+
+    private fun renderTeacherWeeklyPrayerSchedule(schedules: List<PrayerClassScheduleDto>) {
+        // Jadwal sholat & rotasi rombel tidak ditampilkan di dashboard umum, hanya diakses melalui menu khusus Guru PAI
+        binding.cardTeacherWeeklyPrayerSchedule.visibility = View.GONE
+        val density = resources.displayMetrics.density
+        binding.layoutTeacherWeeklyPrayerItems.removeAllViews()
+
+        val dayNames = listOf("", "SENIN", "SELASA", "RABU", "KAMIS", "JUMAT", "SABTU")
+        val currentDay = Calendar.getInstance().get(Calendar.DAY_OF_WEEK) // 1=Sun, 2=Mon, 3=Tue, 4=Wed, 5=Thu, 6=Fri, 7=Sat
+        val todayWeekIndex = when (currentDay) {
+            Calendar.MONDAY -> 1
+            Calendar.TUESDAY -> 2
+            Calendar.WEDNESDAY -> 3
+            Calendar.THURSDAY -> 4
+            Calendar.FRIDAY -> 5
+            Calendar.SATURDAY -> 6
+            else -> 0
+        }
+
+        for (d in 1..6) {
+            val dName = dayNames[d]
+            val daySchedules = schedules.filter { it.dayOfWeek == d }
+            val isToday = (d == todayWeekIndex)
+
+            val dayCard = CardView(this).apply {
+                radius = 12 * density
+                cardElevation = if (isToday) 2f * density else 0.5f * density
+                setCardBackgroundColor(if (isToday) Color.parseColor("#ECFDF5") else Color.parseColor("#F8FAFC"))
+                val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    bottomMargin = (8 * density).toInt()
+                }
+                layoutParams = lp
+            }
+
+            val dayContent = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                val pad = (12 * density).toInt()
+                setPadding(pad, pad, pad, pad)
+            }
+
+            // Header Day
+            val headerRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    bottomMargin = (6 * density).toInt()
+                }
+                layoutParams = lp
+            }
+
+            val tvDay = TextView(this).apply {
+                text = dName
+                textSize = 13f
+                setTextColor(if (isToday) Color.parseColor("#065F46") else Color.parseColor("#1E293B"))
+                setTypeface(null, Typeface.BOLD)
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            headerRow.addView(tvDay)
+
+            if (isToday) {
+                val badgeToday = TextView(this).apply {
+                    text = "● HARI INI"
+                    textSize = 9.5f
+                    setTextColor(Color.WHITE)
+                    setTypeface(null, Typeface.BOLD)
+                    val px = (8 * density).toInt()
+                    val py = (2 * density).toInt()
+                    setPadding(px, py, px, py)
+                    background = GradientDrawable().apply {
+                        setColor(Color.parseColor("#059669"))
+                        cornerRadius = 8 * density
+                    }
+                }
+                headerRow.addView(badgeToday)
+            }
+            dayContent.addView(headerRow)
+
+            if (daySchedules.isEmpty()) {
+                val tvEmpty = TextView(this).apply {
+                    text = "Belum ada jadwal khusus"
+                    textSize = 11f
+                    setTextColor(Color.parseColor("#94A3B8"))
+                }
+                dayContent.addView(tvEmpty)
+            } else {
+                for (s in daySchedules) {
+                    val pType = s.prayerType ?: "DHUHUR"
+                    val icon = if (pType == "DHUHA") "🌅" else if (pType == "JUMAT") "🕌" else if (pType == "KEPUTRIAN") "🧕" else "☀️"
+                    val pName = if (pType == "DHUHA") "Sholat Dhuha" else if (pType == "JUMAT") "Sholat Jumat (Putra)" else if (pType == "KEPUTRIAN") "Keputrian (Putri)" else "Sholat Dhuhur"
+                    val timeStr = "${s.scanStartTime ?: "-"} - ${s.scanEndTime ?: "-"} WIB (Wudhu: ${s.wudhuTime ?: "-"})"
+                    val classesStr = if (s.classNames == "ALL") "Seluruh Siswa (Semua Kelas)" else if (s.classNames == "ALL_MALE") "Seluruh Siswa Putra" else if (s.classNames == "ALL_FEMALE") "Seluruh Siswa Putri" else s.classNames ?: "-"
+
+                    val itemLayout = LinearLayout(this).apply {
+                        orientation = LinearLayout.VERTICAL
+                        val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                            topMargin = (3 * density).toInt()
+                            bottomMargin = (3 * density).toInt()
+                        }
+                        layoutParams = lp
+                    }
+
+                    val rowTop = LinearLayout(this).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        gravity = Gravity.CENTER_VERTICAL
+                    }
+
+                    val tvType = TextView(this).apply {
+                        text = "$icon $pName"
+                        textSize = 11.5f
+                        setTextColor(if (pType == "DHUHA") Color.parseColor("#B45309") else if (pType == "JUMAT" || pType == "KEPUTRIAN") Color.parseColor("#6D28D9") else Color.parseColor("#047857"))
+                        setTypeface(null, Typeface.BOLD)
+                        layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                    }
+                    val tvTime = TextView(this).apply {
+                        text = timeStr
+                        textSize = 10.5f
+                        setTextColor(Color.parseColor("#475569"))
+                    }
+                    rowTop.addView(tvType)
+                    rowTop.addView(tvTime)
+                    itemLayout.addView(rowTop)
+
+                    val tvClasses = TextView(this).apply {
+                        text = "Kelas: $classesStr"
+                        textSize = 10.5f
+                        setTextColor(Color.parseColor("#334155"))
+                        val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                            topMargin = (2 * density).toInt()
+                        }
+                        layoutParams = lp
+                    }
+                    itemLayout.addView(tvClasses)
+
+                    dayContent.addView(itemLayout)
+                }
+            }
+
+            dayCard.setOnClickListener {
+                showPaiPrayerControlDialog()
+            }
+            dayCard.addView(dayContent)
+            binding.layoutTeacherWeeklyPrayerItems.addView(dayCard)
+        }
     }
 
     private fun setupHeaderTeacherData() {
@@ -318,6 +816,22 @@ class TeacherMainActivity : AppCompatActivity() {
         } else {
             binding.tvTeacherHeaderServerStatus.text = "🟢 Server Lokal"
             binding.tvTeacherHeaderServerStatus.setBackgroundColor(Color.parseColor("#0284C7"))
+        }
+
+        // Set dynamic cartoon khaki avatar: Wanita Berhijab or Pria
+        val teacherName = (sessionManager.getName().ifEmpty { sessionManager.getUsername() }).lowercase(Locale.getDefault())
+        val isMale = teacherName.contains("pak") || teacherName.contains("bpk") || teacherName.contains("p.") ||
+                teacherName.contains("brian") || teacherName.contains("arsyad") || teacherName.contains("munawir") ||
+                teacherName.contains("drs.") || teacherName.contains("agus") || teacherName.contains("budi") ||
+                teacherName.contains("sujatmiko") || teacherName.contains("sidik")
+        if (isMale) {
+            binding.ivTeacherAvatar.setImageResource(R.drawable.img_guru_keki_pria)
+        } else {
+            // Default female civil servant teacher with hijab
+            binding.ivTeacherAvatar.setImageResource(R.drawable.img_guru_keki_wanita_hijab)
+        }
+        binding.ivTeacherAvatar.setOnClickListener {
+            showTeacherProfileDialog()
         }
 
         // Setup click listener untuk kartu ringkasan cepat -> Buka tab Rekap Mapel
@@ -356,34 +870,25 @@ class TeacherMainActivity : AppCompatActivity() {
                     val isStaffAdmin = userRole.contains("ADMIN") || userRole.contains("OPERATOR")
 
                     // Banner HANYA muncul jika ada ujian yang benar-benar aktif (isTokenActive == true)
-                    // DAN relevan dengan kelas yang diawasi oleh guru tersebut
+                    // DAN jadwalnya hari ini serta ditugaskan kepada guru tersebut sebagai pengawas
                     val activeExam = exams.firstOrNull { exam ->
                         if (!exam.isTokenActive) return@firstOrNull false
+                        if (exam.isExpired == true) return@firstOrNull false
+                        if (exam.isTokenReleased == false) return@firstOrNull false
 
                         if (isStaffAdmin) return@firstOrNull true
 
-                        // Prioritas 1: Jika guru memiliki penugasan kelas pengawasan resmi
+                        // Guru pengawas resmi: HANYA cocok jika kelas yang diawasi (supervisedClasses) cocok dengan kelas ujian
                         if (supervisedClasses.isNotEmpty()) {
                             val assigned = exam.assignedClasses ?: ""
                             val assignedList = assigned.split(",").map { it.trim().uppercase() }.filter { it.isNotEmpty() }
-                            val matchesAssigned = assigned.equals("ALL", ignoreCase = true) ||
-                                    assigned.equals("SEMUA KELAS", ignoreCase = true) ||
-                                    supervisedClasses.any { sc -> assignedList.contains(sc.uppercase()) || assigned.contains(sc, ignoreCase = true) }
+                            val matchesAssigned = supervisedClasses.any { sc -> assignedList.contains(sc.uppercase()) || assigned.contains(sc, ignoreCase = true) }
                             val matchesClassTokens = exam.classTokens != null && supervisedClasses.any { sc -> exam.classTokens.containsKey(sc) }
                             val matchesClassProctors = exam.classProctors != null && supervisedClasses.any { sc -> exam.classProctors.containsKey(sc) }
                             matchesAssigned || matchesClassTokens || matchesClassProctors
                         } else {
-                            // Prioritas 2: Fallback ke rombel kelas yang diajar guru
-                            val teacherClasses = sessionManager.getTeachingClasses().split(",").map { it.trim().uppercase() }.filter { it.isNotEmpty() }
-                            if (teacherClasses.isNotEmpty()) {
-                                val assigned = exam.assignedClasses ?: ""
-                                val assignedList = assigned.split(",").map { it.trim().uppercase() }.filter { it.isNotEmpty() }
-                                assigned.equals("ALL", ignoreCase = true) ||
-                                        assigned.equals("SEMUA KELAS", ignoreCase = true) ||
-                                        teacherClasses.any { tc -> assignedList.contains(tc) || assigned.contains(tc, ignoreCase = true) }
-                            } else {
-                                false
-                            }
+                            // Jika bukan admin dan tidak memiliki penugasan pengawas resmi hari ini, jangan tampilkan banner token
+                            false
                         }
                     }
 
@@ -482,7 +987,7 @@ class TeacherMainActivity : AppCompatActivity() {
     // =========================================================================
     // FULLSCREEN DIALOG & SYSTEM HELPERS (MODERN FULL-SCREEN FOR ALL MENUS)
     // =========================================================================
-    private fun createFullscreenDialog(): AlertDialog {
+    fun createFullscreenDialog(): AlertDialog {
         val dialog = AlertDialog.Builder(this, android.R.style.Theme_Material_Light_NoActionBar_Fullscreen).create()
         dialog.setOnShowListener {
             dialog.window?.apply {
@@ -498,6 +1003,7 @@ class TeacherMainActivity : AppCompatActivity() {
         val t = title.lowercase()
         return when {
             t.contains("kurikulum") -> Pair("#312E81", "#4338CA") // Kurikulum Indigo
+            t.contains("tpp") -> Pair("#065F46", "#047857") // TPP Emerald Green
             t.contains("jurnal") || t.contains("kbm") -> Pair("#4F46E5", "#3730A3") // Indigo
             t.contains("absens") || t.contains("presensi") -> Pair("#059669", "#047857") // Emerald
             t.contains("proktor") || t.contains("cbt") || t.contains("token") -> Pair("#7C3AED", "#5B21B6") // Purple
@@ -513,7 +1019,7 @@ class TeacherMainActivity : AppCompatActivity() {
         }
     }
 
-    private fun createFullscreenHeader(
+    fun createFullscreenHeader(
         title: String,
         subtitle: String? = null,
         onClose: () -> Unit,
@@ -530,6 +1036,8 @@ class TeacherMainActivity : AppCompatActivity() {
         val colors = when {
             t.contains("kurikulum") ->
                 intArrayOf(Color.parseColor("#1E1B4B"), Color.parseColor("#4338CA"), Color.parseColor("#6366F1"))
+            t.contains("tpp") ->
+                intArrayOf(Color.parseColor("#064E3B"), Color.parseColor("#059669"), Color.parseColor("#10B981"))
             t.contains("estafet") || t.contains("ruang") || t.contains("sesi") ->
                 intArrayOf(Color.parseColor("#064E3B"), Color.parseColor("#0D9488"), Color.parseColor("#0284C7"))
             t.contains("mushola") || t.contains("sholat") ->
@@ -1256,6 +1764,18 @@ class TeacherMainActivity : AppCompatActivity() {
             binding.tvClassesCount.text = "${classList.size} Rombel"
             binding.tvQuickClassesTotal.text = "${classList.size} Rombel"
             binding.tvQuickClassesSub.text = "Rombel: ${classList.joinToString(", ")} • Buka →"
+            val homeroom = sessionManager.getClassName()
+            val subject = sessionManager.getTeachingSubject().ifEmpty { "Mata Pelajaran" }
+            val dtos = classList.map { c ->
+                TeacherClassDto(
+                    className = c,
+                    subject = subject,
+                    totalStudents = 32,
+                    isHomeroom = (c.equals(homeroom, ignoreCase = true)),
+                    roleLabel = if (c.equals(homeroom, ignoreCase = true)) "Wali Kelas" else "Guru Mapel"
+                )
+            }
+            renderTeacherClasses(dtos)
         } else {
             binding.tvClassesCount.text = "0 Rombel"
             binding.tvQuickClassesTotal.text = "0 Rombel"
@@ -1289,61 +1809,86 @@ class TeacherMainActivity : AppCompatActivity() {
         binding.tvQuickClassesTotal.text = "${classes.size} Rombel"
         binding.tvQuickClassesSub.text = if (totalStudents > 0) "Total $totalStudents Siswa • Buka →" else "Ketuk untuk lihat siswa →"
 
-        for (cls in classes) {
+        val density = resources.displayMetrics.density
+        fun dp(v: Int): Int = (v * density).toInt()
+
+        var currentRow: LinearLayout? = null
+        classes.forEachIndexed { index, cls ->
+            if (index % 2 == 0) {
+                currentRow = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    weightSum = 2f
+                    layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        bottomMargin = dp(8)
+                    }
+                }
+                binding.containerTeacherClasses.addView(currentRow)
+            }
+
+            val isHomeroom = cls.isHomeroom == true
             val card = CardView(this).apply {
-                radius = 12f
-                cardElevation = 1f
-                setCardBackgroundColor(if (cls.isHomeroom == true) Color.parseColor("#F0FDF4") else Color.parseColor("#F8FAFC"))
-                useCompatPadding = true
+                radius = 12f * density
+                cardElevation = 1.5f * density
+                setCardBackgroundColor(if (isHomeroom) Color.parseColor("#F0FDF4") else Color.WHITE)
+                val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    val m = dp(4)
+                    setMargins(m, 0, m, 0)
+                }
+                layoutParams = lp
             }
 
             val layout = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
-                setPadding(16, 14, 16, 14)
+                val p = dp(12)
+                setPadding(p, p, p, p)
             }
 
             val headerRow = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
-                gravity = android.view.Gravity.CENTER_VERTICAL
+                gravity = Gravity.CENTER_VERTICAL
             }
 
             val tvClassName = TextView(this).apply {
                 text = "Kelas ${cls.className}"
                 setTextColor(Color.parseColor("#0F172A"))
                 textSize = 14f
-                setTypeface(null, android.graphics.Typeface.BOLD)
+                setTypeface(null, Typeface.BOLD)
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
 
-            val teacherActualName = sessionManager.getName().ifEmpty { "Guru Pengampu" }
             val tvRoleBadge = TextView(this).apply {
-                text = if (cls.isHomeroom == true) "⭐ Wali Kelas" else teacherActualName
-                setTextColor(if (cls.isHomeroom == true) Color.parseColor("#15803D") else Color.parseColor("#0369A1"))
-                textSize = 10f
-                setTypeface(null, android.graphics.Typeface.BOLD)
-                setBackgroundColor(if (cls.isHomeroom == true) Color.parseColor("#DCFCE7") else Color.parseColor("#E0F2FE"))
-                setPadding(10, 4, 10, 4)
+                text = if (isHomeroom) "⭐ Wali" else "Mapel"
+                setTextColor(if (isHomeroom) Color.parseColor("#15803D") else Color.parseColor("#0369A1"))
+                textSize = 9.5f
+                setTypeface(null, Typeface.BOLD)
+                background = GradientDrawable().apply {
+                    setColor(if (isHomeroom) Color.parseColor("#DCFCE7") else Color.parseColor("#E0F2FE"))
+                    cornerRadius = 6f * density
+                }
+                setPadding(dp(6), dp(2), dp(6), dp(2))
             }
 
             headerRow.addView(tvClassName)
             headerRow.addView(tvRoleBadge)
 
             val tvDetails = TextView(this).apply {
-                text = "${cls.subject ?: "Mata Pelajaran"} • ${cls.totalStudents ?: 0} Siswa"
+                text = "👥 ${cls.totalStudents ?: 32} Siswa • ${cls.subject ?: sessionManager.getTeachingSubject().ifEmpty { "Mapel" }}"
                 setTextColor(Color.parseColor("#64748B"))
-                textSize = 11.5f
-                setPadding(0, 4, 0, 8)
+                textSize = 10.5f
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                setPadding(0, dp(4), 0, dp(8))
             }
 
             val btnViewStudents = Button(this).apply {
                 text = "Lihat Siswa →"
-                textSize = 11f
-                setTypeface(null, android.graphics.Typeface.BOLD)
+                textSize = 10.5f
+                setTypeface(null, Typeface.BOLD)
                 setTextColor(Color.WHITE)
-                setBackgroundColor(Color.parseColor("#059669"))
+                backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#059669"))
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
+                    dp(36)
                 )
                 setOnClickListener {
                     showStudentsOfClassDialog(cls.className)
@@ -1355,7 +1900,17 @@ class TeacherMainActivity : AppCompatActivity() {
             layout.addView(btnViewStudents)
             card.addView(layout)
 
-            binding.containerTeacherClasses.addView(card)
+            currentRow?.addView(card)
+
+            if (index == classes.size - 1 && classes.size % 2 != 0) {
+                val placeholder = View(this).apply {
+                    layoutParams = LinearLayout.LayoutParams(0, 0, 1f).apply {
+                        val m = dp(4)
+                        setMargins(m, 0, m, 0)
+                    }
+                }
+                currentRow?.addView(placeholder)
+            }
         }
     }
 
@@ -2104,47 +2659,73 @@ class TeacherMainActivity : AppCompatActivity() {
                 setPadding(0, 16, 0, 16)
             })
         } else {
-            for (cls in classes) {
+            val density = resources.displayMetrics.density
+            fun dp(v: Int): Int = (v * density).toInt()
+
+            var currentRow: LinearLayout? = null
+            classes.forEachIndexed { index, cls ->
+                if (index % 2 == 0) {
+                    currentRow = LinearLayout(this).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        weightSum = 2f
+                        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                            bottomMargin = dp(8)
+                        }
+                    }
+                    layout.addView(currentRow)
+                }
+
+                val isHomeroom = cls.isHomeroom == true
                 val card = CardView(this).apply {
-                    radius = 12f
-                    cardElevation = 1.5f
-                    setCardBackgroundColor(if (cls.isHomeroom == true) Color.parseColor("#F0FDF4") else Color.parseColor("#F8FAFC"))
-                    useCompatPadding = true
+                    radius = 12f * density
+                    cardElevation = 1.5f * density
+                    setCardBackgroundColor(if (isHomeroom) Color.parseColor("#F0FDF4") else Color.WHITE)
+                    val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                        val m = dp(4)
+                        setMargins(m, 0, m, 0)
+                    }
+                    layoutParams = lp
                 }
                 val inner = LinearLayout(this).apply {
                     orientation = LinearLayout.VERTICAL
-                    setPadding(16, 14, 16, 14)
+                    val p = dp(12)
+                    setPadding(p, p, p, p)
                 }
 
                 val rowTop = LinearLayout(this).apply {
                     orientation = LinearLayout.HORIZONTAL
-                    gravity = android.view.Gravity.CENTER_VERTICAL
+                    gravity = Gravity.CENTER_VERTICAL
                 }
 
                 val tvClsName = TextView(this).apply {
                     text = "Kelas ${cls.className}"
-                    textSize = 15f
+                    textSize = 14f
                     setTextColor(Color.parseColor("#0F172A"))
-                    setTypeface(null, android.graphics.Typeface.BOLD)
+                    setTypeface(null, Typeface.BOLD)
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                 }
                 val tvBadge = TextView(this).apply {
-                    text = if (cls.isHomeroom == true) "⭐ Wali Kelas" else "👨‍🏫 Guru Pengampu"
-                    textSize = 10.5f
-                    setTextColor(if (cls.isHomeroom == true) Color.parseColor("#15803D") else Color.parseColor("#0369A1"))
-                    setBackgroundColor(if (cls.isHomeroom == true) Color.parseColor("#DCFCE7") else Color.parseColor("#E0F2FE"))
-                    setPadding(8, 3, 8, 3)
-                    setTypeface(null, android.graphics.Typeface.BOLD)
+                    text = if (isHomeroom) "⭐ Wali" else "Mapel"
+                    textSize = 9.5f
+                    setTextColor(if (isHomeroom) Color.parseColor("#15803D") else Color.parseColor("#0369A1"))
+                    setTypeface(null, Typeface.BOLD)
+                    background = GradientDrawable().apply {
+                        setColor(if (isHomeroom) Color.parseColor("#DCFCE7") else Color.parseColor("#E0F2FE"))
+                        cornerRadius = 6f * density
+                    }
+                    setPadding(dp(6), dp(2), dp(6), dp(2))
                 }
                 rowTop.addView(tvClsName)
                 rowTop.addView(tvBadge)
                 inner.addView(rowTop)
 
                 inner.addView(TextView(this).apply {
-                    text = "Matpel: ${cls.subject ?: "Matematika"} • ${cls.totalStudents ?: 30} Siswa Terdaftar"
-                    textSize = 11.5f
+                    text = "👥 ${cls.totalStudents ?: 32} Siswa • ${cls.subject ?: "Mapel"}"
+                    textSize = 10.5f
                     setTextColor(Color.parseColor("#64748B"))
-                    setPadding(0, 4, 0, 10)
+                    maxLines = 1
+                    ellipsize = android.text.TextUtils.TruncateAt.END
+                    setPadding(0, dp(4), 0, dp(8))
                 })
 
                 val btnActionRow = LinearLayout(this).apply {
@@ -2152,12 +2733,13 @@ class TeacherMainActivity : AppCompatActivity() {
                 }
 
                 val btnQuickAbsen = Button(this).apply {
-                    text = "⚡ Hadir Semua"
-                    textSize = 10.5f
+                    text = "⚡ Hadir"
+                    textSize = 10f
+                    setTypeface(null, Typeface.BOLD)
                     setTextColor(Color.WHITE)
-                    setBackgroundColor(Color.parseColor("#059669"))
-                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                        marginEnd = 6
+                    backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#059669"))
+                    layoutParams = LinearLayout.LayoutParams(0, dp(34), 1f).apply {
+                        marginEnd = dp(3)
                     }
                     setOnClickListener {
                         val req = mapOf("className" to cls.className, "subjectName" to (cls.subject ?: "Presensi Guru"))
@@ -2177,11 +2759,12 @@ class TeacherMainActivity : AppCompatActivity() {
                 }
 
                 val btnOpenRoster = Button(this).apply {
-                    text = "Buka Siswa →"
-                    textSize = 10.5f
+                    text = "Siswa →"
+                    textSize = 10f
+                    setTypeface(null, Typeface.BOLD)
                     setTextColor(Color.WHITE)
-                    setBackgroundColor(Color.parseColor("#2563EB"))
-                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                    backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#2563EB"))
+                    layoutParams = LinearLayout.LayoutParams(0, dp(34), 1f)
                     setOnClickListener {
                         showStudentsOfClassDialog(cls.className)
                     }
@@ -2191,7 +2774,18 @@ class TeacherMainActivity : AppCompatActivity() {
                 btnActionRow.addView(btnOpenRoster)
                 inner.addView(btnActionRow)
                 card.addView(inner)
-                layout.addView(card)
+
+                currentRow?.addView(card)
+
+                if (index == classes.size - 1 && classes.size % 2 != 0) {
+                    val placeholder = View(this).apply {
+                        layoutParams = LinearLayout.LayoutParams(0, 0, 1f).apply {
+                            val m = dp(4)
+                            setMargins(m, 0, m, 0)
+                        }
+                    }
+                    currentRow?.addView(placeholder)
+                }
             }
         }
 
@@ -2271,6 +2865,28 @@ class TeacherMainActivity : AppCompatActivity() {
         btnCreateRow.addView(btnCreateHw)
         btnCreateRow.addView(btnCreateCbt)
         dialogView.addView(btnCreateRow)
+
+        val btnOpenMonitoringHub = Button(this).apply {
+            text = "📊 Pusat Kontrol & Monitoring Siswa (UH, PR & CBT) ↗"
+            textSize = 11f
+            setTextColor(Color.WHITE)
+            setTypeface(null, Typeface.BOLD)
+            val bg = GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT,
+                intArrayOf(Color.parseColor("#4338CA"), Color.parseColor("#6366F1"))
+            ).apply {
+                cornerRadius = 10 * resources.displayMetrics.density
+            }
+            background = bg
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (40 * resources.displayMetrics.density).toInt()).apply {
+                bottomMargin = (10 * resources.displayMetrics.density).toInt()
+            }
+            layoutParams = lp
+            setOnClickListener {
+                showTeacherMonitoringControlCenterDialog()
+            }
+        }
+        dialogView.addView(btnOpenMonitoringHub)
 
         // Filter Tabs: [Semua], [⚡ Ulangan Harian], [Tugas / PR], [Ulangan CBT]
         var currentFilter = "ALL" // ALL, UH, HW, CBT
@@ -2783,10 +3399,7 @@ class TeacherMainActivity : AppCompatActivity() {
             override fun onResponse(call: Call<List<TeacherExamDto>>, response: Response<List<TeacherExamDto>>) {
                 if (response.isSuccessful && response.body() != null) {
                     val raw = response.body()!!
-                    examList = raw.filter { ex ->
-                        val t = (ex.examType ?: "UH").uppercase()
-                        t == "UH" || t == "FORMATIF" || t == "HARIAN" || t == "ULANGAN_HARIAN" || t == "REMEDIAL"
-                    }
+                    examList = raw // Tampilkan semua ujian CBT resmi dari Portal & APK (SAS, STS, SAT, TRYOUT, UH, Formatif)
                 }
                 checkDone()
             }
@@ -2924,18 +3537,183 @@ class TeacherMainActivity : AppCompatActivity() {
         }
         layout.addView(etTitle)
 
-        layout.addView(createLabel("Target Rombel / Kelas:"))
-        val spinnerClass = Spinner(this)
-        val teacherClasses = sessionManager.getTeachingClasses()
+        layout.addView(createLabel("Target Rombel / Kelas yang Diampu (Centang Kelas Tujuan) *"))
+        val cardClasses = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val bg = android.graphics.drawable.GradientDrawable().apply {
+                setColor(Color.parseColor("#F8FAFC"))
+                cornerRadius = 10 * density
+                setStroke((1 * density).toInt(), Color.parseColor("#CBD5E1"))
+            }
+            background = bg
+            val p = (10 * density).toInt()
+            setPadding(p, p, p, p)
+        }
+
+        val classCheckBoxList = mutableListOf<CheckBox>()
+
+        val headerClassesRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = (6 * density).toInt()
+            }
+            layoutParams = lp
+        }
+        val tvClsHeading = TextView(this).apply {
+            text = "Target Kelas (Pilih Rombel):"
+            textSize = 12f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#0F172A"))
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        headerClassesRow.addView(tvClsHeading)
+
+        val btnAll = TextView(this).apply {
+            text = "✓ Semua"
+            textSize = 10f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#059669"))
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#ECFDF5"))
+                cornerRadius = 6f * density
+                setStroke((1 * density).toInt(), Color.parseColor("#A7F3D0"))
+            }
+            setPadding((8 * density).toInt(), (3 * density).toInt(), (8 * density).toInt(), (3 * density).toInt())
+            setOnClickListener {
+                classCheckBoxList.forEach { it.isChecked = true }
+            }
+        }
+        val btnNone = TextView(this).apply {
+            text = "✕ Batal"
+            textSize = 10f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#64748B"))
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#F1F5F9"))
+                cornerRadius = 6f * density
+                setStroke((1 * density).toInt(), Color.parseColor("#CBD5E1"))
+            }
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                marginStart = (6 * density).toInt()
+            }
+            layoutParams = lp
+            setPadding((8 * density).toInt(), (3 * density).toInt(), (8 * density).toInt(), (3 * density).toInt())
+            setOnClickListener {
+                classCheckBoxList.forEach { it.isChecked = false }
+            }
+        }
+        headerClassesRow.addView(btnAll)
+        headerClassesRow.addView(btnNone)
+        cardClasses.addView(headerClassesRow)
+
+        val dividerCls = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (1 * density).toInt()).apply {
+                topMargin = (2 * density).toInt()
+                bottomMargin = (6 * density).toInt()
+            }
+            setBackgroundColor(Color.parseColor("#E2E8F0"))
+        }
+        cardClasses.addView(dividerCls)
+
+        val gridContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
+        cardClasses.addView(gridContainer)
+
+        fun renderClassCheckboxes(classesList: List<String>) {
+            gridContainer.removeAllViews()
+            classCheckBoxList.clear()
+            var currentRow: LinearLayout? = null
+            classesList.forEachIndexed { idx, clsName ->
+                if (idx % 4 == 0) {
+                    currentRow = LinearLayout(this).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        weightSum = 4f
+                        val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                            bottomMargin = (4 * density).toInt()
+                        }
+                        layoutParams = lp
+                    }
+                    gridContainer.addView(currentRow)
+                }
+                val cbClass = CheckBox(this).apply {
+                    buttonDrawable = null // Menghilangkan kotak centang kaku standar Android
+                    text = clsName
+                    tag = clsName
+                    gravity = Gravity.CENTER
+                    textAlignment = View.TEXT_ALIGNMENT_CENTER
+                    textSize = 11.5f
+                    setTypeface(null, Typeface.BOLD)
+                    val lp = LinearLayout.LayoutParams(0, (32 * density).toInt(), 1f).apply {
+                        marginStart = (2 * density).toInt()
+                        marginEnd = (2 * density).toInt()
+                    }
+                    layoutParams = lp
+                    isChecked = false
+
+                    fun applyStyle(checked: Boolean) {
+                        if (checked) {
+                            setTextColor(Color.WHITE)
+                            background = GradientDrawable().apply {
+                                setColor(Color.parseColor("#DC2626")) // Merah saat dipilih
+                                cornerRadius = 8f * density
+                                setStroke((1 * density).toInt(), Color.parseColor("#B91C1C"))
+                            }
+                        } else {
+                            setTextColor(Color.parseColor("#065F46")) // Default Hijau
+                            background = GradientDrawable().apply {
+                                setColor(Color.parseColor("#ECFDF5"))
+                                cornerRadius = 8f * density
+                                setStroke((1 * density).toInt(), Color.parseColor("#10B981"))
+                            }
+                        }
+                    }
+
+                    applyStyle(isChecked)
+                    setOnCheckedChangeListener { _, checked ->
+                        applyStyle(checked)
+                    }
+                }
+                classCheckBoxList.add(cbClass)
+                currentRow?.addView(cbClass)
+            }
+        }
+
+        val initialClasses = sessionManager.getTeachingClasses()
+            .replace("[", "").replace("]", "").replace("\"", "")
             .split(",")
             .map { it.trim() }
-            .filter { it.isNotEmpty() }
+            .filter { it.isNotEmpty() && it != "null" }
+            .distinct()
             .toMutableList()
-        if (teacherClasses.isEmpty()) {
-            teacherClasses.addAll(listOf("VII-A", "VII-B", "VII-C", "VII-D", "VII-E", "VIII-A", "VIII-B", "VIII-C", "IX-A", "IX-B"))
+
+        if (initialClasses.isNotEmpty()) {
+            renderClassCheckboxes(initialClasses)
+        } else {
+            val homeroom = sessionManager.getClassName().trim()
+            if (homeroom.isNotEmpty() && homeroom != "-" && homeroom != "null") {
+                initialClasses.add(homeroom)
+            } else {
+                initialClasses.addAll(listOf("VII-A", "VII-B", "VII-C", "VIII-A", "VIII-B", "IX-A", "IX-B"))
+            }
+            renderClassCheckboxes(initialClasses)
         }
-        spinnerClass.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, teacherClasses)
-        layout.addView(spinnerClass)
+
+        // Sinkronisasi kelas yang diampu dari API agar 100% akurat sesuai jadwal guru
+        ApiClient.getClient(this).getTeacherClasses().enqueue(object : Callback<TeacherClassesResponse> {
+            override fun onResponse(call: Call<TeacherClassesResponse>, response: Response<TeacherClassesResponse>) {
+                val apiClasses = response.body()?.classes?.map { it.className.trim() }?.filter { it.isNotEmpty() }?.distinct()
+                if (!apiClasses.isNullOrEmpty()) {
+                    sessionManager.saveTeachingClasses(apiClasses.joinToString(","))
+                    renderClassCheckboxes(apiClasses)
+                }
+            }
+            override fun onFailure(call: Call<TeacherClassesResponse>, t: Throwable) {}
+        })
+
+        layout.addView(cardClasses)
 
         layout.addView(createLabel("Kategori Penugasan:"))
         val spinnerCategory = Spinner(this)
@@ -2948,53 +3726,237 @@ class TeacherMainActivity : AppCompatActivity() {
         spinnerCategory.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, categories)
         layout.addView(spinnerCategory)
 
-        // Section 2: Deadline & Smart Presets
-        layout.addView(createLabel("⏰ Batas Waktu / Tenggat Pengumpulan:"))
-        val etDeadline = EditText(this).apply {
-            val sdf = SimpleDateFormat("yyyy-MM-dd 23:59", Locale.getDefault())
-            val cal = java.util.Calendar.getInstance().apply { add(java.util.Calendar.DAY_OF_YEAR, 3) }
-            setText(sdf.format(cal.time))
-            textSize = 13f
-        }
-        layout.addView(etDeadline)
-
-        // Smart Deadline Quick Chips
-        val chipRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
+        // Section 2: Jadwal Pelaksanaan & Batas Pengumpulan Tugas (Hari, Tanggal, Jam Mulai & Selesai)
+        layout.addView(createLabel("📅 Jadwal Pelaksanaan & Batas Waktu Tugas / PR *"))
+        val cardSchedule = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val bg = GradientDrawable().apply {
+                setColor(Color.WHITE)
+                cornerRadius = 10 * density
+                setStroke((1 * density).toInt(), Color.parseColor("#CBD5E1"))
+            }
+            background = bg
+            val p = (12 * density).toInt()
+            setPadding(p, p, p, p)
             val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 bottomMargin = (8 * density).toInt()
             }
             layoutParams = lp
         }
 
+        val calStart = java.util.Calendar.getInstance()
+        val calEnd = java.util.Calendar.getInstance().apply { add(java.util.Calendar.DAY_OF_YEAR, 3); set(java.util.Calendar.HOUR_OF_DAY, 23); set(java.util.Calendar.MINUTE, 59) }
+        val sdfDateDisplay = SimpleDateFormat("EEEE, dd MMM yyyy", Locale("id", "ID"))
+        val sdfDateValue = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+
+        var selectedStartDate = sdfDateValue.format(calStart.time)
+        var selectedStartTime = "07:30"
+        var selectedEndDate = sdfDateValue.format(calEnd.time)
+        var selectedEndTime = "23:59"
+
+        val tvScheduleLivePreview = TextView(this).apply {
+            textSize = 11.5f
+            setTextColor(Color.parseColor("#4338CA"))
+            setTypeface(null, Typeface.BOLD)
+            val bg = GradientDrawable().apply {
+                setColor(Color.parseColor("#EEF2FF"))
+                cornerRadius = 6 * density
+            }
+            background = bg
+            setPadding((10 * density).toInt(), (8 * density).toInt(), (10 * density).toInt(), (8 * density).toInt())
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = (8 * density).toInt()
+            }
+            layoutParams = lp
+        }
+
+        fun updateSchedulePreview() {
+            val startDay = try { sdfDateDisplay.format(sdfDateValue.parse(selectedStartDate)!!) } catch (e: Exception) { selectedStartDate }
+            val endDay = try { sdfDateDisplay.format(sdfDateValue.parse(selectedEndDate)!!) } catch (e: Exception) { selectedEndDate }
+            tvScheduleLivePreview.text = "📅 Dibuka: $startDay ($selectedStartTime WIB)\n⏰ Batas: $endDay ($selectedEndTime WIB)"
+        }
+        updateSchedulePreview()
+        cardSchedule.addView(tvScheduleLivePreview)
+
+        // Row 1: Waktu Mulai Dibuka
+        val rowStart = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = (6 * density).toInt()
+            }
+            layoutParams = lp
+        }
+        val tvStartLbl = TextView(this).apply {
+            text = "🟢 Waktu Dibuka:"
+            textSize = 11.5f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#15803D"))
+            layoutParams = LinearLayout.LayoutParams((110 * density).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
+        val btnStartDate = Button(this).apply {
+            text = sdfDateDisplay.format(calStart.time)
+            textSize = 11f
+            isAllCaps = false
+            setTextColor(Color.parseColor("#0F172A"))
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#F8FAFC"))
+                cornerRadius = 6 * density
+                setStroke((1 * density).toInt(), Color.parseColor("#CBD5E1"))
+            }
+            val lp = LinearLayout.LayoutParams(0, (38 * density).toInt(), 1.2f).apply { marginEnd = (4 * density).toInt() }
+            layoutParams = lp
+            setOnClickListener {
+                val c = java.util.Calendar.getInstance()
+                android.app.DatePickerDialog(this@TeacherMainActivity, { _, year, month, dayOfMonth ->
+                    c.set(year, month, dayOfMonth)
+                    selectedStartDate = sdfDateValue.format(c.time)
+                    text = sdfDateDisplay.format(c.time)
+                    updateSchedulePreview()
+                }, c.get(java.util.Calendar.YEAR), c.get(java.util.Calendar.MONTH), c.get(java.util.Calendar.DAY_OF_MONTH)).show()
+            }
+        }
+        val btnStartTime = Button(this).apply {
+            text = "$selectedStartTime WIB"
+            textSize = 11f
+            isAllCaps = false
+            setTextColor(Color.parseColor("#0F172A"))
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#F8FAFC"))
+                cornerRadius = 6 * density
+                setStroke((1 * density).toInt(), Color.parseColor("#CBD5E1"))
+            }
+            val lp = LinearLayout.LayoutParams(0, (38 * density).toInt(), 0.8f)
+            layoutParams = lp
+            setOnClickListener {
+                val parts = selectedStartTime.split(":")
+                val h = parts.getOrNull(0)?.toIntOrNull() ?: 7
+                val m = parts.getOrNull(1)?.toIntOrNull() ?: 30
+                android.app.TimePickerDialog(this@TeacherMainActivity, { _, hourOfDay, minute ->
+                    selectedStartTime = String.format("%02d:%02d", hourOfDay, minute)
+                    text = "$selectedStartTime WIB"
+                    updateSchedulePreview()
+                }, h, m, true).show()
+            }
+        }
+        rowStart.addView(tvStartLbl)
+        rowStart.addView(btnStartDate)
+        rowStart.addView(btnStartTime)
+        cardSchedule.addView(rowStart)
+
+        // Row 2: Batas Pengumpulan (Deadline)
+        val rowEnd = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = (8 * density).toInt()
+            }
+            layoutParams = lp
+        }
+        val tvEndLbl = TextView(this).apply {
+            text = "🔴 Batas Akhir:"
+            textSize = 11.5f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#DC2626"))
+            layoutParams = LinearLayout.LayoutParams((110 * density).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
+        val btnEndDate = Button(this).apply {
+            text = sdfDateDisplay.format(calEnd.time)
+            textSize = 11f
+            isAllCaps = false
+            setTextColor(Color.parseColor("#0F172A"))
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#F8FAFC"))
+                cornerRadius = 6 * density
+                setStroke((1 * density).toInt(), Color.parseColor("#CBD5E1"))
+            }
+            val lp = LinearLayout.LayoutParams(0, (38 * density).toInt(), 1.2f).apply { marginEnd = (4 * density).toInt() }
+            layoutParams = lp
+            setOnClickListener {
+                val c = java.util.Calendar.getInstance().apply { add(java.util.Calendar.DAY_OF_YEAR, 3) }
+                android.app.DatePickerDialog(this@TeacherMainActivity, { _, year, month, dayOfMonth ->
+                    c.set(year, month, dayOfMonth)
+                    selectedEndDate = sdfDateValue.format(c.time)
+                    text = sdfDateDisplay.format(c.time)
+                    updateSchedulePreview()
+                }, c.get(java.util.Calendar.YEAR), c.get(java.util.Calendar.MONTH), c.get(java.util.Calendar.DAY_OF_MONTH)).show()
+            }
+        }
+        val btnEndTime = Button(this).apply {
+            text = "$selectedEndTime WIB"
+            textSize = 11f
+            isAllCaps = false
+            setTextColor(Color.parseColor("#0F172A"))
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#F8FAFC"))
+                cornerRadius = 6 * density
+                setStroke((1 * density).toInt(), Color.parseColor("#CBD5E1"))
+            }
+            val lp = LinearLayout.LayoutParams(0, (38 * density).toInt(), 0.8f)
+            layoutParams = lp
+            setOnClickListener {
+                val parts = selectedEndTime.split(":")
+                val h = parts.getOrNull(0)?.toIntOrNull() ?: 23
+                val m = parts.getOrNull(1)?.toIntOrNull() ?: 59
+                android.app.TimePickerDialog(this@TeacherMainActivity, { _, hourOfDay, minute ->
+                    selectedEndTime = String.format("%02d:%02d", hourOfDay, minute)
+                    text = "$selectedEndTime WIB"
+                    updateSchedulePreview()
+                }, h, m, true).show()
+            }
+        }
+        rowEnd.addView(tvEndLbl)
+        rowEnd.addView(btnEndDate)
+        rowEnd.addView(btnEndTime)
+        cardSchedule.addView(rowEnd)
+
+        // Smart Deadline Quick Chips (Horizontal Scroll agar tidak memanjang ke bawah)
+        val chipScroll = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = (6 * density).toInt()
+            }
+        }
+        val chipRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
+        chipScroll.addView(chipRow)
+
         fun createChip(label: String, daysToAdd: Int, timeStr: String) = TextView(this).apply {
             text = label
-            textSize = 10f
+            textSize = 10.5f
+            isSingleLine = true
             setTextColor(Color.parseColor("#4338CA"))
             setTypeface(null, android.graphics.Typeface.BOLD)
             val bg = android.graphics.drawable.GradientDrawable().apply {
                 setColor(Color.parseColor("#EEF2FF"))
                 cornerRadius = 6 * density
+                setStroke((1 * density).toInt(), Color.parseColor("#C7D2FE"))
             }
             background = bg
             val p = (5 * density).toInt()
-            setPadding(p * 2, p, p * 2, p)
-            val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                marginEnd = (4 * density).toInt()
+            setPadding((10 * density).toInt(), p, (10 * density).toInt(), p)
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                marginEnd = (6 * density).toInt()
             }
             layoutParams = lp
             gravity = android.view.Gravity.CENTER
             setOnClickListener {
                 val cal = java.util.Calendar.getInstance().apply { add(java.util.Calendar.DAY_OF_YEAR, daysToAdd) }
-                val sdfDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-                etDeadline.setText("${sdfDate.format(cal.time)} $timeStr")
+                selectedEndDate = sdfDateValue.format(cal.time)
+                selectedEndTime = timeStr
+                btnEndDate.text = sdfDateDisplay.format(cal.time)
+                btnEndTime.text = "$selectedEndTime WIB"
+                updateSchedulePreview()
             }
         }
-        chipRow.addView(createChip("Hari Ini", 0, "15:30"))
-        chipRow.addView(createChip("Besok Pagi", 1, "07:00"))
+        chipRow.addView(createChip("Hari Ini (15:30)", 0, "15:30"))
+        chipRow.addView(createChip("Besok Pagi (07:00)", 1, "07:00"))
         chipRow.addView(createChip("3 Hari", 3, "23:59"))
         chipRow.addView(createChip("1 Minggu", 7, "23:59"))
-        layout.addView(chipRow)
+        cardSchedule.addView(chipScroll)
+        layout.addView(cardSchedule)
 
         val rowWeight = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -3026,6 +3988,348 @@ class TeacherMainActivity : AppCompatActivity() {
         }
         layout.addView(etDesc)
 
+        // Section 3: Lampiran Berkas / Soal Interaktif untuk PR & Tugas (Multi-Mode Cerdas)
+        var attachedFileUrl: String? = null
+        var attachedQuestionsJson: String? = null
+        var cachedQuestionsList: List<Map<String, Any?>>? = null
+
+        val cardSoalPr = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val bg = GradientDrawable().apply {
+                setColor(Color.WHITE)
+                cornerRadius = 10 * density
+                setStroke((1 * density).toInt(), Color.parseColor("#CBD5E1"))
+            }
+            background = bg
+            val p = (12 * density).toInt()
+            setPadding(p, p, p, p)
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = (8 * density).toInt()
+                bottomMargin = (12 * density).toInt()
+            }
+            layoutParams = lp
+        }
+
+        val tvSoalPrHeader = TextView(this).apply {
+            text = "📚 Naskah & Butir Soal PR / Tugas (Digital Worksheet):"
+            textSize = 12.5f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#0F172A"))
+        }
+        val tvSoalPrSub = TextView(this).apply {
+            text = "Pilih metode pembuatan naskah soal. Siswa dapat mengerjakan langsung butir per butir di APK, dan nilai pilihan ganda terkoreksi otomatis oleh sistem."
+            textSize = 11f
+            setTextColor(Color.parseColor("#64748B"))
+            setPadding(0, (2 * density).toInt(), 0, (8 * density).toInt())
+        }
+        cardSoalPr.addView(tvSoalPrHeader)
+        cardSoalPr.addView(tvSoalPrSub)
+
+        // Banner Status Soal yang Tersusun
+        val bannerStatusSoal = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val bg = GradientDrawable().apply {
+                setColor(Color.parseColor("#F0FDF4"))
+                cornerRadius = 8 * density
+                setStroke((1 * density).toInt(), Color.parseColor("#86EFAC"))
+            }
+            background = bg
+            val p = (10 * density).toInt()
+            setPadding(p, p, p, p)
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = (10 * density).toInt()
+            }
+            layoutParams = lp
+            visibility = View.GONE
+        }
+        val tvStatusSoalText = TextView(this).apply {
+            textSize = 12f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#15803D"))
+        }
+        val tvStatusSoalDesc = TextView(this).apply {
+            text = "Siswa akan menjawab soal interaktif ini langsung di aplikasi. Nilai PG otomatis dihitung sistem."
+            textSize = 10.5f
+            setTextColor(Color.parseColor("#166534"))
+            setPadding(0, (2 * density).toInt(), 0, (6 * density).toInt())
+        }
+        val rowStatusActions = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+        val btnEditAttachedSoal = TextView(this).apply {
+            text = "✏️ Periksa & Edit Naskah Soal"
+            textSize = 11f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#1D4ED8"))
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#EFF6FF"))
+                cornerRadius = 6 * density
+                setStroke((1 * density).toInt(), Color.parseColor("#BFDBFE"))
+            }
+            setPadding((10 * density).toInt(), (4 * density).toInt(), (10 * density).toInt(), (4 * density).toInt())
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                marginEnd = (6 * density).toInt()
+            }
+            layoutParams = lp
+        }
+        val btnClearAttachedSoal = TextView(this).apply {
+            text = "🗑️ Hapus Soal"
+            textSize = 11f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#DC2626"))
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#FEF2F2"))
+                cornerRadius = 6 * density
+                setStroke((1 * density).toInt(), Color.parseColor("#FECACA"))
+            }
+            setPadding((10 * density).toInt(), (4 * density).toInt(), (10 * density).toInt(), (4 * density).toInt())
+        }
+        rowStatusActions.addView(btnEditAttachedSoal)
+        rowStatusActions.addView(btnClearAttachedSoal)
+        bannerStatusSoal.addView(tvStatusSoalText)
+        bannerStatusSoal.addView(tvStatusSoalDesc)
+        bannerStatusSoal.addView(rowStatusActions)
+        cardSoalPr.addView(bannerStatusSoal)
+
+        fun updateSoalStatusView() {
+            if (!cachedQuestionsList.isNullOrEmpty()) {
+                val count = cachedQuestionsList!!.size
+                tvStatusSoalText.text = "✅ $count Butir Soal Interaktif Siap Diterbitkan untuk Tugas/PR ini!"
+                bannerStatusSoal.visibility = View.VISIBLE
+            } else {
+                bannerStatusSoal.visibility = View.GONE
+            }
+        }
+
+        btnClearAttachedSoal.setOnClickListener {
+            cachedQuestionsList = null
+            attachedQuestionsJson = null
+            updateSoalStatusView()
+            Toast.makeText(this, "Naskah butir soal telah dihapus dari Tugas ini", Toast.LENGTH_SHORT).show()
+        }
+
+        btnEditAttachedSoal.setOnClickListener {
+            if (!cachedQuestionsList.isNullOrEmpty()) {
+                val topikStr = etTitle.text.toString().trim().ifEmpty { "Tugas / PR" }
+                val checkedCls = classCheckBoxList.filter { it.isChecked }.joinToString(",") { it.text.toString() }.ifEmpty { "VII-A" }
+                showRichQuestionEditorDialog(
+                    selectedClasses = checkedCls,
+                    mapel = teacherSubject,
+                    topik = topikStr,
+                    mode = "TERJADWAL",
+                    durasi = 60,
+                    prefilledQuestions = cachedQuestionsList,
+                    onCustomSave = { savedList ->
+                        cachedQuestionsList = savedList
+                        val arr = org.json.JSONArray()
+                        savedList.forEach { m -> arr.put(org.json.JSONObject(m)) }
+                        attachedQuestionsJson = arr.toString()
+                        updateSoalStatusView()
+                        Toast.makeText(this@TeacherMainActivity, "✅ Naskah soal berhasil diperbarui!", Toast.LENGTH_SHORT).show()
+                    }
+                )
+            }
+        }
+
+        fun onQuestionsSavedCallback(savedList: List<Map<String, Any?>>) {
+            cachedQuestionsList = savedList
+            val arr = org.json.JSONArray()
+            savedList.forEach { m -> arr.put(org.json.JSONObject(m)) }
+            attachedQuestionsJson = arr.toString()
+            updateSoalStatusView()
+            Toast.makeText(this@TeacherMainActivity, "✅ ${savedList.size} Butir Soal Interaktif berhasil disusun untuk Tugas/PR ini!", Toast.LENGTH_SHORT).show()
+        }
+
+        // Baris 1 Tombol Soal: AI Generator & Smart Editor
+        val rowMethods1 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            weightSum = 2f
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = (6 * density).toInt()
+            }
+            layoutParams = lp
+        }
+
+        val btnAiGenPr = Button(this).apply {
+            text = "🤖 Buat Soal dengan AI"
+            textSize = 11f
+            isAllCaps = false
+            setTextColor(Color.WHITE)
+            setTypeface(null, Typeface.BOLD)
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#7C3AED"))
+                cornerRadius = 8 * density
+            }
+            val lp = LinearLayout.LayoutParams(0, (44 * density).toInt(), 1f).apply { marginEnd = (3 * density).toInt() }
+            layoutParams = lp
+            setOnClickListener {
+                val topikStr = etTitle.text.toString().trim().ifEmpty { "Tugas Mandiri Kurikulum Merdeka" }
+                val checkedCls = classCheckBoxList.filter { it.isChecked }.joinToString(",") { it.text.toString() }.ifEmpty { "VII-A" }
+                showSmartSourceQuestionLoaderDialog(
+                    selectedClasses = checkedCls,
+                    mapel = teacherSubject,
+                    topik = topikStr,
+                    mode = "TERJADWAL",
+                    durasi = 60,
+                    targetCount = 5,
+                    initialSource = "AI_GEMINI",
+                    onCustomSave = ::onQuestionsSavedCallback
+                )
+            }
+        }
+
+        val btnEditorManualPr = Button(this).apply {
+            text = "✍️ Susun di Smart Editor"
+            textSize = 11f
+            isAllCaps = false
+            setTextColor(Color.WHITE)
+            setTypeface(null, Typeface.BOLD)
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#2563EB"))
+                cornerRadius = 8 * density
+            }
+            val lp = LinearLayout.LayoutParams(0, (44 * density).toInt(), 1f).apply { marginStart = (3 * density).toInt() }
+            layoutParams = lp
+            setOnClickListener {
+                val topikStr = etTitle.text.toString().trim().ifEmpty { "Tugas / PR" }
+                val checkedCls = classCheckBoxList.filter { it.isChecked }.joinToString(",") { it.text.toString() }.ifEmpty { "VII-A" }
+                showRichQuestionEditorDialog(
+                    selectedClasses = checkedCls,
+                    mapel = teacherSubject,
+                    topik = topikStr,
+                    mode = "TERJADWAL",
+                    durasi = 60,
+                    prefilledQuestions = cachedQuestionsList,
+                    onCustomSave = ::onQuestionsSavedCallback
+                )
+            }
+        }
+        rowMethods1.addView(btnAiGenPr)
+        rowMethods1.addView(btnEditorManualPr)
+        cardSoalPr.addView(rowMethods1)
+
+        // Baris 2 Tombol Soal: Bank Soal & Import Cerdas
+        val rowMethods2 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            weightSum = 2f
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = (6 * density).toInt()
+            }
+            layoutParams = lp
+        }
+
+        val btnBankSoalPr = Button(this).apply {
+            text = "🏛️ Ambil dari Bank Soal"
+            textSize = 11f
+            isAllCaps = false
+            setTextColor(Color.parseColor("#0F766E"))
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#F0FDFA"))
+                cornerRadius = 8 * density
+                setStroke((1 * density).toInt(), Color.parseColor("#99F6E4"))
+            }
+            val lp = LinearLayout.LayoutParams(0, (40 * density).toInt(), 1f).apply { marginEnd = (3 * density).toInt() }
+            layoutParams = lp
+            setOnClickListener {
+                val topikStr = etTitle.text.toString().trim().ifEmpty { "Materi Pokok" }
+                val checkedCls = classCheckBoxList.filter { it.isChecked }.joinToString(",") { it.text.toString() }.ifEmpty { "VII-A" }
+                showSmartSourceQuestionLoaderDialog(
+                    selectedClasses = checkedCls,
+                    mapel = teacherSubject,
+                    topik = topikStr,
+                    mode = "TERJADWAL",
+                    durasi = 60,
+                    targetCount = 10,
+                    initialSource = "BANK_SOAL",
+                    onCustomSave = ::onQuestionsSavedCallback
+                )
+            }
+        }
+
+        val btnImportPr = Button(this).apply {
+            text = "📥 Import (Excel / WA / Teks)"
+            textSize = 11f
+            isAllCaps = false
+            setTextColor(Color.parseColor("#065F46"))
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#ECFDF5"))
+                cornerRadius = 8 * density
+                setStroke((1 * density).toInt(), Color.parseColor("#A7F3D0"))
+            }
+            val lp = LinearLayout.LayoutParams(0, (40 * density).toInt(), 1f).apply { marginStart = (3 * density).toInt() }
+            layoutParams = lp
+            setOnClickListener {
+                val topikStr = etTitle.text.toString().trim().ifEmpty { "Tugas / PR" }
+                val checkedCls = classCheckBoxList.filter { it.isChecked }.joinToString(",") { it.text.toString() }.ifEmpty { "VII-A" }
+                showQuickClipboardImportDialog(
+                    selectedClasses = checkedCls,
+                    mapel = teacherSubject,
+                    topik = topikStr,
+                    mode = "TERJADWAL",
+                    durasi = 60,
+                    onCustomSave = ::onQuestionsSavedCallback
+                )
+            }
+        }
+        rowMethods2.addView(btnBankSoalPr)
+        rowMethods2.addView(btnImportPr)
+        cardSoalPr.addView(rowMethods2)
+
+        // Tombol Lampirkan Dokumen / Berkas Eksternal (Opsional)
+        val tvAttachmentStatus = TextView(this).apply {
+            text = "📎 Belum ada berkas lampiran materi/PDF."
+            textSize = 11f
+            setTextColor(Color.parseColor("#64748B"))
+            setPadding(0, (4 * density).toInt(), 0, (4 * density).toInt())
+        }
+
+        val btnAttachFile = Button(this).apply {
+            text = "📎 Lampirkan Dokumen / Foto Materi (Opsional)"
+            textSize = 11f
+            isAllCaps = false
+            setTextColor(Color.parseColor("#475569"))
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#F1F5F9"))
+                cornerRadius = 8 * density
+                setStroke((1 * density).toInt(), Color.parseColor("#CBD5E1"))
+            }
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (38 * density).toInt())
+            layoutParams = lp
+            setOnClickListener {
+                launchGenericFilePicker("image/*") { uri ->
+                    try {
+                        val bytes = contentResolver.openInputStream(uri)?.readBytes()
+                        if (bytes != null) {
+                            val b64 = "data:image/jpeg;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
+                            Toast.makeText(this@TeacherMainActivity, "Mengunggah lampiran tugas...", Toast.LENGTH_SHORT).show()
+                            ApiClient.getClient(this@TeacherMainActivity).uploadQuestionImage(
+                                mapOf("imageBase64" to b64, "fileName" to getFileNameFromUri(uri))
+                            ).enqueue(object : Callback<Map<String, Any>> {
+                                override fun onResponse(call: Call<Map<String, Any>>, response: Response<Map<String, Any>>) {
+                                    val url = response.body()?.get("imageUrl")?.toString() ?: response.body()?.get("url")?.toString()
+                                    if (!url.isNullOrBlank()) {
+                                        attachedFileUrl = url
+                                        tvAttachmentStatus.text = "✅ Lampiran berhasil diunggah: ${getFileNameFromUri(uri)}"
+                                        tvAttachmentStatus.setTextColor(Color.parseColor("#15803D"))
+                                    } else {
+                                        Toast.makeText(this@TeacherMainActivity, "Gagal mengunggah lampiran", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                                override fun onFailure(call: Call<Map<String, Any>>, t: Throwable) {
+                                    Toast.makeText(this@TeacherMainActivity, "Gagal unggah: ${t.message}", Toast.LENGTH_SHORT).show()
+                                }
+                            })
+                        }
+                    } catch (e: Exception) {
+                        Toast.makeText(this@TeacherMainActivity, "Gagal membaca berkas: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }
+        cardSoalPr.addView(btnAttachFile)
+        cardSoalPr.addView(tvAttachmentStatus)
+        layout.addView(cardSoalPr)
+
         val btnSubmit = Button(this).apply {
             text = "💾 Terbitkan Tugas Sekarang"
             textSize = 13.5f
@@ -3043,9 +4347,15 @@ class TeacherMainActivity : AppCompatActivity() {
                     return@setOnClickListener
                 }
 
-                val selectedClass = spinnerClass.selectedItem.toString()
+                val checkedClasses = classCheckBoxList.filter { it.isChecked }.map { it.text.toString() }
+                if (checkedClasses.isEmpty()) {
+                    Toast.makeText(this@TeacherMainActivity, "Pilih minimal 1 kelas yang diampu!", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                val selectedClass = checkedClasses.joinToString(",")
                 val selectedCategory = spinnerCategory.selectedItem.toString().substringBefore(" -")
-                val deadline = etDeadline.text.toString().trim().ifEmpty { "1 Minggu ke Depan" }
+                val startDateTimeStr = "$selectedStartDate $selectedStartTime"
+                val deadlineDateTimeStr = "$selectedEndDate $selectedEndTime"
                 val weight = etWeight.text.toString().toDoubleOrNull() ?: 20.0
                 val desc = etDesc.text.toString().trim()
 
@@ -3053,28 +4363,35 @@ class TeacherMainActivity : AppCompatActivity() {
                     title = title,
                     subject = teacherSubject,
                     className = selectedClass,
-                    deadline = deadline,
-                    startTime = "07:00",
-                    endTime = "23:59",
-                    type = "ESSAY",
+                    deadline = deadlineDateTimeStr,
+                    startTime = startDateTimeStr,
+                    endTime = deadlineDateTimeStr,
+                    type = if (!attachedQuestionsJson.isNullOrBlank()) "MULTIPLE_CHOICE" else "ESSAY",
+                    questions = attachedQuestionsJson,
+                    fileUrl = attachedFileUrl,
                     weight = weight,
                     category = selectedCategory,
                     description = desc.ifEmpty { null }
                 )
 
-                Toast.makeText(this@TeacherMainActivity, "Menerbitkan tugas...", Toast.LENGTH_SHORT).show()
+                isEnabled = false
+                text = "⏳ Menerbitkan Tugas..."
                 ApiClient.getClient(this@TeacherMainActivity).createHomework(req).enqueue(object : Callback<BasicResponse> {
                     override fun onResponse(call: Call<BasicResponse>, response: Response<BasicResponse>) {
+                        isEnabled = true
+                        text = "💾 Terbitkan Tugas Sekarang"
                         if (response.isSuccessful) {
-                            Toast.makeText(this@TeacherMainActivity, "✅ Tugas \"$title\" berhasil dibuat untuk Kelas $selectedClass!", Toast.LENGTH_LONG).show()
+                            Toast.makeText(this@TeacherMainActivity, "✅ Tugas \"$title\" berhasil diterbitkan untuk Kelas $selectedClass!", Toast.LENGTH_LONG).show()
                             dialog.dismiss()
                             onCreated()
                         } else {
-                            Toast.makeText(this@TeacherMainActivity, "Gagal membuat tugas", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(this@TeacherMainActivity, "Gagal membuat tugas (Kode: ${response.code()})", Toast.LENGTH_SHORT).show()
                         }
                     }
                     override fun onFailure(call: Call<BasicResponse>, t: Throwable) {
-                        Toast.makeText(this@TeacherMainActivity, "Koneksi ke server terputus", Toast.LENGTH_SHORT).show()
+                        isEnabled = true
+                        text = "💾 Terbitkan Tugas Sekarang"
+                        Toast.makeText(this@TeacherMainActivity, "Koneksi ke server terputus: ${t.message}", Toast.LENGTH_SHORT).show()
                     }
                 })
             }
@@ -3161,73 +4478,140 @@ class TeacherMainActivity : AppCompatActivity() {
             setPadding(p, p, p, p)
         }
 
-        val cbSelectAll = CheckBox(this).apply {
-            text = "✅ Pilih Semua Kelas yang Diampu"
-            textSize = 12.5f
-            setTextColor(Color.parseColor("#0F172A"))
-            setTypeface(null, android.graphics.Typeface.BOLD)
-            isChecked = true
+        val classCheckBoxList = mutableListOf<CheckBox>()
+
+        val headerClassesRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = (6 * density).toInt()
+            }
+            layoutParams = lp
         }
-        cardClasses.addView(cbSelectAll)
+        val tvClsHeading = TextView(this).apply {
+            text = "Target Rombel / Kelas:"
+            textSize = 12f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#0F172A"))
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        headerClassesRow.addView(tvClsHeading)
+
+        val btnSelectAll = TextView(this).apply {
+            text = "✓ Semua"
+            textSize = 10.5f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#059669"))
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#ECFDF5"))
+                cornerRadius = 6f * density
+                setStroke((1 * density).toInt(), Color.parseColor("#A7F3D0"))
+            }
+            setPadding((8 * density).toInt(), (3 * density).toInt(), (8 * density).toInt(), (3 * density).toInt())
+            setOnClickListener {
+                classCheckBoxList.forEach { it.isChecked = true }
+            }
+        }
+        val btnDeselectAll = TextView(this).apply {
+            text = "✕ Batal"
+            textSize = 10.5f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#64748B"))
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#F1F5F9"))
+                cornerRadius = 6f * density
+                setStroke((1 * density).toInt(), Color.parseColor("#CBD5E1"))
+            }
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                marginStart = (6 * density).toInt()
+            }
+            layoutParams = lp
+            setPadding((8 * density).toInt(), (3 * density).toInt(), (8 * density).toInt(), (3 * density).toInt())
+            setOnClickListener {
+                classCheckBoxList.forEach { it.isChecked = false }
+            }
+        }
+        headerClassesRow.addView(btnSelectAll)
+        headerClassesRow.addView(btnDeselectAll)
+        cardClasses.addView(headerClassesRow)
 
         val dividerCls = View(this).apply {
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (1 * density).toInt()).apply {
-                topMargin = (4 * density).toInt()
+                topMargin = (2 * density).toInt()
                 bottomMargin = (6 * density).toInt()
             }
             setBackgroundColor(Color.parseColor("#CBD5E1"))
         }
         cardClasses.addView(dividerCls)
 
-        val teacherClasses = sessionManager.getTeachingClasses()
+        var teacherClasses = sessionManager.getTeachingClasses()
+            .replace("[", "").replace("]", "").replace("\"", "")
             .split(",")
             .map { it.trim() }
-            .filter { it.isNotEmpty() }
+            .filter { it.isNotEmpty() && it != "null" }
+            .distinct()
             .toMutableList()
         if (teacherClasses.isEmpty()) {
-            teacherClasses.addAll(listOf("VII-A", "VII-B", "VII-C", "VII-D", "VII-E", "VII-F", "VII-G", "VII-H", "VII-I", "VII-J", "VII-K",
-                "VIII-A", "VIII-B", "VIII-C", "VIII-D", "VIII-E", "VIII-F", "VIII-G", "VIII-H", "VIII-I", "VIII-J", "VIII-K",
-                "IX-A", "IX-B", "IX-C", "IX-D", "IX-E", "IX-F", "IX-G", "IX-H", "IX-I", "IX-J", "IX-K"))
+            val homeroom = sessionManager.getClassName().trim()
+            if (homeroom.isNotEmpty() && homeroom != "-" && homeroom != "null") {
+                teacherClasses.add(homeroom)
+            } else {
+                teacherClasses.addAll(listOf("VII-A", "VII-B", "VII-C", "VIII-A", "VIII-B", "VIII-C", "IX-A", "IX-B", "IX-C"))
+            }
         }
 
-        val classCheckBoxList = mutableListOf<CheckBox>()
         var currentRow: LinearLayout? = null
         teacherClasses.forEachIndexed { idx, clsName ->
-            if (idx % 3 == 0) {
+            if (idx % 4 == 0) {
                 currentRow = LinearLayout(this).apply {
                     orientation = LinearLayout.HORIZONTAL
-                    weightSum = 3f
-                    layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                    weightSum = 4f
+                    val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        bottomMargin = (4 * density).toInt()
+                    }
+                    layoutParams = lp
                 }
                 cardClasses.addView(currentRow)
             }
             val cbClass = CheckBox(this).apply {
+                buttonDrawable = null
                 text = clsName
-                textSize = 12f
-                isChecked = true
-                setTextColor(Color.parseColor("#334155"))
-                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                tag = clsName
+                gravity = Gravity.CENTER
+                textAlignment = View.TEXT_ALIGNMENT_CENTER
+                textSize = 11.5f
+                setTypeface(null, Typeface.BOLD)
+                val lp = LinearLayout.LayoutParams(0, (32 * density).toInt(), 1f).apply {
+                    marginStart = (2 * density).toInt()
+                    marginEnd = (2 * density).toInt()
+                }
+                layoutParams = lp
+                isChecked = false
+
+                fun applyStyle(checked: Boolean) {
+                    if (checked) {
+                        setTextColor(Color.WHITE)
+                        background = GradientDrawable().apply {
+                            setColor(Color.parseColor("#DC2626")) // Merah saat dipilih
+                            cornerRadius = 8f * density
+                            setStroke((1 * density).toInt(), Color.parseColor("#B91C1C"))
+                        }
+                    } else {
+                        setTextColor(Color.parseColor("#065F46")) // Default Hijau
+                        background = GradientDrawable().apply {
+                            setColor(Color.parseColor("#ECFDF5"))
+                            cornerRadius = 8f * density
+                            setStroke((1 * density).toInt(), Color.parseColor("#10B981"))
+                        }
+                    }
+                }
+                applyStyle(isChecked)
+                setOnCheckedChangeListener { _, checked ->
+                    applyStyle(checked)
+                }
             }
             classCheckBoxList.add(cbClass)
             currentRow?.addView(cbClass)
-        }
-
-        var isUpdatingCheckboxes = false
-        cbSelectAll.setOnCheckedChangeListener { _, isChecked ->
-            if (!isUpdatingCheckboxes) {
-                isUpdatingCheckboxes = true
-                classCheckBoxList.forEach { it.isChecked = isChecked }
-                isUpdatingCheckboxes = false
-            }
-        }
-        classCheckBoxList.forEach { cb ->
-            cb.setOnCheckedChangeListener { _, _ ->
-                if (!isUpdatingCheckboxes) {
-                    isUpdatingCheckboxes = true
-                    cbSelectAll.isChecked = classCheckBoxList.all { it.isChecked }
-                    isUpdatingCheckboxes = false
-                }
-            }
         }
         layout.addView(cardClasses)
 
@@ -3618,7 +5002,7 @@ class TeacherMainActivity : AppCompatActivity() {
                                     typeface = android.graphics.Typeface.DEFAULT_BOLD
                                     setPadding((8 * density).toInt(), (4 * density).toInt(), (8 * density).toInt(), (4 * density).toInt())
                                     setOnClickListener {
-                                        showEditQuestionDialog(exam, q) { loadQuestions() }
+                                        showEditQuestionDialog(exam, q, questions, idx) { loadQuestions() }
                                     }
                                 }
 
@@ -4142,9 +5526,22 @@ class TeacherMainActivity : AppCompatActivity() {
         dialog.show()
     }
 
-    private fun showEditQuestionDialog(exam: TeacherExamDto, q: com.school.smartcbt.data.model.BackendQuestionDto, onUpdated: () -> Unit) {
+    private fun showEditQuestionDialog(
+        exam: TeacherExamDto,
+        initialQ: com.school.smartcbt.data.model.BackendQuestionDto,
+        questionList: List<com.school.smartcbt.data.model.BackendQuestionDto> = emptyList(),
+        startIndex: Int = 0,
+        onUpdated: () -> Unit
+    ) {
         val dialog = AlertDialog.Builder(this, android.R.style.Theme_Material_Light_NoActionBar_Fullscreen).create()
         val density = resources.displayMetrics.density
+        fun dp(v: Int): Int = (v * density).toInt()
+
+        var currentIdx = if (questionList.isNotEmpty()) {
+            if (startIndex in questionList.indices) startIndex else questionList.indexOfFirst { it.id == initialQ.id }.coerceAtLeast(0)
+        } else 0
+
+        val currentList = if (questionList.isNotEmpty()) questionList else listOf(initialQ)
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -4152,12 +5549,11 @@ class TeacherMainActivity : AppCompatActivity() {
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         }
 
-        val header = createFullscreenHeader(
-            title = "✏️ Edit Butir Soal",
-            subtitle = "${exam.title} • Soal #${q.orderNum ?: ""}",
-            onClose = { dialog.dismiss() }
-        )
-        root.addView(header)
+        var editPlayer: MediaPlayer? = null
+        var isEditAudioPlaying = false
+
+        val headerContainer = FrameLayout(this)
+        root.addView(headerContainer)
 
         val scroll = ScrollView(this).apply {
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
@@ -4167,213 +5563,271 @@ class TeacherMainActivity : AppCompatActivity() {
             val pad = (16 * density).toInt()
             setPadding(pad, pad, pad, pad * 2)
         }
+        scroll.addView(layout)
+        root.addView(scroll)
 
-        fun createLabel(txt: String): TextView = TextView(this).apply {
-            text = txt
-            textSize = 12f
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-            setTextColor(Color.parseColor("#334155"))
-            setPadding(0, (10 * density).toInt(), 0, (4 * density).toInt())
-        }
-
-        layout.addView(createLabel("Pertanyaan / Naskah Soal *"))
-        val etContent = EditText(this).apply {
-            setText(q.getQuestionBody())
-            textSize = 13.5f
-            minLines = 4
-            gravity = android.view.Gravity.TOP or android.view.Gravity.START
-            setBackgroundResource(android.R.drawable.edit_text)
-        }
-        layout.addView(etContent)
-
-        // Multimedia: Diagram / Gambar
-        layout.addView(createLabel("🖼️ Lampiran Gambar / Diagram (Opsional):"))
-        val rowImg = LinearLayout(this).apply {
+        val bottomBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = android.view.Gravity.CENTER_VERTICAL
-        }
-        val etImageUrl = EditText(this).apply {
-            setText(q.imageUrl ?: "")
-            hint = "https://... atau /uploads/cbt/gambar.png"
-            textSize = 12.5f
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        }
-        val ivPreview = ImageView(this).apply {
-            visibility = if (!q.imageUrl.isNullOrBlank()) View.VISIBLE else View.GONE
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (160 * density).toInt()).apply {
-                topMargin = (6 * density).toInt()
-                bottomMargin = (6 * density).toInt()
-            }
-            scaleType = ImageView.ScaleType.FIT_CENTER
-        }
-        if (!q.imageUrl.isNullOrBlank()) {
-            val serverBase = ApiClient.getBaseServerUrl(this).trimEnd('/')
-            val fullUrl = if (q.imageUrl.startsWith("http")) q.imageUrl else "$serverBase/" + q.imageUrl.trimStart('/')
-            Thread {
-                try {
-                    val conn = URL(fullUrl).openConnection()
-                    val bmp = BitmapFactory.decodeStream(conn.getInputStream())
-                    runOnUiThread { if (bmp != null) ivPreview.setImageBitmap(bmp) }
-                } catch (_: Exception) {}
-            }.start()
+            gravity = Gravity.CENTER_VERTICAL
+            setBackgroundColor(Color.WHITE)
+            elevation = dp(4).toFloat()
+            setPadding(dp(12), dp(8), dp(12), dp(8))
         }
 
-        val btnPreviewImg = Button(this).apply {
-            text = "👁️ Preview"
+        val btnPrevQ = Button(this).apply {
+            text = "⬅️ Sebelumnya"
             textSize = 11f
+            setTextColor(Color.parseColor("#334155"))
+            setBackgroundColor(Color.parseColor("#E2E8F0"))
+            layoutParams = LinearLayout.LayoutParams(dp(110), dp(42)).apply { marginEnd = dp(6) }
+        }
+
+        val btnNextQ = Button(this).apply {
+            text = "Selanjutnya ➡️"
+            textSize = 11f
+            setTextColor(Color.parseColor("#334155"))
+            setBackgroundColor(Color.parseColor("#E2E8F0"))
+            layoutParams = LinearLayout.LayoutParams(dp(110), dp(42)).apply { marginEnd = dp(6) }
+        }
+
+        val btnSave = Button(this).apply {
+            text = "💾 Simpan Perubahan"
+            textSize = 12f
             setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#0284C7"))
-            setOnClickListener {
-                val urlStr = etImageUrl.text.toString().trim()
-                if (urlStr.isEmpty()) {
-                    ivPreview.visibility = View.GONE
-                    return@setOnClickListener
+            typeface = Typeface.DEFAULT_BOLD
+            setBackgroundColor(Color.parseColor("#2563EB"))
+            layoutParams = LinearLayout.LayoutParams(0, dp(42), 1f)
+        }
+
+        if (currentList.size > 1) {
+            bottomBar.addView(btnPrevQ)
+            bottomBar.addView(btnNextQ)
+        }
+        bottomBar.addView(btnSave)
+        root.addView(bottomBar)
+
+        lateinit var renderQuestionForm: () -> Unit
+
+        renderQuestionForm = {
+            layout.removeAllViews()
+            headerContainer.removeAllViews()
+
+            val q = currentList[currentIdx]
+
+            val header = createFullscreenHeader(
+                title = "✏️ Edit Butir Soal",
+                subtitle = "${exam.title} • Soal #${currentIdx + 1} dari ${currentList.size}",
+                onClose = {
+                    try { editPlayer?.release() } catch (_: Exception) {}
+                    dialog.dismiss()
                 }
-                val serverBase = ApiClient.getBaseServerUrl(this@TeacherMainActivity).trimEnd('/')
-                val fullUrl = if (urlStr.startsWith("http")) urlStr else "$serverBase/" + urlStr.trimStart('/')
+            )
+            headerContainer.addView(header)
+
+            fun createLabel(txt: String): TextView = TextView(this).apply {
+                text = txt
+                textSize = 12f
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                setTextColor(Color.parseColor("#334155"))
+                setPadding(0, (10 * density).toInt(), 0, (4 * density).toInt())
+            }
+
+            layout.addView(createLabel("Pertanyaan / Naskah Soal *"))
+            val etContent = EditText(this).apply {
+                setText(q.getQuestionBody())
+                textSize = 13.5f
+                minLines = 4
+                gravity = android.view.Gravity.TOP or android.view.Gravity.START
+                setBackgroundResource(android.R.drawable.edit_text)
+            }
+            layout.addView(etContent)
+
+            // Multimedia: Diagram / Gambar
+            layout.addView(createLabel("🖼️ Lampiran Gambar / Diagram (Opsional):"))
+            val rowImg = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+            }
+            val etImageUrl = EditText(this).apply {
+                setText(q.imageUrl ?: "")
+                hint = "https://... atau /uploads/cbt/gambar.png"
+                textSize = 12.5f
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            val ivPreview = ImageView(this).apply {
+                visibility = if (!q.imageUrl.isNullOrBlank()) View.VISIBLE else View.GONE
+                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (160 * density).toInt()).apply {
+                    topMargin = (6 * density).toInt()
+                    bottomMargin = (6 * density).toInt()
+                }
+                scaleType = ImageView.ScaleType.FIT_CENTER
+            }
+            if (!q.imageUrl.isNullOrBlank()) {
+                val serverBase = ApiClient.getBaseServerUrl(this).trimEnd('/')
+                val fullUrl = if (q.imageUrl.startsWith("http")) q.imageUrl else "$serverBase/" + q.imageUrl.trimStart('/')
                 Thread {
                     try {
                         val conn = URL(fullUrl).openConnection()
                         val bmp = BitmapFactory.decodeStream(conn.getInputStream())
-                        runOnUiThread {
-                            if (bmp != null) {
-                                ivPreview.setImageBitmap(bmp)
-                                ivPreview.visibility = View.VISIBLE
-                            }
-                        }
+                        runOnUiThread { if (bmp != null) ivPreview.setImageBitmap(bmp) }
                     } catch (_: Exception) {}
                 }.start()
             }
-        }
-        rowImg.addView(etImageUrl)
-        rowImg.addView(btnPreviewImg)
-        layout.addView(rowImg)
-        layout.addView(ivPreview)
 
-        // Multimedia: Audio Listening
-        layout.addView(createLabel("🎧 Lampiran Audio Listening (Bahasa Inggris / Arab / PAI):"))
-        val rowAud = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = android.view.Gravity.CENTER_VERTICAL
-        }
-        val etAudioUrl = EditText(this).apply {
-            setText(q.audioUrl ?: "")
-            hint = "https://... atau /uploads/cbt/audio.mp3"
-            textSize = 12.5f
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        }
-        var editPlayer: MediaPlayer? = null
-        var isEditAudioPlaying = false
-        val btnTestAudio = Button(this).apply {
-            text = "▶ Tes Audio"
-            textSize = 11f
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#7C3AED"))
-            setOnClickListener {
-                val urlStr = etAudioUrl.text.toString().trim()
-                if (urlStr.isEmpty()) return@setOnClickListener
-                val serverBase = ApiClient.getBaseServerUrl(this@TeacherMainActivity).trimEnd('/')
-                val fullUrl = if (urlStr.startsWith("http")) urlStr else "$serverBase/" + urlStr.trimStart('/')
-                if (isEditAudioPlaying) {
-                    editPlayer?.stop()
-                    editPlayer?.release()
-                    editPlayer = null
-                    isEditAudioPlaying = false
-                    text = "▶ Tes Audio"
-                } else {
-                    try {
-                        text = "⏳ Memuat..."
-                        editPlayer = MediaPlayer().apply {
-                            setDataSource(fullUrl)
-                            setOnPreparedListener { mp ->
-                                mp.start()
-                                isEditAudioPlaying = true
-                                text = "⏹ Stop"
+            val btnPreviewImg = Button(this).apply {
+                text = "👁️ Preview"
+                textSize = 11f
+                setTextColor(Color.WHITE)
+                setBackgroundColor(Color.parseColor("#0284C7"))
+                setOnClickListener {
+                    val urlStr = etImageUrl.text.toString().trim()
+                    if (urlStr.isEmpty()) {
+                        ivPreview.visibility = View.GONE
+                        return@setOnClickListener
+                    }
+                    val serverBase = ApiClient.getBaseServerUrl(this@TeacherMainActivity).trimEnd('/')
+                    val fullUrl = if (urlStr.startsWith("http")) urlStr else "$serverBase/" + urlStr.trimStart('/')
+                    Thread {
+                        try {
+                            val conn = URL(fullUrl).openConnection()
+                            val bmp = BitmapFactory.decodeStream(conn.getInputStream())
+                            runOnUiThread {
+                                if (bmp != null) {
+                                    ivPreview.setImageBitmap(bmp)
+                                    ivPreview.visibility = View.VISIBLE
+                                }
                             }
-                            setOnCompletionListener {
-                                isEditAudioPlaying = false
-                                text = "▶ Tes Audio"
-                            }
-                        }
-                        editPlayer?.prepareAsync()
-                    } catch (e: Exception) {
+                        } catch (_: Exception) {}
+                    }.start()
+                }
+            }
+            rowImg.addView(etImageUrl)
+            rowImg.addView(btnPreviewImg)
+            layout.addView(rowImg)
+            layout.addView(ivPreview)
+
+            // Multimedia: Audio Listening
+            layout.addView(createLabel("🎧 Lampiran Audio Listening (Bahasa Inggris / Arab / PAI):"))
+            val rowAud = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+            }
+            val etAudioUrl = EditText(this).apply {
+                setText(q.audioUrl ?: "")
+                hint = "https://... atau /uploads/cbt/audio.mp3"
+                textSize = 12.5f
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            val btnTestAudio = Button(this).apply {
+                text = "▶ Tes Audio"
+                textSize = 11f
+                setTextColor(Color.WHITE)
+                setBackgroundColor(Color.parseColor("#7C3AED"))
+                setOnClickListener {
+                    val urlStr = etAudioUrl.text.toString().trim()
+                    if (urlStr.isEmpty()) return@setOnClickListener
+                    val serverBase = ApiClient.getBaseServerUrl(this@TeacherMainActivity).trimEnd('/')
+                    val fullUrl = if (urlStr.startsWith("http")) urlStr else "$serverBase/" + urlStr.trimStart('/')
+                    if (isEditAudioPlaying) {
+                        editPlayer?.stop()
+                        editPlayer?.release()
+                        editPlayer = null
+                        isEditAudioPlaying = false
                         text = "▶ Tes Audio"
+                    } else {
+                        try {
+                            text = "⏳ Memuat..."
+                            editPlayer = MediaPlayer().apply {
+                                setDataSource(fullUrl)
+                                setOnPreparedListener { mp ->
+                                    mp.start()
+                                    isEditAudioPlaying = true
+                                    text = "⏹ Stop"
+                                }
+                                setOnCompletionListener {
+                                    isEditAudioPlaying = false
+                                    text = "▶ Tes Audio"
+                                }
+                            }
+                            editPlayer?.prepareAsync()
+                        } catch (e: Exception) {
+                            text = "▶ Tes Audio"
+                        }
                     }
                 }
             }
-        }
-        rowAud.addView(etAudioUrl)
-        rowAud.addView(btnTestAudio)
-        layout.addView(rowAud)
+            rowAud.addView(etAudioUrl)
+            rowAud.addView(btnTestAudio)
+            layout.addView(rowAud)
 
-        // Level Kognitif
-        layout.addView(createLabel("Level Kognitif Soal (Taksonomi Bloom):"))
-        val spinnerCognitive = Spinner(this)
-        val cognitiveOptions = arrayOf(
-            "C3 - Menerapkan / Aplikasi",
-            "C1 - Mengingat / Pengetahuan",
-            "C2 - Memahami / Konsep",
-            "C4 - Menganalisis (HOTS)",
-            "C5 - Mengevaluasi (HOTS)",
-            "C6 - Mencipta / Kreasi (HOTS)"
-        )
-        spinnerCognitive.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, cognitiveOptions)
-        val currentCog = (q.cognitiveLevel ?: "C3").uppercase()
-        val cogIdx = cognitiveOptions.indexOfFirst { it.startsWith(currentCog) }.let { if (it >= 0) it else 0 }
-        spinnerCognitive.setSelection(cogIdx)
-        layout.addView(spinnerCognitive)
+            // Level Kognitif
+            layout.addView(createLabel("Level Kognitif Soal (Taksonomi Bloom):"))
+            val spinnerCognitive = Spinner(this)
+            val cognitiveOptions = arrayOf(
+                "C3 - Menerapkan / Aplikasi",
+                "C1 - Mengingat / Pengetahuan",
+                "C2 - Memahami / Konsep",
+                "C4 - Menganalisis (HOTS)",
+                "C5 - Mengevaluasi (HOTS)",
+                "C6 - Mencipta / Kreasi (HOTS)"
+            )
+            spinnerCognitive.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, cognitiveOptions)
+            val currentCog = (q.cognitiveLevel ?: "C3").uppercase()
+            val cogIdx = cognitiveOptions.indexOfFirst { it.startsWith(currentCog) }.let { if (it >= 0) it else 0 }
+            spinnerCognitive.setSelection(cogIdx)
+            layout.addView(spinnerCognitive)
 
-        // Parse existing options
-        val parsedOpts = q.parseOptionsList()
-        val optAVal = parsedOpts.getOrNull(0)?.replaceFirst("^A[\\.\\)]\\s*".toRegex(), "") ?: q.optionA ?: ""
-        val optBVal = parsedOpts.getOrNull(1)?.replaceFirst("^B[\\.\\)]\\s*".toRegex(), "") ?: q.optionB ?: ""
-        val optCVal = parsedOpts.getOrNull(2)?.replaceFirst("^C[\\.\\)]\\s*".toRegex(), "") ?: q.optionC ?: ""
-        val optDVal = parsedOpts.getOrNull(3)?.replaceFirst("^D[\\.\\)]\\s*".toRegex(), "") ?: q.optionD ?: ""
+            // Parse existing options
+            val parsedOpts = q.parseOptionsList()
+            val optAVal = parsedOpts.getOrNull(0)?.replaceFirst("^A[\\.\\)]\\s*".toRegex(), "") ?: q.optionA ?: ""
+            val optBVal = parsedOpts.getOrNull(1)?.replaceFirst("^B[\\.\\)]\\s*".toRegex(), "") ?: q.optionB ?: ""
+            val optCVal = parsedOpts.getOrNull(2)?.replaceFirst("^C[\\.\\)]\\s*".toRegex(), "") ?: q.optionC ?: ""
+            val optDVal = parsedOpts.getOrNull(3)?.replaceFirst("^D[\\.\\)]\\s*".toRegex(), "") ?: q.optionD ?: ""
 
-        layout.addView(createLabel("Pilihan Jawaban A *"))
-        val etA = EditText(this).apply { setText(optAVal); textSize = 13f }
-        layout.addView(etA)
+            layout.addView(createLabel("Pilihan Jawaban A *"))
+            val etA = EditText(this).apply { setText(optAVal); textSize = 13f }
+            layout.addView(etA)
 
-        layout.addView(createLabel("Pilihan Jawaban B *"))
-        val etB = EditText(this).apply { setText(optBVal); textSize = 13f }
-        layout.addView(etB)
+            layout.addView(createLabel("Pilihan Jawaban B *"))
+            val etB = EditText(this).apply { setText(optBVal); textSize = 13f }
+            layout.addView(etB)
 
-        layout.addView(createLabel("Pilihan Jawaban C *"))
-        val etC = EditText(this).apply { setText(optCVal); textSize = 13f }
-        layout.addView(etC)
+            layout.addView(createLabel("Pilihan Jawaban C *"))
+            val etC = EditText(this).apply { setText(optCVal); textSize = 13f }
+            layout.addView(etC)
 
-        layout.addView(createLabel("Pilihan Jawaban D *"))
-        val etD = EditText(this).apply { setText(optDVal); textSize = 13f }
-        layout.addView(etD)
+            layout.addView(createLabel("Pilihan Jawaban D *"))
+            val etD = EditText(this).apply { setText(optDVal); textSize = 13f }
+            layout.addView(etD)
 
-        layout.addView(createLabel("Kunci Jawaban Benar:"))
-        val spinnerKey = Spinner(this)
-        val keys = arrayOf("A", "B", "C", "D")
-        spinnerKey.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, keys)
-        val curKey = (q.correctOption ?: "A").uppercase().trim()
-        val keyIdx = keys.indexOf(curKey).let { if (it >= 0) it else 0 }
-        spinnerKey.setSelection(keyIdx)
-        layout.addView(spinnerKey)
+            layout.addView(createLabel("Kunci Jawaban Benar:"))
+            val spinnerKey = Spinner(this)
+            val keys = arrayOf("A", "B", "C", "D")
+            spinnerKey.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, keys)
+            val curKey = (q.correctOption ?: "A").uppercase().trim()
+            val keyIdx = keys.indexOf(curKey).let { if (it >= 0) it else 0 }
+            spinnerKey.setSelection(keyIdx)
+            layout.addView(spinnerKey)
 
-        layout.addView(createLabel("Pembahasan / Keterangan Jawaban (Opsional):"))
-        val etExplanation = EditText(this).apply {
-            setText(q.explanation ?: "")
-            hint = "Tuliskan langkah pengerjaan atau alasan jawaban benar..."
-            textSize = 13f
-            minLines = 2
-        }
-        layout.addView(etExplanation)
-
-        val btnSave = Button(this).apply {
-            text = "💾 Simpan Perubahan Butir Soal"
-            textSize = 13.5f
-            setTextColor(Color.WHITE)
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-            setBackgroundColor(Color.parseColor("#2563EB"))
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (48 * density).toInt()).apply {
-                topMargin = (20 * density).toInt()
+            layout.addView(createLabel("Pembahasan / Keterangan Jawaban (Opsional):"))
+            val etExplanation = EditText(this).apply {
+                setText(q.explanation ?: "")
+                hint = "Tuliskan langkah pengerjaan atau alasan jawaban benar..."
+                textSize = 13f
+                minLines = 2
             }
-            setOnClickListener {
+            layout.addView(etExplanation)
+
+            // Dynamic Next / Prev text
+            btnPrevQ.isEnabled = (currentIdx > 0)
+            btnPrevQ.alpha = if (currentIdx > 0) 1.0f else 0.45f
+            btnPrevQ.text = if (currentIdx > 0) "⬅️ Soal #${currentIdx}" else "⬅️ Soal Awal"
+
+            btnNextQ.isEnabled = (currentIdx < currentList.size - 1)
+            btnNextQ.alpha = if (currentIdx < currentList.size - 1) 1.0f else 0.45f
+            btnNextQ.text = if (currentIdx < currentList.size - 1) "Soal #${currentIdx + 2} ➡️" else "Soal Akhir"
+
+            btnSave.setOnClickListener {
                 val content = etContent.text.toString().trim()
                 val optA = etA.text.toString().trim()
                 val optB = etB.text.toString().trim()
@@ -4424,8 +5878,7 @@ class TeacherMainActivity : AppCompatActivity() {
                         progress.dismiss()
                         if (response.isSuccessful) {
                             try { editPlayer?.release() } catch (_: Exception) {}
-                            Toast.makeText(this@TeacherMainActivity, "✅ Perubahan soal berhasil disimpan!", Toast.LENGTH_SHORT).show()
-                            dialog.dismiss()
+                            Toast.makeText(this@TeacherMainActivity, "✅ Perubahan butir soal #${currentIdx + 1} berhasil disimpan!", Toast.LENGTH_SHORT).show()
                             onUpdated()
                         } else {
                             Toast.makeText(this@TeacherMainActivity, "Gagal memperbarui soal", Toast.LENGTH_SHORT).show()
@@ -4439,14 +5892,30 @@ class TeacherMainActivity : AppCompatActivity() {
                 })
             }
         }
-        layout.addView(btnSave)
+
+        btnPrevQ.setOnClickListener {
+            if (currentIdx > 0) {
+                try { editPlayer?.release() } catch (_: Exception) {}
+                currentIdx--
+                renderQuestionForm()
+                scroll.smoothScrollTo(0, 0)
+            }
+        }
+
+        btnNextQ.setOnClickListener {
+            if (currentIdx < currentList.size - 1) {
+                try { editPlayer?.release() } catch (_: Exception) {}
+                currentIdx++
+                renderQuestionForm()
+                scroll.smoothScrollTo(0, 0)
+            }
+        }
 
         dialog.setOnDismissListener {
             try { editPlayer?.release() } catch (_: Exception) {}
         }
 
-        scroll.addView(layout)
-        root.addView(scroll)
+        renderQuestionForm()
         dialog.setView(root)
         dialog.show()
     }
@@ -4586,12 +6055,14 @@ class TeacherMainActivity : AppCompatActivity() {
                 ApiClient.getClient(this@TeacherMainActivity).generateAiQuestions(req).enqueue(object : Callback<BasicResponse> {
                     override fun onResponse(call: Call<BasicResponse>, response: Response<BasicResponse>) {
                         progress.dismiss()
-                        if (response.isSuccessful) {
-                            Toast.makeText(this@TeacherMainActivity, "✨ Berhasil men-generate $countInt butir soal AI ke ulangan ini!", Toast.LENGTH_LONG).show()
+                        if (response.isSuccessful && response.body()?.success != false) {
+                            val msg = response.body()?.message ?: "✨ Berhasil men-generate $countInt butir soal AI ke ulangan ini!"
+                            Toast.makeText(this@TeacherMainActivity, msg, Toast.LENGTH_LONG).show()
                             dialog.dismiss()
                             onGenerated()
                         } else {
-                            Toast.makeText(this@TeacherMainActivity, "Gagal membuat soal dengan AI", Toast.LENGTH_SHORT).show()
+                            val err = response.body()?.message ?: "Gagal membuat soal dengan AI"
+                            Toast.makeText(this@TeacherMainActivity, err, Toast.LENGTH_LONG).show()
                         }
                     }
 
@@ -4610,9 +6081,10 @@ class TeacherMainActivity : AppCompatActivity() {
         dialog.show()
     }
 
-    private fun showExamMonitoringRealtimeDialog(exam: TeacherExamDto) {
+        private fun showExamMonitoringRealtimeDialog(exam: TeacherExamDto) {
         val dialog = AlertDialog.Builder(this, android.R.style.Theme_Material_Light_NoActionBar_Fullscreen).create()
         val density = resources.displayMetrics.density
+        fun dp(v: Int): Int = (v * density).toInt()
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -4622,237 +6094,632 @@ class TeacherMainActivity : AppCompatActivity() {
 
         val header = createFullscreenHeader(
             title = "📊 Hasil & Monitoring CBT",
-            subtitle = "${exam.title} (${exam.subject?.name ?: "-"} - ${exam.assignedClasses ?: "Semua"})",
+            subtitle = "${exam.title} (${exam.subject?.name ?: "-"} • Kelas: ${exam.assignedClasses ?: "Semua"})",
             onClose = { dialog.dismiss() }
         )
         root.addView(header)
 
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
+        }
+
         // Summary Bar
         val summaryCard = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            val bg = android.graphics.drawable.GradientDrawable().apply {
-                setColor(Color.WHITE)
-                cornerRadius = 10 * density
-                setStroke((1 * density).toInt(), Color.parseColor("#E2E8F0"))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(8)
             }
-            background = bg
-            val pad = (12 * density).toInt()
-            setPadding(pad, pad, pad, pad)
-            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                val m = (12 * density).toInt()
-                setMargins(m, m, m, (6 * density).toInt())
-            }
-            layoutParams = lp
-            weightSum = 3f
+            weightSum = 5f
         }
 
-        fun createStatCol(label: String, initialVal: String, color: String): Pair<TextView, LinearLayout> {
+        fun createStatCol(label: String, initialVal: String, color: String): TextView {
             val col = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
-                gravity = android.view.Gravity.CENTER
-                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                gravity = Gravity.CENTER
+                val bg = android.graphics.drawable.GradientDrawable().apply {
+                    setColor(Color.WHITE)
+                    cornerRadius = dp(8).toFloat()
+                    setStroke(dp(1), Color.parseColor("#E2E8F0"))
+                }
+                background = bg
+                setPadding(dp(2), dp(8), dp(2), dp(8))
+                val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    marginEnd = dp(4)
+                }
+                layoutParams = lp
             }
             val valView = TextView(this).apply {
                 text = initialVal
-                textSize = 16f
-                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                textSize = 14f
+                typeface = Typeface.DEFAULT_BOLD
                 setTextColor(Color.parseColor(color))
             }
             val lblView = TextView(this).apply {
                 text = label
-                textSize = 10.5f
+                textSize = 9.5f
                 setTextColor(Color.parseColor("#64748B"))
             }
             col.addView(valView)
             col.addView(lblView)
-            return Pair(valView, col)
+            summaryCard.addView(col)
+            return valView
         }
 
-        val (tvTotalP, col1) = createStatCol("Peserta", "0", "#0F172A")
-        val (tvDoneP, col2) = createStatCol("Selesai", "0", "#059669")
-        val (tvAvgScore, col3) = createStatCol("Rata-Rata", "0.0", "#4F46E5")
+        val tvTotalP = createStatCol("Peserta", "0", "#0F172A")
+        val tvHadirP = createStatCol("Hadir", "0", "#059669")
+        val tvNgerjainP = createStatCol("Mengerjakan", "0", "#0284C7")
+        val tvDoneP = createStatCol("Selesai", "0", "#10B981")
+        val tvBelumP = createStatCol("Belum Hadir", "0", "#DC2626")
+        content.addView(summaryCard)
 
-        summaryCard.addView(col1)
-        summaryCard.addView(col2)
-        summaryCard.addView(col3)
-        root.addView(summaryCard)
-
-        val tvStatus = TextView(this).apply {
-            text = "Memuat data pengerjaan siswa..."
-            textSize = 11.5f
-            setTextColor(Color.parseColor("#64748B"))
-            val padH = (14 * density).toInt()
-            setPadding(padH, (4 * density).toInt(), padH, (6 * density).toInt())
+        // Search Bar
+        val etSearch = EditText(this).apply {
+            hint = "🔍 Cari nama, NISN, atau kelas..."
+            textSize = 12f
+            val bg = android.graphics.drawable.GradientDrawable().apply {
+                setColor(Color.WHITE)
+                cornerRadius = dp(8).toFloat()
+                setStroke(dp(1), Color.parseColor("#CBD5E1"))
+            }
+            background = bg
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(6)
+            }
         }
-        root.addView(tvStatus)
+        content.addView(etSearch)
+
+        // Filter Tabs
+        var activeFilter = "SEMUA"
+        val filterTabsRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(8)
+            }
+        }
+        val tabSemua = TextView(this)
+        val tabNgerjain = TextView(this)
+        val tabSelesai = TextView(this)
+        val tabBelum = TextView(this)
+
+        fun styleCbtTab(tv: TextView, label: String, isSel: Boolean) {
+            tv.text = label
+            tv.textSize = 11f
+            tv.setTypeface(null, if (isSel) Typeface.BOLD else Typeface.NORMAL)
+            tv.setTextColor(if (isSel) Color.WHITE else Color.parseColor("#475569"))
+            val bg = android.graphics.drawable.GradientDrawable().apply {
+                setColor(if (isSel) Color.parseColor("#0284C7") else Color.parseColor("#E2E8F0"))
+                cornerRadius = dp(6).toFloat()
+            }
+            tv.background = bg
+            tv.setPadding(dp(10), dp(5), dp(10), dp(5))
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                marginEnd = dp(4)
+            }
+            tv.layoutParams = lp
+        }
+
+        content.addView(filterTabsRow)
 
         val scroll = ScrollView(this).apply {
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
         }
         val listContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            val pad = (12 * density).toInt()
-            setPadding(pad, 0, pad, pad * 2)
+            setPadding(0, 0, 0, dp(12))
         }
         scroll.addView(listContainer)
-        root.addView(scroll)
+        content.addView(scroll)
+        root.addView(content)
+
+        var rawExamResults: List<Map<String, Any>> = emptyList()
+
+        // Action Bottom Bar
+        val bottomBar = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.WHITE)
+            elevation = dp(4).toFloat()
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+        }
+        val btnRow1 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, 0, 0, dp(4))
+        }
+        val btnRefresh = Button(this).apply {
+            text = "🔄 Segarkan Data"
+            textSize = 11.5f
+            setTextColor(Color.WHITE)
+            setTypeface(null, Typeface.BOLD)
+            setBackgroundColor(Color.parseColor("#0284C7"))
+            layoutParams = LinearLayout.LayoutParams(0, dp(42), 1f).apply { marginEnd = dp(6) }
+        }
+        val btnCloseBottom = Button(this).apply {
+            text = "✕ Tutup"
+            textSize = 11.5f
+            setTextColor(Color.parseColor("#475569"))
+            setBackgroundColor(Color.parseColor("#E2E8F0"))
+            layoutParams = LinearLayout.LayoutParams(dp(90), dp(42))
+            setOnClickListener { dialog.dismiss() }
+        }
+        btnRow1.addView(btnRefresh)
+        btnRow1.addView(btnCloseBottom)
+        bottomBar.addView(btnRow1)
+
+        val btnRow2 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+        val btnBapCbt = Button(this).apply {
+            text = "📋 BAP Presensi Ujian"
+            textSize = 11f
+            setTextColor(Color.WHITE)
+            setTypeface(null, Typeface.BOLD)
+            setBackgroundColor(Color.parseColor("#0F766E"))
+            layoutParams = LinearLayout.LayoutParams(0, dp(38), 1.2f).apply { marginEnd = dp(4) }
+            setOnClickListener {
+                showBapPresensiDialog(
+                    title = exam.title,
+                    subTitle = "${exam.subject?.name ?: "-"} (Kelas: ${exam.assignedClasses ?: "Semua"})",
+                    siswaList = rawExamResults
+                )
+            }
+        }
+        val btnRemindAbsentCbt = Button(this).apply {
+            text = "📢 Ingatkan Belum Hadir"
+            textSize = 11f
+            setTextColor(Color.WHITE)
+            setTypeface(null, Typeface.BOLD)
+            setBackgroundColor(Color.parseColor("#B45309"))
+            layoutParams = LinearLayout.LayoutParams(0, dp(38), 1f)
+            setOnClickListener {
+                val absentStudents = rawExamResults.filter {
+                    val st = (it["status"] as? String)?.uppercase() ?: "NOT_STARTED"
+                    st == "NOT_STARTED" || st == "BELUM_MULAI"
+                }
+                if (absentStudents.isEmpty()) {
+                    Toast.makeText(this@TeacherMainActivity, "Semua siswa sudah hadir mengerjakan!", Toast.LENGTH_SHORT).show()
+                } else {
+                    val names = absentStudents.mapIndexed { idx, s ->
+                        val uMap = s["user"] as? Map<*, *>
+                        "${idx + 1}. ${uMap?.get("name") ?: s["studentName"] ?: "Siswa"}"
+                    }.joinToString("\n")
+                    val msg = "Pemberitahuan Ujian CBT:\n*${exam.title}*\nBerikut adalah daftar siswa yang belum hadir / belum mulai ujian:\n$names\n\nHarap segera login ke aplikasi Smart CBT dan ikuti ujian sekarang. Terima kasih."
+                    val actions = arrayOf("💬 Kirim via WhatsApp", "📋 Salin Teks Pengingat")
+                    AlertDialog.Builder(this@TeacherMainActivity)
+                        .setTitle("📢 Pengingat Siswa Belum Hadir (${absentStudents.size} Siswa)")
+                        .setItems(actions) { _, which ->
+                            if (which == 0) {
+                                try {
+                                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://api.whatsapp.com/send?text=" + Uri.encode(msg))))
+                                } catch (_: Exception) {
+                                    Toast.makeText(this@TeacherMainActivity, "WhatsApp tidak terpasang di perangkat", Toast.LENGTH_SHORT).show()
+                                }
+                            } else {
+                                val cb = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                cb.setPrimaryClip(ClipData.newPlainText("Pengingat Presensi", msg))
+                                Toast.makeText(this@TeacherMainActivity, "📋 Teks pengingat berhasil disalin!", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                        .show()
+                }
+            }
+        }
+        btnRow2.addView(btnBapCbt)
+        btnRow2.addView(btnRemindAbsentCbt)
+        bottomBar.addView(btnRow2)
+        root.addView(bottomBar)
+
+        fun renderResults() {
+            listContainer.removeAllViews()
+            val query = etSearch.text.toString().trim().lowercase()
+
+            val filtered = rawExamResults.filter { r ->
+                val userMap = r["user"] as? Map<String, Any>
+                val studentName = (userMap?.get("name") as? String ?: "").lowercase()
+                val nisn = (userMap?.get("nisn") as? String ?: "").lowercase()
+                val cls = (userMap?.get("className") as? String ?: "").lowercase()
+                val st = (r["status"] as? String ?: "NOT_STARTED").uppercase()
+
+                val matchQuery = query.isEmpty() || studentName.contains(query) || nisn.contains(query) || cls.contains(query)
+                val matchTab = when (activeFilter) {
+                    "NGERJAIN" -> st == "ONGOING" || st == "SEDANG_MENGERJAKAN"
+                    "SELESAI" -> st == "FINISHED" || st == "SELESAI"
+                    "BELUM" -> st == "NOT_STARTED" || st == "BELUM_MULAI"
+                    else -> true
+                }
+                matchQuery && matchTab
+            }
+
+            if (filtered.isEmpty()) {
+                listContainer.addView(TextView(this).apply {
+                    text = "Tidak ada siswa yang sesuai."
+                    textSize = 12.5f
+                    setTextColor(Color.parseColor("#94A3B8"))
+                    gravity = Gravity.CENTER
+                    setPadding(0, dp(40), 0, dp(40))
+                })
+                return
+            }
+
+            val kkm = exam.passingGrade ?: 75
+            filtered.forEach { r ->
+                val userMap = r["user"] as? Map<String, Any>
+                val studentName = userMap?.get("name") as? String ?: "Siswa"
+                val className = userMap?.get("className") as? String ?: "-"
+                val nisn = userMap?.get("nisn") as? String ?: "-"
+                val studentId = userMap?.get("id") as? String ?: (r["userId"] as? String ?: "")
+                val studentExamId = r["id"]?.toString() ?: ""
+                val status = (r["status"] as? String ?: "NOT_STARTED").uppercase()
+                val score = (r["score"] as? Number)?.toDouble() ?: 0.0
+                val isPassed = score >= kkm
+                val answeredCount = (r["answeredCount"] as? Number)?.toInt() ?: 0
+                val totalQuestions = (r["totalQuestions"] as? Number)?.toInt() ?: 0
+                val kurangCount = (r["kurangCount"] as? Number)?.toInt() ?: Math.max(0, totalQuestions - answeredCount)
+                val posisiSoal = (r["posisiSoal"] as? Number)?.toInt() ?: (if (answeredCount > 0) Math.min(totalQuestions, answeredCount + 1) else 1)
+
+                val card = CardView(this).apply {
+                    radius = dp(10).toFloat()
+                    cardElevation = dp(2).toFloat()
+                    setCardBackgroundColor(Color.WHITE)
+                    val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        bottomMargin = dp(8)
+                    }
+                    layoutParams = lp
+                }
+
+                val cardInner = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(dp(12), dp(10), dp(12), dp(10))
+                }
+
+                val rowTop = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                }
+                val colInfo = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                }
+                colInfo.addView(TextView(this).apply {
+                    text = studentName
+                    textSize = 13.5f
+                    typeface = Typeface.DEFAULT_BOLD
+                    setTextColor(Color.parseColor("#0F172A"))
+                })
+                colInfo.addView(TextView(this).apply {
+                    text = "Kelas $className • NISN: $nisn"
+                    textSize = 11f
+                    setTextColor(Color.parseColor("#64748B"))
+                })
+                rowTop.addView(colInfo)
+
+                if (status == "FINISHED" || status == "SELESAI") {
+                    val scoreChip = TextView(this).apply {
+                        text = "${score.toInt()} / 100"
+                        textSize = 13f
+                        typeface = Typeface.DEFAULT_BOLD
+                        setTextColor(if (isPassed) Color.parseColor("#065F46") else Color.parseColor("#991B1B"))
+                        val bgChip = android.graphics.drawable.GradientDrawable().apply {
+                            setColor(if (isPassed) Color.parseColor("#DCFCE7") else Color.parseColor("#FEE2E2"))
+                            cornerRadius = dp(6).toFloat()
+                        }
+                        background = bgChip
+                        setPadding(dp(10), dp(4), dp(10), dp(4))
+                    }
+                    rowTop.addView(scoreChip)
+                } else if (status == "ONGOING" || status == "SEDANG_MENGERJAKAN") {
+                    val chipOngoing = TextView(this).apply {
+                        text = "✏️ Mengerjakan (Posisi No. $posisiSoal)"
+                        textSize = 11f
+                        typeface = Typeface.DEFAULT_BOLD
+                        setTextColor(Color.parseColor("#0369A1"))
+                        val bg = android.graphics.drawable.GradientDrawable().apply {
+                            setColor(Color.parseColor("#E0F2FE"))
+                            cornerRadius = dp(6).toFloat()
+                        }
+                        background = bg
+                        setPadding(dp(8), dp(4), dp(8), dp(4))
+                    }
+                    rowTop.addView(chipOngoing)
+                } else {
+                    val chipBelum = TextView(this).apply {
+                        text = "🔴 Belum Hadir / Belum Mulai"
+                        textSize = 11f
+                        setTypeface(null, Typeface.BOLD)
+                        setTextColor(Color.parseColor("#DC2626"))
+                        val bg = android.graphics.drawable.GradientDrawable().apply {
+                            setColor(Color.parseColor("#FEE2E2"))
+                            cornerRadius = dp(6).toFloat()
+                        }
+                        background = bg
+                        setPadding(dp(8), dp(4), dp(8), dp(4))
+                    }
+                    rowTop.addView(chipBelum)
+                }
+                cardInner.addView(rowTop)
+
+                // Progress Bar and detailed question counts
+                if (totalQuestions > 0) {
+                    val rowPrg = LinearLayout(this).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        gravity = Gravity.CENTER_VERTICAL
+                        setPadding(0, dp(6), 0, dp(2))
+                    }
+                    val pb = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+                        max = totalQuestions
+                        progress = if (status == "FINISHED" || status == "SELESAI") totalQuestions else answeredCount
+                        layoutParams = LinearLayout.LayoutParams(0, dp(8), 1f).apply { marginEnd = dp(8) }
+                    }
+                    val tvPrg = TextView(this).apply {
+                        text = when {
+                            status == "FINISHED" || status == "SELESAI" -> "✅ Selesai: $totalQuestions / $totalQuestions Soal (100%)"
+                            status == "ONGOING" || status == "SEDANG_MENGERJAKAN" -> "📝 Terjawab: $answeredCount / $totalQuestions Soal (${if (totalQuestions > 0) answeredCount * 100 / totalQuestions else 0}%) • ⏳ Kurang: $kurangCount Soal lagi • 📍 Posisi Soal No. $posisiSoal"
+                            else -> "🔴 Belum Hadir • ⏳ Kurang: $totalQuestions Soal (0%)"
+                        }
+                        textSize = 10.5f
+                        setTextColor(Color.parseColor("#475569"))
+                    }
+                    rowPrg.addView(pb)
+                    rowPrg.addView(tvPrg)
+                    cardInner.addView(rowPrg)
+                }
+
+                // Action Buttons for this student
+                val rowBtn = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.END
+                    setPadding(0, dp(6), 0, 0)
+                }
+
+                if (status == "NOT_STARTED" || status == "BELUM_MULAI") {
+                    val btnWaRemind = TextView(this).apply {
+                        text = "💬 Ingatkan (WA)"
+                        textSize = 11f
+                        setTypeface(null, Typeface.BOLD)
+                        setTextColor(Color.parseColor("#059669"))
+                        val bg = android.graphics.drawable.GradientDrawable().apply {
+                            setColor(Color.parseColor("#ECFDF5"))
+                            cornerRadius = dp(6).toFloat()
+                        }
+                        background = bg
+                        setPadding(dp(8), dp(4), dp(8), dp(4))
+                        val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                            marginEnd = dp(6)
+                        }
+                        layoutParams = lp
+                        setOnClickListener {
+                            val msg = "Halo $studentName (NISN: $nisn, Kelas: $className), Ujian CBT: \"${exam.title}\" (${exam.subject?.name ?: "Mata Pelajaran"}) saat ini sedang berlangsung. Harap segera login dan mengikuti ujian sebelum sesi berakhir. Terima kasih."
+                            try {
+                                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://api.whatsapp.com/send?text=" + Uri.encode(msg))))
+                            } catch (_: Exception) {
+                                Toast.makeText(this@TeacherMainActivity, "WhatsApp tidak terpasang di perangkat", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                    rowBtn.addView(btnWaRemind)
+                }
+
+                if (studentExamId.isNotEmpty() && (status == "FINISHED" || status == "SELESAI")) {
+                    val btnLjs = TextView(this).apply {
+                        text = "👁️ Lihat LJS"
+                        textSize = 11f
+                        setTypeface(null, Typeface.BOLD)
+                        setTextColor(Color.parseColor("#0284C7"))
+                        val bg = android.graphics.drawable.GradientDrawable().apply {
+                            setColor(Color.parseColor("#E0F2FE"))
+                            cornerRadius = dp(6).toFloat()
+                        }
+                        background = bg
+                        setPadding(dp(8), dp(4), dp(8), dp(4))
+                        val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                            marginEnd = dp(6)
+                        }
+                        layoutParams = lp
+                        setOnClickListener {
+                            val prg = ProgressDialog(this@TeacherMainActivity).apply { setMessage("Memuat Lembar Jawaban Siswa (LJS)..."); show() }
+                            ApiClient.getClient(this@TeacherMainActivity).getStudentExamLjs(studentExamId).enqueue(object : Callback<com.school.smartcbt.data.model.StudentExamLjsResponse> {
+                                override fun onResponse(call: Call<com.school.smartcbt.data.model.StudentExamLjsResponse>, response: Response<com.school.smartcbt.data.model.StudentExamLjsResponse>) {
+                                    prg.dismiss()
+                                    if (response.isSuccessful && response.body() != null) {
+                                        val ljs = response.body()!!
+                                        val sum = ljs.summary
+                                        val finalScore = sum?.finalScore ?: score
+                                        val correct = sum?.totalCorrect ?: 0
+                                        val wrong = sum?.totalWrong ?: 0
+                                        val unattempted = sum?.totalUnattempted ?: 0
+                                        val detailMsg = "Siswa: $studentName ($className)\nNilai: $finalScore / 100\nBenar: $correct • Salah: $wrong • Kosong: $unattempted"
+                                        AlertDialog.Builder(this@TeacherMainActivity)
+                                            .setTitle("📑 Lembar Jawaban Siswa (LJS)")
+                                            .setMessage(detailMsg)
+                                            .setPositiveButton("Tutup", null)
+                                            .show()
+                                    } else {
+                                        Toast.makeText(this@TeacherMainActivity, "Gagal memuat LJS", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                                override fun onFailure(call: Call<com.school.smartcbt.data.model.StudentExamLjsResponse>, t: Throwable) {
+                                    prg.dismiss()
+                                    Toast.makeText(this@TeacherMainActivity, "Koneksi terputus: ${t.message}", Toast.LENGTH_SHORT).show()
+                                }
+                            })
+                        }
+                    }
+                    rowBtn.addView(btnLjs)
+                }
+
+                if (status == "ONGOING" || status == "SEDANG_MENGERJAKAN") {
+                    val btnForceSubmit = TextView(this).apply {
+                        text = "🛑 Paksa Kumpul"
+                        textSize = 11f
+                        setTypeface(null, Typeface.BOLD)
+                        setTextColor(Color.parseColor("#DC2626"))
+                        val bg = android.graphics.drawable.GradientDrawable().apply {
+                            setColor(Color.parseColor("#FEE2E2"))
+                            cornerRadius = dp(6).toFloat()
+                        }
+                        background = bg
+                        setPadding(dp(8), dp(4), dp(8), dp(4))
+                        val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                            marginEnd = dp(6)
+                        }
+                        layoutParams = lp
+                        setOnClickListener {
+                            AlertDialog.Builder(this@TeacherMainActivity)
+                                .setTitle("Paksa Kumpul Ujian")
+                                .setMessage("Paksa pengumpulan ujian untuk siswa $studentName? Nilai akan dihitung dari jawaban yang telah masuk.")
+                                .setPositiveButton("Kumpulkan") { _, _ ->
+                                    ApiClient.getClient(this@TeacherMainActivity).forceSubmitStudentExam(studentId, mapOf("examId" to exam.id)).enqueue(object : Callback<BasicResponse> {
+                                        override fun onResponse(call: Call<BasicResponse>, response: Response<BasicResponse>) {
+                                            Toast.makeText(this@TeacherMainActivity, "Ujian $studentName berhasil dikumpulkan!", Toast.LENGTH_SHORT).show()
+                                            btnRefresh.performClick()
+                                        }
+                                        override fun onFailure(call: Call<BasicResponse>, t: Throwable) {
+                                            Toast.makeText(this@TeacherMainActivity, "Gagal memaksa submit: ${t.message}", Toast.LENGTH_SHORT).show()
+                                        }
+                                    })
+                                }
+                                .setNegativeButton("Batal", null)
+                                .show()
+                        }
+                    }
+                    rowBtn.addView(btnForceSubmit)
+                }
+
+                val btnResetStudent = TextView(this).apply {
+                    text = "🔄 Buka Kunci / Reset"
+                    textSize = 11f
+                    setTypeface(null, Typeface.BOLD)
+                    setTextColor(Color.parseColor("#4F46E5"))
+                    val bg = android.graphics.drawable.GradientDrawable().apply {
+                        setColor(Color.parseColor("#EEF2FF"))
+                        cornerRadius = dp(6).toFloat()
+                    }
+                    background = bg
+                    setPadding(dp(8), dp(4), dp(8), dp(4))
+                    setOnClickListener {
+                        AlertDialog.Builder(this@TeacherMainActivity)
+                            .setTitle("Reset Kunci Sesi Ujian")
+                            .setMessage("Buka kunci sesi ujian siswa \"$studentName\"?\n\nSiswa dapat login kembali di aplikasi siswa untuk melanjutkan pengerjaan tanpa terblokir sistem anti-cheat.")
+                            .setPositiveButton("Buka Kunci") { _, _ ->
+                                ApiClient.getClient(this@TeacherMainActivity).proctorResetStudentLock(mapOf("examId" to exam.id, "studentId" to studentId)).enqueue(object : Callback<BasicResponse> {
+                                    override fun onResponse(call: Call<BasicResponse>, response: Response<BasicResponse>) {
+                                        Toast.makeText(this@TeacherMainActivity, "Sesi $studentName berhasil di-reset", Toast.LENGTH_SHORT).show()
+                                        btnRefresh.performClick()
+                                    }
+                                    override fun onFailure(call: Call<BasicResponse>, t: Throwable) {
+                                        Toast.makeText(this@TeacherMainActivity, "Gagal reset", Toast.LENGTH_SHORT).show()
+                                    }
+                                })
+                            }
+                            .setNegativeButton("Batal", null)
+                            .show()
+                    }
+                }
+                rowBtn.addView(btnResetStudent)
+                cardInner.addView(rowBtn)
+
+                card.addView(cardInner)
+                listContainer.addView(card)
+            }
+        }
+
+        fun updateCbtTabs() {
+            filterTabsRow.removeAllViews()
+            styleCbtTab(tabSemua, "Semua (${rawExamResults.size})", activeFilter == "SEMUA")
+
+            val doneCount = rawExamResults.count { (it["status"] as? String)?.uppercase() in listOf("FINISHED", "SELESAI") }
+            val ngerjainCount = rawExamResults.count { (it["status"] as? String)?.uppercase() in listOf("ONGOING", "SEDANG_MENGERJAKAN") }
+            val belumCount = rawExamResults.count { (it["status"] as? String)?.uppercase() in listOf("NOT_STARTED", "BELUM_MULAI") }
+
+            styleCbtTab(tabNgerjain, "✏️ Mengerjakan ($ngerjainCount)", activeFilter == "NGERJAIN")
+            styleCbtTab(tabSelesai, "🟢 Selesai ($doneCount)", activeFilter == "SELESAI")
+            styleCbtTab(tabBelum, "⏳ Belum ($belumCount)", activeFilter == "BELUM")
+
+            filterTabsRow.addView(tabSemua)
+            filterTabsRow.addView(tabNgerjain)
+            filterTabsRow.addView(tabSelesai)
+            filterTabsRow.addView(tabBelum)
+
+            tabSemua.setOnClickListener { activeFilter = "SEMUA"; updateCbtTabs(); renderResults() }
+            tabNgerjain.setOnClickListener { activeFilter = "NGERJAIN"; updateCbtTabs(); renderResults() }
+            tabSelesai.setOnClickListener { activeFilter = "SELESAI"; updateCbtTabs(); renderResults() }
+            tabBelum.setOnClickListener { activeFilter = "BELUM"; updateCbtTabs(); renderResults() }
+        }
 
         fun loadMonitoring() {
             listContainer.removeAllViews()
-            tvStatus.text = "Memuat data pengerjaan realtime..."
+            val tvLoading = TextView(this).apply {
+                text = "Memuat data pengerjaan realtime..."
+                textSize = 12f
+                setTextColor(Color.parseColor("#64748B"))
+                gravity = Gravity.CENTER
+                setPadding(0, dp(40), 0, dp(40))
+            }
+            listContainer.addView(tvLoading)
+
             ApiClient.getClient(this).getTeacherExamResults(exam.id).enqueue(object : Callback<List<Map<String, Any>>> {
                 override fun onResponse(call: Call<List<Map<String, Any>>>, response: Response<List<Map<String, Any>>>) {
                     if (response.isSuccessful) {
-                        val results = response.body() ?: emptyList()
-                        tvTotalP.text = results.size.toString()
-                        val doneCount = results.count { (it["status"] as? String) == "FINISHED" || (it["status"] as? String) == "SELESAI" }
+                        rawExamResults = response.body() ?: emptyList()
+
+                        val doneCount = rawExamResults.count { (it["status"] as? String)?.uppercase() in listOf("FINISHED", "SELESAI") }
+                        val ngerjainCount = rawExamResults.count { (it["status"] as? String)?.uppercase() in listOf("ONGOING", "SEDANG_MENGERJAKAN") }
+                        val belumCount = rawExamResults.count { (it["status"] as? String)?.uppercase() in listOf("NOT_STARTED", "BELUM_MULAI") }
+                        val hadirCount = doneCount + ngerjainCount
+                        val totalCount = rawExamResults.size
+                        val pctHadir = if (totalCount > 0) Math.round((hadirCount.toDouble() / totalCount.toDouble()) * 1000) / 10.0 else 0.0
+
+                        tvTotalP.text = totalCount.toString()
+                        tvHadirP.text = "$hadirCount ($pctHadir%)"
+                        tvNgerjainP.text = ngerjainCount.toString()
                         tvDoneP.text = doneCount.toString()
+                        tvBelumP.text = belumCount.toString()
 
-                        var sumScore = 0.0
-                        var scoredCount = 0
-                        results.forEach { r ->
-                            val s = (r["score"] as? Number)?.toDouble()
-                            if (s != null) {
-                                sumScore += s
-                                scoredCount++
-                            }
-                        }
-                        val avg = if (scoredCount > 0) sumScore / scoredCount else 0.0
-                        tvAvgScore.text = String.format(java.util.Locale.US, "%.1f", avg)
-
-                        tvStatus.text = "KKM: ${exam.passingGrade ?: 75} • ${results.size} Siswa Terdata"
-
-                        if (results.isEmpty()) {
-                            listContainer.addView(TextView(this@TeacherMainActivity).apply {
-                                text = "Belum ada siswa yang memulai ujian ini.\nToken Ujian: ${exam.token ?: "-"}"
-                                textSize = 13f
-                                setTextColor(Color.parseColor("#94A3B8"))
-                                gravity = android.view.Gravity.CENTER
-                                val pad = (40 * density).toInt()
-                                setPadding(pad, pad, pad, pad)
-                            })
-                        } else {
-                            val kkm = exam.passingGrade ?: 75
-                            results.forEach { r ->
-                                val userMap = r["user"] as? Map<String, Any>
-                                val studentName = userMap?.get("name") as? String ?: "Siswa"
-                                val className = userMap?.get("className") as? String ?: "-"
-                                val studentId = userMap?.get("id") as? String ?: (r["userId"] as? String ?: "")
-                                val status = r["status"] as? String ?: "ONGOING"
-                                val score = (r["score"] as? Number)?.toDouble() ?: 0.0
-                                val isPassed = score >= kkm
-
-                                val card = LinearLayout(this@TeacherMainActivity).apply {
-                                    orientation = LinearLayout.VERTICAL
-                                    val bg = android.graphics.drawable.GradientDrawable().apply {
-                                        setColor(Color.WHITE)
-                                        cornerRadius = 10 * density
-                                        setStroke((1 * density).toInt(), Color.parseColor("#E2E8F0"))
-                                    }
-                                    background = bg
-                                    val pad = (12 * density).toInt()
-                                    setPadding(pad, pad, pad, pad)
-                                    val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                                        bottomMargin = (8 * density).toInt()
-                                    }
-                                    layoutParams = lp
-                                }
-
-                                val rowTop = LinearLayout(this@TeacherMainActivity).apply {
-                                    orientation = LinearLayout.HORIZONTAL
-                                    gravity = android.view.Gravity.CENTER_VERTICAL
-                                }
-                                val colInfo = LinearLayout(this@TeacherMainActivity).apply {
-                                    orientation = LinearLayout.VERTICAL
-                                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-                                }
-                                colInfo.addView(TextView(this@TeacherMainActivity).apply {
-                                    text = studentName
-                                    textSize = 13.5f
-                                    typeface = android.graphics.Typeface.DEFAULT_BOLD
-                                    setTextColor(Color.parseColor("#0F172A"))
-                                })
-                                colInfo.addView(TextView(this@TeacherMainActivity).apply {
-                                    text = "Kelas $className • Status: $status"
-                                    textSize = 11.5f
-                                    setTextColor(Color.parseColor("#64748B"))
-                                })
-                                rowTop.addView(colInfo)
-
-                                val scoreChip = TextView(this@TeacherMainActivity).apply {
-                                    text = "${score.toInt()} / 100"
-                                    textSize = 13.5f
-                                    typeface = android.graphics.Typeface.DEFAULT_BOLD
-                                    setTextColor(if (isPassed) Color.parseColor("#065F46") else Color.parseColor("#991B1B"))
-                                    val bgChip = android.graphics.drawable.GradientDrawable().apply {
-                                        setColor(if (isPassed) Color.parseColor("#DCFCE7") else Color.parseColor("#FEE2E2"))
-                                        cornerRadius = 6 * density
-                                    }
-                                    background = bgChip
-                                    setPadding((10 * density).toInt(), (4 * density).toInt(), (10 * density).toInt(), (4 * density).toInt())
-                                }
-                                rowTop.addView(scoreChip)
-                                card.addView(rowTop)
-
-                                // Reset Sesi Button (jika siswa kendala/hang)
-                                val rowBtn = LinearLayout(this@TeacherMainActivity).apply {
-                                    orientation = LinearLayout.HORIZONTAL
-                                    gravity = android.view.Gravity.END
-                                    setPadding(0, (6 * density).toInt(), 0, 0)
-                                }
-                                val btnResetStudent = TextView(this@TeacherMainActivity).apply {
-                                    text = "🔄 Reset Sesi Ujian Siswa"
-                                    textSize = 11f
-                                    typeface = android.graphics.Typeface.DEFAULT_BOLD
-                                    setTextColor(Color.parseColor("#4F46E5"))
-                                    val bgBtn = android.graphics.drawable.GradientDrawable().apply {
-                                        setColor(Color.parseColor("#EEF2FF"))
-                                        cornerRadius = 6 * density
-                                    }
-                                    background = bgBtn
-                                    setPadding((8 * density).toInt(), (4 * density).toInt(), (8 * density).toInt(), (4 * density).toInt())
-                                    setOnClickListener {
-                                        AlertDialog.Builder(this@TeacherMainActivity)
-                                            .setTitle("Reset Sesi Ujian")
-                                            .setMessage("Reset sesi pengerjaan siswa \"$studentName\"?\n\nSiswa dapat login ulang dan melanjutkan ujian di HP tanpa terblokir.")
-                                            .setPositiveButton("Reset") { _, _ ->
-                                                ApiClient.getClient(this@TeacherMainActivity).proctorResetStudentLock(mapOf("examId" to exam.id, "studentId" to studentId)).enqueue(object : Callback<BasicResponse> {
-                                                    override fun onResponse(call: Call<BasicResponse>, response: Response<BasicResponse>) {
-                                                        Toast.makeText(this@TeacherMainActivity, "Sesi $studentName berhasil di-reset", Toast.LENGTH_SHORT).show()
-                                                        loadMonitoring()
-                                                    }
-                                                    override fun onFailure(call: Call<BasicResponse>, t: Throwable) {
-                                                        Toast.makeText(this@TeacherMainActivity, "Gagal reset", Toast.LENGTH_SHORT).show()
-                                                    }
-                                                })
-                                            }
-                                            .setNegativeButton("Batal", null)
-                                            .show()
-                                    }
-                                }
-                                rowBtn.addView(btnResetStudent)
-                                card.addView(rowBtn)
-
-                                listContainer.addView(card)
-                            }
-                        }
+                        updateCbtTabs()
+                        renderResults()
                     } else {
-                        tvStatus.text = "Gagal memuat rekap nilai."
+                        listContainer.removeAllViews()
+                        listContainer.addView(TextView(this@TeacherMainActivity).apply {
+                            text = "Gagal memuat monitoring: ${response.message()}"
+                            textSize = 12f
+                            setTextColor(Color.parseColor("#DC2626"))
+                            gravity = Gravity.CENTER
+                            setPadding(0, dp(40), 0, dp(40))
+                        })
                     }
                 }
 
                 override fun onFailure(call: Call<List<Map<String, Any>>>, t: Throwable) {
-                    tvStatus.text = "Koneksi ke server terputus."
+                    listContainer.removeAllViews()
+                    listContainer.addView(TextView(this@TeacherMainActivity).apply {
+                        text = "Koneksi terputus: ${t.message}"
+                        textSize = 12f
+                        setTextColor(Color.parseColor("#DC2626"))
+                        gravity = Gravity.CENTER
+                        setPadding(0, dp(40), 0, dp(40))
+                    })
                 }
             })
         }
 
+        etSearch.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                renderResults()
+            }
+            override fun afterTextChanged(s: android.text.Editable?) {}
+        })
+
+        btnRefresh.setOnClickListener { loadMonitoring() }
+
+        updateCbtTabs()
         loadMonitoring()
         dialog.setView(root)
         dialog.show()
     }
 
-    private fun showExamSettingsDialog(exam: TeacherExamDto) {
+private fun showExamSettingsDialog(exam: TeacherExamDto) {
         val dialog = AlertDialog.Builder(this, android.R.style.Theme_Material_Light_NoActionBar_Fullscreen).create()
         val density = resources.displayMetrics.density
 
@@ -4933,73 +6800,139 @@ class TeacherMainActivity : AppCompatActivity() {
         val existingAssignedList = (exam.assignedClasses ?: "").split(",").map { it.trim().uppercase() }
         val isAllAssigned = exam.assignedClasses.isNullOrEmpty() || exam.assignedClasses == "ALL" || exam.assignedClasses == "Semua Kelas"
 
-        val cbSelectAll = CheckBox(this).apply {
-            text = "✅ Pilih Semua Kelas"
-            textSize = 12.5f
-            setTextColor(Color.parseColor("#0F172A"))
-            setTypeface(null, android.graphics.Typeface.BOLD)
-            isChecked = isAllAssigned
+        val classCheckBoxList = mutableListOf<CheckBox>()
+
+        val headerClassesRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = (6 * density).toInt()
+            }
+            layoutParams = lp
         }
-        cardClasses.addView(cbSelectAll)
+        val tvClsHeading = TextView(this).apply {
+            text = "Target Kelas CBT:"
+            textSize = 12f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#0F172A"))
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        headerClassesRow.addView(tvClsHeading)
+
+        val btnSelectAll = TextView(this).apply {
+            text = "✓ Semua"
+            textSize = 10.5f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#059669"))
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#ECFDF5"))
+                cornerRadius = 6f * density
+                setStroke((1 * density).toInt(), Color.parseColor("#A7F3D0"))
+            }
+            setPadding((8 * density).toInt(), (3 * density).toInt(), (8 * density).toInt(), (3 * density).toInt())
+            setOnClickListener {
+                classCheckBoxList.forEach { it.isChecked = true }
+            }
+        }
+        val btnDeselectAll = TextView(this).apply {
+            text = "✕ Batal"
+            textSize = 10.5f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#64748B"))
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#F1F5F9"))
+                cornerRadius = 6f * density
+                setStroke((1 * density).toInt(), Color.parseColor("#CBD5E1"))
+            }
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                marginStart = (6 * density).toInt()
+            }
+            layoutParams = lp
+            setPadding((8 * density).toInt(), (3 * density).toInt(), (8 * density).toInt(), (3 * density).toInt())
+            setOnClickListener {
+                classCheckBoxList.forEach { it.isChecked = false }
+            }
+        }
+        headerClassesRow.addView(btnSelectAll)
+        headerClassesRow.addView(btnDeselectAll)
+        cardClasses.addView(headerClassesRow)
 
         val dividerCls = View(this).apply {
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (1 * density).toInt()).apply {
-                topMargin = (4 * density).toInt()
+                topMargin = (2 * density).toInt()
                 bottomMargin = (6 * density).toInt()
             }
             setBackgroundColor(Color.parseColor("#CBD5E1"))
         }
         cardClasses.addView(dividerCls)
 
-        val teacherClasses = sessionManager.getTeachingClasses()
+        var teacherClasses = sessionManager.getTeachingClasses()
+            .replace("[", "").replace("]", "").replace("\"", "")
             .split(",")
             .map { it.trim() }
-            .filter { it.isNotEmpty() }
+            .filter { it.isNotEmpty() && it != "null" }
+            .distinct()
             .toMutableList()
         if (teacherClasses.isEmpty()) {
-            teacherClasses.addAll(listOf("VII-A", "VII-B", "VII-C", "VII-D", "VII-E", "VII-F", "VII-G", "VII-H", "VII-I", "VII-J", "VII-K",
-                "VIII-A", "VIII-B", "VIII-C", "VIII-D", "VIII-E", "VIII-F", "VIII-G", "VIII-H", "VIII-I", "VIII-J", "VIII-K",
-                "IX-A", "IX-B", "IX-C", "IX-D", "IX-E", "IX-F", "IX-G", "IX-H", "IX-I", "IX-J", "IX-K"))
+            val homeroom = sessionManager.getClassName().trim()
+            if (homeroom.isNotEmpty() && homeroom != "-" && homeroom != "null") {
+                teacherClasses.add(homeroom)
+            } else {
+                teacherClasses.addAll(listOf("VII-A", "VII-B", "VII-C", "VIII-A", "VIII-B", "VIII-C", "IX-A", "IX-B", "IX-C"))
+            }
         }
 
-        val classCheckBoxList = mutableListOf<CheckBox>()
         var currentRow: LinearLayout? = null
         teacherClasses.forEachIndexed { idx, clsName ->
-            if (idx % 3 == 0) {
+            if (idx % 4 == 0) {
                 currentRow = LinearLayout(this).apply {
                     orientation = LinearLayout.HORIZONTAL
-                    weightSum = 3f
-                    layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                    weightSum = 4f
+                    val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        bottomMargin = (4 * density).toInt()
+                    }
+                    layoutParams = lp
                 }
                 cardClasses.addView(currentRow)
             }
             val cbClass = CheckBox(this).apply {
+                buttonDrawable = null
                 text = clsName
-                textSize = 12f
+                tag = clsName
+                gravity = Gravity.CENTER
+                textAlignment = View.TEXT_ALIGNMENT_CENTER
+                textSize = 11.5f
+                setTypeface(null, Typeface.BOLD)
+                val lp = LinearLayout.LayoutParams(0, (32 * density).toInt(), 1f).apply {
+                    marginStart = (2 * density).toInt()
+                    marginEnd = (2 * density).toInt()
+                }
+                layoutParams = lp
                 isChecked = isAllAssigned || existingAssignedList.contains(clsName.uppercase())
-                setTextColor(Color.parseColor("#334155"))
-                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+
+                fun applyStyle(checked: Boolean) {
+                    if (checked) {
+                        setTextColor(Color.WHITE)
+                        background = GradientDrawable().apply {
+                            setColor(Color.parseColor("#059669"))
+                            cornerRadius = 8f * density
+                        }
+                    } else {
+                        setTextColor(Color.parseColor("#475569"))
+                        background = GradientDrawable().apply {
+                            setColor(Color.parseColor("#F1F5F9"))
+                            cornerRadius = 8f * density
+                            setStroke((1 * density).toInt(), Color.parseColor("#CBD5E1"))
+                        }
+                    }
+                }
+                applyStyle(isChecked)
+                setOnCheckedChangeListener { _, checked ->
+                    applyStyle(checked)
+                }
             }
             classCheckBoxList.add(cbClass)
             currentRow?.addView(cbClass)
-        }
-
-        var isUpdatingCheckboxes = false
-        cbSelectAll.setOnCheckedChangeListener { _, isChecked ->
-            if (!isUpdatingCheckboxes) {
-                isUpdatingCheckboxes = true
-                classCheckBoxList.forEach { it.isChecked = isChecked }
-                isUpdatingCheckboxes = false
-            }
-        }
-        classCheckBoxList.forEach { cb ->
-            cb.setOnCheckedChangeListener { _, _ ->
-                if (!isUpdatingCheckboxes) {
-                    isUpdatingCheckboxes = true
-                    cbSelectAll.isChecked = classCheckBoxList.all { it.isChecked }
-                    isUpdatingCheckboxes = false
-                }
-            }
         }
         layout.addView(cardClasses)
 
@@ -5161,8 +7094,10 @@ class TeacherMainActivity : AppCompatActivity() {
         })
     }
 
-    private fun displayHomeworkSubmissionsModal(hw: HomeworkDto, data: HomeworkSubmissionsResponse) {
+        private fun displayHomeworkSubmissionsModal(hw: HomeworkDto, data: HomeworkSubmissionsResponse) {
         val dialog = createFullscreenDialog()
+        val density = resources.displayMetrics.density
+        fun dp(v: Int): Int = (v * density).toInt()
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -5171,7 +7106,7 @@ class TeacherMainActivity : AppCompatActivity() {
         }
 
         val header = createFullscreenHeader(
-            title = "📥 Pengumpulan: ${hw.title}",
+            title = "📥 Monitoring Tugas & PR: ${hw.title}",
             subtitle = "Kelas ${hw.`class`?.name ?: "Semua"} • ${hw.subject?.name ?: "Matpel"}",
             onClose = { dialog.dismiss() }
         )
@@ -5179,79 +7114,226 @@ class TeacherMainActivity : AppCompatActivity() {
 
         val dialogView = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            val pad = (16 * resources.displayMetrics.density).toInt()
-            setPadding(pad, pad, pad, pad)
+            setPadding(dp(14), dp(12), dp(14), dp(12))
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
         }
         root.addView(dialogView)
 
         val stats = data.stats
-        val statsText = "📊 Total Siswa: ${stats?.totalStudents ?: 0} | 🟢 Kumpul: ${stats?.submittedCount ?: 0} | 🔴 Belum: ${stats?.unsubmittedCount ?: 0}"
-        dialogView.addView(TextView(this).apply {
-            text = statsText
+        val totalS = stats?.totalStudents ?: data.submissions.size
+        val kumpulS = stats?.submittedCount ?: data.submissions.count { it.submitted }
+        val belumS = stats?.unsubmittedCount ?: data.submissions.count { !it.submitted }
+        val dinilaiS = data.submissions.count { it.score != null }
+
+        // KPI Summary Row
+        val kpiRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(8)
+            }
+            weightSum = 4f
+        }
+        fun createHwKpi(lbl: String, valStr: String, col: String) {
+            val b = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                val bg = android.graphics.drawable.GradientDrawable().apply {
+                    setColor(Color.WHITE)
+                    cornerRadius = dp(8).toFloat()
+                    setStroke(dp(1), Color.parseColor("#E2E8F0"))
+                }
+                background = bg
+                setPadding(dp(2), dp(8), dp(2), dp(8))
+                val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(4) }
+                layoutParams = lp
+            }
+            b.addView(TextView(this).apply { text = valStr; textSize = 14f; setTypeface(null, Typeface.BOLD); setTextColor(Color.parseColor(col)) })
+            b.addView(TextView(this).apply { text = lbl; textSize = 9.5f; setTextColor(Color.parseColor("#64748B")) })
+            kpiRow.addView(b)
+        }
+        createHwKpi("Total Siswa", totalS.toString(), "#0F172A")
+        createHwKpi("Sudah Kumpul", kumpulS.toString(), "#059669")
+        createHwKpi("Belum Kumpul", belumS.toString(), "#DC2626")
+        createHwKpi("Sudah Dinilai", dinilaiS.toString(), "#4F46E5")
+        dialogView.addView(kpiRow)
+
+        val btnRemindAllUnsubmitted = Button(this).apply {
+            text = "📢 Ingatkan Semua Siswa Belum Mengumpulkan ($belumS Siswa)"
+            textSize = 11.5f
+            setTextColor(Color.WHITE)
+            setTypeface(null, Typeface.BOLD)
+            val bgBtn = android.graphics.drawable.GradientDrawable().apply {
+                setColor(Color.parseColor("#B45309"))
+                cornerRadius = dp(8).toFloat()
+            }
+            background = bgBtn
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(40)).apply {
+                bottomMargin = dp(8)
+            }
+            setOnClickListener {
+                val unsubmittedList = data.submissions.filter { !it.submitted }
+                if (unsubmittedList.isEmpty()) {
+                    Toast.makeText(this@TeacherMainActivity, "Seluruh siswa sudah mengumpulkan tugas ini!", Toast.LENGTH_SHORT).show()
+                } else {
+                    val names = unsubmittedList.mapIndexed { idx, s -> "${idx + 1}. ${s.studentName} (${s.nisn ?: "-"})" }.joinToString("\n")
+                    val dlStr = hw.deadline ?: "-"
+                    val msg = "Pengingat Tugas / PR Sekolah:\n*${hw.title}*\nMata Pelajaran: ${hw.subject?.name ?: "Umum"}\nBatas Pengumpulan: $dlStr\n\nBerikut daftar siswa yang belum mengumpulkan:\n$names\n\nHarap segera login ke aplikasi Smart CBT dan kumpulkan tugas Anda. Terima kasih."
+                    val options = arrayOf("💬 Kirim Rekap via WhatsApp", "📋 Salin Teks Pengingat")
+                    AlertDialog.Builder(this@TeacherMainActivity)
+                        .setTitle("📢 Pengingat Tugas (${unsubmittedList.size} Siswa)")
+                        .setItems(options) { _, which ->
+                            if (which == 0) {
+                                try {
+                                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://api.whatsapp.com/send?text=" + Uri.encode(msg))))
+                                } catch (_: Exception) {
+                                    Toast.makeText(this@TeacherMainActivity, "WhatsApp tidak terpasang di perangkat", Toast.LENGTH_SHORT).show()
+                                }
+                            } else {
+                                val cb = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                cb.setPrimaryClip(ClipData.newPlainText("Pengingat Tugas", msg))
+                                Toast.makeText(this@TeacherMainActivity, "📋 Teks pengingat tugas berhasil disalin!", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                        .show()
+                }
+            }
+        }
+        dialogView.addView(btnRemindAllUnsubmitted)
+
+        // Search Bar
+        val etSearch = EditText(this).apply {
+            hint = "🔍 Cari nama siswa..."
             textSize = 12f
-            setTextColor(Color.parseColor("#059669"))
-            setTypeface(null, android.graphics.Typeface.BOLD)
-            setPadding(0, 4, 0, 12)
-        })
+            val bg = android.graphics.drawable.GradientDrawable().apply {
+                setColor(Color.WHITE)
+                cornerRadius = dp(8).toFloat()
+                setStroke(dp(1), Color.parseColor("#CBD5E1"))
+            }
+            background = bg
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(6)
+            }
+        }
+        dialogView.addView(etSearch)
+
+        // Filter Tabs
+        var activeHwFilter = "SEMUA"
+        val filterTabsRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(8)
+            }
+        }
+        val tabSemua = TextView(this)
+        val tabKumpul = TextView(this)
+        val tabBelum = TextView(this)
+        val tabNilai = TextView(this)
+
+        fun styleHwTab(tv: TextView, label: String, isSel: Boolean) {
+            tv.text = label
+            tv.textSize = 11f
+            tv.setTypeface(null, if (isSel) Typeface.BOLD else Typeface.NORMAL)
+            tv.setTextColor(if (isSel) Color.WHITE else Color.parseColor("#475569"))
+            val bg = android.graphics.drawable.GradientDrawable().apply {
+                setColor(if (isSel) Color.parseColor("#0284C7") else Color.parseColor("#E2E8F0"))
+                cornerRadius = dp(6).toFloat()
+            }
+            tv.background = bg
+            tv.setPadding(dp(10), dp(5), dp(10), dp(5))
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                marginEnd = dp(4)
+            }
+            tv.layoutParams = lp
+        }
+
+        dialogView.addView(filterTabsRow)
 
         val scrollView = ScrollView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0,
-                1f)
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f)
         }
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
+            setPadding(0, 0, 0, dp(12))
         }
         scrollView.addView(container)
         dialogView.addView(scrollView)
 
-        if (data.submissions.isEmpty()) {
-            container.addView(TextView(this).apply {
-                text = "Belum ada siswa yang mengumpulkan tugas ini."
-                setTextColor(Color.parseColor("#94A3B8"))
-                textSize = 12f
-                setPadding(0, 20, 0, 20)
-                gravity = android.view.Gravity.CENTER
-            })
-        } else {
-            for (item in data.submissions) {
+        fun renderSubmissions() {
+            container.removeAllViews()
+            val query = etSearch.text.toString().trim().lowercase()
+
+            val filtered = data.submissions.filter { item ->
+                val nameMatch = query.isEmpty() || item.studentName.lowercase().contains(query)
+                val tabMatch = when (activeHwFilter) {
+                    "KUMPUL" -> item.submitted
+                    "BELUM" -> !item.submitted
+                    "DINILAI" -> item.score != null
+                    else -> true
+                }
+                nameMatch && tabMatch
+            }
+
+            if (filtered.isEmpty()) {
+                container.addView(TextView(this).apply {
+                    text = "Tidak ada siswa yang sesuai."
+                    setTextColor(Color.parseColor("#94A3B8"))
+                    textSize = 12.5f
+                    setPadding(0, dp(30), 0, dp(30))
+                    gravity = Gravity.CENTER
+                })
+                return
+            }
+
+            for (item in filtered) {
                 val card = CardView(this).apply {
-                    radius = 10f
-                    cardElevation = 1.2f
-                    setCardBackgroundColor(Color.parseColor("#FFFFFF"))
-                    useCompatPadding = true
+                    radius = dp(10).toFloat()
+                    cardElevation = dp(2).toFloat()
+                    setCardBackgroundColor(Color.WHITE)
+                    val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        bottomMargin = dp(8)
+                    }
+                    layoutParams = lp
                 }
                 val inner = LinearLayout(this).apply {
                     orientation = LinearLayout.VERTICAL
-                    setPadding(12, 10, 12, 10)
+                    setPadding(dp(12), dp(10), dp(12), dp(10))
                 }
 
                 val rowTop = LinearLayout(this).apply {
                     orientation = LinearLayout.HORIZONTAL
-                    gravity = android.view.Gravity.CENTER_VERTICAL
+                    gravity = Gravity.CENTER_VERTICAL
                 }
 
                 val tvName = TextView(this).apply {
                     text = item.studentName
-                    textSize = 13f
+                    textSize = 13.5f
                     setTextColor(Color.parseColor("#0F172A"))
-                    setTypeface(null, android.graphics.Typeface.BOLD)
+                    setTypeface(null, Typeface.BOLD)
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                 }
 
                 val tvStatus = TextView(this).apply {
                     if (item.submitted) {
-                        text = if (item.isLate == true) "Terlambat" else "Tepat Waktu"
+                        text = if (item.isLate == true) "⚠️ Terlambat" else "🟢 Tepat Waktu"
                         setTextColor(if (item.isLate == true) Color.parseColor("#B45309") else Color.parseColor("#15803D"))
-                        setBackgroundColor(if (item.isLate == true) Color.parseColor("#FEF3C7") else Color.parseColor("#DCFCE7"))
+                        val bg = android.graphics.drawable.GradientDrawable().apply {
+                            setColor(if (item.isLate == true) Color.parseColor("#FEF3C7") else Color.parseColor("#DCFCE7"))
+                            cornerRadius = dp(6).toFloat()
+                        }
+                        background = bg
                     } else {
-                        text = "Belum Kumpul"
+                        text = "🔴 Belum Kumpul"
                         setTextColor(Color.parseColor("#DC2626"))
-                        setBackgroundColor(Color.parseColor("#FEE2E2"))
+                        val bg = android.graphics.drawable.GradientDrawable().apply {
+                            setColor(Color.parseColor("#FEE2E2"))
+                            cornerRadius = dp(6).toFloat()
+                        }
+                        background = bg
                     }
-                    textSize = 10f
-                    setTypeface(null, android.graphics.Typeface.BOLD)
-                    setPadding(6, 2, 6, 2)
+                    textSize = 10.5f
+                    setTypeface(null, Typeface.BOLD)
+                    setPadding(dp(8), dp(3), dp(8), dp(3))
                 }
 
                 rowTop.addView(tvName)
@@ -5264,69 +7346,296 @@ class TeacherMainActivity : AppCompatActivity() {
                     text = "$scoreText$feedbackText"
                     textSize = 11.5f
                     setTextColor(if (item.score != null) Color.parseColor("#1D4ED8") else Color.parseColor("#64748B"))
-                    setTypeface(null, if (item.score != null) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
-                    setPadding(0, 2, 0, 4)
+                    setTypeface(null, if (item.score != null) Typeface.BOLD else Typeface.NORMAL)
+                    setPadding(0, dp(4), 0, dp(4))
                 })
+
+                if (item.totalQuestions != null && item.totalQuestions > 0) {
+                    val totalQ = item.totalQuestions
+                    val ansCount = item.answeredCount ?: 0
+                    val kurangQ = item.kurangCount ?: Math.max(0, totalQ - ansCount)
+                    val posQ = item.posisiSoal ?: (if (ansCount > 0) Math.min(totalQ, ansCount + 1) else 1)
+
+                    val rowPrg = LinearLayout(this).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        gravity = Gravity.CENTER_VERTICAL
+                        setPadding(0, dp(4), 0, dp(4))
+                    }
+                    val pb = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+                        max = totalQ
+                        progress = if (item.submitted) totalQ else ansCount
+                        layoutParams = LinearLayout.LayoutParams(0, dp(8), 1f).apply { marginEnd = dp(8) }
+                    }
+                    val tvPrg = TextView(this).apply {
+                        text = if (item.submitted) "✅ Selesai: $totalQ / $totalQ Soal" else "📝 Terjawab: $ansCount / $totalQ Soal • ⏳ Kurang: $kurangQ Soal • 📍 No. $posQ"
+                        textSize = 10.5f
+                        setTextColor(Color.parseColor("#475569"))
+                    }
+                    rowPrg.addView(pb)
+                    rowPrg.addView(tvPrg)
+                    inner.addView(rowPrg)
+                }
 
                 if (!item.notes.isNullOrEmpty()) {
                     inner.addView(TextView(this).apply {
                         text = "Catatan Siswa: ${item.notes}"
                         textSize = 11f
                         setTextColor(Color.parseColor("#475569"))
-                        setPadding(0, 0, 0, 4)
+                        setPadding(0, 0, 0, dp(4))
                     })
                 }
 
-                val btnGrade = Button(this).apply {
+                val rowAction = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.END
+                    setPadding(0, dp(4), 0, 0)
+                }
+
+                if (!item.fileUrl.isNullOrEmpty()) {
+                    val btnViewFile = TextView(this).apply {
+                        text = "📎 Buka Lampiran"
+                        textSize = 11f
+                        setTypeface(null, Typeface.BOLD)
+                        setTextColor(Color.parseColor("#0284C7"))
+                        val bg = android.graphics.drawable.GradientDrawable().apply {
+                            setColor(Color.parseColor("#E0F2FE"))
+                            cornerRadius = dp(6).toFloat()
+                        }
+                        background = bg
+                        setPadding(dp(8), dp(4), dp(8), dp(4))
+                        val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                            marginEnd = dp(6)
+                        }
+                        layoutParams = lp
+                        setOnClickListener {
+                            val serverBase = ApiClient.getBaseServerUrl(this@TeacherMainActivity).trimEnd('/')
+                            val fullUrl = if (item.fileUrl.startsWith("http")) item.fileUrl else "$serverBase/" + item.fileUrl.trimStart('/')
+                            try {
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(fullUrl))
+                                startActivity(intent)
+                            } catch (e: Exception) {
+                                Toast.makeText(this@TeacherMainActivity, "Gagal membuka lampiran: ${e.message}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                    rowAction.addView(btnViewFile)
+                }
+
+                if (!item.submitted) {
+                    val btnWa = TextView(this).apply {
+                        text = "💬 Ingatkan (WA)"
+                        textSize = 11f
+                        setTypeface(null, Typeface.BOLD)
+                        setTextColor(Color.parseColor("#059669"))
+                        val bg = android.graphics.drawable.GradientDrawable().apply {
+                            setColor(Color.parseColor("#ECFDF5"))
+                            cornerRadius = dp(6).toFloat()
+                        }
+                        background = bg
+                        setPadding(dp(8), dp(4), dp(8), dp(4))
+                        val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                            marginEnd = dp(6)
+                        }
+                        layoutParams = lp
+                        setOnClickListener {
+                            val msg = "Halo ${item.studentName}, jangan lupa mengumpulkan tugas: \"${hw.title}\" (${hw.subject?.name ?: "Mata Pelajaran"}). Silakan kerjakan dan kumpulkan di aplikasi Smart CBT sebelum batas waktu. Terima kasih."
+                            try {
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://api.whatsapp.com/send?text=" + Uri.encode(msg)))
+                                startActivity(intent)
+                            } catch (_: Exception) {
+                                Toast.makeText(this@TeacherMainActivity, "WhatsApp tidak terpasang di perangkat ini", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                    rowAction.addView(btnWa)
+                }
+
+                val btnGrade = TextView(this).apply {
                     text = if (item.score != null) "✏️ Ubah Nilai" else "✏️ Beri Nilai Siswa"
-                    textSize = 10.5f
+                    textSize = 11f
+                    setTypeface(null, Typeface.BOLD)
                     setTextColor(Color.WHITE)
-                    setBackgroundColor(Color.parseColor("#4F46E5"))
+                    val bg = android.graphics.drawable.GradientDrawable().apply {
+                        setColor(Color.parseColor("#4F46E5"))
+                        cornerRadius = dp(6).toFloat()
+                    }
+                    background = bg
+                    setPadding(dp(10), dp(4), dp(10), dp(4))
                     setOnClickListener {
                         promptGradeSubmissionDialog(hw.id, item) {
                             showHomeworkSubmissionsDialog(hw)
                         }
                     }
                 }
-                inner.addView(btnGrade)
+                rowAction.addView(btnGrade)
+                inner.addView(rowAction)
+
                 card.addView(inner)
                 container.addView(card)
             }
         }
 
+        fun updateHwTabs() {
+            filterTabsRow.removeAllViews()
+            styleHwTab(tabSemua, "Semua (${data.submissions.size})", activeHwFilter == "SEMUA")
+            styleHwTab(tabKumpul, "🟢 Kumpul ($kumpulS)", activeHwFilter == "KUMPUL")
+            styleHwTab(tabBelum, "🔴 Belum ($belumS)", activeHwFilter == "BELUM")
+            styleHwTab(tabNilai, "⭐ Dinilai ($dinilaiS)", activeHwFilter == "DINILAI")
+
+            filterTabsRow.addView(tabSemua)
+            filterTabsRow.addView(tabKumpul)
+            filterTabsRow.addView(tabBelum)
+            filterTabsRow.addView(tabNilai)
+
+            tabSemua.setOnClickListener { activeHwFilter = "SEMUA"; updateHwTabs(); renderSubmissions() }
+            tabKumpul.setOnClickListener { activeHwFilter = "KUMPUL"; updateHwTabs(); renderSubmissions() }
+            tabBelum.setOnClickListener { activeHwFilter = "BELUM"; updateHwTabs(); renderSubmissions() }
+            tabNilai.setOnClickListener { activeHwFilter = "DINILAI"; updateHwTabs(); renderSubmissions() }
+        }
+
+        etSearch.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                renderSubmissions()
+            }
+            override fun afterTextChanged(s: android.text.Editable?) {}
+        })
+
+        updateHwTabs()
+        renderSubmissions()
+
         dialog.setView(root)
         dialog.show()
     }
 
-    private fun promptGradeSubmissionDialog(homeworkId: String, item: TeacherHomeworkSubmissionItemDto, onDone: () -> Unit) {
+private fun promptGradeSubmissionDialog(homeworkId: String, item: TeacherHomeworkSubmissionItemDto, onDone: () -> Unit) {
+        val density = resources.displayMetrics.density
+        fun dp(v: Int): Int = (v * density).toInt()
+
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(28, 20, 28, 16)
+            setPadding(dp(20), dp(16), dp(20), dp(16))
         }
 
         layout.addView(TextView(this).apply {
-            text = "✏️ Penilaian: ${item.studentName}"
-            textSize = 16f
+            text = "✏️ Penilaian Tugas: ${item.studentName}"
+            textSize = 15f
             setTextColor(Color.parseColor("#0F172A"))
             setTypeface(null, android.graphics.Typeface.BOLD)
-            setPadding(0, 0, 0, 8)
+            setPadding(0, 0, 0, dp(4))
         })
 
+        layout.addView(TextView(this).apply {
+            text = "Pilih nilai cepat atau ketik manual skor siswa (0-100):"
+            textSize = 11f
+            setTextColor(Color.parseColor("#64748B"))
+            setPadding(0, 0, 0, dp(8))
+        })
+
+        // Quick Score Chips Row
+        val scoreRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, 0, 0, dp(8))
+        }
+
         val etScore = EditText(this).apply {
-            hint = "Nilai Siswa (0 - 100, contoh: 85)"
+            hint = "Nilai (0 - 100)"
             setText(item.score?.toInt()?.toString() ?: "85")
             inputType = android.text.InputType.TYPE_CLASS_NUMBER
-            textSize = 13f
+            textSize = 13.5f
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            background = GradientDrawable().apply {
+                setColor(Color.WHITE)
+                cornerRadius = dp(6).toFloat()
+                setStroke(dp(1), Color.parseColor("#CBD5E1"))
+            }
         }
+
+        val presetScores = listOf(75, 80, 85, 90, 95, 100)
+        presetScores.forEach { sVal ->
+            val chip = TextView(this).apply {
+                text = "$sVal"
+                textSize = 11f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(Color.parseColor("#1E40AF"))
+                background = GradientDrawable().apply {
+                    setColor(Color.parseColor("#EFF6FF"))
+                    cornerRadius = dp(6).toFloat()
+                    setStroke(dp(1), Color.parseColor("#BFDBFE"))
+                }
+                setPadding(dp(10), dp(5), dp(10), dp(5))
+                val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    marginEnd = dp(6)
+                }
+                layoutParams = lp
+                setOnClickListener {
+                    etScore.setText(sVal.toString())
+                }
+            }
+            scoreRow.addView(chip)
+        }
+        layout.addView(scoreRow)
+        layout.addView(etScore)
+
+        layout.addView(TextView(this).apply {
+            text = "Catatan / Masukan Guru (Quick Feedback):"
+            textSize = 11.5f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#334155"))
+            setPadding(0, dp(10), 0, dp(4))
+        })
 
         val etFeedback = EditText(this).apply {
-            hint = "Catatan / Masukan / Feedback Guru untuk Siswa..."
+            hint = "Catatan / Feedback Guru untuk Siswa..."
             setText(item.teacherNote ?: "Kerja bagus, terus pertahankan pemahaman materinya!")
             minLines = 2
-            textSize = 13f
+            textSize = 12.5f
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            background = GradientDrawable().apply {
+                setColor(Color.WHITE)
+                cornerRadius = dp(6).toFloat()
+                setStroke(dp(1), Color.parseColor("#CBD5E1"))
+            }
         }
 
-        layout.addView(etScore)
+        // Quick Feedback Chips (Horizontal Scroll)
+        val hsvFeedback = HorizontalScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            setPadding(0, 0, 0, dp(6))
+        }
+        val feedbackRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+        val templates = listOf(
+            "🌟 Sangat rapi & lengkap!",
+            "👍 Pemahaman konsep sangat baik",
+            "✏️ Periksa kembali langkah rumus",
+            "⚠️ Jawaban kurang lengkap, tingkatkan lagi",
+            "💯 Sempurna, pertahankan prestasimu!"
+        )
+        templates.forEach { tmpl ->
+            val chip = TextView(this).apply {
+                text = tmpl
+                textSize = 10.5f
+                setTextColor(Color.parseColor("#065F46"))
+                background = GradientDrawable().apply {
+                    setColor(Color.parseColor("#ECFDF5"))
+                    cornerRadius = dp(6).toFloat()
+                    setStroke(dp(1), Color.parseColor("#A7F3D0"))
+                }
+                setPadding(dp(8), dp(4), dp(8), dp(4))
+                val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    marginEnd = dp(4)
+                }
+                layoutParams = lp
+                setOnClickListener {
+                    etFeedback.setText(tmpl)
+                }
+            }
+            feedbackRow.addView(chip)
+        }
+        hsvFeedback.addView(feedbackRow)
+        layout.addView(hsvFeedback)
         layout.addView(etFeedback)
 
         AlertDialog.Builder(this)
@@ -5610,6 +7919,54 @@ class TeacherMainActivity : AppCompatActivity() {
     }
 
     private fun setupListeners() {
+        // Penanganan Tombol Back: Kembali ke Tab Beranda KBM (0) sebelum keluar, mencegah aplikasi tertutup mendadak saat di Rekap Mapel
+        var teacherBackPressedTime: Long = 0
+        onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (selectedTeacherTabIndex != 0) {
+                    switchTeacherDashboardTab(0)
+                    updateTeacherBottomBarSelection(0)
+                    binding.scrollTeacherContent.smoothScrollTo(0, 0)
+                } else {
+                    if (teacherBackPressedTime + 2000 > System.currentTimeMillis()) {
+                        isEnabled = false
+                        onBackPressedDispatcher.onBackPressed()
+                    } else {
+                        Toast.makeText(this@TeacherMainActivity, "Tekan sekali lagi untuk keluar dari aplikasi", Toast.LENGTH_SHORT).show()
+                        teacherBackPressedTime = System.currentTimeMillis()
+                    }
+                }
+            }
+        })
+
+        // Modern Bottom Navbar Guru Listeners (KBM/Home, Jadwal Mengajar, Center Scanner, Rekap Mapel, Profil Guru)
+        binding.btnNavTeacherHome.setOnClickListener {
+            switchTeacherDashboardTab(0)
+            updateTeacherBottomBarSelection(0)
+            binding.scrollTeacherContent.smoothScrollTo(0, 0)
+        }
+        binding.btnNavTeacherSchedule.setOnClickListener {
+            updateTeacherBottomBarSelection(1)
+            showTeacherScheduleDialog()
+        }
+        binding.btnNavTeacherRecap.setOnClickListener {
+            switchTeacherDashboardTab(1)
+            updateTeacherBottomBarSelection(2)
+        }
+        binding.btnNavTeacherPrayer.setOnClickListener {
+            showPaiPrayerControlDialog()
+        }
+        binding.btnNavTeacherProfile.setOnClickListener {
+            updateTeacherBottomBarSelection(3)
+            showTeacherProfileDialog()
+        }
+        binding.btnCenterScan.setOnClickListener {
+            promptRoomCheckInMethod()
+        }
+        binding.btnTeacherOpenPaiControl.setOnClickListener {
+            showPaiPrayerControlDialog()
+        }
+
         binding.btnLogout.setOnClickListener {
             try {
                 val body = mapOf(
@@ -5664,6 +8021,12 @@ class TeacherMainActivity : AppCompatActivity() {
         }
         binding.gridTeacherCbt.setOnClickListener {
             showTugasPenilaianDialog()
+        }
+        binding.cardTeacherMonitoringCenter.setOnClickListener {
+            showTeacherMonitoringControlCenterDialog()
+        }
+        binding.btnQuickOpenMonitoringCenter.setOnClickListener {
+            showTeacherMonitoringControlCenterDialog()
         }
         binding.cardTeacherProctorCbt.setOnClickListener {
             showProctorTokenDialog()
@@ -7015,6 +9378,34 @@ class TeacherMainActivity : AppCompatActivity() {
             }
         ))
         modulesContainer.addView(gridRow6)
+
+        // ROW 7: Agenda Sekolah & Kegiatan Khusus Terelasi Presensi
+        val gridRow7 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            weightSum = 2f
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = (12 * resources.displayMetrics.density).toInt()
+            }
+        }
+        gridRow7.addView(createEcommerceMenuCard(
+            emoji = "📅",
+            title = "Agenda & Kegiatan Khusus",
+            desc = "Hari Santri, Upacara, Sholat Akbar & Penyesuaian Presensi",
+            tag = "PRESENSI",
+            tagColor = "#D97706",
+            tagBg = "#FEF3C7",
+            onClick = { showKurikulumAgendaDialog() }
+        ))
+        gridRow7.addView(createEcommerceMenuCard(
+            emoji = "🌐",
+            title = "Portal Web Kurikulum",
+            desc = "Buka sistem kurikulum lengkap di browser",
+            tag = "PORTAL",
+            tagColor = "#0284C7",
+            tagBg = "#E0F2FE",
+            onClick = { openKurikulumWebPortal() }
+        ))
+        modulesContainer.addView(gridRow7)
 
         // 3. LIVE ACTIVITY PREVIEW SECTION (TAB 2)
         tasksContainer.addView(TextView(this).apply {
@@ -9762,6 +12153,372 @@ class TeacherMainActivity : AppCompatActivity() {
             }
             .setNegativeButton("Batal", null)
             .show()
+    }
+
+    // ==================== MODUL AGENDA SEKOLAH & TERELASI PRESENSI ====================
+    private fun showKurikulumAgendaDialog() {
+        val dialog = createFullscreenDialog()
+        val density = resources.displayMetrics.density
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#F8FAFC"))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        }
+
+        val header = createFullscreenHeader(
+            title = "📅 Agenda Sekolah & Terelasi Presensi",
+            subtitle = "Hari Santri, Upacara, Sholat Akbar • Otomatisasi Jam Gerbang & Verifikasi Massal",
+            onClose = { dialog.dismiss() },
+            actionBtnText = "➕ Tambah",
+            onActionClick = {
+                showCreateAgendaDialog {
+                    dialog.dismiss()
+                    showKurikulumAgendaDialog()
+                }
+            }
+        )
+        root.addView(header)
+
+        val sv = ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
+        }
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val pad = (16 * density).toInt()
+            setPadding(pad, pad, pad, pad)
+        }
+        sv.addView(container)
+        root.addView(sv)
+
+        val tvLoading = TextView(this).apply {
+            text = "⏳ Memuat data agenda sekolah & status presensi..."
+            textSize = 13f
+            setTextColor(Color.parseColor("#64748B"))
+            setPadding(0, 20, 0, 20)
+        }
+        container.addView(tvLoading)
+
+        ApiClient.getClient(this).getTodayAgendas().enqueue(object : Callback<com.school.smartcbt.data.model.TodayAgendaResponse> {
+            override fun onResponse(call: Call<com.school.smartcbt.data.model.TodayAgendaResponse>, response: Response<com.school.smartcbt.data.model.TodayAgendaResponse>) {
+                val todayBody = response.body()
+
+                ApiClient.getClient(this@TeacherMainActivity).getAllAgendas().enqueue(object : Callback<com.school.smartcbt.data.model.AllAgendasResponse> {
+                    override fun onResponse(call2: Call<com.school.smartcbt.data.model.AllAgendasResponse>, response2: Response<com.school.smartcbt.data.model.AllAgendasResponse>) {
+                        container.removeAllViews()
+                        val allAgendas = response2.body()?.agendas ?: emptyList()
+                        val todayAgendas = todayBody?.agendas ?: emptyList()
+
+                        // 1. BANNER AGENDA HARI INI
+                        if (todayAgendas.isNotEmpty()) {
+                            val todayHeader = TextView(this@TeacherMainActivity).apply {
+                                text = "🌟 AGENDA KHUSUS HARI INI (${todayBody?.today ?: ""})"
+                                textSize = 12f
+                                setTypeface(null, Typeface.BOLD)
+                                setTextColor(Color.parseColor("#B45309"))
+                                setPadding(4, 4, 4, 8)
+                            }
+                            container.addView(todayHeader)
+
+                            todayAgendas.forEach { agenda ->
+                                val card = CardView(this@TeacherMainActivity).apply {
+                                    radius = 14 * density
+                                    cardElevation = 2f * density
+                                    setCardBackgroundColor(Color.parseColor("#FFFBEB")) // Amber-50
+                                    useCompatPadding = true
+                                }
+                                val inner = LinearLayout(this@TeacherMainActivity).apply {
+                                    orientation = LinearLayout.VERTICAL
+                                    val p = (16 * density).toInt()
+                                    setPadding(p, p, p, p)
+                                }
+
+                                val rowTitle = LinearLayout(this@TeacherMainActivity).apply {
+                                    orientation = LinearLayout.HORIZONTAL
+                                    gravity = Gravity.CENTER_VERTICAL
+                                }
+                                rowTitle.addView(TextView(this@TeacherMainActivity).apply {
+                                    text = if (agenda.category == "KEAGAMAAN") "🕌 " else "🎖️ "
+                                    textSize = 20f
+                                })
+                                val tvT = TextView(this@TeacherMainActivity).apply {
+                                    text = agenda.title
+                                    textSize = 15f
+                                    setTypeface(null, Typeface.BOLD)
+                                    setTextColor(Color.parseColor("#78350F"))
+                                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                                }
+                                rowTitle.addView(tvT)
+
+                                val badgeCat = TextView(this@TeacherMainActivity).apply {
+                                    text = agenda.category
+                                    textSize = 10f
+                                    setTypeface(null, Typeface.BOLD)
+                                    setTextColor(Color.parseColor("#B45309"))
+                                    setBackgroundColor(Color.parseColor("#FDE68A"))
+                                    setPadding(12, 4, 12, 4)
+                                }
+                                rowTitle.addView(badgeCat)
+                                inner.addView(rowTitle)
+
+                                val tvDetail = TextView(this@TeacherMainActivity).apply {
+                                    text = "⏰ Waktu: ${agenda.startTime ?: "06:30"} - ${agenda.endTime ?: "11:30"} WIB\n🎯 Sasaran: ${if (agenda.targetScope == "ALL") "Seluruh Siswa (Kelas VII-IX)" else "Kelas " + agenda.targetScope}\n🚪 Batas Gerbang: Diperpanjang s.d. ${agenda.autoExtendGateUntil ?: "10:30"} WIB\n🛡️ Proteksi ALPA 15:00: ${if (agenda.suppressAlpaBlast) "AKTIF (Siswa Bebas False-Alpa)" else "Non-Aktif"}\n🕌 Catat Sholat Dhuha: ${if (agenda.autoGrantDhuha) "AKTIF (Masuk Buku PAI)" else "Non-Aktif"}"
+                                    textSize = 12f
+                                    setTextColor(Color.parseColor("#451A03"))
+                                    setPadding(0, 10, 0, 12)
+                                    setLineSpacing(4f, 1f)
+                                }
+                                inner.addView(tvDetail)
+
+                                if (agenda.isCompleted) {
+                                    val btnCompleted = TextView(this@TeacherMainActivity).apply {
+                                        text = "✅ Presensi Massal Selesai Diverifikasi (${agenda.verifiedBy ?: "Petugas"})"
+                                        textSize = 12f
+                                        setTypeface(null, Typeface.BOLD)
+                                        setTextColor(Color.parseColor("#065F46"))
+                                        setBackgroundColor(Color.parseColor("#D1FAE5"))
+                                        setPadding(16, 12, 16, 12)
+                                        gravity = Gravity.CENTER
+                                    }
+                                    inner.addView(btnCompleted)
+                                } else {
+                                    val btnVerify = MaterialButton(this@TeacherMainActivity).apply {
+                                        text = "⚡ 1-Tap Verifikasi Massal Presensi"
+                                        textSize = 13f
+                                        setTypeface(null, Typeface.BOLD)
+                                        setBackgroundColor(Color.parseColor("#059669"))
+                                        setTextColor(Color.WHITE)
+                                        cornerRadius = (10 * density).toInt()
+                                        setOnClickListener {
+                                            executeVerifyMassAgendaMobile(agenda, dialog)
+                                        }
+                                    }
+                                    inner.addView(btnVerify)
+                                }
+
+                                card.addView(inner)
+                                container.addView(card)
+                            }
+                        }
+
+                        // 2. DAFTAR AGENDA MENDATANG & LAMPAU
+                        val sectionTitle = TextView(this@TeacherMainActivity).apply {
+                            text = "📋 RIWAYAT & KALENDER AGENDA SEKOLAH"
+                            textSize = 12f
+                            setTypeface(null, Typeface.BOLD)
+                            setTextColor(Color.parseColor("#475569"))
+                            setPadding(4, 18, 4, 8)
+                        }
+                        container.addView(sectionTitle)
+
+                        if (allAgendas.isEmpty()) {
+                            container.addView(TextView(this@TeacherMainActivity).apply {
+                                text = "Belum ada agenda lain yang dijadwalkan."
+                                textSize = 12f
+                                setTextColor(Color.parseColor("#94A3B8"))
+                                setPadding(4, 4, 4, 4)
+                            })
+                        } else {
+                            allAgendas.forEach { ag ->
+                                val cardItem = CardView(this@TeacherMainActivity).apply {
+                                    radius = 12 * density
+                                    cardElevation = 1f * density
+                                    setCardBackgroundColor(Color.WHITE)
+                                    useCompatPadding = true
+                                }
+                                val itemInner = LinearLayout(this@TeacherMainActivity).apply {
+                                    orientation = LinearLayout.VERTICAL
+                                    val p = (12 * density).toInt()
+                                    setPadding(p, p, p, p)
+                                }
+
+                                val rTop = LinearLayout(this@TeacherMainActivity).apply {
+                                    orientation = LinearLayout.HORIZONTAL
+                                }
+                                val tvAgTitle = TextView(this@TeacherMainActivity).apply {
+                                    text = ag.title
+                                    textSize = 13.5f
+                                    setTypeface(null, Typeface.BOLD)
+                                    setTextColor(Color.parseColor("#1E293B"))
+                                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                                }
+                                rTop.addView(tvAgTitle)
+
+                                val tvDate = TextView(this@TeacherMainActivity).apply {
+                                    text = ag.date
+                                    textSize = 11.5f
+                                    setTypeface(null, Typeface.BOLD)
+                                    setTextColor(Color.parseColor("#0284C7"))
+                                }
+                                rTop.addView(tvDate)
+                                itemInner.addView(rTop)
+
+                                val tvMeta = TextView(this@TeacherMainActivity).apply {
+                                    text = "Kategori: ${ag.category} • Waktu: ${ag.startTime ?: "-"} - ${ag.endTime ?: "-"} • Gate-In s.d.: ${ag.autoExtendGateUntil ?: "10:30"}"
+                                    textSize = 11f
+                                    setTextColor(Color.parseColor("#64748B"))
+                                    setPadding(0, 4, 0, 4)
+                                }
+                                itemInner.addView(tvMeta)
+
+                                cardItem.addView(itemInner)
+                                container.addView(cardItem)
+                            }
+                        }
+                    }
+
+                    override fun onFailure(call2: Call<com.school.smartcbt.data.model.AllAgendasResponse>, t: Throwable) {
+                        tvLoading.text = "Gagal memuat daftar agenda: ${t.message}"
+                    }
+                })
+            }
+
+            override fun onFailure(call: Call<com.school.smartcbt.data.model.TodayAgendaResponse>, t: Throwable) {
+                tvLoading.text = "Gagal memuat agenda hari ini: ${t.message}"
+            }
+        })
+
+        dialog.setView(root)
+        dialog.show()
+    }
+
+    private fun executeVerifyMassAgendaMobile(agenda: com.school.smartcbt.data.model.SchoolAgendaDto, parentDialog: Dialog) {
+        AlertDialog.Builder(this)
+            .setTitle("Konfirmasi Presensi Massal")
+            .setMessage("Apakah Anda ingin memverifikasi presensi seluruh siswa untuk agenda \"${agenda.title}\"?\n\nSistem akan otomatis mencatat kehadiran Masuk Sekolah (Gate-In) dan Sholat Dhuha PAI.")
+            .setPositiveButton("Ya, Verifikasi") { _, _ ->
+                val progress = ProgressDialog(this).apply {
+                    setMessage("Memverifikasi kehadiran massal siswa...")
+                    setCancelable(false)
+                    show()
+                }
+                ApiClient.getClient(this).verifyMassAttendanceAgenda(agenda.id).enqueue(object : Callback<com.school.smartcbt.data.model.VerifyMassAgendaResponse> {
+                    override fun onResponse(call: Call<com.school.smartcbt.data.model.VerifyMassAgendaResponse>, response: Response<com.school.smartcbt.data.model.VerifyMassAgendaResponse>) {
+                        progress.dismiss()
+                        if (response.isSuccessful && response.body()?.success == true) {
+                            val res = response.body()!!
+                            AlertDialog.Builder(this@TeacherMainActivity)
+                                .setTitle("🎉 Verifikasi Berhasil")
+                                .setMessage("${res.message}\n\nStatistik:\n- Total Siswa: ${res.stats?.totalTargetStudents ?: 0}\n- Presensi Gate-In: ${res.stats?.newGateInRecorded ?: 0}\n- Hadir Sholat Dhuha PAI: ${res.stats?.newDhuhaRecorded ?: 0}")
+                                .setPositiveButton("Tutup") { _, _ ->
+                                    parentDialog.dismiss()
+                                    showKurikulumAgendaDialog()
+                                }
+                                .show()
+                        } else {
+                            Toast.makeText(this@TeacherMainActivity, "Gagal verifikasi: ${response.message()}", Toast.LENGTH_LONG).show()
+                        }
+                    }
+
+                    override fun onFailure(call: Call<com.school.smartcbt.data.model.VerifyMassAgendaResponse>, t: Throwable) {
+                        progress.dismiss()
+                        Toast.makeText(this@TeacherMainActivity, "Kesalahan jaringan: ${t.message}", Toast.LENGTH_LONG).show()
+                    }
+                })
+            }
+            .setNegativeButton("Batal", null)
+            .show()
+    }
+
+    private fun showCreateAgendaDialog(onSaved: () -> Unit) {
+        val density = resources.displayMetrics.density
+        val dialog = AlertDialog.Builder(this)
+        val pad = (16 * density).toInt()
+
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, pad, pad, pad)
+        }
+
+        val tvTitle = TextView(this).apply {
+            text = "➕ Tambah Agenda Sekolah Baru"
+            textSize = 16f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#1E293B"))
+            setPadding(0, 0, 0, 12)
+        }
+        root.addView(tvTitle)
+
+        val etTitle = EditText(this).apply {
+            hint = "Judul Agenda (contoh: Hari Santri Nasional)"
+            textSize = 13f
+        }
+        root.addView(etTitle)
+
+        val etDate = EditText(this).apply {
+            val todayStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
+            setText(todayStr)
+            hint = "Tanggal (YYYY-MM-DD)"
+            textSize = 13f
+        }
+        root.addView(etDate)
+
+        val etGate = EditText(this).apply {
+            setText("10:30")
+            hint = "Perpanjang Gate-In s.d. (HH:mm)"
+            textSize = 13f
+        }
+        root.addView(etGate)
+
+        val cbAlpa = CheckBox(this).apply {
+            text = "Lindungi dari False-Alpa 15:00 WIB"
+            isChecked = true
+            textSize = 12f
+        }
+        root.addView(cbAlpa)
+
+        val cbDhuha = CheckBox(this).apply {
+            text = "Otomatis Catat Sholat Dhuha PAI"
+            isChecked = true
+            textSize = 12f
+        }
+        root.addView(cbDhuha)
+
+        val alert = dialog.setView(root)
+            .setPositiveButton("Simpan", null)
+            .setNegativeButton("Batal", null)
+            .create()
+
+        alert.show()
+
+        alert.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            val titleStr = etTitle.text.toString().trim()
+            val dateStr = etDate.text.toString().trim()
+            val gateStr = etGate.text.toString().trim()
+
+            if (titleStr.isEmpty() || dateStr.isEmpty()) {
+                Toast.makeText(this, "Judul dan tanggal wajib diisi!", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            val payload = mapOf(
+                "title" to titleStr,
+                "category" to if (cbDhuha.isChecked) "KEAGAMAAN" else "UPACARA",
+                "date" to dateStr,
+                "startTime" to "06:30",
+                "endTime" to "11:30",
+                "targetScope" to "ALL",
+                "autoExtendGateUntil" to if (gateStr.isNotEmpty()) gateStr else "10:30",
+                "suppressAlpaBlast" to cbAlpa.isChecked,
+                "autoGrantDhuha" to cbDhuha.isChecked,
+                "autoGrantGateIn" to true
+            )
+
+            ApiClient.getClient(this).createSchoolAgenda(payload).enqueue(object : Callback<BasicResponse> {
+                override fun onResponse(call: Call<BasicResponse>, response: Response<BasicResponse>) {
+                    if (response.isSuccessful && response.body()?.success == true) {
+                        Toast.makeText(this@TeacherMainActivity, "Agenda berhasil ditambahkan!", Toast.LENGTH_SHORT).show()
+                        alert.dismiss()
+                        onSaved()
+                    } else {
+                        Toast.makeText(this@TeacherMainActivity, "Gagal membuat agenda: ${response.message()}", Toast.LENGTH_SHORT).show()
+                    }
+                }
+
+                override fun onFailure(call: Call<BasicResponse>, t: Throwable) {
+                    Toast.makeText(this@TeacherMainActivity, "Error: ${t.message}", Toast.LENGTH_SHORT).show()
+                }
+            })
+        }
     }
 
     private fun showTeachingJournalDialog() {
@@ -12671,6 +15428,9 @@ class TeacherMainActivity : AppCompatActivity() {
         loadAndRenderScheduleFn = { loadAndRenderSchedule(currentSelectedDay) }
 
         loadAndRenderSchedule(currentSelectedDay)
+        dialog.setOnDismissListener {
+            updateTeacherBottomBarSelection(if (selectedTeacherTabIndex == 1) 2 else 0)
+        }
         dialog.show()
     }
 
@@ -13377,7 +16137,6 @@ class TeacherMainActivity : AppCompatActivity() {
         val availableRoles = sessionManager.getAvailableRoles()
         val tugasTambahan = sessionManager.getTugasTambahan()
         val homeroomClass = sessionManager.getClassName()
-        val subject = sessionManager.getTeachingSubject()?.uppercase() ?: ""
         val teacherName = sessionManager.getName().uppercase()
 
         val roleItems = mutableListOf<Triple<String, String, () -> Unit>>()
@@ -13388,7 +16147,12 @@ class TeacherMainActivity : AppCompatActivity() {
             Toast.makeText(this, "Beralih ke mode Guru Pengampu", Toast.LENGTH_SHORT).show()
         }))
 
-        // 2. Wali Kelas
+        // 2. Ruang Proktor Ujian (UNBK / CBT)
+        roleItems.add(Triple("🖥️ Ruang Proktor Ujian (UNBK/CBT)", "Monitoring live ujian, acak token dinamis 15 menit, reset login siswa & BAP", {
+            showProctorTokenDialog()
+        }))
+
+        // 3. Wali Kelas (Jika Ditugaskan)
         if (availableRoles.contains("WALI_KELAS") || (homeroomClass.isNotEmpty() && homeroomClass != "-")) {
             roleItems.add(Triple("⭐ Wali Kelas ($homeroomClass)", "Akses monitoring presensi, rekap, & izin siswa rombel", {
                 if (binding.cardHomeroom.visibility == View.VISIBLE) {
@@ -13399,16 +16163,7 @@ class TeacherMainActivity : AppCompatActivity() {
             }))
         }
 
-        // 3. Operator
-        // 3. Operator
-        val isOperator = availableRoles.contains("OPERATOR") || tugasTambahan.contains("OPERATOR") || sessionManager.getRole().uppercase().contains("OPERATOR")
-        if (isOperator) {
-            roleItems.add(Triple("⚙️ Mode Operator Sekolah", "Panel kontrol akademik, broadcast massal, & manajemen CBT", {
-                openOperatorDashboard()
-            }))
-        }
-
-        // 3B. Tim Kurikulum
+        // 4. Tim Kurikulum (Jika Berwenang)
         val isKurikulum = availableRoles.contains("KURIKULUM") || tugasTambahan.contains("KURIKULUM") || sessionManager.getRole().uppercase().contains("KURIKULUM") || teacherName.contains("SIDIK") || teacherName.contains("SUJATMIKO")
         if (isKurikulum) {
             roleItems.add(Triple("🏛️ Tim Kurikulum", "Approval izin guru, rekap bulanan wali kelas, & disposisi KBM", {
@@ -13416,37 +16171,13 @@ class TeacherMainActivity : AppCompatActivity() {
             }))
         }
 
-        // 3C. Pengawasan Ruang Ujian & Proktor CBT (UNBK/ANBK)
-        roleItems.add(Triple("🖥️ Ruang Proktor Ujian (UNBK)", "Monitoring live ujian, acak token dinamis 15 menit, reset login siswa & BAP", {
-            showProctorTokenDialog()
-        }))
-
-        // 4. Guru Piket
-        roleItems.add(Triple("🛡️ Posko Guru Piket Hari Ini", "Pantau gerbang masuk, disposisi kelas kosong & guru izin", {
-            showTeacherPiketCenterDialog()
-        }))
-
-        // 5. Guru PAI
-        if (availableRoles.contains("PAI") || subject.contains("AGAMA") || subject.contains("PAI") || subject.contains("ISLAM")) {
-            roleItems.add(Triple("🕌 Kontrol Mushola (Guru PAI)", "Kelola jadwal dan presensi sholat berjamaah mushola", {
-                showPaiPrayerControlDialog()
-            }))
-            roleItems.add(Triple("📖 Tahfiz & Murojaah Juz 30 (PAI)", "Target surat & ayat, setoran langsung/audio, rubrik 5 aspek & murojaah", {
-                showTahfizPaiControlDialog()
+        // 5. Operator Sekolah (Jika Berwenang)
+        val isOperator = availableRoles.contains("OPERATOR") || tugasTambahan.contains("OPERATOR") || sessionManager.getRole().uppercase().contains("OPERATOR")
+        if (isOperator) {
+            roleItems.add(Triple("⚙️ Mode Operator Sekolah", "Panel kontrol akademik, broadcast massal, & manajemen CBT", {
+                openOperatorDashboard()
             }))
         }
-
-        // 6. Guru BK
-        if (availableRoles.contains("COUNSELOR") || sessionManager.getRole().uppercase().contains("BK") || sessionManager.getRole().uppercase().contains("COUNSELOR")) {
-            roleItems.add(Triple("🕊️ Portal Bimbingan Konseling (BK)", "Konseling siswa, verifikasi izin keluar/meja BK, & buku poin", {
-                startActivity(Intent(this, BkActivity::class.java))
-            }))
-        }
-
-        // 7. Pos Keamanan & Scanner Gatepass (Satpam / Guru Piket)
-        roleItems.add(Triple("🛡️ Pos Keamanan & Scanner Gatepass", "Scan QR izin keluar gerbang, siswa kembali, & monitor pos satpam", {
-            startActivity(Intent(this, SatpamMainActivity::class.java))
-        }))
 
         val dialog = createFullscreenDialog()
         val root = LinearLayout(this).apply {
@@ -14784,37 +17515,58 @@ class TeacherMainActivity : AppCompatActivity() {
     }
 
     private fun showCreateTeacherLeaveDialog() {
-        val sv = ScrollView(this)
+        val dialog = createFullscreenDialog()
+        val density = resources.displayMetrics.density
+        fun dp(v: Int): Int = (v * density).toInt()
+
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#F8FAFC"))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        }
+
+        // Header Berwarna Gradien Rose-Pink
+        val header = createFullscreenHeader(
+            title = "📝 Pengajuan Izin & Cuti Guru",
+            subtitle = "Verifikasi Tim Kurikulum ➔ Disposisi Jadwal KBM & Tugas Mandiri ke Posko Piket",
+            onClose = { dialog.dismiss() }
+        )
+        root.addView(header)
+
+        val sv = ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
+            isFillViewport = true
+        }
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            val pad = (20 * resources.displayMetrics.density).toInt()
-            setPadding(pad, pad, pad, pad)
+            val pad = dp(16)
+            setPadding(pad, pad, pad, dp(24))
         }
 
-        val tvHeader = TextView(this).apply {
-            text = "📝 Pengajuan Izin Guru (Kurikulum ➔ Piket)"
-            textSize = 15f
-            setTypeface(null, Typeface.BOLD)
-            setTextColor(Color.parseColor("#0F172A"))
-            setPadding(0, 0, 0, 4)
+        // Card Form Pengajuan
+        val cardForm = CardView(this).apply {
+            radius = dp(14).toFloat()
+            cardElevation = dp(2).toFloat()
+            setCardBackgroundColor(Color.WHITE)
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(16)
+            }
+            layoutParams = lp
         }
-        container.addView(tvHeader)
 
-        val tvSub = TextView(this).apply {
-            text = "Pengajuan izin akan diverifikasi oleh Tim Kurikulum. Setelah disetujui, jadwal KBM terdampak dan materi tugas mandiri siswa akan otomatis didisposisikan ke Posko Guru Piket hari ini."
-            textSize = 11.5f
-            setTextColor(Color.parseColor("#64748B"))
-            setPadding(0, 0, 0, 14)
+        val formInner = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(16), dp(16), dp(16))
         }
-        container.addView(tvSub)
 
         val tvCatLabel = TextView(this).apply {
-            text = "Kategori Izin Guru:"
+            text = "Kategori Permohonan Izin: *"
             textSize = 12f
-            setTextColor(Color.parseColor("#334155"))
-            setPadding(0, 0, 0, 4)
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#1E293B"))
+            setPadding(0, 0, 0, dp(4))
         }
-        container.addView(tvCatLabel)
+        formInner.addView(tvCatLabel)
 
         val categories = arrayOf(
             "KEPENTINGAN (Izin Ada Kepentingan / Urusan Mendesak)",
@@ -14824,75 +17576,154 @@ class TeacherMainActivity : AppCompatActivity() {
         )
         val spCategory = Spinner(this).apply {
             adapter = ArrayAdapter(this@TeacherMainActivity, android.R.layout.simple_spinner_dropdown_item, categories)
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#F1F5F9"))
+                cornerRadius = dp(8).toFloat()
+                setStroke(dp(1), Color.parseColor("#CBD5E1"))
+            }
+            setPadding(dp(10), dp(10), dp(10), dp(10))
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(12)
+            }
+            layoutParams = lp
         }
-        container.addView(spCategory)
+        formInner.addView(spCategory)
 
         val todayStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
-        val etStartDate = EditText(this).apply {
-            hint = "Tanggal Mulai (YYYY-MM-DD)"
-            setText(todayStr)
-            setPadding(20, 20, 20, 20)
-            setBackgroundColor(Color.parseColor("#F1F5F9"))
-            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = 12
+
+        val rowDates = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(12)
             }
             layoutParams = lp
         }
-        container.addView(etStartDate)
+
+        val etStartDate = EditText(this).apply {
+            hint = "Tgl Mulai (YYYY-MM-DD)"
+            setText(todayStr)
+            textSize = 12.5f
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#F8FAFC"))
+                cornerRadius = dp(8).toFloat()
+                setStroke(dp(1), Color.parseColor("#CBD5E1"))
+            }
+            val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginEnd = dp(6)
+            }
+            layoutParams = lp
+        }
+        rowDates.addView(etStartDate)
 
         val etEndDate = EditText(this).apply {
-            hint = "Tanggal Selesai (YYYY-MM-DD)"
+            hint = "Tgl Selesai (YYYY-MM-DD)"
             setText(todayStr)
-            setPadding(20, 20, 20, 20)
-            setBackgroundColor(Color.parseColor("#F1F5F9"))
-            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = 8
+            textSize = 12.5f
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#F8FAFC"))
+                cornerRadius = dp(8).toFloat()
+                setStroke(dp(1), Color.parseColor("#CBD5E1"))
+            }
+            val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginStart = dp(6)
             }
             layoutParams = lp
         }
-        container.addView(etEndDate)
+        rowDates.addView(etEndDate)
+        formInner.addView(rowDates)
+
+        val tvClassLabel = TextView(this).apply {
+            text = "Jadwal KBM Terdampak: *"
+            textSize = 12f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#1E293B"))
+            setPadding(0, 0, 0, dp(4))
+        }
+        formInner.addView(tvClassLabel)
 
         val etClasses = EditText(this).apply {
-            hint = "Jadwal KBM Terdampak (Contoh: 08:00 | 7A | Matematika, 09:10 | 7B | Matematika)"
-            setPadding(20, 20, 20, 20)
-            setBackgroundColor(Color.parseColor("#F1F5F9"))
-            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = 12
+            hint = "Contoh: 08:00 | 7A | Matematika, 09:10 | 7B | Matematika"
+            textSize = 12f
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#F8FAFC"))
+                cornerRadius = dp(8).toFloat()
+                setStroke(dp(1), Color.parseColor("#CBD5E1"))
+            }
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(12)
             }
             layoutParams = lp
         }
-        container.addView(etClasses)
+        formInner.addView(etClasses)
+
+        val tvTaskLabel = TextView(this).apply {
+            text = "Tugas Mandiri Siswa (Wajib diisi): *"
+            textSize = 12f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#1E293B"))
+            setPadding(0, 0, 0, dp(4))
+        }
+        formInner.addView(tvTaskLabel)
 
         val etTask = EditText(this).apply {
-            hint = "Tugas Mandiri Siswa (Wajib diisi agar siswa tetap belajar terarah di bawah pengawasan Guru Piket)"
+            hint = "Tuliskan materi atau instruksi tugas mandiri siswa agar siswa tetap belajar tertib di bawah pengawasan Guru Piket"
+            textSize = 12f
             setLines(3)
-            setPadding(20, 20, 20, 20)
-            setBackgroundColor(Color.parseColor("#F1F5F9"))
-            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = 12
+            gravity = Gravity.TOP or Gravity.START
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#F8FAFC"))
+                cornerRadius = dp(8).toFloat()
+                setStroke(dp(1), Color.parseColor("#CBD5E1"))
+            }
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(12)
             }
             layoutParams = lp
         }
-        container.addView(etTask)
+        formInner.addView(etTask)
+
+        val tvReasonLabel = TextView(this).apply {
+            text = "Alasan / Keperluan Izin: *"
+            textSize = 12f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#1E293B"))
+            setPadding(0, 0, 0, dp(4))
+        }
+        formInner.addView(tvReasonLabel)
 
         val etReason = EditText(this).apply {
-            hint = "Keterangan / Keperluan izin secara lengkap"
+            hint = "Keterangan detail permohonan izin atau nomor surat undangan dinas"
+            textSize = 12f
             setLines(2)
-            setPadding(20, 20, 20, 20)
-            setBackgroundColor(Color.parseColor("#F1F5F9"))
-            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = 12
+            gravity = Gravity.TOP or Gravity.START
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#F8FAFC"))
+                cornerRadius = dp(8).toFloat()
+                setStroke(dp(1), Color.parseColor("#CBD5E1"))
+            }
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(16)
             }
             layoutParams = lp
         }
-        container.addView(etReason)
+        formInner.addView(etReason)
 
-        sv.addView(container)
-
-        AlertDialog.Builder(this)
-            .setTitle("📝 Pengajuan Izin Guru")
-            .setView(sv)
-            .setPositiveButton("Kirim ke Kurikulum") { _, _ ->
+        val btnSubmit = Button(this).apply {
+            text = "🚀 Kirim Pengajuan Izin ke Kurikulum"
+            textSize = 12.5f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#DB2777"))
+                cornerRadius = dp(10).toFloat()
+            }
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46))
+            setOnClickListener {
                 val catRaw = spCategory.selectedItem.toString()
                 val catCode = catRaw.substringBefore(" ")
                 val sDate = etStartDate.text.toString().trim()
@@ -14902,8 +17733,8 @@ class TeacherMainActivity : AppCompatActivity() {
                 val reason = etReason.text.toString().trim()
 
                 if (task.isEmpty() || reason.isEmpty()) {
-                    Toast.makeText(this, "Harap isi tugas mandiri siswa dan alasan izin!", Toast.LENGTH_SHORT).show()
-                    return@setPositiveButton
+                    Toast.makeText(this@TeacherMainActivity, "Harap isi tugas mandiri siswa dan alasan izin!", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
                 }
 
                 val body = mapOf(
@@ -14916,10 +17747,16 @@ class TeacherMainActivity : AppCompatActivity() {
                     "assignmentForStudents" to task
                 )
 
-                Toast.makeText(this, "Mengirim pengajuan izin ke Kurikulum...", Toast.LENGTH_SHORT).show()
-                ApiClient.getClient(this).createTeacherLeave(body).enqueue(object : Callback<BasicResponse> {
+                val prg = ProgressDialog(this@TeacherMainActivity).apply {
+                    setMessage("Mengirim permohonan izin ke Tim Kurikulum...")
+                    show()
+                }
+
+                ApiClient.getClient(this@TeacherMainActivity).createTeacherLeave(body).enqueue(object : Callback<BasicResponse> {
                     override fun onResponse(call: Call<BasicResponse>, response: Response<BasicResponse>) {
+                        prg.dismiss()
                         if (response.isSuccessful) {
+                            dialog.dismiss()
                             AlertDialog.Builder(this@TeacherMainActivity)
                                 .setTitle("✅ Izin Berhasil Diajukan")
                                 .setMessage("Pengajuan izin Anda telah tercatat dan masuk ke antrean verifikasi Tim Kurikulum.\n\nSetelah disetujui Kurikulum, jadwal KBM terdampak dan penugasan mandiri siswa akan otomatis didisposisikan ke Posko Guru Piket.")
@@ -14931,12 +17768,21 @@ class TeacherMainActivity : AppCompatActivity() {
                     }
 
                     override fun onFailure(call: Call<BasicResponse>, t: Throwable) {
+                        prg.dismiss()
                         Toast.makeText(this@TeacherMainActivity, "Koneksi terputus: ${t.message}", Toast.LENGTH_SHORT).show()
                     }
                 })
             }
-            .setNegativeButton("Batal", null)
-            .show()
+        }
+        formInner.addView(btnSubmit)
+
+        cardForm.addView(formInner)
+        container.addView(cardForm)
+        sv.addView(container)
+        root.addView(sv)
+
+        dialog.setView(root)
+        dialog.show()
     }
 
     private fun showMyTeacherLeavesDialog() {
@@ -15131,6 +17977,24 @@ class TeacherMainActivity : AppCompatActivity() {
             val pad = (16 * density).toInt()
             setPadding(pad, pad, pad, pad)
         }
+
+        // 0. SHORTCUT AGENDA IBADAH KHUSUS & HARI SANTRI / DHUHA AKBAR
+        val btnAgendaPai = MaterialButton(this).apply {
+            text = "📅 Agenda Ibadah Khusus & Hari Santri"
+            textSize = 12.5f
+            setTypeface(null, Typeface.BOLD)
+            setBackgroundColor(Color.parseColor("#D97706")) // Amber-600
+            setTextColor(Color.WHITE)
+            cornerRadius = (10 * density).toInt()
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = (12 * density).toInt()
+            }
+            layoutParams = lp
+            setOnClickListener {
+                showKurikulumAgendaDialog()
+            }
+        }
+        container.addView(btnAgendaPai)
 
         // 1. KARTU JADWAL & PENGUMUMAN SHOLAT DARI GURU PAI
         val cardSchedule = CardView(this).apply {
@@ -16391,41 +19255,217 @@ class TeacherMainActivity : AppCompatActivity() {
     }
 
     private fun promptRoomCheckInMethod() {
-        val options = arrayOf(
-            "📷 Pindai QR Code Ruangan Kelas (Pintu Ruang)",
-            "🏷️ Pilih Kelas KBM dari Daftar (Check-In Instan)",
-            "🪑 Pindai QR Meja Guru (Info Status Meja)"
-        )
+        val density = resources.displayMetrics.density
+        fun dp(v: Int): Int = (v * density).toInt()
 
-        AlertDialog.Builder(this)
-            .setTitle("🏫 Buka Sesi Mengajar Ruang Kelas")
-            .setItems(options) { _, which ->
-                when (which) {
-                    0 -> {
-                        val intent = Intent(this, com.school.smartcbt.ScannerActivity::class.java).apply {
-                            putExtra(com.school.smartcbt.ScannerActivity.EXTRA_SCAN_MODE, com.school.smartcbt.ScannerActivity.MODE_ROOM_HANDOVER)
-                        }
-                        roomScanLauncher.launch(intent)
-                    }
-                    1 -> showManualSelectRoomDialog()
-                    2 -> {
-                        AlertDialog.Builder(this)
-                            .setTitle("🪑 Scan QR Meja Guru")
-                            .setMessage("QR Meja Guru khusus presensi meja saat ini sedang dipersiapkan dan dinonaktifkan sementara oleh pihak sekolah.\n\nSilakan gunakan 'Pindai QR Code Ruangan Kelas' di pintu masuk kelas atau gunakan tombol 'Pilih Kelas KBM' untuk check-in instan.")
-                            .setPositiveButton("Pilih Kelas KBM") { _, _ -> showManualSelectRoomDialog() }
-                            .setNeutralButton("Scan QR Ruangan") { _, _ ->
-                                val intent = Intent(this, com.school.smartcbt.ScannerActivity::class.java).apply {
-                                    putExtra(com.school.smartcbt.ScannerActivity.EXTRA_SCAN_MODE, com.school.smartcbt.ScannerActivity.MODE_ROOM_HANDOVER)
-                                }
-                                roomScanLauncher.launch(intent)
-                            }
-                            .setNegativeButton("Tutup", null)
-                            .show()
-                    }
+        val dialog = AlertDialog.Builder(this).create()
+        dialog.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
+
+        val rootCard = CardView(this).apply {
+            radius = dp(16).toFloat()
+            cardElevation = dp(4).toFloat()
+            setCardBackgroundColor(Color.WHITE)
+            useCompatPadding = true
+            layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+
+        // Header Berwarna Gradien Emerald-Teal Profesional
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val bg = GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT,
+                intArrayOf(Color.parseColor("#064E3B"), Color.parseColor("#059669"), Color.parseColor("#0D9488"))
+            )
+            background = bg
+            setPadding(dp(18), dp(16), dp(18), dp(16))
+        }
+
+        val tvTitle = TextView(this).apply {
+            text = "🏫 Buka Sesi Mengajar Ruang Kelas"
+            textSize = 15.5f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+        }
+        val tvSub = TextView(this).apply {
+            text = "Pilih metode identifikasi presensi masuk ruangan KBM"
+            textSize = 11.5f
+            setTextColor(Color.parseColor("#A7F3D0"))
+            setPadding(0, dp(2), 0, 0)
+        }
+        header.addView(tvTitle)
+        header.addView(tvSub)
+        container.addView(header)
+
+        // Konten Pilihan Metode
+        val bodyLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+        }
+
+        fun makeMethodCard(icon: String, title: String, subtitle: String, badge: String, badgeColor: String, badgeBg: String, onClick: () -> Unit): View {
+            val card = CardView(this).apply {
+                radius = dp(10).toFloat()
+                cardElevation = dp(1).toFloat()
+                setCardBackgroundColor(Color.parseColor("#F8FAFC"))
+                val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    bottomMargin = dp(10)
+                }
+                layoutParams = lp
+                isClickable = true
+                isFocusable = true
+                foreground = android.util.TypedValue().let {
+                    theme.resolveAttribute(android.R.attr.selectableItemBackground, it, true)
+                    androidx.core.content.ContextCompat.getDrawable(this@TeacherMainActivity, it.resourceId)
+                }
+                setOnClickListener {
+                    dialog.dismiss()
+                    onClick()
                 }
             }
-            .setNegativeButton("Batal", null)
-            .show()
+
+            val cardInner = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(12), dp(10), dp(12), dp(10))
+            }
+
+            val tvIco = TextView(this).apply {
+                text = icon
+                textSize = 22f
+                val lp = LinearLayout.LayoutParams(dp(40), dp(40)).apply {
+                    marginEnd = dp(10)
+                }
+                gravity = Gravity.CENTER
+                layoutParams = lp
+            }
+            cardInner.addView(tvIco)
+
+            val textCol = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            }
+
+            val rowTitle = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            val tvT = TextView(this).apply {
+                text = title
+                textSize = 13f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(Color.parseColor("#0F172A"))
+            }
+            rowTitle.addView(tvT)
+
+            val tvBadge = TextView(this).apply {
+                text = badge
+                textSize = 9.5f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(Color.parseColor(badgeColor))
+                background = GradientDrawable().apply {
+                    setColor(Color.parseColor(badgeBg))
+                    cornerRadius = dp(4).toFloat()
+                }
+                setPadding(dp(5), dp(1), dp(5), dp(1))
+                val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    marginStart = dp(6)
+                }
+                layoutParams = lp
+            }
+            rowTitle.addView(tvBadge)
+            textCol.addView(rowTitle)
+
+            val tvS = TextView(this).apply {
+                text = subtitle
+                textSize = 11f
+                setTextColor(Color.parseColor("#64748B"))
+                setPadding(0, dp(2), 0, 0)
+            }
+            textCol.addView(tvS)
+            cardInner.addView(textCol)
+
+            val tvArrow = TextView(this).apply {
+                text = "➔"
+                textSize = 14f
+                setTextColor(Color.parseColor("#94A3B8"))
+                setPadding(dp(4), 0, 0, 0)
+            }
+            cardInner.addView(tvArrow)
+
+            card.addView(cardInner)
+            return card
+        }
+
+        // 1. Pindai QR Ruangan
+        bodyLayout.addView(makeMethodCard(
+            icon = "📷",
+            title = "Pindai QR Ruangan Kelas",
+            subtitle = "Scan QR code di pintu ruang kelas untuk verifikasi otomatis",
+            badge = "Utama",
+            badgeColor = "#065F46",
+            badgeBg = "#D1FAE5"
+        ) {
+            val intent = Intent(this, com.school.smartcbt.ScannerActivity::class.java).apply {
+                putExtra(com.school.smartcbt.ScannerActivity.EXTRA_SCAN_MODE, com.school.smartcbt.ScannerActivity.MODE_ROOM_HANDOVER)
+            }
+            roomScanLauncher.launch(intent)
+        })
+
+        // 2. Pilih Kelas KBM dari Daftar
+        bodyLayout.addView(makeMethodCard(
+            icon = "🏷️",
+            title = "Pilih Kelas KBM dari Daftar",
+            subtitle = "Check-in instan langsung memilih rombel jika ada kendala kamera",
+            badge = "Instan",
+            badgeColor = "#1E40AF",
+            badgeBg = "#DBEAFE"
+        ) {
+            showManualSelectRoomDialog()
+        })
+
+        // 3. Scan QR Meja Guru
+        bodyLayout.addView(makeMethodCard(
+            icon = "🪑",
+            title = "Pindai QR Meja Guru",
+            subtitle = "Informasi status meja & persiapan mengajar kelas",
+            badge = "Info",
+            badgeColor = "#92400E",
+            badgeBg = "#FEF3C7"
+        ) {
+            AlertDialog.Builder(this)
+                .setTitle("🪑 Scan QR Meja Guru")
+                .setMessage("QR Meja Guru khusus presensi meja saat ini sedang dipersiapkan dan dinonaktifkan sementara oleh pihak sekolah.\n\nSilakan gunakan 'Pindai QR Ruangan' di pintu masuk kelas atau gunakan tombol 'Pilih Kelas KBM' untuk check-in instan.")
+                .setPositiveButton("Pilih Kelas KBM") { _, _ -> showManualSelectRoomDialog() }
+                .setNeutralButton("Scan QR Ruangan") { _, _ ->
+                    val intent = Intent(this, com.school.smartcbt.ScannerActivity::class.java).apply {
+                        putExtra(com.school.smartcbt.ScannerActivity.EXTRA_SCAN_MODE, com.school.smartcbt.ScannerActivity.MODE_ROOM_HANDOVER)
+                    }
+                    roomScanLauncher.launch(intent)
+                }
+                .setNegativeButton("Tutup", null)
+                .show()
+        })
+
+        val btnClose = Button(this).apply {
+            text = "Tutup / Batal"
+            textSize = 12f
+            setTextColor(Color.parseColor("#475569"))
+            setBackgroundColor(Color.parseColor("#F1F5F9"))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(40)).apply {
+                topMargin = dp(4)
+            }
+            setOnClickListener { dialog.dismiss() }
+        }
+        bodyLayout.addView(btnClose)
+
+        container.addView(bodyLayout)
+        rootCard.addView(container)
+        dialog.setView(rootCard)
+        dialog.show()
     }
 
     private fun handleTeacherRoomCheckIn(
@@ -16588,139 +19628,419 @@ class TeacherMainActivity : AppCompatActivity() {
                 val nowTimeFormatted = String.format("%02d:%02d", currentHour, currentMinute)
 
                 // Cek rombel kelas yang diampu atau jadwal aktif
-                val activeTargetClass = myClasses.firstOrNull() ?: rooms.firstOrNull()?.className ?: "VII-A"
                 val teachingSubject = sessionManager.getTeachingSubject().ifEmpty { "-" }
+
+                val activeExistingRoom = rooms.find { it.isAlreadyCheckedIn == true }
+                val checkInReadyRoom = rooms.find { it.canCheckIn == true }
+                val upcomingRoom = rooms.find { it.isScheduledToday == true && it.canCheckIn == false && it.windowOpenTime != null }
 
                 val heroScheduleCard = CardView(this@TeacherMainActivity).apply {
                     radius = 14f * resources.displayMetrics.density
                     cardElevation = 3f * resources.displayMetrics.density
-                    setCardBackgroundColor(Color.parseColor("#065F46"))
                     val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
                         bottomMargin = (14 * resources.displayMetrics.density).toInt()
                     }
                     layoutParams = lp
                     isClickable = true
                     isFocusable = true
-                    setOnClickListener {
-                        dialog.dismiss()
-                        handleTeacherRoomCheckIn(roomCode = activeTargetClass)
-                    }
                 }
                 val heroInner = LinearLayout(this@TeacherMainActivity).apply {
                     orientation = LinearLayout.VERTICAL
                     val p = (14 * resources.displayMetrics.density).toInt()
                     setPadding(p, p, p, p)
                 }
-                heroInner.addView(TextView(this@TeacherMainActivity).apply {
-                    text = "⭐ JADWAL MENGAJAR HARI INI: KELAS $activeTargetClass"
-                    textSize = 13.5f
-                    setTypeface(null, Typeface.BOLD)
-                    setTextColor(Color.WHITE)
-                })
-                heroInner.addView(TextView(this@TeacherMainActivity).apply {
-                    text = "Mata Pelajaran: $teachingSubject • Sesi KBM Aktif ($nowTimeFormatted WIB)\nKetuk tombol di bawah untuk langsung Check-In di kelas ini & membuka presensi siswa."
-                    textSize = 11f
-                    setTextColor(Color.parseColor("#D1FAE5"))
-                    setPadding(0, 4, 0, 10)
-                })
-                val btnCheckInNow = Button(this@TeacherMainActivity).apply {
-                    text = "🏫 CHECK-IN KELAS $activeTargetClass SEKARANG"
-                    textSize = 12f
-                    setTypeface(null, Typeface.BOLD)
-                    setTextColor(Color.WHITE)
-                    setBackgroundColor(Color.parseColor("#059669"))
-                    setOnClickListener {
-                        dialog.dismiss()
-                        handleTeacherRoomCheckIn(roomCode = activeTargetClass)
+
+                if (activeExistingRoom != null) {
+                    heroScheduleCard.setCardBackgroundColor(Color.parseColor("#065F46"))
+                    heroInner.addView(TextView(this@TeacherMainActivity).apply {
+                        text = "🟢 SESI KBM SEDANG AKTIF: KELAS ${activeExistingRoom.className ?: "-"}"
+                        textSize = 13.5f
+                        setTypeface(null, Typeface.BOLD)
+                        setTextColor(Color.WHITE)
+                    })
+                    heroInner.addView(TextView(this@TeacherMainActivity).apply {
+                        text = "Mata Pelajaran: ${activeExistingRoom.scheduleSubject ?: teachingSubject} • Sesi KBM sedang berlangsung ($nowTimeFormatted WIB)\nPresensi siswa aktif di mobile. Ketuk tombol di bawah untuk mengelola presensi siswa."
+                        textSize = 11f
+                        setTextColor(Color.parseColor("#D1FAE5"))
+                        setPadding(0, 4, 0, 10)
+                    })
+                    val btnManageNow = Button(this@TeacherMainActivity).apply {
+                        text = "👥 KELOLA PRESENSI SISWA (SESI AKTIF)"
+                        textSize = 12f
+                        setTypeface(null, Typeface.BOLD)
+                        setTextColor(Color.WHITE)
+                        setBackgroundColor(Color.parseColor("#059669"))
+                        setOnClickListener {
+                            dialog.dismiss()
+                            showTeacherManageAttendanceDialog()
+                        }
                     }
+                    heroInner.addView(btnManageNow)
+                } else if (checkInReadyRoom != null) {
+                    heroScheduleCard.setCardBackgroundColor(Color.parseColor("#065F46"))
+                    heroInner.addView(TextView(this@TeacherMainActivity).apply {
+                        text = "⭐ JADWAL MENGAJAR HARI INI: KELAS ${checkInReadyRoom.className ?: "-"}"
+                        textSize = 13.5f
+                        setTypeface(null, Typeface.BOLD)
+                        setTextColor(Color.WHITE)
+                    })
+                    heroInner.addView(TextView(this@TeacherMainActivity).apply {
+                        val timeRange = if (checkInReadyRoom.scheduleStartTime != null) "${checkInReadyRoom.scheduleStartTime} - ${checkInReadyRoom.scheduleEndTime} WIB" else "$nowTimeFormatted WIB"
+                        text = "Mata Pelajaran: ${checkInReadyRoom.scheduleSubject ?: teachingSubject} • Pukul $timeRange\nPresensi masuk kelas telah DIBUKA (30 menit sebelum KBM). Ketuk tombol di bawah untuk langsung check-in."
+                        textSize = 11f
+                        setTextColor(Color.parseColor("#D1FAE5"))
+                        setPadding(0, 4, 0, 10)
+                    })
+                    val btnCheckInNow = Button(this@TeacherMainActivity).apply {
+                        text = "🏫 CHECK-IN KELAS ${checkInReadyRoom.className ?: ""} SEKARANG"
+                        textSize = 12f
+                        setTypeface(null, Typeface.BOLD)
+                        setTextColor(Color.WHITE)
+                        setBackgroundColor(Color.parseColor("#059669"))
+                        setOnClickListener {
+                            dialog.dismiss()
+                            handleTeacherRoomCheckIn(roomCode = checkInReadyRoom.roomCode ?: checkInReadyRoom.className)
+                        }
+                    }
+                    heroInner.addView(btnCheckInNow)
+                } else if (upcomingRoom != null) {
+                    heroScheduleCard.setCardBackgroundColor(Color.parseColor("#1E293B"))
+                    heroInner.addView(TextView(this@TeacherMainActivity).apply {
+                        text = "⏳ JADWAL MENGAJAR BERIKUTNYA: KELAS ${upcomingRoom.className ?: "-"}"
+                        textSize = 13.5f
+                        setTypeface(null, Typeface.BOLD)
+                        setTextColor(Color.parseColor("#FDE68A"))
+                    })
+                    heroInner.addView(TextView(this@TeacherMainActivity).apply {
+                        val timeRange = "${upcomingRoom.scheduleStartTime ?: "-"} - ${upcomingRoom.scheduleEndTime ?: "-"} WIB"
+                        text = "Mata Pelajaran: ${upcomingRoom.scheduleSubject ?: teachingSubject} • Jadwal KBM: $timeRange\n🔒 ${upcomingRoom.statusReason ?: "Presensi dibuka 30 menit sebelum jam mengajar dimulai."}"
+                        textSize = 11f
+                        setTextColor(Color.parseColor("#CBD5E1"))
+                        setPadding(0, 4, 0, 10)
+                    })
+                    val btnLocked = Button(this@TeacherMainActivity).apply {
+                        text = "🔒 PRESENSI DIBUKA PUKUL ${upcomingRoom.windowOpenTime ?: "-"} WIB"
+                        textSize = 12f
+                        setTypeface(null, Typeface.BOLD)
+                        setTextColor(Color.parseColor("#94A3B8"))
+                        setBackgroundColor(Color.parseColor("#334155"))
+                        setOnClickListener {
+                            Toast.makeText(this@TeacherMainActivity, upcomingRoom.statusReason ?: "Presensi dibuka 30 menit sebelum jam mengajar.", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                    heroInner.addView(btnLocked)
+                } else {
+                    heroScheduleCard.setCardBackgroundColor(Color.parseColor("#334155"))
+                    heroInner.addView(TextView(this@TeacherMainActivity).apply {
+                        text = "📅 TIDAK ADA JADWAL KBM HARI INI"
+                        textSize = 13.5f
+                        setTypeface(null, Typeface.BOLD)
+                        setTextColor(Color.WHITE)
+                    })
+                    heroInner.addView(TextView(this@TeacherMainActivity).apply {
+                        text = "Mapel Diampu: $teachingSubject • Sesuai SOP, presensi masuk kelas hanya dapat dilakukan pada kelas dan jam pelajaran yang sesuai dengan jadwal mengajar Anda di Siakad."
+                        textSize = 11f
+                        setTextColor(Color.parseColor("#CBD5E1"))
+                        setPadding(0, 4, 0, 10)
+                    })
+                    val btnNoSched = Button(this@TeacherMainActivity).apply {
+                        text = "🔒 TIDAK ADA JADWAL KBM AKTIF HARI INI"
+                        textSize = 12f
+                        setTypeface(null, Typeface.BOLD)
+                        setTextColor(Color.parseColor("#94A3B8"))
+                        setBackgroundColor(Color.parseColor("#1E293B"))
+                        setOnClickListener {
+                            Toast.makeText(this@TeacherMainActivity, "Tidak ada jadwal mengajar KBM hari ini.", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    heroInner.addView(btnNoSched)
                 }
-                heroInner.addView(btnCheckInNow)
+
                 heroScheduleCard.addView(heroInner)
                 container.addView(heroScheduleCard)
 
-                container.addView(TextView(this@TeacherMainActivity).apply {
-                    text = "DAFTAR SELURUH RUANG KELAS SEKOLAH:"
-                    textSize = 11f
-                    setTypeface(null, Typeface.BOLD)
-                    setTextColor(Color.parseColor("#475569"))
-                    setPadding(2, 4, 2, 8)
-                })
-
-                sortedRooms.forEach { room ->
-                    val isMyClass = room.className != null && myClasses.contains(room.className.uppercase())
-
-                    val card = CardView(this@TeacherMainActivity).apply {
-                        radius = 12f * resources.displayMetrics.density
-                        cardElevation = 2f * resources.displayMetrics.density
-                        setCardBackgroundColor(if (isMyClass) Color.WHITE else Color.parseColor("#F1F5F9"))
-                        val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                            bottomMargin = (10 * resources.displayMetrics.density).toInt()
-                        }
-                        layoutParams = lp
-                        isClickable = true
-                        isFocusable = true
-                        setOnClickListener {
-                            dialog.dismiss()
-                            handleTeacherRoomCheckIn(roomCode = room.roomCode)
-                        }
-                    }
-
-                    val row = LinearLayout(this@TeacherMainActivity).apply {
-                        orientation = LinearLayout.HORIZONTAL
-                        gravity = android.view.Gravity.CENTER_VERTICAL
-                        val p = (14 * resources.displayMetrics.density).toInt()
-                        setPadding(p, p, p, p)
-                    }
-
-                    val iconBox = LinearLayout(this@TeacherMainActivity).apply {
-                        val size = (38 * resources.displayMetrics.density).toInt()
-                        layoutParams = LinearLayout.LayoutParams(size, size).apply {
-                            marginEnd = (12 * resources.displayMetrics.density).toInt()
-                        }
-                        setBackgroundResource(if (isMyClass) com.school.smartcbt.R.drawable.bg_icon_green else com.school.smartcbt.R.drawable.bg_icon_blue)
-                        gravity = android.view.Gravity.CENTER
-                    }
-                    val tvIco = TextView(this@TeacherMainActivity).apply {
-                        text = if (isMyClass) "⭐" else "🏫"
-                        textSize = 18f
-                    }
-                    iconBox.addView(tvIco)
-                    row.addView(iconBox)
-
-                    val infoBox = LinearLayout(this@TeacherMainActivity).apply {
-                        orientation = LinearLayout.VERTICAL
-                        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-                    }
-                    val tvName = TextView(this@TeacherMainActivity).apply {
-                        text = room.roomName
-                        textSize = 14f
-                        setTypeface(null, Typeface.BOLD)
-                        setTextColor(Color.parseColor("#0F172A"))
-                    }
-                    val tvSub = TextView(this@TeacherMainActivity).apply {
-                        text = if (isMyClass) "✅ Rombel Mengajar Anda • ${room.building ?: ""}" else "${room.building ?: "Gedung Sekolah"} (Lantai ${room.floor ?: 1})"
-                        textSize = 11.5f
-                        setTextColor(if (isMyClass) Color.parseColor("#059669") else Color.parseColor("#64748B"))
-                        val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                            topMargin = 2
-                        }
-                        layoutParams = lp
-                    }
-                    infoBox.addView(tvName)
-                    infoBox.addView(tvSub)
-                    row.addView(infoBox)
-
-                    val tvSelect = TextView(this@TeacherMainActivity).apply {
-                        text = "Masuk ➔"
-                        textSize = 12f
-                        setTypeface(null, Typeface.BOLD)
-                        setTextColor(if (isMyClass) Color.parseColor("#059669") else Color.parseColor("#2563EB"))
-                    }
-                    row.addView(tvSelect)
-
-                    card.addView(row)
-                    container.addView(card)
+                val validClassRooms = rooms.filter { r ->
+                    val c = r.className?.trim() ?: ""
+                    val n = r.roomName.uppercase()
+                    c.isNotEmpty() && !n.contains("BK") && !n.contains("KONSELING") && !n.contains("LAB") && !n.contains("LABORATORIUM") && !n.contains("MUSHOLA")
                 }
+
+                // Banner Informasi Praktik Lab
+                val tipCard = CardView(this@TeacherMainActivity).apply {
+                    radius = (10 * resources.displayMetrics.density).toFloat()
+                    cardElevation = (1 * resources.displayMetrics.density).toFloat()
+                    setCardBackgroundColor(Color.parseColor("#EFF6FF"))
+                    val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                        bottomMargin = (12 * resources.displayMetrics.density).toInt()
+                    }
+                    layoutParams = lp
+                }
+                val tipInner = LinearLayout(this@TeacherMainActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    val p = (10 * resources.displayMetrics.density).toInt()
+                    setPadding(p, p, p, p)
+                }
+                tipInner.addView(TextView(this@TeacherMainActivity).apply {
+                    text = "💡 Catatan Praktik Laboratorium (Komputer / IPA):"
+                    textSize = 11.5f
+                    setTypeface(null, Typeface.BOLD)
+                    setTextColor(Color.parseColor("#1E40AF"))
+                })
+                tipInner.addView(TextView(this@TeacherMainActivity).apply {
+                    text = "Bapak/Ibu yang membawa siswa praktik ke Lab Komputer atau Lab IPA tetap memilih rombel kelas yang diajar (contoh: VII-A). Presensi kehadiran siswa otomatis tercatat pada rombel kelas tersebut."
+                    textSize = 10.5f
+                    setTextColor(Color.parseColor("#3B82F6"))
+                    setPadding(0, 2, 0, 0)
+                })
+                tipCard.addView(tipInner)
+                container.addView(tipCard)
+
+                // Header dan Filter Tingkat Kelas (Jika guru punya rombel ampu, HANYA tampilkan rombel diampu!)
+                val filterScroll = HorizontalScrollView(this@TeacherMainActivity).apply {
+                    isHorizontalScrollBarEnabled = false
+                    layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        bottomMargin = (10 * resources.displayMetrics.density).toInt()
+                    }
+                    visibility = if (myClasses.isNotEmpty()) View.GONE else View.VISIBLE
+                }
+                val filterRow = LinearLayout(this@TeacherMainActivity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                }
+                filterScroll.addView(filterRow)
+                container.addView(filterScroll)
+
+                var activeFilter = if (myClasses.isNotEmpty()) "DIAMPU" else "SEMUA"
+                val gridContainer = LinearLayout(this@TeacherMainActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                }
+                container.addView(gridContainer)
+
+                fun renderClassGrid() {
+                    gridContainer.removeAllViews()
+                    filterRow.removeAllViews()
+
+                    val tabs = mutableListOf<Pair<String, String>>()
+                    if (myClasses.isNotEmpty()) tabs.add("DIAMPU" to "⭐ Rombel Diampu (${myClasses.size})")
+                    tabs.add("SEMUA" to "Semua Kelas (${validClassRooms.size})")
+                    tabs.add("VII" to "Kelas VII")
+                    tabs.add("VIII" to "Kelas VIII")
+                    tabs.add("IX" to "Kelas IX")
+
+                    tabs.forEach { (key, lbl) ->
+                        val isSel = activeFilter == key
+                        val tabBtn = TextView(this@TeacherMainActivity).apply {
+                            text = lbl
+                            textSize = 11f
+                            setTypeface(null, if (isSel) Typeface.BOLD else Typeface.NORMAL)
+                            setTextColor(if (isSel) Color.WHITE else Color.parseColor("#334155"))
+                            background = GradientDrawable().apply {
+                                setColor(if (isSel) Color.parseColor("#0F766E") else Color.parseColor("#F1F5F9"))
+                                cornerRadius = (8 * resources.displayMetrics.density).toFloat()
+                                if (!isSel) setStroke((1 * resources.displayMetrics.density).toInt(), Color.parseColor("#CBD5E1"))
+                            }
+                            val padH = (12 * resources.displayMetrics.density).toInt()
+                            val padV = (6 * resources.displayMetrics.density).toInt()
+                            setPadding(padH, padV, padH, padV)
+                            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                                marginEnd = (6 * resources.displayMetrics.density).toInt()
+                            }
+                            layoutParams = lp
+                            setOnClickListener {
+                                activeFilter = key
+                                renderClassGrid()
+                            }
+                        }
+                        filterRow.addView(tabBtn)
+                    }
+
+                    val filteredList = if (myClasses.isNotEmpty()) {
+                        // KETENTUAN UTAMA: Hanya tampilkan rombel yang diampu oleh guru tersebut!
+                        val matched = validClassRooms.filter { r -> r.className != null && myClasses.contains(r.className.uppercase()) }
+                        if (matched.isNotEmpty()) matched else {
+                            myClasses.map { c ->
+                                com.school.smartcbt.data.model.PhysicalRoomDto(
+                                    id = "room_$c",
+                                    roomCode = "ROOM_${c.replace('-', '_')}",
+                                    roomName = "Ruang Kelas $c",
+                                    className = c,
+                                    building = if (c.startsWith("VII")) "Gedung A (Kelas VII)" else if (c.startsWith("VIII")) "Gedung B (Kelas VIII)" else "Gedung C (Kelas IX)",
+                                    floor = 1,
+                                    isActive = true
+                                )
+                            }
+                        }
+                    } else {
+                        when (activeFilter) {
+                            "VII" -> validClassRooms.filter { (it.className ?: "").startsWith("VII", ignoreCase = true) }
+                            "VIII" -> validClassRooms.filter { (it.className ?: "").startsWith("VIII", ignoreCase = true) }
+                            "IX" -> validClassRooms.filter { (it.className ?: "").startsWith("IX", ignoreCase = true) }
+                            else -> validClassRooms
+                        }
+                    }
+
+                    if (filteredList.isEmpty()) {
+                        gridContainer.addView(TextView(this@TeacherMainActivity).apply {
+                            text = "Tidak ada rombel kelas yang sesuai filter."
+                            textSize = 12f
+                            setTextColor(Color.parseColor("#94A3B8"))
+                            gravity = Gravity.CENTER
+                            setPadding(0, 30, 0, 30)
+                        })
+                        return
+                    }
+
+                    // Tata menjadi KOTAK-KOTAK RAPI (3 Kolom per Baris)
+                    var currentRow: LinearLayout? = null
+                    filteredList.forEachIndexed { idx, room ->
+                        if (idx % 3 == 0) {
+                            currentRow = LinearLayout(this@TeacherMainActivity).apply {
+                                orientation = LinearLayout.HORIZONTAL
+                                weightSum = 3f
+                                val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                                    bottomMargin = (8 * resources.displayMetrics.density).toInt()
+                                }
+                                layoutParams = lp
+                            }
+                            gridContainer.addView(currentRow)
+                        }
+
+                        val isMyClass = room.className != null && myClasses.contains(room.className.uppercase())
+                        val canCheckIn = room.canCheckIn == true
+                        val isScheduled = room.isScheduledToday == true
+                        val isAlreadyIn = room.isAlreadyCheckedIn == true
+
+                        val cardBg = when {
+                            isAlreadyIn -> Color.parseColor("#ECFDF5")
+                            canCheckIn -> Color.parseColor("#F0FDF4")
+                            isScheduled -> Color.parseColor("#FFFBEB")
+                            isMyClass -> Color.parseColor("#EFF6FF")
+                            else -> Color.WHITE
+                        }
+                        val strokeColor = when {
+                            isAlreadyIn -> Color.parseColor("#059669")
+                            canCheckIn -> Color.parseColor("#10B981")
+                            isScheduled -> Color.parseColor("#F59E0B")
+                            isMyClass -> Color.parseColor("#93C5FD")
+                            else -> Color.parseColor("#E2E8F0")
+                        }
+
+                        val card = CardView(this@TeacherMainActivity).apply {
+                            radius = (10 * resources.displayMetrics.density).toFloat()
+                            cardElevation = (1.5f * resources.displayMetrics.density).toFloat()
+                            setCardBackgroundColor(cardBg)
+                            val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                                val m = (3 * resources.displayMetrics.density).toInt()
+                                setMargins(m, m, m, m)
+                            }
+                            layoutParams = lp
+                            isClickable = true
+                            isFocusable = true
+                            setOnClickListener {
+                                if (isAlreadyIn) {
+                                    dialog.dismiss()
+                                    showTeacherManageAttendanceDialog()
+                                } else if (canCheckIn) {
+                                    dialog.dismiss()
+                                    handleTeacherRoomCheckIn(roomCode = room.roomCode ?: room.className)
+                                } else if (isScheduled) {
+                                    val reason = room.statusReason ?: "Presensi dibuka 30 menit sebelum jam mengajar dimulai."
+                                    AlertDialog.Builder(this@TeacherMainActivity)
+                                        .setTitle("⏳ Presensi Belum Dibuka")
+                                        .setMessage("$reason\n\nJadwal KBM: ${room.scheduleStartTime ?: "-"} - ${room.scheduleEndTime ?: "-"} WIB\nPresensi dibuka: Pukul ${room.windowOpenTime ?: "-"} WIB (H-30 menit).")
+                                        .setPositiveButton("Mengerti", null)
+                                        .show()
+                                } else {
+                                    AlertDialog.Builder(this@TeacherMainActivity)
+                                        .setTitle("🏫 Ruang Kelas ${room.className}")
+                                        .setMessage("Apakah Anda ingin membuka sesi mengajar KBM di ruang kelas ${room.className}?")
+                                        .setPositiveButton("Buka Sesi Kelas Ini") { _, _ ->
+                                            dialog.dismiss()
+                                            handleTeacherRoomCheckIn(roomCode = room.roomCode ?: room.className)
+                                        }
+                                        .setNegativeButton("Batal", null)
+                                        .show()
+                                }
+                            }
+                        }
+
+                        val cardInner = LinearLayout(this@TeacherMainActivity).apply {
+                            orientation = LinearLayout.VERTICAL
+                            gravity = Gravity.CENTER
+                            val p = (10 * resources.displayMetrics.density).toInt()
+                            setPadding(p, p, p, p)
+                            background = GradientDrawable().apply {
+                                setColor(cardBg)
+                                cornerRadius = (10 * resources.displayMetrics.density).toFloat()
+                                setStroke((1 * resources.displayMetrics.density).toInt(), strokeColor)
+                            }
+                        }
+
+                        val tvIco = TextView(this@TeacherMainActivity).apply {
+                            text = when {
+                                isAlreadyIn -> "🟢"
+                                canCheckIn -> "⭐"
+                                isScheduled -> "⏳"
+                                isMyClass -> "👨‍🏫"
+                                else -> "🏫"
+                            }
+                            textSize = 16f
+                            gravity = Gravity.CENTER
+                        }
+                        cardInner.addView(tvIco)
+
+                        val tvCls = TextView(this@TeacherMainActivity).apply {
+                            text = room.className ?: room.roomName.replace("Ruang Kelas ", "")
+                            textSize = 13.5f
+                            setTypeface(null, Typeface.BOLD)
+                            setTextColor(if (isAlreadyIn || canCheckIn) Color.parseColor("#065F46") else Color.parseColor("#0F172A"))
+                            gravity = Gravity.CENTER
+                            setPadding(0, 2, 0, 2)
+                        }
+                        cardInner.addView(tvCls)
+
+                        val badgeStatus = TextView(this@TeacherMainActivity).apply {
+                            text = when {
+                                isAlreadyIn -> "Aktif"
+                                canCheckIn -> "Buka"
+                                isScheduled -> "Jadwal"
+                                isMyClass -> "Diampu"
+                                else -> "Tersedia"
+                            }
+                            textSize = 9.5f
+                            setTypeface(null, Typeface.BOLD)
+                            setTextColor(when {
+                                isAlreadyIn -> Color.parseColor("#059669")
+                                canCheckIn -> Color.parseColor("#059669")
+                                isScheduled -> Color.parseColor("#D97706")
+                                isMyClass -> Color.parseColor("#2563EB")
+                                else -> Color.parseColor("#64748B")
+                            })
+                            gravity = Gravity.CENTER
+                        }
+                        cardInner.addView(badgeStatus)
+
+                        card.addView(cardInner)
+                        currentRow?.addView(card)
+                    }
+
+                    // Isi sisa kolom jika baris terakhir kurang dari 3 agar ukuran tetap seragam
+                    val remainder = filteredList.size % 3
+                    if (remainder > 0) {
+                        for (i in 0 until (3 - remainder)) {
+                            val dummy = View(this@TeacherMainActivity).apply {
+                                val lp = LinearLayout.LayoutParams(0, 0, 1f).apply {
+                                    val m = (3 * resources.displayMetrics.density).toInt()
+                                    setMargins(m, m, m, m)
+                                }
+                                layoutParams = lp
+                            }
+                            currentRow?.addView(dummy)
+                        }
+                    }
+                }
+
+                renderClassGrid()
 
                 sv.addView(container)
                 root.addView(sv)
@@ -17341,230 +20661,751 @@ class TeacherMainActivity : AppCompatActivity() {
     }
 
     // =========================================================================
-    // MODUL ULANGAN HARIAN CEPAT (3 MODE: KILAT, STANDAR, CBT MINI)
+    // MODUL ULANGAN HARIAN CEPAT (3 MODE: KILAT, STANDAR, CBT MINI) - FULL MODE
     // =========================================================================
     private fun promptMulaiUlanganHarian3ModeDialog() {
         val density = resources.displayMetrics.density
         fun dp(v: Int): Int = (v * density).toInt()
 
+        val dialog = createFullscreenDialog()
+
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(16), dp(20), dp(20))
+            setBackgroundColor(Color.parseColor("#F8FAFC"))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         }
 
-        val tvTitle = TextView(this).apply {
-            text = "⚡ Mulai Ulangan Harian Cepat (3 Mode)"
-            textSize = 16f
-            setTextColor(Color.parseColor("#0F172A"))
+        val header = createFullscreenHeader(
+            title = "⚡ Mulai Ulangan Harian Cepat (3 Mode)",
+            subtitle = "Pilih kelas ampu, mode pelaksanaan & penyusunan soal cerdas",
+            onClose = { dialog.dismiss() }
+        )
+        root.addView(header)
+
+        val sv = ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
+        }
+        val bodyContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(14), dp(16), dp(24))
+        }
+        sv.addView(bodyContainer)
+        root.addView(sv)
+
+        // Banner Info Singkat + Tombol Monitoring UH Aktif
+        val bannerRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            val bg = android.graphics.drawable.GradientDrawable().apply {
+                setColor(Color.parseColor("#EEF2FF"))
+                cornerRadius = dp(10).toFloat()
+                setStroke(dp(1), Color.parseColor("#C7D2FE"))
+            }
+            background = bg
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(12)
+            }
+        }
+        val tvBannerInfo = TextView(this).apply {
+            text = "💡 Anda dapat menyusun soal baru, import Excel/WA, generate AI, atau memantau ulangan yang sedang berjalan."
+            textSize = 11f
+            setTextColor(Color.parseColor("#3730A3"))
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(8) }
+        }
+        val btnOpenHistoryUh = Button(this).apply {
+            text = "📊 Pantau UH"
+            textSize = 10.5f
+            isAllCaps = false
+            setTextColor(Color.WHITE)
             setTypeface(null, Typeface.BOLD)
+            backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#4338CA"))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36))
+            setOnClickListener {
+                showDaftarUlanganHarianGuruDialog()
+            }
         }
-        root.addView(tvTitle)
+        bannerRow.addView(tvBannerInfo)
+        bannerRow.addView(btnOpenHistoryUh)
+        bodyContainer.addView(bannerRow)
 
-        val tvSubtitle = TextView(this).apply {
-            text = "Pilih kelas, mata pelajaran, materi, dan mode ulangan sesuai kebutuhan KBM hari ini."
-            textSize = 11.5f
-            setTextColor(Color.parseColor("#64748B"))
-            setPadding(0, dp(4), 0, dp(12))
+        // 1. Target Kelas (Multi-Centang Rombel yang Diampu)
+        val tvClassLbl = TextView(this).apply {
+            text = "1. Target Rombel / Kelas yang Diampu (Centang Kelas Pelaksana) *"
+            textSize = 12.5f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#1E293B"))
         }
-        root.addView(tvSubtitle)
-
-        // Target Kelas (Multi-Centang Rombel)
-        val tvClassLbl = TextView(this).apply { text = "Target Rombel / Kelas (Centang Kelas Pelaksana) *"; textSize = 12f; setTypeface(null, Typeface.BOLD); setTextColor(Color.parseColor("#334155")) }
-        root.addView(tvClassLbl)
+        bodyContainer.addView(tvClassLbl)
 
         val cardClasses = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             val bg = android.graphics.drawable.GradientDrawable().apply {
-                setColor(Color.parseColor("#F8FAFC"))
-                cornerRadius = dp(8).toFloat()
-                setStroke(dp(1), Color.parseColor("#E2E8F0"))
+                setColor(Color.WHITE)
+                cornerRadius = dp(10).toFloat()
+                setStroke(dp(1), Color.parseColor("#CBD5E1"))
             }
             background = bg
-            setPadding(dp(10), dp(8), dp(10), dp(8))
+            setPadding(dp(12), dp(10), dp(12), dp(10))
             val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                bottomMargin = dp(8)
-                topMargin = dp(4)
+                bottomMargin = dp(12)
+                topMargin = dp(6)
             }
             layoutParams = lp
         }
 
-        val cbSelectAll = CheckBox(this).apply {
-            text = "✅ Pilih Semua Kelas yang Diampu"
-            textSize = 12f
-            setTextColor(Color.parseColor("#0F172A"))
-            setTypeface(null, Typeface.BOLD)
-            isChecked = true
+        val classCheckBoxList = mutableListOf<CheckBox>()
+
+        val headerClassesRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(6)
+            }
+            layoutParams = lp
         }
-        cardClasses.addView(cbSelectAll)
+        val tvClsHeading = TextView(this).apply {
+            text = "Target Kelas:"
+            textSize = 12f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#0F172A"))
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        headerClassesRow.addView(tvClsHeading)
+
+        val btnSelectAll = TextView(this).apply {
+            text = "✓ Semua"
+            textSize = 10.5f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#059669"))
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#ECFDF5"))
+                cornerRadius = dp(6).toFloat()
+                setStroke(dp(1), Color.parseColor("#A7F3D0"))
+            }
+            setPadding(dp(8), dp(3), dp(8), dp(3))
+            setOnClickListener {
+                classCheckBoxList.forEach { it.isChecked = true }
+            }
+        }
+        val btnDeselectAll = TextView(this).apply {
+            text = "✕ Batal"
+            textSize = 10.5f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#64748B"))
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#F1F5F9"))
+                cornerRadius = dp(6).toFloat()
+                setStroke(dp(1), Color.parseColor("#CBD5E1"))
+            }
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                marginStart = dp(6)
+            }
+            layoutParams = lp
+            setPadding(dp(8), dp(3), dp(8), dp(3))
+            setOnClickListener {
+                classCheckBoxList.forEach { it.isChecked = false }
+            }
+        }
+        headerClassesRow.addView(btnSelectAll)
+        headerClassesRow.addView(btnDeselectAll)
+        cardClasses.addView(headerClassesRow)
 
         val dividerCls = View(this).apply {
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)).apply {
-                topMargin = dp(3)
-                bottomMargin = dp(4)
+                topMargin = dp(2)
+                bottomMargin = dp(6)
             }
-            setBackgroundColor(Color.parseColor("#CBD5E1"))
+            setBackgroundColor(Color.parseColor("#E2E8F0"))
         }
         cardClasses.addView(dividerCls)
 
+        val gridClasses = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
+        cardClasses.addView(gridClasses)
+
+        fun renderUhClassCheckboxes(classesList: List<String>) {
+            gridClasses.removeAllViews()
+            classCheckBoxList.clear()
+            var currentRow: LinearLayout? = null
+            classesList.forEachIndexed { idx, clsName ->
+                if (idx % 4 == 0) {
+                    currentRow = LinearLayout(this).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        weightSum = 4f
+                        val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                            bottomMargin = dp(4)
+                        }
+                        layoutParams = lp
+                    }
+                    gridClasses.addView(currentRow)
+                }
+                val cbClass = CheckBox(this).apply {
+                    buttonDrawable = null
+                    text = clsName
+                    tag = clsName
+                    gravity = Gravity.CENTER
+                    textAlignment = View.TEXT_ALIGNMENT_CENTER
+                    textSize = 11.5f
+                    setTypeface(null, Typeface.BOLD)
+                    val lp = LinearLayout.LayoutParams(0, dp(32), 1f).apply {
+                        marginStart = dp(2)
+                        marginEnd = dp(2)
+                    }
+                    layoutParams = lp
+                    isChecked = false
+
+                    fun applyStyle(checked: Boolean) {
+                        if (checked) {
+                            setTextColor(Color.WHITE)
+                            background = GradientDrawable().apply {
+                                setColor(Color.parseColor("#DC2626")) // Merah saat dipilih
+                                cornerRadius = dp(8).toFloat()
+                                setStroke(dp(1), Color.parseColor("#B91C1C"))
+                            }
+                        } else {
+                            setTextColor(Color.parseColor("#065F46")) // Default Hijau
+                            background = GradientDrawable().apply {
+                                setColor(Color.parseColor("#ECFDF5"))
+                                cornerRadius = dp(8).toFloat()
+                                setStroke(dp(1), Color.parseColor("#10B981"))
+                            }
+                        }
+                    }
+                    applyStyle(isChecked)
+                    setOnCheckedChangeListener { _, checked ->
+                        applyStyle(checked)
+                    }
+                }
+                classCheckBoxList.add(cbClass)
+                currentRow?.addView(cbClass)
+            }
+        }
+
         val teacherClasses = sessionManager.getTeachingClasses()
+            .replace("[", "").replace("]", "").replace("\"", "")
             .split(",")
             .map { it.trim() }
-            .filter { it.isNotEmpty() }
+            .filter { it.isNotEmpty() && it != "null" }
+            .distinct()
             .toMutableList()
         if (teacherClasses.isEmpty()) {
-            teacherClasses.addAll(listOf("VII-A", "VII-B", "VII-C", "VII-D", "VII-E", "VII-F", "VII-G", "VII-H", "VII-I", "VII-J", "VII-K",
-                "VIII-A", "VIII-B", "VIII-C", "VIII-D", "VIII-E", "VIII-F", "VIII-G", "VIII-H", "VIII-I", "VIII-J", "VIII-K",
-                "IX-A", "IX-B", "IX-C", "IX-D", "IX-E", "IX-F", "IX-G", "IX-H", "IX-I", "IX-J", "IX-K"))
+            val homeroom = sessionManager.getClassName().trim()
+            if (homeroom.isNotEmpty() && homeroom != "-" && homeroom != "null") {
+                teacherClasses.add(homeroom)
+            } else {
+                teacherClasses.addAll(listOf("VII-A", "VII-B", "VII-C", "VIII-A", "VIII-B", "IX-A", "IX-B"))
+            }
         }
+        renderUhClassCheckboxes(teacherClasses)
 
-        val classCheckBoxList = mutableListOf<CheckBox>()
-        var currentRow: LinearLayout? = null
-        teacherClasses.forEachIndexed { idx, clsName ->
-            if (idx % 3 == 0) {
-                currentRow = LinearLayout(this).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    weightSum = 3f
-                    layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-                }
-                cardClasses.addView(currentRow)
-            }
-            val cbClass = CheckBox(this).apply {
-                text = clsName
-                textSize = 11.5f
-                isChecked = true
-                setTextColor(Color.parseColor("#334155"))
-                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-            }
-            classCheckBoxList.add(cbClass)
-            currentRow?.addView(cbClass)
-        }
-
-        var isUpdatingCheckboxes = false
-        cbSelectAll.setOnCheckedChangeListener { _, isChecked ->
-            if (!isUpdatingCheckboxes) {
-                isUpdatingCheckboxes = true
-                classCheckBoxList.forEach { it.isChecked = isChecked }
-                isUpdatingCheckboxes = false
-            }
-        }
-        classCheckBoxList.forEach { cb ->
-            cb.setOnCheckedChangeListener { _, _ ->
-                if (!isUpdatingCheckboxes) {
-                    isUpdatingCheckboxes = true
-                    cbSelectAll.isChecked = classCheckBoxList.all { it.isChecked }
-                    isUpdatingCheckboxes = false
+        ApiClient.getClient(this).getTeacherClasses().enqueue(object : Callback<TeacherClassesResponse> {
+            override fun onResponse(call: Call<TeacherClassesResponse>, response: Response<TeacherClassesResponse>) {
+                val apiClasses = response.body()?.classes?.map { it.className.trim() }?.filter { it.isNotEmpty() }?.distinct()
+                if (!apiClasses.isNullOrEmpty()) {
+                    sessionManager.saveTeachingClasses(apiClasses.joinToString(","))
+                    renderUhClassCheckboxes(apiClasses)
                 }
             }
-        }
-        root.addView(cardClasses)
+            override fun onFailure(call: Call<TeacherClassesResponse>, t: Throwable) {}
+        })
 
-        // Mapel (Terkunci ke Mata Pelajaran Guru)
-        val tvMapelLbl = TextView(this).apply { text = "Mata Pelajaran (Otomatis Terkunci) *"; textSize = 12f; setTypeface(null, Typeface.BOLD); setTextColor(Color.parseColor("#334155")) }
-        root.addView(tvMapelLbl)
+        bodyContainer.addView(cardClasses)
+
+        // 2. Mapel & Topik Materi
+        val tvMapelLbl = TextView(this).apply {
+            text = "2. Mata Pelajaran & Materi Pokok Ulangan *"
+            textSize = 12.5f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#1E293B"))
+        }
+        bodyContainer.addView(tvMapelLbl)
+
         val teacherSubject = sessionManager.getTeachingSubject().ifEmpty { "Mata Pelajaran yang Diampu" }
         val tvMapelLocked = TextView(this).apply {
-            text = "🔒 $teacherSubject"
+            text = "🔒 Mata Pelajaran: $teacherSubject"
             textSize = 13f
             setTextColor(Color.parseColor("#166534"))
             setTypeface(null, Typeface.BOLD)
             val bg = android.graphics.drawable.GradientDrawable().apply {
                 setColor(Color.parseColor("#F0FDF4"))
-                cornerRadius = dp(6).toFloat()
+                cornerRadius = dp(8).toFloat()
                 setStroke(dp(1), Color.parseColor("#BBF7D0"))
             }
             background = bg
-            setPadding(dp(10), dp(8), dp(10), dp(8))
+            setPadding(dp(12), dp(10), dp(12), dp(10))
             val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(4)
+                topMargin = dp(6)
                 bottomMargin = dp(8)
             }
             layoutParams = lp
         }
-        root.addView(tvMapelLocked)
+        bodyContainer.addView(tvMapelLocked)
 
-        // Topik
-        val tvTopikLbl = TextView(this).apply { text = "Topik / Materi Ulangan *"; textSize = 12f; setTypeface(null, Typeface.BOLD); setTextColor(Color.parseColor("#334155")) }
-        root.addView(tvTopikLbl)
         val etTopik = EditText(this).apply {
-            hint = "Topik / Materi Ulangan (misal: Pola Bilangan / Ekosistem)"
-            textSize = 13f
+            hint = "Ketik Topik / Materi Ulangan (misal: Bab 2 Aljabar / Sistem Pencernaan)"
+            textSize = 13.5f
+            val bg = android.graphics.drawable.GradientDrawable().apply {
+                setColor(Color.WHITE)
+                cornerRadius = dp(8).toFloat()
+                setStroke(dp(1), Color.parseColor("#CBD5E1"))
+            }
+            background = bg
+            setPadding(dp(12), dp(12), dp(12), dp(12))
             val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                bottomMargin = dp(8)
+                bottomMargin = dp(12)
             }
             layoutParams = lp
         }
-        root.addView(etTopik)
+        bodyContainer.addView(etTopik)
 
-        // Radio Group 3 Mode
+        // 3. Mode Pelaksanaan & Konfigurasi Durasi / Jumlah Soal
         val tvModeLbl = TextView(this).apply {
-            text = "Pilih Mode Ulangan:"
-            textSize = 12f
+            text = "3. Pilih Mode Pelaksanaan Ulangan Harian:"
+            textSize = 12.5f
             setTypeface(null, Typeface.BOLD)
-            setPadding(0, dp(4), 0, dp(4))
+            setTextColor(Color.parseColor("#1E293B"))
+            setPadding(0, dp(2), 0, dp(6))
         }
-        root.addView(tvModeLbl)
+        bodyContainer.addView(tvModeLbl)
+
+        val cardMode = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val bg = android.graphics.drawable.GradientDrawable().apply {
+                setColor(Color.WHITE)
+                cornerRadius = dp(10).toFloat()
+                setStroke(dp(1), Color.parseColor("#CBD5E1"))
+            }
+            background = bg
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(12)
+            }
+        }
 
         val rgMode = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL }
-        val rbKilat = RadioButton(this).apply { text = "⚡ Mode Kilat (15 Menit, PG Otomatis, Tanpa Token)"; isChecked = true }
-        val rbStandar = RadioButton(this).apply { text = "📝 Mode Standar (30 Menit, Campuran PG & Essay)" }
-        val rbCbtMini = RadioButton(this).apply { text = "🎯 Mode CBT Mini (Acak Soal, Token 5 Menit, Anti-Cheat)" }
+        val rbKilat = RadioButton(this).apply {
+            text = "⚡ Mode Kilat (Kuis Cepat 15 Menit • Tanpa Token • Nilai Langsung)"
+            textSize = 12f
+            isChecked = true
+        }
+        val rbStandar = RadioButton(this).apply {
+            text = "📝 Mode Standar (Ulangan Harian 30 Menit • PG & Uraian)"
+            textSize = 12f
+        }
+        val rbCbtMini = RadioButton(this).apply {
+            text = "🎯 Mode CBT Mini (40 Menit • Acak Soal • Token 5 Menit • Anti-Cheat 3x)"
+            textSize = 12f
+        }
         rgMode.addView(rbKilat)
         rgMode.addView(rbStandar)
         rgMode.addView(rbCbtMini)
-        root.addView(rgMode)
+        cardMode.addView(rgMode)
 
-        // Pilihan Sumber / Metode Pembuatan Soal
-        val tvSumberLbl = TextView(this).apply {
-            text = "Pilihan Penyusunan Soal:"
+        val rowConfig = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            weightSum = 2f
+            setPadding(0, dp(8), 0, 0)
+        }
+        val colDurasi = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) }
+        }
+        colDurasi.addView(TextView(this).apply {
+            text = "⏱️ Durasi (Menit):"
+            textSize = 11.5f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#475569"))
+        })
+        val etDurasi = EditText(this).apply {
+            setText("15")
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            textSize = 13f
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(Color.parseColor("#F8FAFC"))
+                cornerRadius = dp(6).toFloat()
+                setStroke(dp(1), Color.parseColor("#CBD5E1"))
+            }
+        }
+        colDurasi.addView(etDurasi)
+
+        val colJumlah = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(6) }
+        }
+        colJumlah.addView(TextView(this).apply {
+            text = "🔢 Target Jumlah Soal:"
+            textSize = 11.5f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#475569"))
+        })
+        val etJumlahSoal = EditText(this).apply {
+            setText("5")
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            textSize = 13f
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(Color.parseColor("#F8FAFC"))
+                cornerRadius = dp(6).toFloat()
+                setStroke(dp(1), Color.parseColor("#CBD5E1"))
+            }
+        }
+        colJumlah.addView(etJumlahSoal)
+
+        rgMode.setOnCheckedChangeListener { _, checkedId ->
+            when (checkedId) {
+                rbKilat.id -> { etDurasi.setText("15"); etJumlahSoal.setText("5") }
+                rbStandar.id -> { etDurasi.setText("30"); etJumlahSoal.setText("10") }
+                rbCbtMini.id -> { etDurasi.setText("40"); etJumlahSoal.setText("15") }
+            }
+        }
+
+        rowConfig.addView(colDurasi)
+        rowConfig.addView(colJumlah)
+        cardMode.addView(rowConfig)
+        bodyContainer.addView(cardMode)
+
+        // 4. Penjadwalan Terstruktur Ulangan Harian (Hari, Tanggal & Jam)
+        val tvScheduleLbl = TextView(this).apply {
+            text = "4. 📅 Penjadwalan Pelaksanaan Ulangan Harian:"
+            textSize = 12.5f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#1E293B"))
+            setPadding(0, dp(4), 0, dp(6))
+        }
+        bodyContainer.addView(tvScheduleLbl)
+
+        val cardSchedule = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val bg = android.graphics.drawable.GradientDrawable().apply {
+                setColor(Color.parseColor("#F0FDF4"))
+                cornerRadius = dp(10).toFloat()
+                setStroke(dp(1), Color.parseColor("#BBF7D0"))
+            }
+            background = bg
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(12)
+            }
+        }
+
+        val calNow = java.util.Calendar.getInstance()
+        val sdfDateIso = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+        val sdfIndoDay = java.text.SimpleDateFormat("EEEE, dd MMM yyyy", java.util.Locale("id", "ID"))
+        val sdfTime = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
+
+        var selectedStartDate = sdfDateIso.format(calNow.time)
+        var selectedStartTime = sdfTime.format(calNow.time)
+        val calEnd = java.util.Calendar.getInstance().apply { add(java.util.Calendar.MINUTE, 30) }
+        var selectedEndTime = sdfTime.format(calEnd.time)
+
+        val tvPreviewSchedule = TextView(this).apply {
+            textSize = 11.5f
+            setTextColor(Color.parseColor("#166534"))
+            setTypeface(null, Typeface.BOLD)
+            val bgPrv = android.graphics.drawable.GradientDrawable().apply {
+                setColor(Color.WHITE)
+                cornerRadius = dp(8).toFloat()
+                setStroke(dp(1), Color.parseColor("#86EFAC"))
+            }
+            background = bgPrv
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+        }
+
+        fun refreshUhSchedulePreview() {
+            try {
+                val parsed = sdfDateIso.parse(selectedStartDate)
+                val indoStr = if (parsed != null) sdfIndoDay.format(parsed) else selectedStartDate
+                tvPreviewSchedule.text = "🗓️ Jadwal: $indoStr\n🕒 Waktu: $selectedStartTime - $selectedEndTime WIB"
+            } catch (_: Exception) {
+                tvPreviewSchedule.text = "🗓️ Jadwal: $selectedStartDate • $selectedStartTime - $selectedEndTime WIB"
+            }
+        }
+        refreshUhSchedulePreview()
+
+        val tvDateBtn = TextView(this).apply {
+            text = "📅 Tanggal Ulangan: $selectedStartDate"
             textSize = 12f
             setTypeface(null, Typeface.BOLD)
-            setTextColor(Color.parseColor("#334155"))
-            setPadding(0, dp(10), 0, dp(4))
+            setTextColor(Color.parseColor("#065F46"))
+            val bgBtn = android.graphics.drawable.GradientDrawable().apply {
+                setColor(Color.WHITE)
+                cornerRadius = dp(6).toFloat()
+                setStroke(dp(1), Color.parseColor("#A7F3D0"))
+            }
+            background = bgBtn
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            setOnClickListener {
+                val dCal = java.util.Calendar.getInstance()
+                try {
+                    val p = sdfDateIso.parse(selectedStartDate)
+                    if (p != null) dCal.time = p
+                } catch (_: Exception) {}
+                android.app.DatePickerDialog(this@TeacherMainActivity, { _, y, m, d ->
+                    selectedStartDate = String.format(java.util.Locale.US, "%04d-%02d-%02d", y, m + 1, d)
+                    try {
+                        val p2 = sdfDateIso.parse(selectedStartDate)
+                        text = "📅 Tanggal Ulangan: " + (if (p2 != null) sdfIndoDay.format(p2) else selectedStartDate)
+                    } catch (_: Exception) {
+                        text = "📅 Tanggal Ulangan: $selectedStartDate"
+                    }
+                    refreshUhSchedulePreview()
+                }, dCal.get(java.util.Calendar.YEAR), dCal.get(java.util.Calendar.MONTH), dCal.get(java.util.Calendar.DAY_OF_MONTH)).show()
+            }
         }
-        root.addView(tvSumberLbl)
+        cardSchedule.addView(tvDateBtn)
+
+        val rowTimePickers = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            weightSum = 2f
+            setPadding(0, dp(6), 0, dp(6))
+        }
+        val tvEndBtn = TextView(this)
+        val tvStartBtn = TextView(this).apply {
+            text = "🕒 Jam Mulai: $selectedStartTime WIB"
+            textSize = 11.5f
+            setTextColor(Color.parseColor("#065F46"))
+            val bgBtn = android.graphics.drawable.GradientDrawable().apply {
+                setColor(Color.WHITE)
+                cornerRadius = dp(6).toFloat()
+                setStroke(dp(1), Color.parseColor("#A7F3D0"))
+            }
+            background = bgBtn
+            setPadding(dp(8), dp(8), dp(8), dp(8))
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(4) }
+            setOnClickListener {
+                val parts = selectedStartTime.split(":")
+                val h = parts.getOrNull(0)?.toIntOrNull() ?: 7
+                val min = parts.getOrNull(1)?.toIntOrNull() ?: 30
+                android.app.TimePickerDialog(this@TeacherMainActivity, { _, hourOfDay, minute ->
+                    selectedStartTime = String.format(java.util.Locale.US, "%02d:%02d", hourOfDay, minute)
+                    text = "🕒 Jam Mulai: $selectedStartTime WIB"
+                    val dVal = etDurasi.text.toString().toIntOrNull() ?: 30
+                    val endCal = java.util.Calendar.getInstance().apply {
+                        set(java.util.Calendar.HOUR_OF_DAY, hourOfDay)
+                        set(java.util.Calendar.MINUTE, minute)
+                        add(java.util.Calendar.MINUTE, dVal)
+                    }
+                    selectedEndTime = sdfTime.format(endCal.time)
+                    tvEndBtn.text = "🕒 Jam Selesai: $selectedEndTime WIB"
+                    refreshUhSchedulePreview()
+                }, h, min, true).show()
+            }
+        }
+        tvEndBtn.apply {
+            text = "🕒 Jam Selesai: $selectedEndTime WIB"
+            textSize = 11.5f
+            setTextColor(Color.parseColor("#065F46"))
+            val bgBtn = android.graphics.drawable.GradientDrawable().apply {
+                setColor(Color.WHITE)
+                cornerRadius = dp(6).toFloat()
+                setStroke(dp(1), Color.parseColor("#A7F3D0"))
+            }
+            background = bgBtn
+            setPadding(dp(8), dp(8), dp(8), dp(8))
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(4) }
+            setOnClickListener {
+                val parts = selectedEndTime.split(":")
+                val h = parts.getOrNull(0)?.toIntOrNull() ?: 9
+                val min = parts.getOrNull(1)?.toIntOrNull() ?: 30
+                android.app.TimePickerDialog(this@TeacherMainActivity, { _, hourOfDay, minute ->
+                    selectedEndTime = String.format(java.util.Locale.US, "%02d:%02d", hourOfDay, minute)
+                    text = "🕒 Jam Selesai: $selectedEndTime WIB"
+                    refreshUhSchedulePreview()
+                }, h, min, true).show()
+            }
+        }
+        rowTimePickers.addView(tvStartBtn)
+        rowTimePickers.addView(tvEndBtn)
+        cardSchedule.addView(rowTimePickers)
+
+        // Preset Chips (Horizontal Scroll agar rapi dan tidak memanjang ke bawah)
+        val scrollPresets = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(8)
+            }
+        }
+        val rowPresets = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+        scrollPresets.addView(rowPresets)
+        fun makePresetChip(lbl: String, onApply: () -> Unit) {
+            val chip = TextView(this).apply {
+                text = lbl
+                textSize = 10.5f
+                isSingleLine = true
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(Color.parseColor("#047857"))
+                val bg = android.graphics.drawable.GradientDrawable().apply {
+                    setColor(Color.parseColor("#ECFDF5"))
+                    cornerRadius = dp(6).toFloat()
+                    setStroke(dp(1), Color.parseColor("#A7F3D0"))
+                }
+                background = bg
+                setPadding(dp(10), dp(5), dp(10), dp(5))
+                val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    marginEnd = dp(6)
+                }
+                layoutParams = lp
+                setOnClickListener { onApply() }
+            }
+            rowPresets.addView(chip)
+        }
+        makePresetChip("⚡ Langsung Mulai") {
+            val cNow = java.util.Calendar.getInstance()
+            selectedStartDate = sdfDateIso.format(cNow.time)
+            selectedStartTime = sdfTime.format(cNow.time)
+            val dVal = etDurasi.text.toString().toIntOrNull() ?: 15
+            val cFin = java.util.Calendar.getInstance().apply { add(java.util.Calendar.MINUTE, dVal) }
+            selectedEndTime = sdfTime.format(cFin.time)
+            tvDateBtn.text = "📅 Tanggal Ulangan: $selectedStartDate"
+            tvStartBtn.text = "🕒 Jam Mulai: $selectedStartTime WIB"
+            tvEndBtn.text = "🕒 Jam Selesai: $selectedEndTime WIB"
+            refreshUhSchedulePreview()
+        }
+        makePresetChip("🕒 Jam Ke-1 (07:30)") {
+            selectedStartTime = "07:30"
+            val dVal = etDurasi.text.toString().toIntOrNull() ?: 30
+            val parts = selectedStartTime.split(":")
+            val cFin = java.util.Calendar.getInstance().apply {
+                set(java.util.Calendar.HOUR_OF_DAY, parts[0].toInt())
+                set(java.util.Calendar.MINUTE, parts[1].toInt())
+                add(java.util.Calendar.MINUTE, dVal)
+            }
+            selectedEndTime = sdfTime.format(cFin.time)
+            tvStartBtn.text = "🕒 Jam Mulai: $selectedStartTime WIB"
+            tvEndBtn.text = "🕒 Jam Selesai: $selectedEndTime WIB"
+            refreshUhSchedulePreview()
+        }
+        makePresetChip("🕒 Jam Ke-2 (09:15)") {
+            selectedStartTime = "09:15"
+            val dVal = etDurasi.text.toString().toIntOrNull() ?: 30
+            val parts = selectedStartTime.split(":")
+            val cFin = java.util.Calendar.getInstance().apply {
+                set(java.util.Calendar.HOUR_OF_DAY, parts[0].toInt())
+                set(java.util.Calendar.MINUTE, parts[1].toInt())
+                add(java.util.Calendar.MINUTE, dVal)
+            }
+            selectedEndTime = sdfTime.format(cFin.time)
+            tvStartBtn.text = "🕒 Jam Mulai: $selectedStartTime WIB"
+            tvEndBtn.text = "🕒 Jam Selesai: $selectedEndTime WIB"
+            refreshUhSchedulePreview()
+        }
+        makePresetChip("📅 Besok Pagi") {
+            val cTmr = java.util.Calendar.getInstance().apply { add(java.util.Calendar.DAY_OF_MONTH, 1) }
+            selectedStartDate = sdfDateIso.format(cTmr.time)
+            selectedStartTime = "07:30"
+            val dVal = etDurasi.text.toString().toIntOrNull() ?: 30
+            val cFin = java.util.Calendar.getInstance().apply {
+                time = cTmr.time
+                set(java.util.Calendar.HOUR_OF_DAY, 7)
+                set(java.util.Calendar.MINUTE, 30)
+                add(java.util.Calendar.MINUTE, dVal)
+            }
+            selectedEndTime = sdfTime.format(cFin.time)
+            tvDateBtn.text = "📅 Tanggal Ulangan: $selectedStartDate"
+            tvStartBtn.text = "🕒 Jam Mulai: $selectedStartTime WIB"
+            tvEndBtn.text = "🕒 Jam Selesai: $selectedEndTime WIB"
+            refreshUhSchedulePreview()
+        }
+        cardSchedule.addView(scrollPresets)
+        cardSchedule.addView(tvPreviewSchedule)
+        bodyContainer.addView(cardSchedule)
+
+        // 5. Pilihan Penyusunan Soal Cerdas (4 Metode Lengkap & Berfungsi)
+        val tvSumberLbl = TextView(this).apply {
+            text = "5. Pilihan Penyusunan & Sumber Soal Ulangan:"
+            textSize = 12.5f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#1E293B"))
+            setPadding(0, dp(2), 0, dp(6))
+        }
+        bodyContainer.addView(tvSumberLbl)
+
+        val cardSumber = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val bg = android.graphics.drawable.GradientDrawable().apply {
+                setColor(Color.WHITE)
+                cornerRadius = dp(10).toFloat()
+                setStroke(dp(1), Color.parseColor("#CBD5E1"))
+            }
+            background = bg
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+        }
 
         val rgSumber = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL }
         val rbBuatEditor = RadioButton(this).apply {
-            text = "✍️ Buat Soal di APK (Smart Rich Editor + Rumus Math, Gambar & Listening)"
+            text = "✍️ Buat Soal di APK (Smart Question Editor + Rumus, Gambar & Audio)"
             isChecked = true
             textSize = 12f
             setTextColor(Color.parseColor("#0F172A"))
+            setPadding(dp(4), dp(6), dp(4), dp(6))
         }
-        val rbImportTeks = RadioButton(this).apply {
-            text = "📋 Import Teks Cepat (Paste Format Soal dari WA/Word/Catatan)"
+        val rbImportFileTeks = RadioButton(this).apply {
+            text = "📥 Import Cerdas (Pilih File Excel .xlsx/.csv/.txt dari HP atau Paste WA/Word)"
             textSize = 12f
             setTextColor(Color.parseColor("#0F172A"))
+            setPadding(dp(4), dp(6), dp(4), dp(6))
+        }
+        val rbAiGenerator = RadioButton(this).apply {
+            text = "🤖 Susun Otomatis dengan AI Cerdas (Sesuai Topik + Preview & Edit di APK)"
+            textSize = 12f
+            setTextColor(Color.parseColor("#0F172A"))
+            setPadding(dp(4), dp(6), dp(4), dp(6))
         }
         val rbBankSoal = RadioButton(this).apply {
-            text = "🏛️ Bank Soal Sekolah (Acak Otomatis dari Bank Soal)"
+            text = "🏛️ Ambil dari Bank Soal / Paket Ujian Guru (Preview & Edit Sebelum Mulai)"
             textSize = 12f
             setTextColor(Color.parseColor("#0F172A"))
+            setPadding(dp(4), dp(6), dp(4), dp(6))
         }
         rgSumber.addView(rbBuatEditor)
-        rgSumber.addView(rbImportTeks)
+        rgSumber.addView(rbImportFileTeks)
+        rgSumber.addView(rbAiGenerator)
         rgSumber.addView(rbBankSoal)
-        root.addView(rgSumber)
+        cardSumber.addView(rgSumber)
+        bodyContainer.addView(cardSumber)
 
-        val sv = ScrollView(this).apply { addView(root) }
-
-        val dialog = AlertDialog.Builder(this)
-            .setView(sv)
-            .setPositiveButton("Lanjutkan →", null)
-            .setNegativeButton("Batal", null)
-            .create()
-
-        dialog.setOnShowListener {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+        // Sticky Bottom Bar Fullscreen
+        val bottomBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setBackgroundColor(Color.WHITE)
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+        }
+        val btnCancel = Button(this).apply {
+            text = "Batal"
+            textSize = 12.5f
+            isAllCaps = false
+            setTextColor(Color.parseColor("#475569"))
+            backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#E2E8F0"))
+            layoutParams = LinearLayout.LayoutParams(dp(95), dp(46)).apply { marginEnd = dp(8) }
+            setOnClickListener { dialog.dismiss() }
+        }
+        val btnNextAction = Button(this).apply {
+            text = "🚀 Lanjutkan Penyusunan Soal →"
+            textSize = 13f
+            isAllCaps = false
+            setTextColor(Color.WHITE)
+            setTypeface(null, Typeface.BOLD)
+            backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#059669"))
+            layoutParams = LinearLayout.LayoutParams(0, dp(46), 1f)
+            setOnClickListener {
                 val checkedClasses = classCheckBoxList.filter { it.isChecked }.map { it.text.toString() }
                 if (checkedClasses.isEmpty()) {
-                    Toast.makeText(this, "Pilih minimal 1 kelas target ulangan!", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@TeacherMainActivity, "Pilih minimal 1 kelas yang diampu!", Toast.LENGTH_SHORT).show()
                     return@setOnClickListener
                 }
                 val selectedClass = checkedClasses.joinToString(",")
                 val mapel = teacherSubject
                 val topik = etTopik.text.toString().trim()
                 if (topik.isEmpty()) {
-                    Toast.makeText(this, "Harap lengkapi topik / materi ulangan!", Toast.LENGTH_SHORT).show()
+                    etTopik.error = "Topik / materi wajib diisi"
+                    Toast.makeText(this@TeacherMainActivity, "Harap isi Topik / Materi Ulangan terlebih dahulu!", Toast.LENGTH_SHORT).show()
                     return@setOnClickListener
                 }
 
@@ -17573,64 +21414,353 @@ class TeacherMainActivity : AppCompatActivity() {
                     rbStandar.isChecked -> "STANDAR"
                     else -> "KILAT"
                 }
+                val durasi = etDurasi.text.toString().toIntOrNull()?.coerceIn(5, 180) ?: 15
+                val targetSoalCount = etJumlahSoal.text.toString().toIntOrNull()?.coerceIn(1, 50) ?: 5
+                val scheduleStart = "$selectedStartDate $selectedStartTime"
+                val scheduleEnd = "$selectedStartDate $selectedEndTime"
 
-                val durasi = if (mode == "CBT_MINI") 30 else if (mode == "STANDAR") 30 else 15
-
-                if (rbBuatEditor.isChecked) {
-                    dialog.dismiss()
-                    showRichQuestionEditorDialog(selectedClass, mapel, topik, mode, durasi)
-                } else if (rbImportTeks.isChecked) {
-                    dialog.dismiss()
-                    showQuickClipboardImportDialog(selectedClass, mapel, topik, mode, durasi)
-                } else {
-                    val totalSoal = if (mode == "CBT_MINI") 20 else if (mode == "STANDAR") 15 else 5
-                    val body = mapOf(
-                        "kelasId" to selectedClass,
-                        "mapelId" to mapel,
-                        "topik" to topik,
-                        "mode" to mode,
-                        "durasiMenit" to durasi,
-                        "totalSoal" to totalSoal,
-                        "bobotNilai" to 100,
-                        "sumberSoal" to "BANK_SOAL"
-                    )
-
-                    Toast.makeText(this, "Memulai Ulangan Harian...", Toast.LENGTH_SHORT).show()
-
-                    ApiClient.getClient(this).startUlanganHarian(body).enqueue(object : Callback<Map<String, Any>> {
-                        override fun onResponse(call: Call<Map<String, Any>>, response: Response<Map<String, Any>>) {
-                            if (response.isSuccessful && response.body()?.get("success") == true) {
-                                val data = response.body()?.get("data") as? Map<*, *>
-                                val uhId = data?.get("id")?.toString() ?: ""
-                                dialog.dismiss()
-                                Toast.makeText(this@TeacherMainActivity, "✅ Ulangan Harian Berhasil Dimulai!", Toast.LENGTH_LONG).show()
-                                if (uhId.isNotEmpty()) {
-                                    showMonitoringUlanganHarianDialog(uhId)
-                                }
-                            } else {
-                                Toast.makeText(this@TeacherMainActivity, "Gagal memulai: ${response.message()}", Toast.LENGTH_SHORT).show()
-                            }
+                when {
+                    rbBuatEditor.isChecked -> {
+                        dialog.dismiss()
+                        // Pre-populate sesuai target jumlah soal agar tombol Next/Back langsung nyaman dipakai
+                        val blankTemplates = (1..targetSoalCount).map { num ->
+                            mapOf<String, Any>(
+                                "number" to num,
+                                "type" to "PG",
+                                "content" to "",
+                                "options" to listOf("A. ", "B. ", "C. ", "D. "),
+                                "correctOption" to "A",
+                                "explanation" to "",
+                                "points" to Math.max(1, 100 / targetSoalCount)
+                            )
                         }
-
-                        override fun onFailure(call: Call<Map<String, Any>>, t: Throwable) {
-                            Toast.makeText(this@TeacherMainActivity, "Koneksi gagal: ${t.message}", Toast.LENGTH_SHORT).show()
-                        }
-                    })
+                        showRichQuestionEditorDialog(
+                            selectedClasses = selectedClass,
+                            mapel = mapel,
+                            topik = topik,
+                            mode = mode,
+                            durasi = durasi,
+                            prefilledQuestions = blankTemplates,
+                            waktuMulaiStr = scheduleStart,
+                            waktuSelesaiStr = scheduleEnd
+                        )
+                    }
+                    rbImportFileTeks.isChecked -> {
+                        dialog.dismiss()
+                        showQuickClipboardImportDialog(
+                            selectedClasses = selectedClass,
+                            mapel = mapel,
+                            topik = topik,
+                            mode = mode,
+                            durasi = durasi,
+                            waktuMulaiStr = scheduleStart,
+                            waktuSelesaiStr = scheduleEnd
+                        )
+                    }
+                    rbAiGenerator.isChecked -> {
+                        dialog.dismiss()
+                        showSmartSourceQuestionLoaderDialog(
+                            selectedClasses = selectedClass,
+                            mapel = mapel,
+                            topik = topik,
+                            mode = mode,
+                            durasi = durasi,
+                            targetCount = targetSoalCount,
+                            initialSource = "AI_GEMINI",
+                            waktuMulaiStr = scheduleStart,
+                            waktuSelesaiStr = scheduleEnd
+                        )
+                    }
+                    rbBankSoal.isChecked -> {
+                        dialog.dismiss()
+                        showSmartSourceQuestionLoaderDialog(
+                            selectedClasses = selectedClass,
+                            mapel = mapel,
+                            topik = topik,
+                            mode = mode,
+                            durasi = durasi,
+                            targetCount = targetSoalCount,
+                            initialSource = "BANK_SOAL",
+                            waktuMulaiStr = scheduleStart,
+                            waktuSelesaiStr = scheduleEnd
+                        )
+                    }
                 }
             }
         }
+        bottomBar.addView(btnCancel)
+        bottomBar.addView(btnNextAction)
+        root.addView(bottomBar)
 
+        dialog.setView(root)
         dialog.show()
     }
 
-    private fun showRichQuestionEditorDialog(
+    /**
+     * Dialog Cerdas Penyusunan Soal dari AI Gemini / Bank Soal / Paket Ujian Guru
+     * Memungkinkan guru memilih paket atau tingkat kesulitan, mengunduh soal riil dari server,
+     * lalu membukanya di Smart Question Editor agar guru bisa mengecek/mengedit sebelum ulangan dimulai!
+     */
+    private fun showSmartSourceQuestionLoaderDialog(
         selectedClasses: String,
         mapel: String,
         topik: String,
         mode: String,
         durasi: Int,
-        prefilledQuestions: List<Map<String, Any>>? = null
+        targetCount: Int,
+        initialSource: String,
+        waktuMulaiStr: String? = null,
+        waktuSelesaiStr: String? = null,
+        onCustomSave: ((List<Map<String, Any?>>) -> Unit)? = null
     ) {
+        val density = resources.displayMetrics.density
+        fun dp(v: Int): Int = (v * density).toInt()
+
+        val dialog = createFullscreenDialog()
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#F8FAFC"))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        }
+
+        val isAi = initialSource == "AI_GEMINI"
+        val header = createFullscreenHeader(
+            title = if (isAi) "🤖 Penyusunan Soal Otomatis AI Cerdas" else "🏛️ Pilih Soal dari Bank Soal & Paket Ujian",
+            subtitle = "$topik • $mapel • Kelas: $selectedClasses",
+            onClose = { dialog.dismiss() }
+        )
+        root.addView(header)
+
+        val sv = ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
+        }
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(16), dp(16), dp(24))
+        }
+        sv.addView(container)
+        root.addView(sv)
+
+        // Konfigurasi Jumlah & Tingkat Kesulitan
+        val cardConfig = CardView(this).apply {
+            radius = dp(12).toFloat()
+            cardElevation = dp(2).toFloat()
+            setCardBackgroundColor(Color.WHITE)
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(14)
+            }
+        }
+        val cfgInner = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(14), dp(14), dp(14), dp(14))
+        }
+        cfgInner.addView(TextView(this).apply {
+            text = if (isAi) "⚙️ Parameter Generator Soal AI Kurikulum Merdeka" else "⚙️ Filter & Sumber Bank Soal Terpadu"
+            textSize = 13.5f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#0F172A"))
+        })
+        cfgInner.addView(TextView(this).apply {
+            text = "Soal yang dihasilkan akan dibuka terlebih dahulu di Smart Question Editor agar Anda dapat memeriksa kunci jawaban atau mengedit butir soal sebelum diterbitkan ke siswa."
+            textSize = 11.5f
+            setTextColor(Color.parseColor("#64748B"))
+            setPadding(0, dp(4), 0, dp(10))
+        })
+
+        cfgInner.addView(TextView(this).apply {
+            text = "Jumlah Butir Soal:"
+            textSize = 12f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#334155"))
+        })
+        val etCount = EditText(this).apply {
+            setText(targetCount.toString())
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            textSize = 13f
+        }
+        cfgInner.addView(etCount)
+
+        cfgInner.addView(TextView(this).apply {
+            text = "Tingkat Kesulitan / Kognitif:"
+            textSize = 12f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#334155"))
+            setPadding(0, dp(8), 0, dp(4))
+        })
+        val spDiff = Spinner(this).apply {
+            adapter = ArrayAdapter(
+                this@TeacherMainActivity,
+                android.R.layout.simple_spinner_dropdown_item,
+                listOf("Sedang (C3 - Aplikasi)", "Mudah (C1/C2 - Pemahaman Dasar)", "Sulit / HOTS (C4/C5 - Analisis & Penalaran)")
+            )
+        }
+        cfgInner.addView(spDiff)
+
+        var selectedExamPackageId = ""
+        val examPackagesList = mutableListOf<TeacherExamDto>()
+        val spExamPackages = Spinner(this)
+
+        if (!isAi) {
+            cfgInner.addView(TextView(this).apply {
+                text = "Pilih Sumber Paket Soal:"
+                textSize = 12f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(Color.parseColor("#334155"))
+                setPadding(0, dp(10), 0, dp(4))
+            })
+            spExamPackages.adapter = ArrayAdapter(
+                this@TeacherMainActivity,
+                android.R.layout.simple_spinner_dropdown_item,
+                listOf("🏛️ Gabungan Otomatis Bank Soal Mapel $mapel")
+            )
+            cfgInner.addView(spExamPackages)
+
+            ApiClient.getClient(this).getTeacherExams().enqueue(object : Callback<List<TeacherExamDto>> {
+                override fun onResponse(call: Call<List<TeacherExamDto>>, response: Response<List<TeacherExamDto>>) {
+                    val exams = response.body() ?: emptyList()
+                    examPackagesList.clear()
+                    examPackagesList.addAll(exams)
+                    val labels = mutableListOf("🏛️ Gabungan Otomatis Bank Soal Mapel $mapel")
+                    exams.forEach { ex ->
+                        val qCount = ex._count?.questions ?: 0
+                        labels.add("📦 Paket CBT: ${ex.title} ($qCount Soal)")
+                    }
+                    spExamPackages.adapter = ArrayAdapter(
+                        this@TeacherMainActivity,
+                        android.R.layout.simple_spinner_dropdown_item,
+                        labels
+                    )
+                    spExamPackages.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+                        override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                            selectedExamPackageId = if (position > 0 && position - 1 < examPackagesList.size) {
+                                examPackagesList[position - 1].id
+                            } else ""
+                        }
+                        override fun onNothingSelected(parent: AdapterView<*>?) {}
+                    }
+                }
+                override fun onFailure(call: Call<List<TeacherExamDto>>, t: Throwable) {}
+            })
+        }
+
+        cardConfig.addView(cfgInner)
+        container.addView(cardConfig)
+
+        val btnLoadToEditor = Button(this).apply {
+            text = if (isAi) "🤖 Generate Soal & Buka di Smart Editor →" else "📥 Tarik Soal & Buka di Smart Editor →"
+            textSize = 13f
+            isAllCaps = false
+            setTextColor(Color.WHITE)
+            setTypeface(null, Typeface.BOLD)
+            backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#0284C7"))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply {
+                bottomMargin = dp(10)
+            }
+            setOnClickListener {
+                val countVal = etCount.text.toString().toIntOrNull()?.coerceIn(1, 50) ?: targetCount
+                val diffRaw = spDiff.selectedItem?.toString() ?: "Sedang"
+                val diffVal = when {
+                    diffRaw.startsWith("Mudah") -> "Mudah"
+                    diffRaw.startsWith("Sulit") -> "Sulit"
+                    else -> "Sedang"
+                }
+
+                isEnabled = false
+                text = "⏳ Sedang Menyiapkan Butir Soal..."
+
+                val reqBody = mapOf(
+                    "mapelId" to mapel,
+                    "topik" to topik,
+                    "kelasId" to selectedClasses,
+                    "sumber" to initialSource,
+                    "examId" to selectedExamPackageId,
+                    "count" to countVal,
+                    "difficulty" to diffVal
+                )
+
+                ApiClient.getClient(this@TeacherMainActivity).previewSoalUh(reqBody).enqueue(object : Callback<Map<String, Any>> {
+                    override fun onResponse(call: Call<Map<String, Any>>, response: Response<Map<String, Any>>) {
+                        isEnabled = true
+                        text = if (isAi) "🤖 Generate Soal & Buka di Smart Editor →" else "📥 Tarik Soal & Buka di Smart Editor →"
+                        val rawList = response.body()?.get("data") as? List<*>
+                        if (response.isSuccessful && !rawList.isNullOrEmpty()) {
+                            val parsedList = rawList.mapNotNull { item ->
+                                val m = item as? Map<*, *> ?: return@mapNotNull null
+                                val rawOpts = (m["options"] as? List<*>)?.map { it.toString() } ?: listOf("Opsi A", "Opsi B", "Opsi C", "Opsi D")
+                                val formattedOpts = rawOpts.mapIndexed { idx, s ->
+                                    val letter = ('A'.code + idx).toChar()
+                                    val clean = s.replace(Regex("^[A-Ea-e][\\.\\)]\\s*"), "").trim()
+                                    "$letter. $clean"
+                                }
+                                mapOf<String, Any>(
+                                    "number" to ((m["number"] as? Number)?.toInt() ?: 1),
+                                    "type" to (m["type"]?.toString() ?: "PG"),
+                                    "content" to (m["content"]?.toString() ?: ""),
+                                    "options" to formattedOpts,
+                                    "correctOption" to (m["correctOption"]?.toString() ?: "A"),
+                                    "explanation" to (m["explanation"]?.toString() ?: ""),
+                                    "points" to ((m["points"] as? Number)?.toInt() ?: 10),
+                                    "imageUrl" to (m["imageUrl"]?.toString() ?: ""),
+                                    "audioUrl" to (m["audioUrl"]?.toString() ?: "")
+                                )
+                            }
+                            dialog.dismiss()
+                            Toast.makeText(this@TeacherMainActivity, "✅ ${parsedList.size} soal siap diperiksa di Smart Question Editor!", Toast.LENGTH_SHORT).show()
+                            showRichQuestionEditorDialog(
+                                selectedClasses = selectedClasses,
+                                mapel = mapel,
+                                topik = topik,
+                                mode = mode,
+                                durasi = durasi,
+                                prefilledQuestions = parsedList,
+                                waktuMulaiStr = waktuMulaiStr,
+                                waktuSelesaiStr = waktuSelesaiStr,
+                                onCustomSave = onCustomSave
+                            )
+                        } else {
+                            Toast.makeText(this@TeacherMainActivity, "Gagal menyiapkan soal, membuka editor manual...", Toast.LENGTH_SHORT).show()
+                            dialog.dismiss()
+                            showRichQuestionEditorDialog(
+                                selectedClasses = selectedClasses,
+                                mapel = mapel,
+                                topik = topik,
+                                mode = mode,
+                                durasi = durasi,
+                                waktuMulaiStr = waktuMulaiStr,
+                                waktuSelesaiStr = waktuSelesaiStr,
+                                onCustomSave = onCustomSave
+                            )
+                        }
+                    }
+
+                    override fun onFailure(call: Call<Map<String, Any>>, t: Throwable) {
+                        isEnabled = true
+                        text = if (isAi) "🤖 Generate Soal & Buka di Smart Editor →" else "📥 Tarik Soal & Buka di Smart Editor →"
+                        Toast.makeText(this@TeacherMainActivity, "Koneksi gagal: ${t.message}", Toast.LENGTH_SHORT).show()
+                    }
+                })
+            }
+        }
+        container.addView(btnLoadToEditor)
+
+        dialog.setView(root)
+        dialog.show()
+    }
+
+    private fun showRichQuestionEditorDialog(
+        selectedClasses: String = "",
+        mapel: String = "",
+        topik: String = "",
+        mode: String = "KILAT",
+        durasi: Int = 15,
+        prefilledQuestions: List<Map<String, Any?>>? = null,
+        kelas: String = "",
+        bobot: Int = 100,
+        onCustomSave: ((List<Map<String, Any?>>) -> Unit)? = null,
+        waktuMulaiStr: String? = null,
+        waktuSelesaiStr: String? = null
+    ) {
+        val targetClasses = if (selectedClasses.isNotEmpty()) selectedClasses else kelas
         val density = resources.displayMetrics.density
         fun dp(v: Int): Int = (v * density).toInt()
 
@@ -17673,6 +21803,7 @@ class TeacherMainActivity : AppCompatActivity() {
         var currentIdx = 0
         var activeInput: EditText? = null
         var currentTestPlayer: MediaPlayer? = null
+        var saveCurrentFormState: (() -> Unit)? = null
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -17681,9 +21812,10 @@ class TeacherMainActivity : AppCompatActivity() {
         }
 
         val header = createFullscreenHeader(
-            title = "✍️ Smart Question Editor",
-            subtitle = "$topik • $mapel • Kelas: $selectedClasses",
+            title = if (onCustomSave != null) "✍️ Editor Soal Tugas / PR" else "✍️ Smart Question Editor",
+            subtitle = "$topik • $mapel • Kelas: ${if (targetClasses.isNotEmpty()) targetClasses else "Semua"}",
             onClose = {
+                saveCurrentFormState?.invoke()
                 currentTestPlayer?.release()
                 currentTestPlayer = null
                 dialog.dismiss()
@@ -17691,18 +21823,46 @@ class TeacherMainActivity : AppCompatActivity() {
         )
         root.addView(header)
 
-        // Question Navigator Tabs (Horizontal Scroll)
-        val navScroll = HorizontalScrollView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        // Question Navigator Bar (Tabs kiri + Tombol Simpan Bank kanan yang fixed)
+        val navTopBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
             setBackgroundColor(Color.parseColor("#E2E8F0"))
             setPadding(dp(8), dp(6), dp(8), dp(6))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
+
+        val navScroll = HorizontalScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            isHorizontalScrollBarEnabled = true
+            overScrollMode = View.OVER_SCROLL_ALWAYS
         }
         val navRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
         navScroll.addView(navRow)
-        root.addView(navScroll)
+        navTopBar.addView(navScroll)
+
+        val btnQuickSaveBank = TextView(this).apply {
+            text = "🏛️ Simpan Bank"
+            textSize = 11f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#0F766E"))
+            isSingleLine = true
+            val bg = android.graphics.drawable.GradientDrawable().apply {
+                setColor(Color.parseColor("#F0FDFA"))
+                cornerRadius = dp(6).toFloat()
+                setStroke(dp(1), Color.parseColor("#99F6E4"))
+            }
+            background = bg
+            setPadding(dp(10), dp(7), dp(10), dp(7))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                marginStart = dp(8)
+            }
+        }
+        navTopBar.addView(btnQuickSaveBank)
+        root.addView(navTopBar)
 
         // Scroll View for Question Editor Form
         val svForm = ScrollView(this).apply {
@@ -17714,6 +21874,124 @@ class TeacherMainActivity : AppCompatActivity() {
         }
         svForm.addView(formContainer)
         root.addView(svForm)
+
+        // Bottom Navigation Bar (Wrapped in HorizontalScrollView agar bisa digeser dan tombol tidak terpotong)
+        val bottomScroll = HorizontalScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            isHorizontalScrollBarEnabled = false
+            setBackgroundColor(Color.WHITE)
+            elevation = dp(4).toFloat()
+        }
+        val bottomBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+        }
+        bottomScroll.addView(bottomBar)
+
+        val btnPrev = Button(this).apply {
+            text = "⬅️ Sebelumnya"
+            textSize = 11f
+            setTextColor(Color.parseColor("#334155"))
+            setBackgroundColor(Color.parseColor("#E2E8F0"))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42)).apply {
+                marginEnd = dp(6)
+            }
+            setPadding(dp(12), 0, dp(12), 0)
+        }
+
+        val btnNext = Button(this).apply {
+            text = "Selanjutnya ➡️"
+            textSize = 11f
+            setTextColor(Color.WHITE)
+            setTypeface(null, Typeface.BOLD)
+            setBackgroundColor(Color.parseColor("#0284C7"))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42)).apply {
+                marginEnd = dp(6)
+            }
+            setPadding(dp(12), 0, dp(12), 0)
+        }
+
+        val btnSaveBank = Button(this).apply {
+            text = "🏛️ Simpan ke Bank Soal"
+            textSize = 11f
+            setTextColor(Color.parseColor("#0F766E"))
+            setTypeface(null, Typeface.BOLD)
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#F0FDFA"))
+                cornerRadius = dp(6).toFloat()
+                setStroke(dp(1), Color.parseColor("#99F6E4"))
+            }
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42)).apply {
+                marginEnd = dp(6)
+            }
+            minWidth = dp(140)
+            isSingleLine = true
+            setPadding(dp(14), 0, dp(14), 0)
+            setOnClickListener {
+                saveCurrentFormState?.invoke()
+                val validQuestions = questions.filter { (it["content"]?.toString()?.trim() ?: "").isNotEmpty() }
+                if (validQuestions.isEmpty()) {
+                    Toast.makeText(this@TeacherMainActivity, "Belum ada naskah soal yang diisi", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                AlertDialog.Builder(this@TeacherMainActivity)
+                    .setTitle("🏛️ Simpan ke Bank Soal Sekolah")
+                    .setMessage("Apakah Anda ingin menyimpan ${validQuestions.size} butir soal ini ke Bank Soal Sekolah untuk mata pelajaran \"$mapel\"? Soal ini akan tersimpan permanen dan dapat ditarik kembali kapan saja.")
+                    .setPositiveButton("Simpan Sekarang") { _, _ ->
+                        val payloadQuestions = validQuestions.map { q ->
+                            val rawOpts = (q["options"] as? List<*>)?.map { it.toString() } ?: listOf("A. ", "B. ", "C. ", "D. ")
+                            val cleanedOpts = rawOpts.map { it.replace(Regex("^[A-Ea-e][\\.\\)]\\s*"), "").trim() }
+                            mapOf(
+                                "content" to (q["content"]?.toString() ?: ""),
+                                "type" to (q["type"]?.toString() ?: "PG"),
+                                "options" to cleanedOpts,
+                                "correctOption" to (q["correctOption"]?.toString() ?: "A"),
+                                "explanation" to (q["explanation"]?.toString() ?: "")
+                            )
+                        }
+                        val body = mapOf(
+                            "subjectName" to mapel.ifEmpty { "Umum" },
+                            "level" to (if (targetClasses.isNotEmpty()) targetClasses else "ALL"),
+                            "questions" to payloadQuestions
+                        )
+                        Toast.makeText(this@TeacherMainActivity, "Menyimpan ke Bank Soal...", Toast.LENGTH_SHORT).show()
+                        ApiClient.getClient(this@TeacherMainActivity).saveQuestionsToBank(body).enqueue(object : Callback<BasicResponse> {
+                            override fun onResponse(call: Call<BasicResponse>, response: Response<BasicResponse>) {
+                                if (response.isSuccessful) {
+                                    val msg = response.body()?.message ?: "✔ Berhasil menyimpan ${validQuestions.size} butir soal ke Bank Soal!"
+                                    Toast.makeText(this@TeacherMainActivity, msg, Toast.LENGTH_LONG).show()
+                                } else {
+                                    Toast.makeText(this@TeacherMainActivity, "Gagal menyimpan ke Bank Soal: ${response.message()}", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                            override fun onFailure(call: Call<BasicResponse>, t: Throwable) {
+                                Toast.makeText(this@TeacherMainActivity, "Koneksi ke server terputus", Toast.LENGTH_SHORT).show()
+                            }
+                        })
+                    }
+                    .setNegativeButton("Batal", null)
+                    .show()
+            }
+        }
+
+        val btnPublish = Button(this).apply {
+            text = if (onCustomSave != null) "💾 Simpan Butir Soal" else "🚀 Terbitkan UH"
+            textSize = 11.5f
+            setTextColor(Color.WHITE)
+            setTypeface(null, Typeface.BOLD)
+            setBackgroundColor(if (onCustomSave != null) Color.parseColor("#2563EB") else Color.parseColor("#059669"))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42)).apply {
+                marginEnd = dp(4)
+            }
+            setPadding(dp(16), 0, dp(16), 0)
+        }
+
+        bottomBar.addView(btnPrev)
+        bottomBar.addView(btnNext)
+        bottomBar.addView(btnSaveBank)
+        bottomBar.addView(btnPublish)
+        root.addView(bottomScroll)
 
         // Math & Science Formula Toolbar
         fun buildMathToolbar(onInsert: (String) -> Unit): View {
@@ -17759,7 +22037,28 @@ class TeacherMainActivity : AppCompatActivity() {
             return toolbarScroll
         }
 
-        // Forward declaration of render function
+        fun loadImageThumbnail(urlStr: String, iv: ImageView) {
+            if (urlStr.isEmpty()) {
+                iv.visibility = View.GONE
+                return
+            }
+            val serverBase = ApiClient.getBaseServerUrl(this@TeacherMainActivity).trimEnd('/')
+            val fullUrl = if (urlStr.startsWith("http")) urlStr else "$serverBase/" + urlStr.trimStart('/')
+            Thread {
+                try {
+                    val conn = URL(fullUrl).openConnection()
+                    conn.connectTimeout = 3000
+                    val bmp = BitmapFactory.decodeStream(conn.getInputStream())
+                    runOnUiThread {
+                        if (bmp != null) {
+                            iv.setImageBitmap(bmp)
+                            iv.visibility = View.VISIBLE
+                        }
+                    }
+                } catch (_: Exception) {}
+            }.start()
+        }
+
         lateinit var renderCurrentQuestion: () -> Unit
         lateinit var updateNavRow: () -> Unit
 
@@ -17784,9 +22083,11 @@ class TeacherMainActivity : AppCompatActivity() {
                     }
                     layoutParams = lp
                     setOnClickListener {
+                        saveCurrentFormState?.invoke()
                         currentIdx = i
                         updateNavRow()
                         renderCurrentQuestion()
+                        svForm.smoothScrollTo(0, 0)
                     }
                 }
                 navRow.addView(btnQ)
@@ -17805,6 +22106,7 @@ class TeacherMainActivity : AppCompatActivity() {
                 background = bg
                 setPadding(dp(12), dp(8), dp(12), dp(8))
                 setOnClickListener {
+                    saveCurrentFormState?.invoke()
                     val nextNum = questions.size + 1
                     questions.add(mutableMapOf(
                         "number" to nextNum,
@@ -17820,9 +22122,13 @@ class TeacherMainActivity : AppCompatActivity() {
                     currentIdx = questions.size - 1
                     updateNavRow()
                     renderCurrentQuestion()
+                    svForm.smoothScrollTo(0, 0)
                 }
             }
             navRow.addView(btnAdd)
+            btnQuickSaveBank.setOnClickListener {
+                btnSaveBank.performClick()
+            }
         }
 
         renderCurrentQuestion = {
@@ -17832,7 +22138,11 @@ class TeacherMainActivity : AppCompatActivity() {
             currentTestPlayer = null
 
             val q = questions[currentIdx]
-            val opts = (q["options"] as? MutableList<String>) ?: mutableListOf("A. ", "B. ", "C. ", "D. ")
+            val opts = ((q["options"] as? List<*>)?.map { it.toString() } ?: listOf("A. ", "B. ", "C. ", "D. ")).toMutableList()
+            while (opts.size < 4) {
+                val letter = ('A'.code + opts.size).toChar()
+                opts.add("$letter. ")
+            }
             var selectedCorrect = q["correctOption"]?.toString() ?: "A"
 
             // Header Row: Soal #X + Delete button
@@ -17862,6 +22172,7 @@ class TeacherMainActivity : AppCompatActivity() {
                         if (currentIdx >= questions.size) currentIdx = questions.size - 1
                         updateNavRow()
                         renderCurrentQuestion()
+                        svForm.smoothScrollTo(0, 0)
                     }
                 }
                 topHeaderRow.addView(btnDel)
@@ -17870,7 +22181,7 @@ class TeacherMainActivity : AppCompatActivity() {
 
             // Math Toolbar
             val tvMathLbl = TextView(this).apply {
-                text = "📐 Toolbar Rumus & Simbol Cepat (Ketuk untuk menyisipkan ke kursor aktif):"
+                text = "📐 Toolbar Rumus & Simbol Cepat (Sisipkan ke kursor):"
                 textSize = 11f
                 setTypeface(null, Typeface.BOLD)
                 setTextColor(Color.parseColor("#475569"))
@@ -17898,10 +22209,10 @@ class TeacherMainActivity : AppCompatActivity() {
             formContainer.addView(tvContentLbl)
 
             val etContent = EditText(this).apply {
-                hint = "Ketik teks soal atau formula matematika di sini..."
+                hint = "Ketik teks soal atau narasi pertanyaan di sini..."
                 textSize = 13f
                 minLines = 3
-                maxLines = 6
+                maxLines = 7
                 gravity = Gravity.TOP or Gravity.START
                 val bg = android.graphics.drawable.GradientDrawable().apply {
                     setColor(Color.WHITE)
@@ -17914,13 +22225,6 @@ class TeacherMainActivity : AppCompatActivity() {
                 setOnFocusChangeListener { _, hasFocus ->
                     if (hasFocus) activeInput = this
                 }
-                addTextChangedListener(object : android.text.TextWatcher {
-                    override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-                    override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                        q["content"] = s.toString()
-                    }
-                    override fun afterTextChanged(s: android.text.Editable?) {}
-                })
             }
             formContainer.addView(etContent)
             activeInput = etContent
@@ -17961,19 +22265,16 @@ class TeacherMainActivity : AppCompatActivity() {
                 textSize = 11.5f
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                 setText(q["imageUrl"]?.toString() ?: "")
-                addTextChangedListener(object : android.text.TextWatcher {
-                    override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-                    override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                        q["imageUrl"] = s.toString().trim()
-                    }
-                    override fun afterTextChanged(s: android.text.Editable?) {}
-                })
             }
             val ivThumb = ImageView(this).apply {
                 layoutParams = LinearLayout.LayoutParams(dp(42), dp(42)).apply { marginStart = dp(4); marginEnd = dp(4) }
                 scaleType = ImageView.ScaleType.CENTER_CROP
                 visibility = if (q["imageUrl"]?.toString().isNullOrEmpty()) View.GONE else View.VISIBLE
             }
+            if (!q["imageUrl"]?.toString().isNullOrEmpty()) {
+                loadImageThumbnail(q["imageUrl"]?.toString() ?: "", ivThumb)
+            }
+
             val btnPickImg = Button(this).apply {
                 text = "📷 Upload"
                 textSize = 10f
@@ -17981,23 +22282,66 @@ class TeacherMainActivity : AppCompatActivity() {
                 setBackgroundColor(Color.parseColor("#0284C7"))
                 layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(34))
                 setOnClickListener {
-                    val promptDialog = EditText(this@TeacherMainActivity).apply {
-                        hint = "Tempel URL / path gambar atau /uploads/..."
-                        textSize = 12f
-                    }
+                    val options = arrayOf("📂 Pilih File Gambar dari Galeri HP", "🔗 Masukkan URL / Path Gambar")
                     AlertDialog.Builder(this@TeacherMainActivity)
-                        .setTitle("Upload / Input URL Gambar")
-                        .setMessage("Masukkan link URL gambar atau path file soal:")
-                        .setView(promptDialog)
-                        .setPositiveButton("Gunakan") { _, _ ->
-                            val url = promptDialog.text.toString().trim()
-                            if (url.isNotEmpty()) {
-                                etImageUrl.setText(url)
-                                q["imageUrl"] = url
-                                ivThumb.visibility = View.VISIBLE
+                        .setTitle("Lampiran Gambar Soal")
+                        .setItems(options) { _, which ->
+                            if (which == 0) {
+                                launchGenericFilePicker("image/*") { uri ->
+                                    try {
+                                        val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                                        if (bytes != null) {
+                                            val b64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+                                            val mime = contentResolver.getType(uri) ?: "image/png"
+                                            val dataUri = "data:$mime;base64,$b64"
+                                            val fileName = getFileNameFromUri(uri) ?: "img_${System.currentTimeMillis()}.png"
+                                            val prg = ProgressDialog(this@TeacherMainActivity).apply {
+                                                setMessage("Mengunggah gambar soal ke server...")
+                                                setCancelable(false)
+                                                show()
+                                            }
+                                            ApiClient.getClient(this@TeacherMainActivity).uploadQuestionImage(mapOf("imageBase64" to dataUri, "fileName" to fileName)).enqueue(object : Callback<Map<String, Any>> {
+                                                override fun onResponse(call: Call<Map<String, Any>>, response: Response<Map<String, Any>>) {
+                                                    prg.dismiss()
+                                                    val url = response.body()?.get("imageUrl")?.toString() ?: response.body()?.get("location")?.toString()
+                                                    if (!url.isNullOrEmpty()) {
+                                                        etImageUrl.setText(url)
+                                                        q["imageUrl"] = url
+                                                        loadImageThumbnail(url, ivThumb)
+                                                        Toast.makeText(this@TeacherMainActivity, "✅ Gambar berhasil diunggah!", Toast.LENGTH_SHORT).show()
+                                                    } else {
+                                                        Toast.makeText(this@TeacherMainActivity, "Gagal mengunggah gambar", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                }
+                                                override fun onFailure(call: Call<Map<String, Any>>, t: Throwable) {
+                                                    prg.dismiss()
+                                                    Toast.makeText(this@TeacherMainActivity, "Koneksi upload gagal: ${t.message}", Toast.LENGTH_SHORT).show()
+                                                }
+                                            })
+                                        }
+                                    } catch (e: Exception) {
+                                        Toast.makeText(this@TeacherMainActivity, "Gagal membaca file: ${e.message}", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            } else {
+                                val promptDialog = EditText(this@TeacherMainActivity).apply {
+                                    hint = "/uploads/questions/... atau https://..."
+                                    textSize = 12f
+                                    setText(etImageUrl.text.toString())
+                                }
+                                AlertDialog.Builder(this@TeacherMainActivity)
+                                    .setTitle("Input Link / Path Gambar")
+                                    .setView(promptDialog)
+                                    .setPositiveButton("Gunakan") { _, _ ->
+                                        val url = promptDialog.text.toString().trim()
+                                        etImageUrl.setText(url)
+                                        q["imageUrl"] = url
+                                        loadImageThumbnail(url, ivThumb)
+                                    }
+                                    .setNegativeButton("Batal", null)
+                                    .show()
                             }
                         }
-                        .setNegativeButton("Batal", null)
                         .show()
                 }
             }
@@ -18026,13 +22370,6 @@ class TeacherMainActivity : AppCompatActivity() {
                 textSize = 11.5f
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                 setText(q["audioUrl"]?.toString() ?: "")
-                addTextChangedListener(object : android.text.TextWatcher {
-                    override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-                    override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                        q["audioUrl"] = s.toString().trim()
-                    }
-                    override fun afterTextChanged(s: android.text.Editable?) {}
-                })
             }
             val btnTestAudio = Button(this).apply {
                 text = "▶ Tes"
@@ -18076,28 +22413,70 @@ class TeacherMainActivity : AppCompatActivity() {
                 }
             }
             val btnInputAudio = Button(this).apply {
-                text = "🎧 Input"
+                text = "🎧 Upload"
                 textSize = 10f
                 setTextColor(Color.WHITE)
                 setBackgroundColor(Color.parseColor("#0284C7"))
                 layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(34)).apply { marginStart = dp(4) }
                 setOnClickListener {
-                    val promptDialog = EditText(this@TeacherMainActivity).apply {
-                        hint = "Tempel URL / path audio atau /uploads/questions/audio/..."
-                        textSize = 12f
-                    }
+                    val options = arrayOf("📂 Pilih File Audio dari HP (MP3/M4A/WAV)", "🔗 Masukkan URL / Path Audio")
                     AlertDialog.Builder(this@TeacherMainActivity)
-                        .setTitle("Upload / Input URL Audio Listening")
-                        .setMessage("Masukkan link audio listening (format MP3/M4A):")
-                        .setView(promptDialog)
-                        .setPositiveButton("Gunakan") { _, _ ->
-                            val url = promptDialog.text.toString().trim()
-                            if (url.isNotEmpty()) {
-                                etAudioUrl.setText(url)
-                                q["audioUrl"] = url
+                        .setTitle("Lampiran Audio Listening")
+                        .setItems(options) { _, which ->
+                            if (which == 0) {
+                                launchGenericFilePicker("audio/*") { uri ->
+                                    try {
+                                        val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                                        if (bytes != null) {
+                                            val b64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+                                            val mime = contentResolver.getType(uri) ?: "audio/mpeg"
+                                            val dataUri = "data:$mime;base64,$b64"
+                                            val fileName = getFileNameFromUri(uri) ?: "audio_${System.currentTimeMillis()}.mp3"
+                                            val prg = ProgressDialog(this@TeacherMainActivity).apply {
+                                                setMessage("Mengunggah file audio ke server...")
+                                                setCancelable(false)
+                                                show()
+                                            }
+                                            ApiClient.getClient(this@TeacherMainActivity).uploadQuestionAudio(mapOf("audioBase64" to dataUri, "fileName" to fileName)).enqueue(object : Callback<Map<String, Any>> {
+                                                override fun onResponse(call: Call<Map<String, Any>>, response: Response<Map<String, Any>>) {
+                                                    prg.dismiss()
+                                                    val url = response.body()?.get("audioUrl")?.toString() ?: response.body()?.get("url")?.toString()
+                                                    if (!url.isNullOrEmpty()) {
+                                                        etAudioUrl.setText(url)
+                                                        q["audioUrl"] = url
+                                                        Toast.makeText(this@TeacherMainActivity, "✅ Audio berhasil diunggah!", Toast.LENGTH_SHORT).show()
+                                                    } else {
+                                                        Toast.makeText(this@TeacherMainActivity, "Gagal mengunggah audio", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                }
+                                                override fun onFailure(call: Call<Map<String, Any>>, t: Throwable) {
+                                                    prg.dismiss()
+                                                    Toast.makeText(this@TeacherMainActivity, "Koneksi upload gagal: ${t.message}", Toast.LENGTH_SHORT).show()
+                                                }
+                                            })
+                                        }
+                                    } catch (e: Exception) {
+                                        Toast.makeText(this@TeacherMainActivity, "Gagal membaca audio: ${e.message}", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            } else {
+                                val promptDialog = EditText(this@TeacherMainActivity).apply {
+                                    hint = "/uploads/questions/audio/... atau https://..."
+                                    textSize = 12f
+                                    setText(etAudioUrl.text.toString())
+                                }
+                                AlertDialog.Builder(this@TeacherMainActivity)
+                                    .setTitle("Input Link / Path Audio")
+                                    .setView(promptDialog)
+                                    .setPositiveButton("Gunakan") { _, _ ->
+                                        val url = promptDialog.text.toString().trim()
+                                        etAudioUrl.setText(url)
+                                        q["audioUrl"] = url
+                                    }
+                                    .setNegativeButton("Batal", null)
+                                    .show()
                             }
                         }
-                        .setNegativeButton("Batal", null)
                         .show()
                 }
             }
@@ -18119,6 +22498,7 @@ class TeacherMainActivity : AppCompatActivity() {
 
             val radioButtonsList = mutableListOf<RadioButton>()
             val optionLetters = listOf("A", "B", "C", "D", "E")
+            val etOptList = mutableListOf<EditText>()
 
             val optionsCount = Math.max(opts.size, 4)
             for (optIdx in 0 until optionsCount) {
@@ -18161,17 +22541,8 @@ class TeacherMainActivity : AppCompatActivity() {
                     setOnFocusChangeListener { _, hasFocus ->
                         if (hasFocus) activeInput = this
                     }
-                    addTextChangedListener(object : android.text.TextWatcher {
-                        override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-                        override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                            val finalOpt = "$letter. ${s.toString().trim()}"
-                            while (opts.size <= optIdx) opts.add("")
-                            opts[optIdx] = finalOpt
-                            q["options"] = opts
-                        }
-                        override fun afterTextChanged(s: android.text.Editable?) {}
-                    })
                 }
+                etOptList.add(etOpt)
 
                 rb.setOnClickListener {
                     radioButtonsList.forEach { it.isChecked = false }
@@ -18200,13 +22571,6 @@ class TeacherMainActivity : AppCompatActivity() {
                 inputType = android.text.InputType.TYPE_CLASS_NUMBER
                 textSize = 12.5f
                 setText((q["points"] ?: 10).toString())
-                addTextChangedListener(object : android.text.TextWatcher {
-                    override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-                    override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                        q["points"] = s.toString().toIntOrNull() ?: 10
-                    }
-                    override fun afterTextChanged(s: android.text.Editable?) {}
-                })
             }
             colPoints.addView(etPoints)
 
@@ -18222,140 +22586,191 @@ class TeacherMainActivity : AppCompatActivity() {
                 setOnFocusChangeListener { _, hasFocus ->
                     if (hasFocus) activeInput = this
                 }
-                addTextChangedListener(object : android.text.TextWatcher {
-                    override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-                    override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                        q["explanation"] = s.toString()
-                    }
-                    override fun afterTextChanged(s: android.text.Editable?) {}
-                })
             }
             colExpl.addView(etExpl)
 
             rowExtra.addView(colPoints)
             rowExtra.addView(colExpl)
             formContainer.addView(rowExtra)
-        }
 
-        // Action Bottom Bar
-        val bottomBar = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setBackgroundColor(Color.WHITE)
-            setPadding(dp(12), dp(8), dp(12), dp(8))
-        }
+            // Define explicit state saving function for current question
+            saveCurrentFormState = {
+                if (currentIdx in 0 until questions.size) {
+                    val currQ = questions[currentIdx]
+                    currQ["content"] = etContent.text.toString()
+                    currQ["imageUrl"] = etImageUrl.text.toString().trim()
+                    currQ["audioUrl"] = etAudioUrl.text.toString().trim()
+                    currQ["points"] = etPoints.text.toString().toIntOrNull() ?: 10
+                    currQ["explanation"] = etExpl.text.toString().trim()
+                    currQ["correctOption"] = selectedCorrect
 
-        val btnPrev = Button(this).apply {
-            text = "← Prev"
-            textSize = 10.5f
-            setTextColor(Color.parseColor("#334155"))
-            setBackgroundColor(Color.parseColor("#E2E8F0"))
-            layoutParams = LinearLayout.LayoutParams(dp(75), dp(40)).apply { marginEnd = dp(4) }
-            setOnClickListener {
-                if (currentIdx > 0) {
-                    currentIdx--
-                    updateNavRow()
-                    renderCurrentQuestion()
-                }
-            }
-        }
-        val btnNext = Button(this).apply {
-            text = "Next →"
-            textSize = 10.5f
-            setTextColor(Color.parseColor("#334155"))
-            setBackgroundColor(Color.parseColor("#E2E8F0"))
-            layoutParams = LinearLayout.LayoutParams(dp(75), dp(40)).apply { marginEnd = dp(6) }
-            setOnClickListener {
-                if (currentIdx < questions.size - 1) {
-                    currentIdx++
-                    updateNavRow()
-                    renderCurrentQuestion()
-                }
-            }
-        }
-
-        val btnPublish = Button(this).apply {
-            text = "🚀 Terbitkan & Mulai UH"
-            textSize = 11.5f
-            setTextColor(Color.WHITE)
-            setTypeface(null, Typeface.BOLD)
-            setBackgroundColor(Color.parseColor("#059669"))
-            layoutParams = LinearLayout.LayoutParams(0, dp(42), 1f)
-            setOnClickListener {
-                // Validation
-                var emptyIdx = -1
-                for (i in 0 until questions.size) {
-                    val content = questions[i]["content"]?.toString()?.trim() ?: ""
-                    if (content.isEmpty()) {
-                        emptyIdx = i
-                        break
+                    val updatedOpts = mutableListOf<String>()
+                    etOptList.forEachIndexed { idx, et ->
+                        val letter = if (idx < optionLetters.size) optionLetters[idx] else "A"
+                        updatedOpts.add("$letter. ${et.text.toString().trim()}")
                     }
+                    currQ["options"] = updatedOpts
                 }
-                if (emptyIdx != -1) {
-                    Toast.makeText(this@TeacherMainActivity, "Soal #${emptyIdx + 1} belum diisi pertanyaannya!", Toast.LENGTH_SHORT).show()
-                    currentIdx = emptyIdx
-                    updateNavRow()
-                    renderCurrentQuestion()
-                    return@setOnClickListener
-                }
+            }
 
-                val finalSoalList = questions.mapIndexed { idx, q ->
-                    mapOf(
-                        "id" to "soal_${idx + 1}",
-                        "number" to (idx + 1),
-                        "type" to "PG",
-                        "content" to (q["content"]?.toString() ?: ""),
-                        "options" to (q["options"] as? List<*> ?: emptyList<Any>()),
-                        "correctOption" to (q["correctOption"]?.toString() ?: "A"),
-                        "explanation" to (q["explanation"]?.toString() ?: ""),
-                        "points" to (q["points"] ?: 10),
-                        "imageUrl" to (q["imageUrl"]?.toString()?.ifEmpty { null }),
-                        "audioUrl" to (q["audioUrl"]?.toString()?.ifEmpty { null })
-                    )
-                }
+            // Update Previous and Next button states dynamically
+            btnPrev.isEnabled = (currentIdx > 0)
+            btnPrev.alpha = if (currentIdx > 0) 1.0f else 0.45f
+            btnPrev.text = if (currentIdx > 0) "⬅️ Soal #${currentIdx}" else "⬅️ Soal Awal"
 
-                val body = mapOf(
-                    "kelasId" to selectedClasses,
-                    "mapelId" to mapel,
-                    "topik" to topik,
-                    "mode" to mode,
-                    "durasiMenit" to durasi,
-                    "totalSoal" to finalSoalList.size,
-                    "bobotNilai" to 100,
-                    "sumberSoal" to "MANUAL",
-                    "soalList" to finalSoalList
+            if (currentIdx < questions.size - 1) {
+                btnNext.text = "Soal #${currentIdx + 2} ➡️"
+                btnNext.setBackgroundColor(Color.parseColor("#0284C7"))
+            } else {
+                btnNext.text = "➕ Soal Baru ➡️"
+                btnNext.setBackgroundColor(Color.parseColor("#059669"))
+            }
+
+            if (onCustomSave != null) {
+                btnPublish.text = "💾 Simpan (${questions.size} Soal)"
+                btnPublish.setBackgroundColor(Color.parseColor("#2563EB"))
+            } else {
+                btnPublish.text = "🚀 Terbitkan UH (${questions.size} Soal)"
+                btnPublish.setBackgroundColor(Color.parseColor("#059669"))
+            }
+        }
+
+        // Configure Prev & Next click handlers
+        btnPrev.setOnClickListener {
+            saveCurrentFormState?.invoke()
+            if (currentIdx > 0) {
+                currentIdx--
+                updateNavRow()
+                renderCurrentQuestion()
+                svForm.smoothScrollTo(0, 0)
+            } else {
+                Toast.makeText(this, "Ini sudah butir soal pertama", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        btnNext.setOnClickListener {
+            saveCurrentFormState?.invoke()
+            if (currentIdx < questions.size - 1) {
+                currentIdx++
+                updateNavRow()
+                renderCurrentQuestion()
+                svForm.smoothScrollTo(0, 0)
+            } else {
+                // At last question: automatically add next question and advance!
+                val nextNum = questions.size + 1
+                questions.add(mutableMapOf(
+                    "number" to nextNum,
+                    "type" to "PG",
+                    "content" to "",
+                    "options" to mutableListOf("A. ", "B. ", "C. ", "D. "),
+                    "correctOption" to "A",
+                    "explanation" to "",
+                    "points" to 10,
+                    "imageUrl" to "",
+                    "audioUrl" to ""
+                ))
+                currentIdx = questions.size - 1
+                updateNavRow()
+                renderCurrentQuestion()
+                svForm.smoothScrollTo(0, 0)
+                Toast.makeText(this, "➕ Menambah butir soal #$nextNum", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        btnPublish.setOnClickListener {
+            saveCurrentFormState?.invoke()
+
+            // Validate questions
+            var emptyIdx = -1
+            for (i in 0 until questions.size) {
+                val content = questions[i]["content"]?.toString()?.trim() ?: ""
+                if (content.isEmpty()) {
+                    emptyIdx = i
+                    break
+                }
+            }
+            if (emptyIdx != -1) {
+                Toast.makeText(this@TeacherMainActivity, "Soal #${emptyIdx + 1} belum diisi pertanyaannya!", Toast.LENGTH_SHORT).show()
+                currentIdx = emptyIdx
+                updateNavRow()
+                renderCurrentQuestion()
+                svForm.smoothScrollTo(0, 0)
+                return@setOnClickListener
+            }
+
+            val finalSoalList = questions.mapIndexed { idx, q ->
+                mapOf(
+                    "id" to "soal_${idx + 1}",
+                    "number" to (idx + 1),
+                    "type" to "PG",
+                    "content" to (q["content"]?.toString() ?: ""),
+                    "options" to (q["options"] as? List<*> ?: emptyList<Any>()),
+                    "correctOption" to (q["correctOption"]?.toString() ?: "A"),
+                    "explanation" to (q["explanation"]?.toString() ?: ""),
+                    "points" to (q["points"] ?: 10),
+                    "imageUrl" to (q["imageUrl"]?.toString()?.ifEmpty { null }),
+                    "audioUrl" to (q["audioUrl"]?.toString()?.ifEmpty { null })
                 )
-
-                Toast.makeText(this@TeacherMainActivity, "Menerbitkan ulangan harian...", Toast.LENGTH_SHORT).show()
-
-                ApiClient.getClient(this@TeacherMainActivity).startUlanganHarian(body).enqueue(object : Callback<Map<String, Any>> {
-                    override fun onResponse(call: Call<Map<String, Any>>, response: Response<Map<String, Any>>) {
-                        if (response.isSuccessful && response.body()?.get("success") == true) {
-                            val data = response.body()?.get("data") as? Map<*, *>
-                            val uhId = data?.get("id")?.toString() ?: ""
-                            currentTestPlayer?.release()
-                            currentTestPlayer = null
-                            dialog.dismiss()
-                            Toast.makeText(this@TeacherMainActivity, "✅ Ulangan Harian Berhasil Diterbitkan!", Toast.LENGTH_LONG).show()
-                            if (uhId.isNotEmpty()) {
-                                showMonitoringUlanganHarianDialog(uhId)
-                            }
-                        } else {
-                            Toast.makeText(this@TeacherMainActivity, "Gagal menerbitkan: ${response.message()}", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-
-                    override fun onFailure(call: Call<Map<String, Any>>, t: Throwable) {
-                        Toast.makeText(this@TeacherMainActivity, "Koneksi gagal: ${t.message}", Toast.LENGTH_SHORT).show()
-                    }
-                })
             }
-        }
 
-        bottomBar.addView(btnPrev)
-        bottomBar.addView(btnNext)
-        bottomBar.addView(btnPublish)
-        root.addView(bottomBar)
+            if (onCustomSave != null) {
+                currentTestPlayer?.release()
+                currentTestPlayer = null
+                dialog.dismiss()
+                onCustomSave(finalSoalList)
+                return@setOnClickListener
+            }
+
+            val body = mutableMapOf<String, Any>(
+                "kelasId" to targetClasses,
+                "mapelId" to mapel,
+                "topik" to topik,
+                "mode" to mode,
+                "durasiMenit" to durasi,
+                "totalSoal" to finalSoalList.size,
+                "bobotNilai" to bobot,
+                "sumberSoal" to "MANUAL",
+                "soalList" to finalSoalList
+            )
+            if (!waktuMulaiStr.isNullOrEmpty()) {
+                body["waktuMulai"] = waktuMulaiStr
+                body["jadwalMulai"] = waktuMulaiStr
+            }
+            if (!waktuSelesaiStr.isNullOrEmpty()) {
+                body["waktuSelesai"] = waktuSelesaiStr
+                body["jadwalSelesai"] = waktuSelesaiStr
+            }
+
+            val prg = ProgressDialog(this@TeacherMainActivity).apply {
+                setMessage("Menerbitkan ulangan harian...")
+                setCancelable(false)
+                show()
+            }
+
+            ApiClient.getClient(this@TeacherMainActivity).startUlanganHarian(body).enqueue(object : Callback<Map<String, Any>> {
+                override fun onResponse(call: Call<Map<String, Any>>, response: Response<Map<String, Any>>) {
+                    prg.dismiss()
+                    if (response.isSuccessful && response.body()?.get("success") == true) {
+                        val data = response.body()?.get("data") as? Map<*, *>
+                        val uhId = data?.get("id")?.toString() ?: ""
+                        currentTestPlayer?.release()
+                        currentTestPlayer = null
+                        dialog.dismiss()
+                        Toast.makeText(this@TeacherMainActivity, "✅ Ulangan Harian Berhasil Diterbitkan!", Toast.LENGTH_LONG).show()
+                        if (uhId.isNotEmpty()) {
+                            showMonitoringUlanganHarianDialog(uhId)
+                        }
+                    } else {
+                        Toast.makeText(this@TeacherMainActivity, "Gagal menerbitkan: ${response.message()}", Toast.LENGTH_SHORT).show()
+                    }
+                }
+
+                override fun onFailure(call: Call<Map<String, Any>>, t: Throwable) {
+                    prg.dismiss()
+                    Toast.makeText(this@TeacherMainActivity, "Koneksi gagal: ${t.message}", Toast.LENGTH_SHORT).show()
+                }
+            })
+        }
 
         updateNavRow()
         renderCurrentQuestion()
@@ -18369,81 +22784,222 @@ class TeacherMainActivity : AppCompatActivity() {
         mapel: String,
         topik: String,
         mode: String,
-        durasi: Int
+        durasi: Int,
+        waktuMulaiStr: String? = null,
+        waktuSelesaiStr: String? = null,
+        onCustomSave: ((List<Map<String, Any?>>) -> Unit)? = null
     ) {
         val density = resources.displayMetrics.density
         fun dp(v: Int): Int = (v * density).toInt()
 
+        val fullDialog = createFullscreenDialog()
+
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(16), dp(18), dp(16))
+            setBackgroundColor(Color.parseColor("#F8FAFC"))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         }
 
-        val tvTitle = TextView(this).apply {
-            text = "📋 Import Format Soal dari Teks / WA"
-            textSize = 15.5f
+        val header = createFullscreenHeader(
+            title = "📥 Import Cerdas Soal",
+            subtitle = "Dari File Excel (.xlsx/.csv), File Dokumen (.txt), atau Paste WhatsApp/Word",
+            onClose = { fullDialog.dismiss() }
+        )
+        root.addView(header)
+
+        val sv = ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
+        }
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(16), dp(16), dp(16))
+        }
+        sv.addView(content)
+        root.addView(sv)
+
+        // Card 1: File Picker (Excel / Text)
+        val cardFile = CardView(this).apply {
+            radius = dp(12).toFloat()
+            cardElevation = dp(2).toFloat()
+            setCardBackgroundColor(Color.WHITE)
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(14)
+            }
+        }
+        val fileInner = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+        }
+        fileInner.addView(TextView(this).apply {
+            text = "📁 Opsi 1: Upload File dari HP (Excel / CSV / Teks)"
+            textSize = 13.5f
             setTypeface(null, Typeface.BOLD)
             setTextColor(Color.parseColor("#0F172A"))
-        }
-        root.addView(tvTitle)
-
-        val tvDesc = TextView(this).apply {
-            text = "Tempel kumpulan soal dengan format nomor, opsi A-D, dan Kunci. Sistem akan otomatis membedah menjadi butir soal."
+        })
+        fileInner.addView(TextView(this).apply {
+            text = "Dukung template Excel (.xlsx / .xls), CSV, atau file naskah .txt. Sistem akan otomatis membedah kolom soal & kunci."
             textSize = 11.5f
             setTextColor(Color.parseColor("#64748B"))
-            setPadding(0, dp(4), 0, dp(8))
-        }
-        root.addView(tvDesc)
+            setPadding(0, dp(4), 0, dp(10))
+        })
 
         val etPaste = EditText(this).apply {
-            hint = "Contoh:\n1. Berapakah hasil dari √64 + 4²?\nA. 24\nB. 16\nC. 20\nD. 12\nKunci: A\n\n2. Pertanyaan kedua..."
+            hint = "Contoh format teks naskah:\n1. Berapakah hasil dari √64 + 4²?\nA. 24\nB. 16\nC. 20\nD. 12\nKunci: A\n\n2. Pertanyaan kedua...\nA. Opsi A\nB. Opsi B\nKunci: B"
             textSize = 12f
             minLines = 8
             maxLines = 14
             gravity = Gravity.TOP or Gravity.START
             val bg = android.graphics.drawable.GradientDrawable().apply {
                 setColor(Color.WHITE)
-                cornerRadius = dp(6).toFloat()
+                cornerRadius = dp(8).toFloat()
                 setStroke(dp(1), Color.parseColor("#CBD5E1"))
             }
             background = bg
-            setPadding(dp(10), dp(8), dp(10), dp(8))
+            setPadding(dp(12), dp(10), dp(12), dp(10))
         }
-        root.addView(etPaste)
+
+        val btnPickExcel = Button(this).apply {
+            text = "📂 Pilih File Excel (.xlsx / .csv) atau Dokumen (.txt)"
+            textSize = 12f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#0D9488"))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44))
+            setOnClickListener {
+                launchGenericFilePicker("*/*") { uri ->
+                    val name = (getFileNameFromUri(uri) ?: "").lowercase()
+                    if (name.endsWith(".txt")) {
+                        try {
+                            val text = contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() } ?: ""
+                            etPaste.setText(text)
+                            Toast.makeText(this@TeacherMainActivity, "✅ File teks berhasil dibaca ke editor!", Toast.LENGTH_SHORT).show()
+                        } catch (e: Exception) {
+                            Toast.makeText(this@TeacherMainActivity, "Gagal membaca teks: ${e.message}", Toast.LENGTH_SHORT).show()
+                        }
+                    } else if (name.endsWith(".xlsx") || name.endsWith(".xls") || name.endsWith(".csv")) {
+                        try {
+                            val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                            if (bytes != null) {
+                                val b64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+                                val prg = ProgressDialog(this@TeacherMainActivity).apply {
+                                    setMessage("Membaca & memproses format file Excel...")
+                                    setCancelable(false)
+                                    show()
+                                }
+                                ApiClient.getClient(this@TeacherMainActivity).importSoalExcelUh(mapOf("fileBase64" to b64, "fileName" to name)).enqueue(object : Callback<Map<String, Any>> {
+                                    override fun onResponse(call: Call<Map<String, Any>>, response: Response<Map<String, Any>>) {
+                                        prg.dismiss()
+                                        if (response.isSuccessful && response.body()?.get("success") == true) {
+                                            val list = (response.body()?.get("data") as? List<*>)?.filterIsInstance<Map<String, Any>>() ?: emptyList()
+                                            if (list.isNotEmpty()) {
+                                                fullDialog.dismiss()
+                                                Toast.makeText(this@TeacherMainActivity, "✅ Berhasil mengimpor ${list.size} soal dari file Excel!", Toast.LENGTH_LONG).show()
+                                                showRichQuestionEditorDialog(
+                                                    selectedClasses = selectedClasses,
+                                                    mapel = mapel,
+                                                    topik = topik,
+                                                    mode = mode,
+                                                    durasi = durasi,
+                                                    prefilledQuestions = list,
+                                                    waktuMulaiStr = waktuMulaiStr,
+                                                    waktuSelesaiStr = waktuSelesaiStr,
+                                                    onCustomSave = onCustomSave
+                                                )
+                                            } else {
+                                                Toast.makeText(this@TeacherMainActivity, "Tidak ada butir soal terbaca di file Excel", Toast.LENGTH_SHORT).show()
+                                            }
+                                        } else {
+                                            Toast.makeText(this@TeacherMainActivity, "Gagal memproses file: ${response.message()}", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                    override fun onFailure(call: Call<Map<String, Any>>, t: Throwable) {
+                                        prg.dismiss()
+                                        Toast.makeText(this@TeacherMainActivity, "Koneksi upload gagal: ${t.message}", Toast.LENGTH_SHORT).show()
+                                    }
+                                })
+                            }
+                        } catch (e: Exception) {
+                            Toast.makeText(this@TeacherMainActivity, "Gagal membaca file: ${e.message}", Toast.LENGTH_SHORT).show()
+                        }
+                    } else {
+                        Toast.makeText(this@TeacherMainActivity, "Format file tidak didukung. Pilih .xlsx, .csv, atau .txt", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        }
+        fileInner.addView(btnPickExcel)
+        cardFile.addView(fileInner)
+        content.addView(cardFile)
+
+        // Card 2: Manual / WhatsApp Paste
+        val cardPaste = CardView(this).apply {
+            radius = dp(12).toFloat()
+            cardElevation = dp(2).toFloat()
+            setCardBackgroundColor(Color.WHITE)
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(14)
+            }
+        }
+        val pasteInner = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+        }
+        pasteInner.addView(TextView(this).apply {
+            text = "📋 Opsi 2: Tempel Teks Soal dari WhatsApp / Word"
+            textSize = 13.5f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#0F172A"))
+        })
+        pasteInner.addView(TextView(this).apply {
+            text = "Salin naskah dari grup WhatsApp atau Microsoft Word lalu tempelkan di kotak bawah."
+            textSize = 11.5f
+            setTextColor(Color.parseColor("#64748B"))
+            setPadding(0, dp(4), 0, dp(8))
+        })
 
         val btnClipboard = Button(this).apply {
-            text = "📋 Tempel dari Clipboard HP"
+            text = "📋 Tempel Cepat dari Clipboard HP"
             textSize = 11f
             setTextColor(Color.parseColor("#0284C7"))
             setBackgroundColor(Color.parseColor("#E0F2FE"))
-            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(38)).apply {
-                topMargin = dp(6)
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(38)).apply {
+                bottomMargin = dp(8)
             }
-            layoutParams = lp
             setOnClickListener {
                 val clipManager = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
                 val clip = clipManager?.primaryClip?.getItemAt(0)?.text?.toString()
                 if (!clip.isNullOrEmpty()) {
                     etPaste.setText(clip)
-                    Toast.makeText(this@TeacherMainActivity, "Teks clipboard berhasil ditempel!", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@TeacherMainActivity, "✅ Teks clipboard berhasil ditempel!", Toast.LENGTH_SHORT).show()
                 } else {
-                    Toast.makeText(this@TeacherMainActivity, "Clipboard kosong", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@TeacherMainActivity, "Clipboard masih kosong", Toast.LENGTH_SHORT).show()
                 }
             }
         }
-        root.addView(btnClipboard)
+        pasteInner.addView(btnClipboard)
+        pasteInner.addView(etPaste)
+        cardPaste.addView(pasteInner)
+        content.addView(cardPaste)
 
-        val dialog = AlertDialog.Builder(this)
-            .setView(root)
-            .setPositiveButton("⚡ Konversi ke Editor Soal", null)
-            .setNegativeButton("Batal", null)
-            .create()
-
-        dialog.setOnShowListener {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+        // Bottom Action Bar
+        val bottomBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setBackgroundColor(Color.WHITE)
+            elevation = dp(4).toFloat()
+            setPadding(dp(16), dp(10), dp(16), dp(10))
+        }
+        val btnParse = Button(this).apply {
+            text = "⚡ Bedah Naskah & Buka di Editor Soal"
+            textSize = 12.5f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#2563EB"))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44))
+            setOnClickListener {
                 val text = etPaste.text.toString().trim()
                 if (text.isEmpty()) {
-                    Toast.makeText(this, "Masukkan teks soal terlebih dahulu!", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@TeacherMainActivity, "Masukkan naskah soal terlebih dahulu!", Toast.LENGTH_SHORT).show()
                     return@setOnClickListener
                 }
 
@@ -18469,7 +23025,7 @@ class TeacherMainActivity : AppCompatActivity() {
                 val parsedQuestions = mutableListOf<Map<String, Any>>()
                 questionBlocks.forEachIndexed { qIdx, block ->
                     val lines = block.lines().map { it.trim() }.filter { it.isNotEmpty() }
-                    var contentLines = mutableListOf<String>()
+                    val contentLines = mutableListOf<String>()
                     val options = mutableListOf<String>()
                     var correctOpt = "A"
 
@@ -18508,13 +23064,1097 @@ class TeacherMainActivity : AppCompatActivity() {
                     ))
                 }
 
-                dialog.dismiss()
-                Toast.makeText(this@TeacherMainActivity, "Berhasil mengonversi ${parsedQuestions.size} butir soal!", Toast.LENGTH_SHORT).show()
-                showRichQuestionEditorDialog(selectedClasses, mapel, topik, mode, durasi, parsedQuestions)
+                fullDialog.dismiss()
+                Toast.makeText(this@TeacherMainActivity, "✅ Berhasil membedah ${parsedQuestions.size} butir soal!", Toast.LENGTH_SHORT).show()
+                showRichQuestionEditorDialog(
+                    selectedClasses = selectedClasses,
+                    mapel = mapel,
+                    topik = topik,
+                    mode = mode,
+                    durasi = durasi,
+                    prefilledQuestions = parsedQuestions,
+                    waktuMulaiStr = waktuMulaiStr,
+                    waktuSelesaiStr = waktuSelesaiStr,
+                    onCustomSave = onCustomSave
+                )
+            }
+        }
+        bottomBar.addView(btnParse)
+        root.addView(bottomBar)
+
+        fullDialog.setView(root)
+        fullDialog.show()
+    }
+
+    fun showTeacherMonitoringControlCenterDialog() {
+        val density = resources.displayMetrics.density
+        fun dp(v: Int): Int = (v * density).toInt()
+
+        val fullDialog = createFullscreenDialog()
+
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#F8FAFC"))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        }
+
+        val header = createFullscreenHeader(
+            title = "📊 Pusat Kontrol & Monitoring Siswa",
+            subtitle = "Pantau Real-Time: Ulangan Harian, Tugas/PR, dan Ujian CBT",
+            onClose = { fullDialog.dismiss() }
+        )
+        root.addView(header)
+
+        val dialogView = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
+        }
+        root.addView(dialogView)
+
+        // KPI Summary Bar
+        val kpiCard = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            weightSum = 3f
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(10)
+            }
+            layoutParams = lp
+        }
+        fun createKpiBox(title: String, initialVal: String, colorHex: String): TextView {
+            val box = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                background = GradientDrawable().apply {
+                    setColor(Color.WHITE)
+                    cornerRadius = dp(10).toFloat()
+                    setStroke(dp(1), Color.parseColor("#E2E8F0"))
+                }
+                setPadding(dp(4), dp(10), dp(4), dp(10))
+                val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    marginEnd = dp(4)
+                }
+                layoutParams = lp
+            }
+            val tvVal = TextView(this).apply {
+                text = initialVal
+                textSize = 15f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(Color.parseColor(colorHex))
+            }
+            val tvTitle = TextView(this).apply {
+                text = title
+                textSize = 10f
+                setTextColor(Color.parseColor("#64748B"))
+                gravity = Gravity.CENTER
+            }
+            box.addView(tvVal)
+            box.addView(tvTitle)
+            kpiCard.addView(box)
+            return tvVal
+        }
+        val tvKpiUh = createKpiBox("⚡ UH Aktif", "-", "#059669")
+        val tvKpiHw = createKpiBox("📚 Tugas & PR", "-", "#4F46E5")
+        val tvKpiCbt = createKpiBox("💻 CBT Ujian", "-", "#0284C7")
+        dialogView.addView(kpiCard)
+
+        // Filter Switcher Tabs: [⚡ Ulangan Harian], [📚 Tugas & PR], [💻 Ujian CBT]
+        var activeTab = "UH" // "UH", "HW", "CBT"
+        val tabLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            weightSum = 3f
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(10)
+            }
+            layoutParams = lp
+        }
+        val btnTabUh = Button(this)
+        val btnTabHw = Button(this)
+        val btnTabCbt = Button(this)
+
+        var loadDataFn: () -> Unit = {}
+
+        fun updateTabStyles() {
+            fun styleBtn(btn: Button, isSel: Boolean, textStr: String, selColor: String) {
+                btn.text = textStr
+                btn.textSize = 11f
+                btn.isAllCaps = false
+                btn.setTypeface(null, if (isSel) Typeface.BOLD else Typeface.NORMAL)
+                btn.setTextColor(if (isSel) Color.WHITE else Color.parseColor("#475569"))
+                btn.background = GradientDrawable().apply {
+                    setColor(if (isSel) Color.parseColor(selColor) else Color.parseColor("#E2E8F0"))
+                    cornerRadius = dp(8).toFloat()
+                }
+            }
+            styleBtn(btnTabUh, activeTab == "UH", "⚡ Ulangan Harian", "#059669")
+            styleBtn(btnTabHw, activeTab == "HW", "📚 Tugas & PR", "#4F46E5")
+            styleBtn(btnTabCbt, activeTab == "CBT", "💻 Ujian CBT", "#0284C7")
+        }
+
+        btnTabUh.apply {
+            layoutParams = LinearLayout.LayoutParams(0, dp(40), 1f).apply { marginEnd = dp(3) }
+            setOnClickListener {
+                if (activeTab != "UH") {
+                    activeTab = "UH"
+                    updateTabStyles()
+                    loadDataFn()
+                }
+            }
+        }
+        btnTabHw.apply {
+            layoutParams = LinearLayout.LayoutParams(0, dp(40), 1f).apply { marginEnd = dp(3) }
+            setOnClickListener {
+                if (activeTab != "HW") {
+                    activeTab = "HW"
+                    updateTabStyles()
+                    loadDataFn()
+                }
+            }
+        }
+        btnTabCbt.apply {
+            layoutParams = LinearLayout.LayoutParams(0, dp(40), 1f)
+            setOnClickListener {
+                if (activeTab != "CBT") {
+                    activeTab = "CBT"
+                    updateTabStyles()
+                    loadDataFn()
+                }
+            }
+        }
+        updateTabStyles()
+        tabLayout.addView(btnTabUh)
+        tabLayout.addView(btnTabHw)
+        tabLayout.addView(btnTabCbt)
+        dialogView.addView(tabLayout)
+
+        // Action Quick Bar: Search + Refresh
+        val searchRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(8)
+            }
+            layoutParams = lp
+        }
+        val etSearch = EditText(this).apply {
+            hint = "🔍 Cari judul / mata pelajaran / kelas..."
+            textSize = 12f
+            background = GradientDrawable().apply {
+                setColor(Color.WHITE)
+                cornerRadius = dp(8).toFloat()
+                setStroke(dp(1), Color.parseColor("#CBD5E1"))
+            }
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            val lp = LinearLayout.LayoutParams(0, dp(38), 1f).apply { marginEnd = dp(6) }
+            layoutParams = lp
+        }
+        val btnRefresh = Button(this).apply {
+            text = "🔄 Segarkan"
+            textSize = 11f
+            setTextColor(Color.parseColor("#1E293B"))
+            setTypeface(null, Typeface.BOLD)
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#F1F5F9"))
+                cornerRadius = dp(8).toFloat()
+                setStroke(dp(1), Color.parseColor("#CBD5E1"))
+            }
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(38))
+            layoutParams = lp
+            setOnClickListener {
+                loadDataFn()
+            }
+        }
+        searchRow.addView(etSearch)
+        searchRow.addView(btnRefresh)
+        dialogView.addView(searchRow)
+
+        val sv = ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
+        }
+        val contentContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        sv.addView(contentContainer)
+        dialogView.addView(sv)
+
+        // Cache lists for local filtering
+        var cachedUhList: List<Map<String, Any>> = emptyList()
+        var cachedHwList: List<HomeworkDto> = emptyList()
+        var cachedExamList: List<TeacherExamDto> = emptyList()
+
+        fun filterAndRenderCurrentTab() {
+            contentContainer.removeAllViews()
+            val query = etSearch.text.toString().trim().lowercase()
+
+            when (activeTab) {
+                "UH" -> {
+                    val filtered = cachedUhList.filter { uh ->
+                        if (query.isEmpty()) true else {
+                            val topik = (uh["topik"]?.toString() ?: "").lowercase()
+                            val mapel = (uh["mapelId"]?.toString() ?: "").lowercase()
+                            val kelas = (uh["kelasId"]?.toString() ?: "").lowercase()
+                            topik.contains(query) || mapel.contains(query) || kelas.contains(query)
+                        }
+                    }
+                    if (filtered.isEmpty()) {
+                        contentContainer.addView(TextView(this).apply {
+                            text = if (query.isEmpty()) "Belum ada Ulangan Harian yang dibuat.\n\nKlik menu 'Mulai Ulangan Harian' untuk membuat ulangan cepat." else "Tidak ada Ulangan Harian yang cocok dengan \"$query\""
+                            textSize = 12.5f
+                            setTextColor(Color.parseColor("#94A3B8"))
+                            gravity = Gravity.CENTER
+                            setPadding(dp(20), dp(40), dp(20), dp(40))
+                        })
+                    } else {
+                        filtered.forEach { uh ->
+                            val uhId = uh["id"]?.toString() ?: ""
+                            val topik = uh["topik"]?.toString() ?: "-"
+                            val mapel = uh["mapelId"]?.toString() ?: "-"
+                            val kelas = uh["kelasId"]?.toString() ?: "-"
+                            val mode = uh["mode"]?.toString() ?: "CBT_MINI"
+                            val status = uh["status"]?.toString() ?: "AKTIF"
+                            val token = uh["tokenAktif"]?.toString() ?: "-"
+                            val totalSoal = (uh["totalSoal"] as? Number)?.toInt() ?: 0
+                            val durasi = (uh["durasiMenit"] as? Number)?.toInt() ?: 0
+
+                            val card = CardView(this).apply {
+                                radius = dp(12).toFloat()
+                                cardElevation = dp(2).toFloat()
+                                setCardBackgroundColor(Color.WHITE)
+                                val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                                    bottomMargin = dp(10)
+                                }
+                                layoutParams = lp
+                            }
+                            val cardInner = LinearLayout(this).apply {
+                                orientation = LinearLayout.VERTICAL
+                                setPadding(dp(14), dp(12), dp(14), dp(12))
+                            }
+
+                            val topRow = LinearLayout(this).apply {
+                                orientation = LinearLayout.HORIZONTAL
+                                gravity = Gravity.CENTER_VERTICAL
+                            }
+                            val tvTopik = TextView(this).apply {
+                                text = topik
+                                textSize = 13.5f
+                                setTypeface(null, Typeface.BOLD)
+                                setTextColor(Color.parseColor("#0F172A"))
+                                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                            }
+                            val badgeStatus = TextView(this).apply {
+                                text = if (status == "AKTIF") "🟢 AKTIF" else "⚪ SELESAI"
+                                textSize = 10.5f
+                                setTypeface(null, Typeface.BOLD)
+                                setTextColor(if (status == "AKTIF") Color.parseColor("#059669") else Color.parseColor("#64748B"))
+                                background = GradientDrawable().apply {
+                                    setColor(if (status == "AKTIF") Color.parseColor("#ECFDF5") else Color.parseColor("#F1F5F9"))
+                                    cornerRadius = dp(6).toFloat()
+                                }
+                                setPadding(dp(8), dp(3), dp(8), dp(3))
+                            }
+                            topRow.addView(tvTopik)
+                            topRow.addView(badgeStatus)
+                            cardInner.addView(topRow)
+
+                            val tvSub = TextView(this).apply {
+                                text = "Mapel: $mapel • Kelas: $kelas • $totalSoal Soal (${durasi}m) • Mode: $mode"
+                                textSize = 11.5f
+                                setTextColor(Color.parseColor("#475569"))
+                                setPadding(0, dp(4), 0, dp(6))
+                            }
+                            cardInner.addView(tvSub)
+
+                            if (mode == "CBT_MINI" && token != "-" && status == "AKTIF") {
+                                val tokenRow = LinearLayout(this).apply {
+                                    orientation = LinearLayout.HORIZONTAL
+                                    gravity = Gravity.CENTER_VERTICAL
+                                    setPadding(0, 0, 0, dp(8))
+                                }
+                                val tvToken = TextView(this).apply {
+                                    text = "🔑 Token: $token"
+                                    textSize = 12f
+                                    setTypeface(null, Typeface.BOLD)
+                                    setTextColor(Color.parseColor("#2563EB"))
+                                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                                }
+                                val btnCopyToken = TextView(this).apply {
+                                    text = "📋 Salin"
+                                    textSize = 10.5f
+                                    setTypeface(null, Typeface.BOLD)
+                                    setTextColor(Color.parseColor("#1D4ED8"))
+                                    background = GradientDrawable().apply {
+                                        setColor(Color.parseColor("#EFF6FF"))
+                                        cornerRadius = dp(6).toFloat()
+                                        setStroke(dp(1), Color.parseColor("#BFDBFE"))
+                                    }
+                                    setPadding(dp(8), dp(3), dp(8), dp(3))
+                                    setOnClickListener {
+                                        val cb = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                        cb.setPrimaryClip(ClipData.newPlainText("Token UH", token))
+                                        Toast.makeText(this@TeacherMainActivity, "📋 Token $token berhasil disalin!", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                                tokenRow.addView(tvToken)
+                                tokenRow.addView(btnCopyToken)
+                                cardInner.addView(tokenRow)
+                            }
+
+                            val actionBtnsRow = LinearLayout(this).apply {
+                                orientation = LinearLayout.HORIZONTAL
+                                gravity = Gravity.CENTER_VERTICAL
+                            }
+                            val btnMonitor = Button(this).apply {
+                                text = "📊 Live Pantau & LJS"
+                                textSize = 11f
+                                setTypeface(null, Typeface.BOLD)
+                                setTextColor(Color.WHITE)
+                                setBackgroundColor(Color.parseColor("#0284C7"))
+                                val lp = LinearLayout.LayoutParams(0, dp(38), 1.2f).apply { marginEnd = dp(6) }
+                                layoutParams = lp
+                                setOnClickListener {
+                                    showMonitoringUlanganHarianDialog(uhId)
+                                }
+                            }
+                            actionBtnsRow.addView(btnMonitor)
+
+                            if (mode == "CBT_MINI" && status == "AKTIF") {
+                                val btnRotate = Button(this).apply {
+                                    text = "🔄 Acak Token"
+                                    textSize = 10.5f
+                                    setTextColor(Color.parseColor("#92400E"))
+                                    setBackgroundColor(Color.parseColor("#FEF3C7"))
+                                    val lp = LinearLayout.LayoutParams(0, dp(38), 1f).apply { marginEnd = dp(6) }
+                                    layoutParams = lp
+                                    setOnClickListener {
+                                        ApiClient.getClient(this@TeacherMainActivity).rotateTokenUh(uhId).enqueue(object : Callback<Map<String, Any>> {
+                                            override fun onResponse(call: Call<Map<String, Any>>, resp: Response<Map<String, Any>>) {
+                                                Toast.makeText(this@TeacherMainActivity, "Token berhasil diacak!", Toast.LENGTH_SHORT).show()
+                                                loadDataFn()
+                                            }
+                                            override fun onFailure(call: Call<Map<String, Any>>, t: Throwable) {
+                                                Toast.makeText(this@TeacherMainActivity, "Gagal mengacak token", Toast.LENGTH_SHORT).show()
+                                            }
+                                        })
+                                    }
+                                }
+                                actionBtnsRow.addView(btnRotate)
+                            }
+
+                            val btnAi = Button(this).apply {
+                                text = "🤖 AI Analisis"
+                                textSize = 10.5f
+                                setTextColor(Color.WHITE)
+                                setBackgroundColor(Color.parseColor("#7C3AED"))
+                                val lp = LinearLayout.LayoutParams(0, dp(38), 0.9f)
+                                layoutParams = lp
+                                setOnClickListener {
+                                    showUhAiAssistantDialog(uhId)
+                                }
+                            }
+                            actionBtnsRow.addView(btnAi)
+
+                            cardInner.addView(actionBtnsRow)
+                            card.addView(cardInner)
+                            contentContainer.addView(card)
+                        }
+                    }
+                }
+                "HW" -> {
+                    val filtered = cachedHwList.filter { hw ->
+                        if (query.isEmpty()) true else {
+                            val title = hw.title.lowercase()
+                            val subj = (hw.subject?.name ?: "").lowercase()
+                            val cls = (hw.`class`?.name ?: "").lowercase()
+                            title.contains(query) || subj.contains(query) || cls.contains(query)
+                        }
+                    }
+                    if (filtered.isEmpty()) {
+                        contentContainer.addView(TextView(this).apply {
+                            text = if (query.isEmpty()) "Belum ada Tugas atau PR yang dibuat.\n\nKlik 'Buat PR' di menu Tugas untuk menugaskan PR ke siswa." else "Tidak ada Tugas/PR yang cocok dengan \"$query\""
+                            textSize = 12.5f
+                            setTextColor(Color.parseColor("#94A3B8"))
+                            gravity = Gravity.CENTER
+                            setPadding(dp(20), dp(40), dp(20), dp(40))
+                        })
+                    } else {
+                        filtered.forEach { hw ->
+                            val card = CardView(this).apply {
+                                radius = dp(12).toFloat()
+                                cardElevation = dp(2).toFloat()
+                                setCardBackgroundColor(Color.WHITE)
+                                val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                                    bottomMargin = dp(10)
+                                }
+                                layoutParams = lp
+                            }
+                            val cardInner = LinearLayout(this).apply {
+                                orientation = LinearLayout.VERTICAL
+                                setPadding(dp(14), dp(12), dp(14), dp(12))
+                            }
+
+                            val topRow = LinearLayout(this).apply {
+                                orientation = LinearLayout.HORIZONTAL
+                                gravity = Gravity.CENTER_VERTICAL
+                            }
+                            val catBadge = TextView(this).apply {
+                                text = hw.category ?: "TUGAS / PR"
+                                textSize = 9.5f
+                                setTypeface(null, Typeface.BOLD)
+                                setTextColor(Color.parseColor("#4338CA"))
+                                background = GradientDrawable().apply {
+                                    setColor(Color.parseColor("#EEF2FF"))
+                                    cornerRadius = dp(6).toFloat()
+                                }
+                                setPadding(dp(8), dp(3), dp(8), dp(3))
+                            }
+                            val subText = TextView(this).apply {
+                                text = "${hw.subject?.name ?: "Matpel"} • Kelas ${hw.`class`?.name ?: "Semua"}"
+                                textSize = 11.5f
+                                setTextColor(Color.parseColor("#64748B"))
+                                setPadding(dp(8), 0, 0, 0)
+                            }
+                            topRow.addView(catBadge)
+                            topRow.addView(subText)
+                            cardInner.addView(topRow)
+
+                            val tvTitle = TextView(this).apply {
+                                text = hw.title
+                                textSize = 13.5f
+                                setTextColor(Color.parseColor("#0F172A"))
+                                setTypeface(null, Typeface.BOLD)
+                                setPadding(0, dp(4), 0, dp(2))
+                            }
+                            cardInner.addView(tvTitle)
+
+                            val weightStr = if (hw.weight != null) " • ⚖️ Bobot: ${hw.weight}%" else ""
+                            val tvDeadline = TextView(this).apply {
+                                text = "⏰ Batas Kumpul: ${hw.deadline}$weightStr"
+                                textSize = 11.5f
+                                setTextColor(Color.parseColor("#475569"))
+                                setPadding(0, 0, 0, dp(6))
+                            }
+                            cardInner.addView(tvDeadline)
+
+                            val actionBtnsRow = LinearLayout(this).apply {
+                                orientation = LinearLayout.HORIZONTAL
+                                gravity = Gravity.CENTER_VERTICAL
+                            }
+                            val btnMonitor = Button(this).apply {
+                                text = "👥 Pantau Siswa & Nilai"
+                                textSize = 11f
+                                setTypeface(null, Typeface.BOLD)
+                                setTextColor(Color.WHITE)
+                                setBackgroundColor(Color.parseColor("#059669"))
+                                val lp = LinearLayout.LayoutParams(0, dp(38), 1.2f).apply { marginEnd = dp(6) }
+                                layoutParams = lp
+                                setOnClickListener {
+                                    showHomeworkSubmissionsDialog(hw)
+                                }
+                            }
+                            val btnDelete = Button(this).apply {
+                                text = "🗑️ Hapus"
+                                textSize = 10.5f
+                                setTextColor(Color.parseColor("#DC2626"))
+                                setBackgroundColor(Color.parseColor("#FEE2E2"))
+                                val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(38))
+                                layoutParams = lp
+                                setOnClickListener {
+                                    AlertDialog.Builder(this@TeacherMainActivity)
+                                        .setTitle("Hapus Tugas")
+                                        .setMessage("Yakin ingin menghapus tugas \"${hw.title}\"?")
+                                        .setPositiveButton("Hapus") { _, _ ->
+                                            ApiClient.getClient(this@TeacherMainActivity).deleteHomework(hw.id).enqueue(object : Callback<BasicResponse> {
+                                                override fun onResponse(call: Call<BasicResponse>, response: Response<BasicResponse>) {
+                                                    Toast.makeText(this@TeacherMainActivity, "Tugas berhasil dihapus", Toast.LENGTH_SHORT).show()
+                                                    loadDataFn()
+                                                }
+                                                override fun onFailure(call: Call<BasicResponse>, t: Throwable) {
+                                                    Toast.makeText(this@TeacherMainActivity, "Koneksi terputus", Toast.LENGTH_SHORT).show()
+                                                }
+                                            })
+                                        }
+                                        .setNegativeButton("Batal", null)
+                                        .show()
+                                }
+                            }
+                            actionBtnsRow.addView(btnMonitor)
+                            actionBtnsRow.addView(btnDelete)
+                            cardInner.addView(actionBtnsRow)
+
+                            card.addView(cardInner)
+                            contentContainer.addView(card)
+                        }
+                    }
+                }
+                "CBT" -> {
+                    val filtered = cachedExamList.filter { ex ->
+                        if (query.isEmpty()) true else {
+                            val title = ex.title.lowercase()
+                            val subj = (ex.subject?.name ?: "").lowercase()
+                            val cls = (ex.assignedClasses ?: "").lowercase()
+                            title.contains(query) || subj.contains(query) || cls.contains(query)
+                        }
+                    }
+                    if (filtered.isEmpty()) {
+                        contentContainer.addView(TextView(this).apply {
+                            text = if (query.isEmpty()) "Belum ada Ulangan CBT yang dibuat.\n\nKlik 'CBT Portal' untuk membuat jadwal ujian CBT baru." else "Tidak ada Ujian CBT yang cocok dengan \"$query\""
+                            textSize = 12.5f
+                            setTextColor(Color.parseColor("#94A3B8"))
+                            gravity = Gravity.CENTER
+                            setPadding(dp(20), dp(40), dp(20), dp(40))
+                        })
+                    } else {
+                        filtered.forEach { exam ->
+                            val qCount = exam._count?.questions ?: 0
+                            val sCount = exam._count?.studentExams ?: 0
+
+                            val card = CardView(this).apply {
+                                radius = dp(12).toFloat()
+                                cardElevation = dp(2).toFloat()
+                                setCardBackgroundColor(Color.WHITE)
+                                val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                                    bottomMargin = dp(10)
+                                }
+                                layoutParams = lp
+                            }
+                            val cardInner = LinearLayout(this).apply {
+                                orientation = LinearLayout.VERTICAL
+                                setPadding(dp(14), dp(12), dp(14), dp(12))
+                            }
+
+                            val topRow = LinearLayout(this).apply {
+                                orientation = LinearLayout.HORIZONTAL
+                                gravity = Gravity.CENTER_VERTICAL
+                            }
+                            val cbtBadge = TextView(this).apply {
+                                text = "UJIAN CBT"
+                                textSize = 9.5f
+                                setTypeface(null, Typeface.BOLD)
+                                setTextColor(Color.parseColor("#4338CA"))
+                                background = GradientDrawable().apply {
+                                    setColor(Color.parseColor("#EEF2FF"))
+                                    cornerRadius = dp(6).toFloat()
+                                }
+                                setPadding(dp(8), dp(3), dp(8), dp(3))
+                            }
+                            val subText = TextView(this).apply {
+                                text = "${exam.subject?.name ?: "Matpel"} • Kelas: ${exam.assignedClasses ?: "Semua"}"
+                                textSize = 11.5f
+                                setTextColor(Color.parseColor("#64748B"))
+                                setPadding(dp(8), 0, 0, 0)
+                            }
+                            topRow.addView(cbtBadge)
+                            topRow.addView(subText)
+                            cardInner.addView(topRow)
+
+                            val tvTitle = TextView(this).apply {
+                                text = exam.title
+                                textSize = 13.5f
+                                setTextColor(Color.parseColor("#0F172A"))
+                                setTypeface(null, Typeface.BOLD)
+                                setPadding(0, dp(4), 0, dp(2))
+                            }
+                            cardInner.addView(tvTitle)
+
+                            val tvMeta = TextView(this).apply {
+                                text = "⏱️ Durasi: ${exam.durationMinutes}m • 🔑 Token: ${exam.token ?: "-"} • 📝 $qCount Soal • 👥 $sCount Mengerjakan"
+                                textSize = 11.5f
+                                setTextColor(Color.parseColor("#475569"))
+                                setPadding(0, 0, 0, dp(6))
+                            }
+                            cardInner.addView(tvMeta)
+
+                            val actionBtnsRow = LinearLayout(this).apply {
+                                orientation = LinearLayout.HORIZONTAL
+                                gravity = Gravity.CENTER_VERTICAL
+                            }
+                            val btnMonitor = Button(this).apply {
+                                text = "📊 Live Pantau ($sCount)"
+                                textSize = 11f
+                                setTypeface(null, Typeface.BOLD)
+                                setTextColor(Color.WHITE)
+                                setBackgroundColor(Color.parseColor("#4F46E5"))
+                                val lp = LinearLayout.LayoutParams(0, dp(38), 1.2f).apply { marginEnd = dp(4) }
+                                layoutParams = lp
+                                setOnClickListener {
+                                    showExamMonitoringRealtimeDialog(exam)
+                                }
+                            }
+                            val btnQuestions = Button(this).apply {
+                                text = "📝 Soal"
+                                textSize = 10.5f
+                                setTextColor(Color.WHITE)
+                                setBackgroundColor(Color.parseColor("#0D9488"))
+                                val lp = LinearLayout.LayoutParams(0, dp(38), 0.9f).apply { marginEnd = dp(4) }
+                                layoutParams = lp
+                                setOnClickListener {
+                                    showExamQuestionsManagerDialog(exam)
+                                }
+                            }
+                            val btnSettings = Button(this).apply {
+                                text = "⚙️ Jadwal"
+                                textSize = 10.5f
+                                setTextColor(Color.parseColor("#334155"))
+                                setBackgroundColor(Color.parseColor("#E2E8F0"))
+                                val lp = LinearLayout.LayoutParams(0, dp(38), 0.9f)
+                                layoutParams = lp
+                                setOnClickListener {
+                                    showExamSettingsDialog(exam)
+                                }
+                            }
+                            actionBtnsRow.addView(btnMonitor)
+                            actionBtnsRow.addView(btnQuestions)
+                            actionBtnsRow.addView(btnSettings)
+                            cardInner.addView(actionBtnsRow)
+
+                            card.addView(cardInner)
+                            contentContainer.addView(card)
+                        }
+                    }
+                }
             }
         }
 
-        dialog.show()
+        etSearch.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                filterAndRenderCurrentTab()
+            }
+            override fun afterTextChanged(s: android.text.Editable?) {}
+        })
+
+        loadDataFn = {
+            contentContainer.removeAllViews()
+            val tvLoading = TextView(this).apply {
+                text = "Memuat data monitoring..."
+                textSize = 12f
+                setTextColor(Color.parseColor("#64748B"))
+                gravity = Gravity.CENTER
+                setPadding(0, dp(40), 0, dp(40))
+            }
+            contentContainer.addView(tvLoading)
+
+            // Fetch UH
+            ApiClient.getClient(this).getDaftarUhGuru().enqueue(object : Callback<Map<String, Any>> {
+                override fun onResponse(call: Call<Map<String, Any>>, response: Response<Map<String, Any>>) {
+                    if (response.isSuccessful && response.body()?.get("success") == true) {
+                        cachedUhList = (response.body()?.get("data") as? List<*>)?.filterIsInstance<Map<String, Any>>() ?: emptyList()
+                        val activeUhCount = cachedUhList.count { it["status"]?.toString() == "AKTIF" }
+                        tvKpiUh.text = activeUhCount.toString()
+                    }
+                    if (activeTab == "UH") {
+                        filterAndRenderCurrentTab()
+                    }
+                }
+                override fun onFailure(call: Call<Map<String, Any>>, t: Throwable) {
+                    if (activeTab == "UH") {
+                        filterAndRenderCurrentTab()
+                    }
+                }
+            })
+
+            // Fetch Homeworks
+            ApiClient.getClient(this).getHomeworks().enqueue(object : Callback<List<HomeworkDto>> {
+                override fun onResponse(call: Call<List<HomeworkDto>>, response: Response<List<HomeworkDto>>) {
+                    if (response.isSuccessful && response.body() != null) {
+                        cachedHwList = response.body()!!
+                        tvKpiHw.text = cachedHwList.size.toString()
+                    }
+                    if (activeTab == "HW") {
+                        filterAndRenderCurrentTab()
+                    }
+                }
+                override fun onFailure(call: Call<List<HomeworkDto>>, t: Throwable) {
+                    if (activeTab == "HW") {
+                        filterAndRenderCurrentTab()
+                    }
+                }
+            })
+
+            // Fetch CBT Exams
+            ApiClient.getClient(this).getTeacherExams().enqueue(object : Callback<List<TeacherExamDto>> {
+                override fun onResponse(call: Call<List<TeacherExamDto>>, response: Response<List<TeacherExamDto>>) {
+                    if (response.isSuccessful && response.body() != null) {
+                        cachedExamList = response.body()!!
+                        tvKpiCbt.text = cachedExamList.size.toString()
+                    }
+                    if (activeTab == "CBT") {
+                        filterAndRenderCurrentTab()
+                    }
+                }
+                override fun onFailure(call: Call<List<TeacherExamDto>>, t: Throwable) {
+                    if (activeTab == "CBT") {
+                        filterAndRenderCurrentTab()
+                    }
+                }
+            })
+        }
+
+        loadDataFn()
+        fullDialog.setView(root)
+        fullDialog.show()
+    }
+
+    fun showDaftarUlanganHarianGuruDialog() {
+        val density = resources.displayMetrics.density
+        fun dp(v: Int): Int = (v * density).toInt()
+
+        val fullDialog = createFullscreenDialog()
+
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#F8FAFC"))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        }
+
+        val header = createFullscreenHeader(
+            title = "⚡ Daftar Ulangan Harian Saya",
+            subtitle = "Pantau status ujian aktif, live monitoring pengerjaan, dan rekap nilai",
+            onClose = { fullDialog.dismiss() }
+        )
+        root.addView(header)
+
+        val sv = ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
+        }
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(16), dp(16), dp(16))
+        }
+        sv.addView(container)
+        root.addView(sv)
+
+        fun loadList() {
+            container.removeAllViews()
+            val tvLoading = TextView(this).apply {
+                text = "Memuat daftar ulangan harian..."
+                textSize = 12f
+                setTextColor(Color.parseColor("#64748B"))
+                gravity = Gravity.CENTER
+                setPadding(0, dp(40), 0, dp(40))
+            }
+            container.addView(tvLoading)
+
+            ApiClient.getClient(this).getDaftarUhGuru().enqueue(object : Callback<Map<String, Any>> {
+                override fun onResponse(call: Call<Map<String, Any>>, response: Response<Map<String, Any>>) {
+                    container.removeAllViews()
+                    if (response.isSuccessful && response.body()?.get("success") == true) {
+                        val uhList = (response.body()?.get("data") as? List<*>)?.filterIsInstance<Map<String, Any>>() ?: emptyList()
+                        if (uhList.isEmpty()) {
+                            container.addView(TextView(this@TeacherMainActivity).apply {
+                                text = "Belum ada riwayat Ulangan Harian yang dibuat.\n\nKlik tombol 'Mulai Ulangan Harian Cepat' di menu guru untuk membuat ulangan baru."
+                                textSize = 13f
+                                setTextColor(Color.parseColor("#94A3B8"))
+                                gravity = Gravity.CENTER
+                                setPadding(dp(20), dp(40), dp(20), dp(40))
+                            })
+                        } else {
+                            uhList.forEach { uh ->
+                                val uhId = uh["id"]?.toString() ?: ""
+                                val topik = uh["topik"]?.toString() ?: "-"
+                                val mapel = uh["mapelId"]?.toString() ?: "-"
+                                val kelas = uh["kelasId"]?.toString() ?: "-"
+                                val mode = uh["mode"]?.toString() ?: "KILAT"
+                                val status = uh["status"]?.toString() ?: "AKTIF"
+                                val token = uh["tokenAktif"]?.toString() ?: "-"
+                                val totalSoal = (uh["totalSoal"] as? Number)?.toInt() ?: 0
+                                val durasi = (uh["durasiMenit"] as? Number)?.toInt() ?: 0
+
+                                val card = CardView(this@TeacherMainActivity).apply {
+                                    radius = dp(12).toFloat()
+                                    cardElevation = dp(2).toFloat()
+                                    setCardBackgroundColor(Color.WHITE)
+                                    val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                                        bottomMargin = dp(12)
+                                    }
+                                    layoutParams = lp
+                                }
+                                val cardInner = LinearLayout(this@TeacherMainActivity).apply {
+                                    orientation = LinearLayout.VERTICAL
+                                    setPadding(dp(16), dp(14), dp(16), dp(14))
+                                }
+
+                                val topRow = LinearLayout(this@TeacherMainActivity).apply {
+                                    orientation = LinearLayout.HORIZONTAL
+                                    gravity = Gravity.CENTER_VERTICAL
+                                }
+                                val tvTopik = TextView(this@TeacherMainActivity).apply {
+                                    text = topik
+                                    textSize = 14f
+                                    setTypeface(null, Typeface.BOLD)
+                                    setTextColor(Color.parseColor("#0F172A"))
+                                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                                }
+                                val badgeStatus = TextView(this@TeacherMainActivity).apply {
+                                    text = if (status == "AKTIF") "🟢 AKTIF" else "⚪ SELESAI"
+                                    textSize = 11f
+                                    setTypeface(null, Typeface.BOLD)
+                                    setTextColor(if (status == "AKTIF") Color.parseColor("#059669") else Color.parseColor("#64748B"))
+                                    val bg = android.graphics.drawable.GradientDrawable().apply {
+                                        setColor(if (status == "AKTIF") Color.parseColor("#ECFDF5") else Color.parseColor("#F1F5F9"))
+                                        cornerRadius = dp(6).toFloat()
+                                    }
+                                    background = bg
+                                    setPadding(dp(8), dp(3), dp(8), dp(3))
+                                }
+                                topRow.addView(tvTopik)
+                                topRow.addView(badgeStatus)
+                                cardInner.addView(topRow)
+
+                                val tvSub = TextView(this@TeacherMainActivity).apply {
+                                    text = "Mapel: $mapel • Kelas: $kelas • $totalSoal Soal (${durasi}m) • Mode: $mode"
+                                    textSize = 11.5f
+                                    setTextColor(Color.parseColor("#475569"))
+                                    setPadding(0, dp(4), 0, dp(8))
+                                }
+                                cardInner.addView(tvSub)
+
+                                if (mode == "CBT_MINI" && token != "-" && status == "AKTIF") {
+                                    val tvToken = TextView(this@TeacherMainActivity).apply {
+                                        text = "🔑 Token Akses Siswa: $token"
+                                        textSize = 11.5f
+                                        setTypeface(null, Typeface.BOLD)
+                                        setTextColor(Color.parseColor("#2563EB"))
+                                        setPadding(0, 0, 0, dp(8))
+                                    }
+                                    cardInner.addView(tvToken)
+                                }
+
+                                val actionRow = LinearLayout(this@TeacherMainActivity).apply {
+                                    orientation = LinearLayout.HORIZONTAL
+                                    gravity = Gravity.CENTER_VERTICAL
+                                }
+
+                                val btnMonitor = Button(this@TeacherMainActivity).apply {
+                                    text = "📊 Pantau Siswa"
+                                    textSize = 11f
+                                    setTypeface(null, Typeface.BOLD)
+                                    setTextColor(Color.WHITE)
+                                    setBackgroundColor(Color.parseColor("#0284C7"))
+                                    layoutParams = LinearLayout.LayoutParams(0, dp(38), 1f).apply { marginEnd = dp(6) }
+                                    setOnClickListener {
+                                        showMonitoringUlanganHarianDialog(uhId)
+                                    }
+                                }
+                                actionRow.addView(btnMonitor)
+
+                                val btnAi = Button(this@TeacherMainActivity).apply {
+                                    text = "🤖 Analisis AI"
+                                    textSize = 11f
+                                    setTextColor(Color.WHITE)
+                                    setBackgroundColor(Color.parseColor("#7C3AED"))
+                                    layoutParams = LinearLayout.LayoutParams(0, dp(38), 1f).apply { marginEnd = dp(6) }
+                                    setOnClickListener {
+                                        showUhAiAssistantDialog(uhId)
+                                    }
+                                }
+                                actionRow.addView(btnAi)
+
+                                if (status == "AKTIF") {
+                                    val btnFinish = Button(this@TeacherMainActivity).apply {
+                                        text = "🛑 Akhiri"
+                                        textSize = 11f
+                                        setTextColor(Color.WHITE)
+                                        setBackgroundColor(Color.parseColor("#DC2626"))
+                                        layoutParams = LinearLayout.LayoutParams(dp(75), dp(38))
+                                        setOnClickListener {
+                                            AlertDialog.Builder(this@TeacherMainActivity)
+                                                .setTitle("Akhiri Ulangan Harian")
+                                                .setMessage("Apakah Anda yakin ingin mengakhiri ulangan harian \"$topik\"? Siswa yang belum mengumpulkan akan otomatis difinalisasi.")
+                                                .setPositiveButton("Ya, Akhiri") { _, _ ->
+                                                    ApiClient.getClient(this@TeacherMainActivity).finishUlanganHarian(uhId).enqueue(object : Callback<Map<String, Any>> {
+                                                        override fun onResponse(call: Call<Map<String, Any>>, response: Response<Map<String, Any>>) {
+                                                            Toast.makeText(this@TeacherMainActivity, "Ulangan berhasil diakhiri", Toast.LENGTH_SHORT).show()
+                                                            loadList()
+                                                        }
+                                                        override fun onFailure(call: Call<Map<String, Any>>, t: Throwable) {
+                                                            Toast.makeText(this@TeacherMainActivity, "Gagal mengakhiri: ${t.message}", Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    })
+                                                }
+                                                .setNegativeButton("Batal", null)
+                                                .show()
+                                        }
+                                    }
+                                    actionRow.addView(btnFinish)
+                                }
+
+                                cardInner.addView(actionRow)
+                                card.addView(cardInner)
+                                container.addView(card)
+                            }
+                        }
+                    } else {
+                        container.addView(TextView(this@TeacherMainActivity).apply {
+                            text = "Gagal memuat daftar ulangan: ${response.message()}"
+                            textSize = 12f
+                            setTextColor(Color.parseColor("#DC2626"))
+                            gravity = Gravity.CENTER
+                            setPadding(0, dp(40), 0, dp(40))
+                        })
+                    }
+                }
+
+                override fun onFailure(call: Call<Map<String, Any>>, t: Throwable) {
+                    container.removeAllViews()
+                    container.addView(TextView(this@TeacherMainActivity).apply {
+                        text = "Koneksi terputus: ${t.message}"
+                        textSize = 12f
+                        setTextColor(Color.parseColor("#DC2626"))
+                        gravity = Gravity.CENTER
+                        setPadding(0, dp(40), 0, dp(40))
+                    })
+                }
+            })
+        }
+
+        loadList()
+        fullDialog.setView(root)
+        fullDialog.show()
+    }
+
+    /**
+     * Berita Acara Pelaksanaan (BAP) & Presensi Ujian Terpadu (Ulangan Harian & CBT Ujian)
+     */
+    private fun showBapPresensiDialog(
+        title: String,
+        subTitle: String,
+        siswaList: List<Map<*, *>>
+    ) {
+        val density = resources.displayMetrics.density
+        fun dp(v: Int): Int = (v * density).toInt()
+
+        val fullDialog = createFullscreenDialog()
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#F8FAFC"))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        }
+
+        val header = createFullscreenHeader(
+            title = "📋 Berita Acara Pelaksanaan & Presensi",
+            subtitle = "$title • $subTitle",
+            onClose = { fullDialog.dismiss() }
+        )
+        root.addView(header)
+
+        val sv = ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
+        }
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(16), dp(16), dp(16))
+        }
+        sv.addView(content)
+        root.addView(sv)
+
+        val total = siswaList.size
+        val selesaiList = siswaList.filter { (it["status"]?.toString() ?: "").uppercase() in listOf("SELESAI", "FINISHED") }
+        val ngerjainList = siswaList.filter { (it["status"]?.toString() ?: "").uppercase() in listOf("SEDANG_MENGERJAKAN", "ONGOING") }
+        val belumList = siswaList.filter { (it["status"]?.toString() ?: "").uppercase() in listOf("BELUM_MULAI", "NOT_STARTED") }
+        val hadirCount = selesaiList.size + ngerjainList.size
+        val pctHadir = if (total > 0) Math.round((hadirCount.toDouble() / total.toDouble()) * 1000) / 10.0 else 0.0
+
+        val sdfIndo = java.text.SimpleDateFormat("EEEE, dd MMMM yyyy HH:mm 'WIB'", java.util.Locale("id", "ID"))
+        val waktuCetak = sdfIndo.format(java.util.Date())
+
+        val bapTextBuilder = StringBuilder()
+        bapTextBuilder.append("=========================================\n")
+        bapTextBuilder.append("BERITA ACARA PELAKSANAAN & PRESENSI UJIAN\n")
+        bapTextBuilder.append("=========================================\n\n")
+        bapTextBuilder.append("Kegiatan      : $title\n")
+        bapTextBuilder.append("Keterangan    : $subTitle\n")
+        bapTextBuilder.append("Waktu Laporan : $waktuCetak\n\n")
+        bapTextBuilder.append("--- STATISTIK PRESENSI ---\n")
+        bapTextBuilder.append("Total Peserta : $total Siswa\n")
+        bapTextBuilder.append("Hadir         : $hadirCount Siswa ($pctHadir%)\n")
+        bapTextBuilder.append("  - Selesai   : ${selesaiList.size} Siswa\n")
+        bapTextBuilder.append("  - Mengerjakan: ${ngerjainList.size} Siswa\n")
+        bapTextBuilder.append("Tidak Hadir   : ${belumList.size} Siswa\n\n")
+
+        bapTextBuilder.append("--- SISWA TIDAK HADIR / BELUM MULAI (${belumList.size}) ---\n")
+        if (belumList.isEmpty()) {
+            bapTextBuilder.append("(Nihil - Seluruh peserta hadir)\n")
+        } else {
+            belumList.forEachIndexed { i, s ->
+                val uMap = s["user"] as? Map<*, *>
+                val nm = s["nama"] ?: s["studentName"] ?: uMap?.get("name") ?: "Siswa"
+                val ns = s["nisn"] ?: uMap?.get("nisn") ?: "-"
+                val cl = s["className"] ?: uMap?.get("className") ?: "-"
+                bapTextBuilder.append("${i + 1}. $nm (NISN: $ns, Kelas: $cl)\n")
+            }
+        }
+
+        bapTextBuilder.append("\n--- SISWA HADIR (${hadirCount}) ---\n")
+        val hadirAll = selesaiList + ngerjainList
+        hadirAll.forEachIndexed { i, s ->
+            val uMap = s["user"] as? Map<*, *>
+            val nm = s["nama"] ?: s["studentName"] ?: uMap?.get("name") ?: "Siswa"
+            val ns = s["nisn"] ?: uMap?.get("nisn") ?: "-"
+            val st = s["status"]?.toString() ?: "-"
+            val nl = s["nilai"] ?: s["score"] ?: "-"
+            bapTextBuilder.append("${i + 1}. $nm [Status: $st, Nilai: $nl]\n")
+        }
+
+        val cardPreview = CardView(this).apply {
+            radius = dp(12).toFloat()
+            setCardBackgroundColor(Color.WHITE)
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
+        val innerCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(16), dp(16), dp(16))
+        }
+        val tvBapContent = TextView(this).apply {
+            text = bapTextBuilder.toString()
+            textSize = 11.5f
+            typeface = Typeface.MONOSPACE
+            setTextColor(Color.parseColor("#0F172A"))
+        }
+        innerCard.addView(tvBapContent)
+        cardPreview.addView(innerCard)
+        content.addView(cardPreview)
+
+        val bottomBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setBackgroundColor(Color.WHITE)
+            elevation = dp(4).toFloat()
+            setPadding(dp(16), dp(10), dp(16), dp(10))
+        }
+        val btnCopy = Button(this).apply {
+            text = "📋 Salin Format BAP"
+            textSize = 12f
+            setTextColor(Color.parseColor("#0F172A"))
+            setTypeface(null, Typeface.BOLD)
+            setBackgroundColor(Color.parseColor("#E2E8F0"))
+            layoutParams = LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginEnd = dp(6) }
+            setOnClickListener {
+                val cb = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                cb.setPrimaryClip(ClipData.newPlainText("BAP Presensi", bapTextBuilder.toString()))
+                Toast.makeText(this@TeacherMainActivity, "📋 Teks Berita Acara & Presensi berhasil disalin!", Toast.LENGTH_SHORT).show()
+            }
+        }
+        val btnShareWa = Button(this).apply {
+            text = "💬 Bagikan ke WhatsApp"
+            textSize = 12f
+            setTextColor(Color.WHITE)
+            setTypeface(null, Typeface.BOLD)
+            setBackgroundColor(Color.parseColor("#059669"))
+            layoutParams = LinearLayout.LayoutParams(0, dp(44), 1.2f)
+            setOnClickListener {
+                try {
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://api.whatsapp.com/send?text=" + Uri.encode(bapTextBuilder.toString()))))
+                } catch (_: Exception) {
+                    Toast.makeText(this@TeacherMainActivity, "WhatsApp tidak terpasang di perangkat", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+        bottomBar.addView(btnCopy)
+        bottomBar.addView(btnShareWa)
+        root.addView(bottomBar)
+
+        fullDialog.setView(root)
+        fullDialog.show()
     }
 
     private fun showMonitoringUlanganHarianDialog(uhId: String) {
@@ -18531,176 +24171,238 @@ class TeacherMainActivity : AppCompatActivity() {
 
         val header = createFullscreenHeader(
             title = "📊 Live Monitoring Ulangan Harian",
-            subtitle = "Pantau progress pengerjaan, status koneksi siswa, audit & analisis AI",
+            subtitle = "Pantau progress, kontrol sesi siswa, dan periksa lembar jawaban",
             onClose = { fullDialog.dismiss() }
         )
         root.addView(header)
 
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(16), dp(16), dp(16))
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
         }
 
+        // Card Info & Token
         val cardInfo = CardView(this).apply {
-            radius = 12f * density
-            cardElevation = 2f * density
+            radius = dp(12).toFloat()
+            cardElevation = dp(2).toFloat()
             setCardBackgroundColor(Color.WHITE)
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                bottomMargin = dp(10)
+                bottomMargin = dp(8)
             }
         }
-        val tvInfo = TextView(this).apply {
-            text = "Memuat data monitoring..."
-            textSize = 12.5f
-            setTextColor(Color.parseColor("#0F172A"))
-            setPadding(dp(14), dp(12), dp(14), dp(12))
-            setLineSpacing(2f, 1.15f)
+        val infoInner = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(14), dp(10), dp(14), dp(10))
         }
-        cardInfo.addView(tvInfo)
+        val tvUhTitle = TextView(this).apply {
+            text = "Memuat rincian ulangan..."
+            textSize = 13.5f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#0F172A"))
+        }
+        val tvUhSub = TextView(this).apply {
+            text = "Menghubungkan ke server..."
+            textSize = 11.5f
+            setTextColor(Color.parseColor("#64748B"))
+            setPadding(0, dp(2), 0, dp(6))
+        }
+        val rowToken = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            visibility = View.GONE
+        }
+        val tvTokenLbl = TextView(this).apply {
+            text = "🔑 Token Aktif: "
+            textSize = 12f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#2563EB"))
+        }
+        val tvTokenVal = TextView(this).apply {
+            text = "------"
+            textSize = 13f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#1D4ED8"))
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val btnRotateToken = TextView(this).apply {
+            text = "🔄 Ganti Token"
+            textSize = 11f
+            setTextColor(Color.parseColor("#2563EB"))
+            setTypeface(null, Typeface.BOLD)
+            val bg = android.graphics.drawable.GradientDrawable().apply {
+                setColor(Color.parseColor("#EFF6FF"))
+                cornerRadius = dp(6).toFloat()
+                setStroke(dp(1), Color.parseColor("#BFDBFE"))
+            }
+            background = bg
+            setPadding(dp(8), dp(4), dp(8), dp(4))
+            setOnClickListener {
+                ApiClient.getClient(this@TeacherMainActivity).rotateTokenUh(uhId).enqueue(object : Callback<Map<String, Any>> {
+                    override fun onResponse(call: Call<Map<String, Any>>, response: Response<Map<String, Any>>) {
+                        if (response.isSuccessful && response.body()?.get("success") == true) {
+                            val data = response.body()?.get("data") as? Map<*, *>
+                            val newToken = data?.get("tokenAktif")?.toString() ?: ""
+                            tvTokenVal.text = newToken
+                            Toast.makeText(this@TeacherMainActivity, "Token berhasil diperbarui: $newToken", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    override fun onFailure(call: Call<Map<String, Any>>, t: Throwable) {
+                        Toast.makeText(this@TeacherMainActivity, "Gagal mengganti token: ${t.message}", Toast.LENGTH_SHORT).show()
+                    }
+                })
+            }
+        }
+        rowToken.addView(tvTokenLbl)
+        rowToken.addView(tvTokenVal)
+        rowToken.addView(btnRotateToken)
+
+        infoInner.addView(tvUhTitle)
+        infoInner.addView(tvUhSub)
+        infoInner.addView(rowToken)
+        cardInfo.addView(infoInner)
         content.addView(cardInfo)
+
+        // KPI Summary Cards
+        val kpiRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(8)
+            }
+            weightSum = 5f
+        }
+        fun createKpiBox(label: String, initialVal: String, colorHex: String): TextView {
+            val box = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                val bg = android.graphics.drawable.GradientDrawable().apply {
+                    setColor(Color.WHITE)
+                    cornerRadius = dp(8).toFloat()
+                    setStroke(dp(1), Color.parseColor("#E2E8F0"))
+                }
+                background = bg
+                setPadding(dp(2), dp(8), dp(2), dp(8))
+                val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    marginEnd = dp(4)
+                }
+                layoutParams = lp
+            }
+            val tvVal = TextView(this).apply {
+                text = initialVal
+                textSize = 14f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(Color.parseColor(colorHex))
+            }
+            val tvLbl = TextView(this).apply {
+                text = label
+                textSize = 9.5f
+                setTextColor(Color.parseColor("#64748B"))
+            }
+            box.addView(tvVal)
+            box.addView(tvLbl)
+            kpiRow.addView(box)
+            return tvVal
+        }
+
+        val tvKpiTotal = createKpiBox("Total Siswa", "0", "#0F172A")
+        val tvKpiHadir = createKpiBox("Hadir Presensi", "0", "#059669")
+        val tvKpiNgerjain = createKpiBox("Mengerjakan", "0", "#0284C7")
+        val tvKpiSelesai = createKpiBox("Selesai", "0", "#10B981")
+        val tvKpiBelum = createKpiBox("Belum Hadir", "0", "#DC2626")
+        content.addView(kpiRow)
+
+        // Search Bar & Filter Tabs
+        val etSearch = EditText(this).apply {
+            hint = "🔍 Cari nama atau NISN siswa..."
+            textSize = 12f
+            val bg = android.graphics.drawable.GradientDrawable().apply {
+                setColor(Color.WHITE)
+                cornerRadius = dp(8).toFloat()
+                setStroke(dp(1), Color.parseColor("#CBD5E1"))
+            }
+            background = bg
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(6)
+            }
+        }
+        content.addView(etSearch)
+
+        var activeFilter = "SEMUA"
+        val filterTabsRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(8)
+            }
+        }
+        val tabSemua = TextView(this)
+        val tabNgerjain = TextView(this)
+        val tabSelesai = TextView(this)
+        val tabBelum = TextView(this)
+
+        fun styleTab(tv: TextView, label: String, isSel: Boolean) {
+            tv.text = label
+            tv.textSize = 11f
+            tv.setTypeface(null, if (isSel) Typeface.BOLD else Typeface.NORMAL)
+            tv.setTextColor(if (isSel) Color.WHITE else Color.parseColor("#475569"))
+            val bg = android.graphics.drawable.GradientDrawable().apply {
+                setColor(if (isSel) Color.parseColor("#0284C7") else Color.parseColor("#E2E8F0"))
+                cornerRadius = dp(6).toFloat()
+            }
+            tv.background = bg
+            tv.setPadding(dp(10), dp(6), dp(10), dp(6))
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                marginEnd = dp(4)
+            }
+            tv.layoutParams = lp
+        }
+
+        content.addView(filterTabsRow)
 
         val svList = ScrollView(this).apply {
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
         }
         val listContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(0, dp(4), 0, dp(12))
+            setPadding(0, dp(2), 0, dp(12))
         }
         svList.addView(listContainer)
         content.addView(svList)
+        root.addView(content)
 
-        fun loadDataLive() {
-            ApiClient.getClient(this).getMonitoringUhGuru(uhId).enqueue(object : Callback<Map<String, Any>> {
-                override fun onResponse(call: Call<Map<String, Any>>, response: Response<Map<String, Any>>) {
-                    if (response.isSuccessful) {
-                        val body = response.body()
-                        val data = body?.get("data") as? Map<*, *>
-                        val uh = data?.get("uh") as? Map<*, *>
-                        val stats = data?.get("stats") as? Map<*, *>
-                        val siswaList = data?.get("siswa") as? List<*>
+        var rawSiswaList: List<Map<*, *>> = emptyList()
+        var fullSoalList: List<*> = emptyList<Any>()
 
-                        val topik = uh?.get("topik")?.toString() ?: ""
-                        val mapel = uh?.get("mapel")?.toString() ?: ""
-                        val kelas = uh?.get("kelas")?.toString() ?: ""
-                        val mode = uh?.get("mode")?.toString() ?: ""
-                        val token = uh?.get("tokenAktif")?.toString() ?: "-"
-
-                        val total = stats?.get("totalSiswa") ?: 0
-                        val selesai = stats?.get("selesai") ?: 0
-                        val ngerjain = stats?.get("sedangMengerjakan") ?: 0
-                        val rata = stats?.get("rataRata") ?: 0
-
-                        tvInfo.text = "UH $mapel — $topik ($kelas)\nMode: $mode | Token: $token\nSelesai: $selesai / $total Siswa | Sedang: $ngerjain | Rata-rata: $rata"
-
-                        listContainer.removeAllViews()
-                        if (siswaList != null) {
-                            for (item in siswaList) {
-                                val s = item as? Map<*, *> ?: continue
-                                val siswaId = s["id"]?.toString() ?: s["siswaId"]?.toString() ?: ""
-                                val nama = s["nama"]?.toString() ?: ""
-                                val st = s["status"]?.toString() ?: "BELUM_MULAI"
-                                val prg = s["progress"]?.toString() ?: "0"
-                                val nilai = s["nilai"]?.toString() ?: "-"
-                                val insiden = (s["insidenCount"] as? Number)?.toInt() ?: 0
-                                val isDrop = s["isConnectionDrop"] as? Boolean ?: (st == "TERPUTUS")
-
-                                val card = CardView(this@TeacherMainActivity).apply {
-                                    radius = 8f * density
-                                    cardElevation = 1.5f * density
-                                    setCardBackgroundColor(Color.WHITE)
-                                    layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                                        bottomMargin = dp(8)
-                                    }
-                                }
-
-                                val itemLayout = LinearLayout(this@TeacherMainActivity).apply {
-                                    orientation = LinearLayout.HORIZONTAL
-                                    gravity = Gravity.CENTER_VERTICAL
-                                    setPadding(dp(12), dp(10), dp(12), dp(10))
-                                }
-
-                                val infoCol = LinearLayout(this@TeacherMainActivity).apply {
-                                    orientation = LinearLayout.VERTICAL
-                                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-                                }
-
-                                val tvName = TextView(this@TeacherMainActivity).apply {
-                                    text = nama
-                                    textSize = 13f
-                                    setTypeface(null, Typeface.BOLD)
-                                    setTextColor(Color.parseColor("#0F172A"))
-                                }
-
-                                val statusDesc = when {
-                                    st == "SELESAI" -> "🟢 SELESAI (Nilai: $nilai)"
-                                    isDrop -> "⚠️ TERPUTUS / RECONNECTING ($prg%)"
-                                    st == "SEDANG_MENGERJAKAN" -> "✏️ Mengerjakan ($prg%)"
-                                    else -> "⏳ Belum Mulai"
-                                }
-                                val tvStatus = TextView(this@TeacherMainActivity).apply {
-                                    text = statusDesc + if (insiden > 0) " • ⚠️$insiden Insiden" else ""
-                                    textSize = 11f
-                                    setTextColor(when {
-                                        st == "SELESAI" -> Color.parseColor("#059669")
-                                        isDrop -> Color.parseColor("#DC2626")
-                                        st == "SEDANG_MENGERJAKAN" -> Color.parseColor("#0284C7")
-                                        else -> Color.parseColor("#64748B")
-                                    })
-                                }
-                                infoCol.addView(tvName)
-                                infoCol.addView(tvStatus)
-                                itemLayout.addView(infoCol)
-
-                                val btnKoreksi = Button(this@TeacherMainActivity).apply {
-                                    text = "📝 Rubrik"
-                                    textSize = 11f
-                                    setBackgroundColor(Color.parseColor("#475569"))
-                                    setTextColor(Color.WHITE)
-                                    layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36))
-                                    setOnClickListener {
-                                        showManualGradeDialog(uhId, siswaId, nama) {
-                                            loadDataLive()
-                                        }
-                                    }
-                                }
-                                itemLayout.addView(btnKoreksi)
-                                card.addView(itemLayout)
-                                listContainer.addView(card)
-                            }
-                        }
-                    }
-                }
-
-                override fun onFailure(call: Call<Map<String, Any>>, t: Throwable) {
-                    tvInfo.text = "Gagal memuat monitoring: ${t.message}"
-                }
-            })
+        // Bottom Action Bar
+        val bottomBar = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.WHITE)
+            elevation = dp(4).toFloat()
+            setPadding(dp(12), dp(8), dp(12), dp(8))
         }
 
-        // Action Row 1: Refresh, +10 Mnt, Akhiri
         val btnRow1 = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(0, dp(4), 0, dp(6))
+            setPadding(0, 0, 0, dp(6))
         }
         val btnRefresh = Button(this).apply {
             text = "🔄 Refresh"
             setBackgroundColor(Color.parseColor("#0284C7"))
             setTextColor(Color.WHITE)
-            textSize = 11.5f
-            layoutParams = LinearLayout.LayoutParams(0, dp(42), 1f).apply { marginEnd = dp(4) }
+            textSize = 11f
+            layoutParams = LinearLayout.LayoutParams(0, dp(40), 1f).apply { marginEnd = dp(4) }
         }
         val btnExtend = Button(this).apply {
             text = "⏱️ +10 Mnt"
             setBackgroundColor(Color.parseColor("#0D9488"))
             setTextColor(Color.WHITE)
-            textSize = 11.5f
-            layoutParams = LinearLayout.LayoutParams(0, dp(42), 1f).apply { marginEnd = dp(4) }
+            textSize = 11f
+            layoutParams = LinearLayout.LayoutParams(0, dp(40), 1f).apply { marginEnd = dp(4) }
             setOnClickListener {
                 ApiClient.getClient(this@TeacherMainActivity).extendWaktuUh(uhId, mapOf("tambahanMenit" to 10)).enqueue(object : Callback<Map<String, Any>> {
                     override fun onResponse(call: Call<Map<String, Any>>, response: Response<Map<String, Any>>) {
                         if (response.isSuccessful) {
-                            Toast.makeText(this@TeacherMainActivity, "Waktu ulangan berhasil diperpanjang +10 menit!", Toast.LENGTH_SHORT).show()
-                            loadDataLive()
+                            Toast.makeText(this@TeacherMainActivity, "Waktu ulangan berhasil ditambah +10 menit!", Toast.LENGTH_SHORT).show()
                         } else {
                             Toast.makeText(this@TeacherMainActivity, "Gagal memperpanjang waktu", Toast.LENGTH_SHORT).show()
                         }
@@ -18712,67 +24414,609 @@ class TeacherMainActivity : AppCompatActivity() {
             }
         }
         val btnFinish = Button(this).apply {
-            text = "🛑 Selesai & Rekap"
+            text = "🛑 Akhiri UH"
             setBackgroundColor(Color.parseColor("#DC2626"))
             setTextColor(Color.WHITE)
-            textSize = 11.5f
-            layoutParams = LinearLayout.LayoutParams(0, dp(42), 1f)
+            textSize = 11f
+            layoutParams = LinearLayout.LayoutParams(0, dp(40), 1f)
         }
         btnRow1.addView(btnRefresh)
         btnRow1.addView(btnExtend)
         btnRow1.addView(btnFinish)
-        content.addView(btnRow1)
+        bottomBar.addView(btnRow1)
 
-        // Action Row 2: Asisten AI Analisis & Remedial Summary
         val btnRow2 = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(0, 0, 0, 0)
         }
         val btnAi = Button(this).apply {
             text = "🤖 Asisten Analisis AI"
             setBackgroundColor(Color.parseColor("#7C3AED"))
             setTextColor(Color.WHITE)
-            textSize = 11.5f
-            layoutParams = LinearLayout.LayoutParams(0, dp(42), 1f).apply { marginEnd = dp(4) }
-            setOnClickListener {
-                showUhAiAssistantDialog(uhId)
-            }
+            textSize = 11f
+            layoutParams = LinearLayout.LayoutParams(0, dp(38), 1f).apply { marginEnd = dp(4) }
+            setOnClickListener { showUhAiAssistantDialog(uhId) }
         }
         val btnRemedial = Button(this).apply {
-            text = "🎯 Remedial (KKM 75)"
+            text = "🎯 Rekap Remedial (KKM 75)"
             setBackgroundColor(Color.parseColor("#EA580C"))
             setTextColor(Color.WHITE)
-            textSize = 11.5f
-            layoutParams = LinearLayout.LayoutParams(0, dp(42), 1f)
-            setOnClickListener {
-                showUhRemedialSummaryDialog(uhId)
-            }
+            textSize = 11f
+            layoutParams = LinearLayout.LayoutParams(0, dp(38), 1f)
+            setOnClickListener { showUhRemedialSummaryDialog(uhId) }
         }
         btnRow2.addView(btnAi)
         btnRow2.addView(btnRemedial)
-        content.addView(btnRow2)
+        bottomBar.addView(btnRow2)
 
-        root.addView(content)
-        fullDialog.setView(root)
-
-        btnRefresh.setOnClickListener { loadDataLive() }
-        btnFinish.setOnClickListener {
-            ApiClient.getClient(this).finishUlanganHarian(uhId).enqueue(object : Callback<Map<String, Any>> {
-                override fun onResponse(call: Call<Map<String, Any>>, response: Response<Map<String, Any>>) {
-                    Toast.makeText(this@TeacherMainActivity, "Ulangan telah diakhiri dan direkap!", Toast.LENGTH_SHORT).show()
-                    loadDataLive()
+        val btnRow3 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, dp(6), 0, 0)
+        }
+        val btnBapPresensi = Button(this).apply {
+            text = "📋 BAP Presensi Ujian"
+            setBackgroundColor(Color.parseColor("#0F766E"))
+            setTextColor(Color.WHITE)
+            textSize = 11f
+            layoutParams = LinearLayout.LayoutParams(0, dp(38), 1.2f).apply { marginEnd = dp(4) }
+            setOnClickListener {
+                showBapPresensiDialog(
+                    title = tvUhTitle.text.toString(),
+                    subTitle = tvUhSub.text.toString(),
+                    siswaList = rawSiswaList
+                )
+            }
+        }
+        val btnRemindAllAbsent = Button(this).apply {
+            text = "📢 Ingatkan Belum Hadir"
+            setBackgroundColor(Color.parseColor("#B45309"))
+            setTextColor(Color.WHITE)
+            textSize = 11f
+            layoutParams = LinearLayout.LayoutParams(0, dp(38), 1f)
+            setOnClickListener {
+                val absentStudents = rawSiswaList.filter {
+                    val st = it["status"]?.toString() ?: "BELUM_MULAI"
+                    st == "BELUM_MULAI" || st == "NOT_STARTED"
                 }
+                if (absentStudents.isEmpty()) {
+                    Toast.makeText(this@TeacherMainActivity, "Semua siswa sudah hadir mengerjakan!", Toast.LENGTH_SHORT).show()
+                } else {
+                    val names = absentStudents.mapIndexed { idx, s -> "${idx + 1}. ${s["nama"] ?: "Siswa"}" }.joinToString("\n")
+                    val msg = "Pemberitahuan Ujian / Ulangan Harian:\n*${tvUhTitle.text}*\nBerikut adalah daftar siswa yang belum hadir / belum mulai mengerjakan:\n$names\n\nDimohon segera login dan menyelesaikan ulangan sebelum waktu ujian habis. Terima kasih."
+                    val actions = arrayOf("💬 Kirim via WhatsApp", "📋 Salin Teks Pengingat")
+                    AlertDialog.Builder(this@TeacherMainActivity)
+                        .setTitle("📢 Pengingat Siswa Belum Hadir (${absentStudents.size} Siswa)")
+                        .setItems(actions) { _, which ->
+                            if (which == 0) {
+                                try {
+                                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://api.whatsapp.com/send?text=" + Uri.encode(msg))))
+                                } catch (_: Exception) {
+                                    Toast.makeText(this@TeacherMainActivity, "WhatsApp tidak terpasang di perangkat", Toast.LENGTH_SHORT).show()
+                                }
+                            } else {
+                                val cb = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                cb.setPrimaryClip(ClipData.newPlainText("Pengingat Presensi", msg))
+                                Toast.makeText(this@TeacherMainActivity, "📋 Teks pengingat berhasil disalin!", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                        .show()
+                }
+            }
+        }
+        btnRow3.addView(btnBapPresensi)
+        btnRow3.addView(btnRemindAllAbsent)
+        bottomBar.addView(btnRow3)
+        root.addView(bottomBar)
+
+        fun renderStudentList() {
+            listContainer.removeAllViews()
+            val query = etSearch.text.toString().trim().lowercase()
+
+            val filtered = rawSiswaList.filter { s ->
+                val nama = s["nama"]?.toString()?.lowercase() ?: ""
+                val nisn = s["nisn"]?.toString()?.lowercase() ?: ""
+                val st = s["status"]?.toString() ?: "BELUM_MULAI"
+                val matchSearch = query.isEmpty() || nama.contains(query) || nisn.contains(query)
+                val matchFilter = when (activeFilter) {
+                    "NGERJAIN" -> st == "SEDANG_MENGERJAKAN" || (s["isConnectionDrop"] as? Boolean ?: false)
+                    "SELESAI" -> st == "SELESAI"
+                    "BELUM" -> st == "BELUM_MULAI" || st == "NOT_STARTED"
+                    else -> true
+                }
+                matchSearch && matchFilter
+            }
+
+            if (filtered.isEmpty()) {
+                listContainer.addView(TextView(this).apply {
+                    text = "Tidak ada siswa yang sesuai dengan filter."
+                    textSize = 12f
+                    setTextColor(Color.parseColor("#94A3B8"))
+                    gravity = Gravity.CENTER
+                    setPadding(0, dp(30), 0, dp(30))
+                })
+                return
+            }
+
+            filtered.forEach { s ->
+                val siswaId = s["id"]?.toString() ?: s["siswaId"]?.toString() ?: ""
+                val nama = s["nama"]?.toString() ?: "Siswa"
+                val nisn = s["nisn"]?.toString() ?: "-"
+                val st = s["status"]?.toString() ?: "BELUM_MULAI"
+                val prg = (s["progress"] as? Number)?.toInt() ?: s["progress"]?.toString()?.toIntOrNull() ?: 0
+                val nilai = s["nilai"]?.toString() ?: "-"
+                val insiden = (s["insidenCount"] as? Number)?.toInt() ?: 0
+                val isDrop = s["isConnectionDrop"] as? Boolean ?: (st == "TERPUTUS")
+                val submissionId = s["submissionId"]?.toString() ?: ""
+                val dijawabCount = (s["dijawabCount"] as? Number)?.toInt() ?: 0
+                val totalSoal = (s["totalSoal"] as? Number)?.toInt() ?: 0
+                val kurangCount = (s["kurangCount"] as? Number)?.toInt() ?: Math.max(0, totalSoal - dijawabCount)
+                val posisiSoal = (s["posisiSoal"] as? Number)?.toInt() ?: (if (dijawabCount > 0) Math.min(totalSoal, dijawabCount + 1) else 1)
+                val jawabanJson = s["jawabanJson"] as? Map<*, *> ?: emptyMap<Any, Any>()
+
+                val card = CardView(this).apply {
+                    radius = dp(10).toFloat()
+                    cardElevation = dp(2).toFloat()
+                    setCardBackgroundColor(Color.WHITE)
+                    val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        bottomMargin = dp(8)
+                    }
+                    layoutParams = lp
+                }
+
+                val itemLayout = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(dp(12), dp(10), dp(12), dp(10))
+                }
+
+                val topRow = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                }
+
+                val colInfo = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                }
+
+                val tvName = TextView(this).apply {
+                    text = nama
+                    textSize = 13.5f
+                    setTypeface(null, Typeface.BOLD)
+                    setTextColor(Color.parseColor("#0F172A"))
+                }
+                val tvNisn = TextView(this).apply {
+                    text = "NISN: $nisn"
+                    textSize = 11f
+                    setTextColor(Color.parseColor("#64748B"))
+                }
+                colInfo.addView(tvName)
+                colInfo.addView(tvNisn)
+                topRow.addView(colInfo)
+
+                val badge = TextView(this).apply {
+                    val statusText = when {
+                        st == "SELESAI" -> "🟢 SELESAI (Nilai: $nilai)"
+                        isDrop -> "⚠️ TERPUTUS (${if (totalSoal > 0) dijawabCount * 100 / totalSoal else prg}%)"
+                        st == "SEDANG_MENGERJAKAN" -> "✏️ Mengerjakan (Posisi No. $posisiSoal)"
+                        else -> "🔴 Belum Hadir / Belum Mulai"
+                    }
+                    text = statusText + if (insiden > 0) " • ⚠️$insiden" else ""
+                    textSize = 11f
+                    setTypeface(null, Typeface.BOLD)
+                    setTextColor(when {
+                        st == "SELESAI" -> Color.parseColor("#059669")
+                        isDrop -> Color.parseColor("#DC2626")
+                        st == "SEDANG_MENGERJAKAN" -> Color.parseColor("#0284C7")
+                        else -> Color.parseColor("#DC2626")
+                    })
+                    val bg = android.graphics.drawable.GradientDrawable().apply {
+                        setColor(when {
+                            st == "SELESAI" -> Color.parseColor("#ECFDF5")
+                            isDrop -> Color.parseColor("#FEE2E2")
+                            st == "SEDANG_MENGERJAKAN" -> Color.parseColor("#E0F2FE")
+                            else -> Color.parseColor("#FEE2E2")
+                        })
+                        cornerRadius = dp(6).toFloat()
+                    }
+                    background = bg
+                    setPadding(dp(8), dp(4), dp(8), dp(4))
+                }
+                topRow.addView(badge)
+                itemLayout.addView(topRow)
+
+                // Progress Bar and text
+                val rowPrg = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(0, dp(6), 0, dp(4))
+                }
+                val progressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+                    max = if (totalSoal > 0) totalSoal else 100
+                    progress = if (st == "SELESAI") (if (totalSoal > 0) totalSoal else 100) else dijawabCount
+                    layoutParams = LinearLayout.LayoutParams(0, dp(10), 1f).apply { marginEnd = dp(8) }
+                }
+                val tvPrgText = TextView(this).apply {
+                    text = when {
+                        st == "SELESAI" -> "✅ Selesai: $dijawabCount / $totalSoal Soal (100%)"
+                        st == "SEDANG_MENGERJAKAN" -> "📝 Terjawab: $dijawabCount / $totalSoal Soal (${if (totalSoal > 0) dijawabCount * 100 / totalSoal else 0}%) • ⏳ Kurang: $kurangCount Soal lagi • 📍 Posisi Soal No. $posisiSoal"
+                        isDrop -> "⚠️ Terputus: Terjawab $dijawabCount / $totalSoal Soal • ⏳ Kurang: $kurangCount Soal lagi"
+                        else -> "🔴 Belum Hadir • ⏳ Kurang: $totalSoal Soal (0%)"
+                    }
+                    textSize = 10.5f
+                    setTextColor(Color.parseColor("#475569"))
+                }
+                rowPrg.addView(progressBar)
+                rowPrg.addView(tvPrgText)
+                itemLayout.addView(rowPrg)
+
+                // Action Buttons for this student
+                val rowStudentActions = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.END
+                    setPadding(0, dp(4), 0, 0)
+                }
+
+                if (st == "BELUM_MULAI" || st == "NOT_STARTED") {
+                    val btnWaRemind = TextView(this).apply {
+                        text = "💬 Ingatkan (WA)"
+                        textSize = 11f
+                        setTypeface(null, Typeface.BOLD)
+                        setTextColor(Color.parseColor("#059669"))
+                        val bg = android.graphics.drawable.GradientDrawable().apply {
+                            setColor(Color.parseColor("#ECFDF5"))
+                            cornerRadius = dp(6).toFloat()
+                        }
+                        background = bg
+                        setPadding(dp(8), dp(4), dp(8), dp(4))
+                        val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                            marginEnd = dp(6)
+                        }
+                        layoutParams = lp
+                        setOnClickListener {
+                            val msg = "Halo $nama (NISN: $nisn), Ulangan Harian: \"${tvUhTitle.text}\" sedang berlangsung. Mohon segera login ke aplikasi Smart CBT dan ikuti ulangan sebelum waktu ujian habis. Terima kasih."
+                            try {
+                                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://api.whatsapp.com/send?text=" + Uri.encode(msg))))
+                            } catch (_: Exception) {
+                                Toast.makeText(this@TeacherMainActivity, "WhatsApp tidak terpasang di perangkat", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                    rowStudentActions.addView(btnWaRemind)
+                }
+
+                val btnViewAnswer = TextView(this).apply {
+                    text = "👁️ Jawaban"
+                    textSize = 11f
+                    setTypeface(null, Typeface.BOLD)
+                    setTextColor(Color.parseColor("#0284C7"))
+                    val bg = android.graphics.drawable.GradientDrawable().apply {
+                        setColor(Color.parseColor("#E0F2FE"))
+                        cornerRadius = dp(6).toFloat()
+                    }
+                    background = bg
+                    setPadding(dp(8), dp(4), dp(8), dp(4))
+                    val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        marginEnd = dp(6)
+                    }
+                    layoutParams = lp
+                    setOnClickListener {
+                        showDetailJawabanUhDialog(nama, fullSoalList, jawabanJson)
+                    }
+                }
+
+                val btnGrade = TextView(this).apply {
+                    text = "📝 Nilai"
+                    textSize = 11f
+                    setTypeface(null, Typeface.BOLD)
+                    setTextColor(Color.parseColor("#4338CA"))
+                    val bg = android.graphics.drawable.GradientDrawable().apply {
+                        setColor(Color.parseColor("#EEF2FF"))
+                        cornerRadius = dp(6).toFloat()
+                    }
+                    background = bg
+                    setPadding(dp(8), dp(4), dp(8), dp(4))
+                    val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        marginEnd = dp(6)
+                    }
+                    layoutParams = lp
+                    setOnClickListener {
+                        showManualGradeDialog(uhId, submissionId, siswaId, nama) {
+                            btnRefresh.performClick()
+                        }
+                    }
+                }
+
+                val btnControl = TextView(this).apply {
+                    text = "🔄 Kontrol"
+                    textSize = 11f
+                    setTypeface(null, Typeface.BOLD)
+                    setTextColor(Color.parseColor("#D97706"))
+                    val bg = android.graphics.drawable.GradientDrawable().apply {
+                        setColor(Color.parseColor("#FEF3C7"))
+                        cornerRadius = dp(6).toFloat()
+                    }
+                    background = bg
+                    setPadding(dp(8), dp(4), dp(8), dp(4))
+                    setOnClickListener {
+                        val actions = arrayOf("🔓 Buka Kunci / Lanjutkan Sesi", "🛑 Paksa Selesai & Hitung Nilai", "🔄 Reset Sesi Ulang dari Awal")
+                        AlertDialog.Builder(this@TeacherMainActivity)
+                            .setTitle("Kontrol Sesi: $nama")
+                            .setItems(actions) { _, which ->
+                                val aksi = when (which) {
+                                    0 -> "UNLOCK"
+                                    1 -> "FORCE_FINISH"
+                                    else -> "DELETE_RESET"
+                                }
+                                val confirmMsg = when (which) {
+                                    0 -> "Buka kunci sesi ujian $nama agar siswa dapat melanjutkan?"
+                                    1 -> "Paksa kumpul ujian $nama dan hitung nilai jawaban yang telah masuk?"
+                                    else -> "Reset ulang sesi ujian $nama dari awal? Jawaban yang sudah dikerjakan akan dihapus."
+                                }
+                                AlertDialog.Builder(this@TeacherMainActivity)
+                                    .setTitle("Konfirmasi")
+                                    .setMessage(confirmMsg)
+                                    .setPositiveButton("Lanjutkan") { _, _ ->
+                                        val req = mapOf("siswaId" to siswaId, "aksi" to aksi)
+                                        ApiClient.getClient(this@TeacherMainActivity).resetSiswaUh(uhId, req).enqueue(object : Callback<Map<String, Any>> {
+                                            override fun onResponse(call: Call<Map<String, Any>>, response: Response<Map<String, Any>>) {
+                                                Toast.makeText(this@TeacherMainActivity, "Aksi $aksi berhasil dijalankan!", Toast.LENGTH_SHORT).show()
+                                                btnRefresh.performClick()
+                                            }
+                                            override fun onFailure(call: Call<Map<String, Any>>, t: Throwable) {
+                                                Toast.makeText(this@TeacherMainActivity, "Gagal menjalankan kontrol: ${t.message}", Toast.LENGTH_SHORT).show()
+                                            }
+                                        })
+                                    }
+                                    .setNegativeButton("Batal", null)
+                                    .show()
+                            }
+                            .show()
+                    }
+                }
+
+                rowStudentActions.addView(btnViewAnswer)
+                rowStudentActions.addView(btnGrade)
+                rowStudentActions.addView(btnControl)
+                itemLayout.addView(rowStudentActions)
+
+                card.addView(itemLayout)
+                listContainer.addView(card)
+            }
+        }
+
+        fun updateTabs() {
+            filterTabsRow.removeAllViews()
+            styleTab(tabSemua, "Semua (${rawSiswaList.size})", activeFilter == "SEMUA")
+            val ngerjainCount = rawSiswaList.count { it["status"]?.toString() == "SEDANG_MENGERJAKAN" || (it["isConnectionDrop"] as? Boolean ?: false) }
+            val selesaiCount = rawSiswaList.count { it["status"]?.toString() == "SELESAI" }
+            val belumCount = rawSiswaList.count { it["status"]?.toString() == "BELUM_MULAI" || it["status"]?.toString() == "NOT_STARTED" }
+
+            styleTab(tabNgerjain, "✏️ Mengerjakan ($ngerjainCount)", activeFilter == "NGERJAIN")
+            styleTab(tabSelesai, "🟢 Selesai ($selesaiCount)", activeFilter == "SELESAI")
+            styleTab(tabBelum, "⏳ Belum ($belumCount)", activeFilter == "BELUM")
+
+            filterTabsRow.addView(tabSemua)
+            filterTabsRow.addView(tabNgerjain)
+            filterTabsRow.addView(tabSelesai)
+            filterTabsRow.addView(tabBelum)
+
+            tabSemua.setOnClickListener { activeFilter = "SEMUA"; updateTabs(); renderStudentList() }
+            tabNgerjain.setOnClickListener { activeFilter = "NGERJAIN"; updateTabs(); renderStudentList() }
+            tabSelesai.setOnClickListener { activeFilter = "SELESAI"; updateTabs(); renderStudentList() }
+            tabBelum.setOnClickListener { activeFilter = "BELUM"; updateTabs(); renderStudentList() }
+        }
+
+        fun loadDataLive() {
+            ApiClient.getClient(this).getMonitoringUhGuru(uhId).enqueue(object : Callback<Map<String, Any>> {
+                override fun onResponse(call: Call<Map<String, Any>>, response: Response<Map<String, Any>>) {
+                    if (response.isSuccessful && response.body()?.get("success") == true) {
+                        val body = response.body()
+                        val data = body?.get("data") as? Map<*, *>
+                        val uh = data?.get("uh") as? Map<*, *>
+                        val stats = data?.get("stats") as? Map<*, *>
+                        val siswaList = (data?.get("siswa") as? List<*>)?.filterIsInstance<Map<*, *>>() ?: emptyList()
+
+                        val topik = uh?.get("topik")?.toString() ?: "-"
+                        val mapel = uh?.get("mapel")?.toString() ?: "-"
+                        val kelas = uh?.get("kelas")?.toString() ?: "-"
+                        val mode = uh?.get("mode")?.toString() ?: "KILAT"
+                        val token = uh?.get("tokenAktif")?.toString() ?: "-"
+                        fullSoalList = (uh?.get("soalList") as? List<*>) ?: emptyList<Any>()
+
+                        tvUhTitle.text = "$mapel — $topik"
+                        tvUhSub.text = "Target Kelas: $kelas • Mode: $mode"
+
+                        if (mode == "CBT_MINI" && token != "-") {
+                            rowToken.visibility = View.VISIBLE
+                            tvTokenVal.text = token
+                        } else {
+                            rowToken.visibility = View.GONE
+                        }
+
+                        val total = (stats?.get("totalSiswa") as? Number)?.toInt() ?: siswaList.size
+                        val selesai = (stats?.get("selesai") as? Number)?.toInt() ?: 0
+                        val ngerjain = (stats?.get("sedangMengerjakan") as? Number)?.toInt() ?: 0
+                        val belum = (stats?.get("belumMulai") as? Number)?.toInt() ?: Math.max(0, total - (selesai + ngerjain))
+                        val hadir = (stats?.get("hadirCount") as? Number)?.toInt() ?: (selesai + ngerjain)
+                        val pctHadir = if (total > 0) Math.round((hadir.toDouble() / total.toDouble()) * 1000) / 10.0 else 0.0
+
+                        tvKpiTotal.text = total.toString()
+                        tvKpiHadir.text = "$hadir ($pctHadir%)"
+                        tvKpiNgerjain.text = ngerjain.toString()
+                        tvKpiSelesai.text = selesai.toString()
+                        tvKpiBelum.text = belum.toString()
+
+                        rawSiswaList = siswaList
+                        updateTabs()
+                        renderStudentList()
+                    } else {
+                        tvUhSub.text = "Gagal memuat monitoring: ${response.message()}"
+                    }
+                }
+
                 override fun onFailure(call: Call<Map<String, Any>>, t: Throwable) {
-                    Toast.makeText(this@TeacherMainActivity, "Gagal mengakhiri: ${t.message}", Toast.LENGTH_SHORT).show()
+                    tvUhSub.text = "Koneksi terputus: ${t.message}"
                 }
             })
         }
 
+        etSearch.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                renderStudentList()
+            }
+            override fun afterTextChanged(s: android.text.Editable?) {}
+        })
+
+        btnRefresh.setOnClickListener { loadDataLive() }
+        btnFinish.setOnClickListener {
+            AlertDialog.Builder(this)
+                .setTitle("Akhiri Ulangan Harian")
+                .setMessage("Yakin ingin menyelesaikan ulangan sekarang? Semua siswa yang sedang mengerjakan akan otomatis dikumpulkan dan dinilai.")
+                .setPositiveButton("Ya, Akhiri") { _, _ ->
+                    ApiClient.getClient(this).finishUlanganHarian(uhId).enqueue(object : Callback<Map<String, Any>> {
+                        override fun onResponse(call: Call<Map<String, Any>>, response: Response<Map<String, Any>>) {
+                            Toast.makeText(this@TeacherMainActivity, "Ulangan telah diakhiri dan direkap!", Toast.LENGTH_SHORT).show()
+                            loadDataLive()
+                        }
+                        override fun onFailure(call: Call<Map<String, Any>>, t: Throwable) {
+                            Toast.makeText(this@TeacherMainActivity, "Gagal mengakhiri: ${t.message}", Toast.LENGTH_SHORT).show()
+                        }
+                    })
+                }
+                .setNegativeButton("Batal", null)
+                .show()
+        }
+
+        updateTabs()
         loadDataLive()
+        fullDialog.setView(root)
         fullDialog.show()
     }
 
-    private fun showManualGradeDialog(uhId: String, siswaId: String, namaSiswa: String, onDone: () -> Unit) {
+    private fun showDetailJawabanUhDialog(namaSiswa: String, soalList: List<*>, jawabanMap: Map<*, *>) {
+        val density = resources.displayMetrics.density
+        fun dp(v: Int): Int = (v * density).toInt()
+
+        val fullDialog = createFullscreenDialog()
+
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#F8FAFC"))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        }
+
+        val header = createFullscreenHeader(
+            title = "👁️ Lembar Jawaban: $namaSiswa",
+            subtitle = "Rincian pengerjaan, kunci jawaban, dan pembahasan butir soal",
+            onClose = { fullDialog.dismiss() }
+        )
+        root.addView(header)
+
+        val sv = ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
+        }
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(16), dp(16), dp(16))
+        }
+        sv.addView(container)
+        root.addView(sv)
+
+        if (soalList.isEmpty()) {
+            container.addView(TextView(this).apply {
+                text = "Daftar butir soal tidak tersedia."
+                textSize = 12f
+                setTextColor(Color.parseColor("#94A3B8"))
+                gravity = Gravity.CENTER
+                setPadding(0, dp(40), 0, dp(40))
+            })
+        } else {
+            soalList.forEachIndexed { idx, qObj ->
+                val q = qObj as? Map<*, *> ?: return@forEachIndexed
+                val qNum = idx + 1
+                val content = q["content"]?.toString() ?: "-"
+                val correctOpt = q["correctOption"]?.toString() ?: "A"
+                val studentAns = (jawabanMap[qNum.toString()] ?: jawabanMap["soal_$qNum"] ?: jawabanMap[idx.toString()])?.toString() ?: "-"
+                val isCorrect = studentAns.equals(correctOpt, ignoreCase = true)
+                val explanation = q["explanation"]?.toString() ?: ""
+
+                val card = CardView(this).apply {
+                    radius = dp(10).toFloat()
+                    cardElevation = dp(2).toFloat()
+                    setCardBackgroundColor(Color.WHITE)
+                    val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        bottomMargin = dp(10)
+                    }
+                    layoutParams = lp
+                }
+                val cardInner = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(dp(14), dp(12), dp(14), dp(12))
+                }
+
+                val topRow = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                }
+                val tvNum = TextView(this).apply {
+                    text = "Soal #$qNum"
+                    textSize = 12.5f
+                    setTypeface(null, Typeface.BOLD)
+                    setTextColor(Color.parseColor("#0F172A"))
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                }
+                val badgeResult = TextView(this).apply {
+                    text = if (studentAns == "-") "⚪ Belum Dijawab" else if (isCorrect) "🟢 BENAR" else "🔴 SALAH"
+                    textSize = 11f
+                    setTypeface(null, Typeface.BOLD)
+                    setTextColor(if (studentAns == "-") Color.parseColor("#64748B") else if (isCorrect) Color.parseColor("#059669") else Color.parseColor("#DC2626"))
+                    val bg = android.graphics.drawable.GradientDrawable().apply {
+                        setColor(if (studentAns == "-") Color.parseColor("#F1F5F9") else if (isCorrect) Color.parseColor("#ECFDF5") else Color.parseColor("#FEF2F2"))
+                        cornerRadius = dp(6).toFloat()
+                    }
+                    background = bg
+                    setPadding(dp(8), dp(3), dp(8), dp(3))
+                }
+                topRow.addView(tvNum)
+                topRow.addView(badgeResult)
+                cardInner.addView(topRow)
+
+                val tvContent = TextView(this).apply {
+                    text = content
+                    textSize = 12.5f
+                    setTextColor(Color.parseColor("#334155"))
+                    setPadding(0, dp(6), 0, dp(8))
+                }
+                cardInner.addView(tvContent)
+
+                val tvAnswerComp = TextView(this).apply {
+                    text = "Jawaban Siswa: $studentAns  |  Kunci Benar: $correctOpt"
+                    textSize = 11.5f
+                    setTypeface(null, Typeface.BOLD)
+                    setTextColor(if (isCorrect) Color.parseColor("#059669") else Color.parseColor("#DC2626"))
+                }
+                cardInner.addView(tvAnswerComp)
+
+                if (explanation.isNotEmpty()) {
+                    val tvExpl = TextView(this).apply {
+                        text = "💡 Pembahasan: $explanation"
+                        textSize = 11f
+                        setTextColor(Color.parseColor("#64748B"))
+                        setPadding(0, dp(4), 0, 0)
+                    }
+                    cardInner.addView(tvExpl)
+                }
+
+                card.addView(cardInner)
+                container.addView(card)
+            }
+        }
+
+        fullDialog.setView(root)
+        fullDialog.show()
+    }
+
+    private fun showManualGradeDialog(uhId: String, submissionId: String? = null, siswaId: String, namaSiswa: String, onDone: () -> Unit) {
         val density = resources.displayMetrics.density
         fun dp(v: Int): Int = (v * density).toInt()
 
@@ -18784,13 +25028,13 @@ class TeacherMainActivity : AppCompatActivity() {
         }
 
         val tvTitle = TextView(this).apply {
-            text = "📝 Rubrik Koreksi Nilai Uraian"
+            text = "📝 Koreksi / Rubrik Nilai Siswa"
             textSize = 16f
             setTypeface(null, Typeface.BOLD)
             setTextColor(Color.parseColor("#0F172A"))
         }
         val tvSub = TextView(this).apply {
-            text = "Siswa: $namaSiswa\nPeriksa jawaban uraian dan tentukan skor berdasarkan rubrik."
+            text = "Siswa: $namaSiswa\nSesuaikan nilai ulangan dan catatan pertimbangan rubrik."
             textSize = 12f
             setTextColor(Color.parseColor("#64748B"))
             setPadding(0, dp(4), 0, dp(12))
@@ -18799,7 +25043,7 @@ class TeacherMainActivity : AppCompatActivity() {
         root.addView(tvSub)
 
         val tvLabelSkor = TextView(this).apply {
-            text = "Skor Nilai Uraian (0 - 100):"
+            text = "Skor Nilai Baru (0 - 100):"
             textSize = 12f
             setTypeface(null, Typeface.BOLD)
             setTextColor(Color.parseColor("#334155"))
@@ -18817,13 +25061,13 @@ class TeacherMainActivity : AppCompatActivity() {
         root.addView(etSkor)
 
         val tvLabelAlasan = TextView(this).apply {
-            text = "Alasan Koreksi / Catatan Audit:"
+            text = "Alasan Koreksi / Catatan Audit Guru:"
             textSize = 12f
             setTypeface(null, Typeface.BOLD)
             setTextColor(Color.parseColor("#334155"))
         }
         val etAlasan = EditText(this).apply {
-            hint = "Argumen lengkap, dalil dan analisis tepat"
+            hint = "Penyesuaian jawaban uraian atau rubrik penilaian"
             setBackgroundColor(Color.parseColor("#F1F5F9"))
             setPadding(dp(10), dp(10), dp(10), dp(10))
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
@@ -18834,7 +25078,7 @@ class TeacherMainActivity : AppCompatActivity() {
         root.addView(etAlasan)
 
         val btnSave = Button(this).apply {
-            text = "💾 Simpan Nilai Uraian"
+            text = "💾 Simpan Nilai & Perbarui Rekap"
             setBackgroundColor(Color.parseColor("#059669"))
             setTextColor(Color.WHITE)
             typeface = Typeface.DEFAULT_BOLD
@@ -18843,19 +25087,37 @@ class TeacherMainActivity : AppCompatActivity() {
                 val alasan = etAlasan.text.toString().trim()
                 val skorNum = skorStr.toDoubleOrNull() ?: 0.0
 
-                val payload = mapOf(
+                val payload = mutableMapOf<String, Any>(
                     "siswaId" to siswaId,
                     "skor" to skorNum,
-                    "alasan" to (if (alasan.isNotEmpty()) alasan else "Koreksi rubrik manual guru")
+                    "nilaiBaru" to skorNum,
+                    "alasan" to (if (alasan.isNotEmpty()) alasan else "Koreksi rubrik manual guru"),
+                    "alasanRevisi" to (if (alasan.isNotEmpty()) alasan else "Koreksi rubrik manual guru")
                 )
+                if (!submissionId.isNullOrEmpty()) {
+                    payload["submissionId"] = submissionId
+                }
+
+                val prg = ProgressDialog(this@TeacherMainActivity).apply {
+                    setMessage("Menyimpan nilai siswa...")
+                    setCancelable(false)
+                    show()
+                }
+
                 ApiClient.getClient(this@TeacherMainActivity).gradeManualUraianUh(uhId, payload).enqueue(object : Callback<Map<String, Any>> {
                     override fun onResponse(call: Call<Map<String, Any>>, response: Response<Map<String, Any>>) {
-                        Toast.makeText(this@TeacherMainActivity, "Koreksi nilai berhasil disimpan & dicatat audit!", Toast.LENGTH_SHORT).show()
-                        dialog.dismiss()
-                        onDone()
+                        prg.dismiss()
+                        if (response.isSuccessful && response.body()?.get("success") == true) {
+                            Toast.makeText(this@TeacherMainActivity, "✅ Nilai siswa berhasil disimpan & direkap!", Toast.LENGTH_SHORT).show()
+                            dialog.dismiss()
+                            onDone()
+                        } else {
+                            Toast.makeText(this@TeacherMainActivity, "Gagal menyimpan: ${response.message()}", Toast.LENGTH_SHORT).show()
+                        }
                     }
                     override fun onFailure(call: Call<Map<String, Any>>, t: Throwable) {
-                        Toast.makeText(this@TeacherMainActivity, "Gagal menyimpan: ${t.message}", Toast.LENGTH_SHORT).show()
+                        prg.dismiss()
+                        Toast.makeText(this@TeacherMainActivity, "Gagal koneksi: ${t.message}", Toast.LENGTH_SHORT).show()
                     }
                 })
             }

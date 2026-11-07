@@ -305,6 +305,53 @@ export const submitAkpdAssessment = async (req: Request, res: Response) => {
     }
 };
 
+export const getAkpdAssessments = async (req: Request, res: Response) => {
+    try {
+        const { className, studentId, limit } = req.query;
+        const whereClause: any = {};
+        if (className && className !== 'ALL') {
+            whereClause.className = String(className);
+        }
+        if (studentId) {
+            whereClause.studentId = String(studentId);
+        }
+
+        const records = await (prisma as any).bkAkpdAssessment.findMany({
+            where: whereClause,
+            orderBy: { createdAt: 'desc' },
+            take: parseInt(limit as string) || 100
+        });
+
+        const total = records.length;
+        let avgPribadi = 0, avgSosial = 0, avgBelajar = 0, avgKarir = 0;
+        if (total > 0) {
+            const sumP = records.reduce((acc: number, r: any) => acc + (r.scorePribadi || 0), 0);
+            const sumS = records.reduce((acc: number, r: any) => acc + (r.scoreSosial || 0), 0);
+            const sumB = records.reduce((acc: number, r: any) => acc + (r.scoreBelajar || 0), 0);
+            const sumK = records.reduce((acc: number, r: any) => acc + (r.scoreKarir || 0), 0);
+            avgPribadi = +(sumP / total).toFixed(1);
+            avgSosial = +(sumS / total).toFixed(1);
+            avgBelajar = +(sumB / total).toFixed(1);
+            avgKarir = +(sumK / total).toFixed(1);
+        }
+
+        res.json({
+            success: true,
+            total,
+            averages: {
+                pribadi: avgPribadi,
+                sosial: avgSosial,
+                belajar: avgBelajar,
+                karir: avgKarir
+            },
+            data: records
+        });
+    } catch (error: any) {
+        console.error('Error getAkpdAssessments:', error);
+        res.status(500).json({ success: false, message: 'Gagal memuat asesmen AKPD: ' + error.message });
+    }
+};
+
 // ========================================================
 // 2. FITUR ANTI-BULLYING, CYBERBULLYING & BUKTI DIGITAL
 // ========================================================

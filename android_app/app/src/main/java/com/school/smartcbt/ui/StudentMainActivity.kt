@@ -253,6 +253,14 @@ class StudentMainActivity : AppCompatActivity() {
         loadTodayAttendanceSummary()
         loadActiveClassSession()
         checkEvotingModuleStatus()
+        loadStudentWeeklyPrayerSchedule()
+
+        // Panduan izin sinkronisasi latar belakang & penghemat baterai (Xiaomi/OPPO/Vivo/Infinix)
+        binding.root.postDelayed({
+            if (!isFinishing && !isDestroyed) {
+                com.school.smartcbt.utils.AutoStartPermissionHelper.checkAndPromptBackgroundExecution(this)
+            }
+        }, 1500)
 
         // Cek Pembaruan OTA
         val isUpdateTriggered = intent?.getBooleanExtra("EXTRA_TRIGGER_UPDATE", false) == true
@@ -293,6 +301,7 @@ class StudentMainActivity : AppCompatActivity() {
         loadActiveClassSession()
         loadTodayAttendanceSummary()
         loadHomeworks()
+        loadStudentWeeklyPrayerSchedule()
         checkStudentNotifications()
         updateOfflineAttendanceBadge()
         checkEvotingModuleStatus()
@@ -720,12 +729,8 @@ class StudentMainActivity : AppCompatActivity() {
             }
         }
 
-        // Grid 14: Ekstrakurikuler (E-Commerce Market & Full Screen)
-        binding.gridMenuEkskul.setOnClickListener {
-            requireAllFilesAccess {
-                startActivity(Intent(this, EkstrakurikulerActivity::class.java))
-            }
-        }
+        // Grid 14: Ekstrakurikuler (Hidden per instruksi user)
+        binding.gridMenuEkskul.visibility = View.GONE
 
         // Banner & Grid Modul e-Voting OSIS (Feature Toggle)
         binding.cardHomeEvoting.setOnClickListener {
@@ -1121,6 +1126,28 @@ class StudentMainActivity : AppCompatActivity() {
         body.addView(guideCard)
 
         // Action Buttons
+        val btnInstantActivate = Button(this).apply {
+            text = "⚡ Aktifkan Langsung (Akun Saya)"
+            setTextColor(Color.WHITE)
+            val shape = android.graphics.drawable.GradientDrawable(
+                android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT,
+                intArrayOf(Color.parseColor("#15803D"), Color.parseColor("#16A34A"))
+            )
+            shape.cornerRadius = 14f * density
+            background = shape
+            textSize = 13.5f
+            typeface = Typeface.DEFAULT_BOLD
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(48)).apply {
+                bottomMargin = dp(10)
+            }
+            layoutParams = lp
+            setOnClickListener {
+                dialog.dismiss()
+                val token = sessionManager.getNisn().ifEmpty { sessionManager.getUsername() }.ifEmpty { "SELF_VERIFIED" }
+                activateWifiWithCardToken(token)
+            }
+        }
+
         val btnScanCard = Button(this).apply {
             text = "📷 Scan Kartu Pelajar Fisik"
             setTextColor(Color.WHITE)
@@ -1155,6 +1182,7 @@ class StudentMainActivity : AppCompatActivity() {
             setOnClickListener { dialog.dismiss() }
         }
 
+        body.addView(btnInstantActivate)
         body.addView(btnScanCard)
         body.addView(btnClose)
         root.addView(body)
@@ -1866,6 +1894,7 @@ class StudentMainActivity : AppCompatActivity() {
                 binding.tvHomeAttendanceStatus.text = if (stLabel.contains("TERLAMBAT", ignoreCase = true)) "⏰ Hadir Terlambat" else "✅ Hadir Tepat Waktu"
                 binding.tvHomeAttendanceStatus.setTextColor(Color.parseColor(if (stLabel.contains("TERLAMBAT", ignoreCase = true)) "#B45309" else "#15803D"))
                 binding.tvHomeAttendanceStatus.setBackgroundColor(Color.parseColor(if (stLabel.contains("TERLAMBAT", ignoreCase = true)) "#FEF3C7" else "#DCFCE7"))
+                updateGateOutReminderBanner(hasGateIn = !cachedInTime.isNullOrBlank(), hasGateOut = !cachedOutTime.isNullOrBlank())
             }
 
             ApiClient.getClient(this).getDetailedAttendance().enqueue(object : Callback<com.school.smartcbt.data.model.AttendanceDetailResponse> {
@@ -1895,7 +1924,11 @@ class StudentMainActivity : AppCompatActivity() {
                                 val st = todayLog.status.uppercase()
                                 val nowH = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
                                 val dayOfWeek = Calendar.getInstance().get(Calendar.DAY_OF_WEEK)
-                                val disH = if (dayOfWeek == Calendar.FRIDAY || dayOfWeek == Calendar.SATURDAY) 11 else 14
+                                val disH = when (dayOfWeek) {
+                                    Calendar.FRIDAY -> 10
+                                    Calendar.SATURDAY -> 11
+                                    else -> 12
+                                }
                                 val isMissingOut = todayLog.isMissingGateOut ||
                                     st.contains("TIDAK SCAN PULANG") ||
                                     st.contains("UNCONFIRMED_OUT") ||
@@ -1948,7 +1981,9 @@ class StudentMainActivity : AppCompatActivity() {
                                 } else {
                                     sessionManager.clearTodayGateOutCache()
                                 }
+                                updateGateOutReminderBanner(hasGateIn = inTime != "Belum Scan", hasGateOut = outTime != "Belum Scan")
                             } else {
+                                updateGateOutReminderBanner(hasGateIn = false, hasGateOut = false)
                                 val now = Calendar.getInstance()
                                 val hour = now.get(Calendar.HOUR_OF_DAY)
                                 val isSunday = now.get(Calendar.DAY_OF_WEEK) == Calendar.SUNDAY
@@ -1986,6 +2021,81 @@ class StudentMainActivity : AppCompatActivity() {
 
     private fun updateOfflineAttendanceBadge() {
         binding.tvOfflineAttendanceStatus.visibility = View.GONE
+    }
+
+    private fun updateGateOutReminderBanner(hasGateIn: Boolean, hasGateOut: Boolean) {
+        try {
+            val cal = Calendar.getInstance()
+            val dayOfWeek = cal.get(Calendar.DAY_OF_WEEK)
+            val hour = cal.get(Calendar.HOUR_OF_DAY)
+            val minute = cal.get(Calendar.MINUTE)
+            val timeMinutes = hour * 60 + minute
+
+            if (dayOfWeek == Calendar.SUNDAY) {
+                binding.cardReminderGateOut.visibility = View.GONE
+                return
+            }
+
+            // Jam mulai kepulangan resmi:
+            // Jumat: 10:00 WIB (600 mnt)
+            // Sabtu: 11:00 WIB (660 mnt)
+            // Senin - Kamis: 12:00 WIB (720 mnt)
+            val dismissalStartMin = when (dayOfWeek) {
+                Calendar.FRIDAY -> 10 * 60
+                Calendar.SATURDAY -> 11 * 60
+                else -> 12 * 60
+            }
+            val reminderEndMin = 18 * 60 // s.d. 18:00 WIB
+
+            val isDismissalWindow = timeMinutes in dismissalStartMin..reminderEndMin
+
+            if (hasGateIn && !hasGateOut && isDismissalWindow) {
+                binding.cardReminderGateOut.visibility = View.VISIBLE
+                binding.tvReminderGateOutSubtitle.text = "KBM hari ini telah usai. Jangan lupa lakukan presensi kepulangan (Gate-Out) sebelum meninggalkan sekolah!"
+
+                val clickAction = View.OnClickListener {
+                    val intent = Intent(this, ScannerActivity::class.java).apply {
+                        putExtra(ScannerActivity.EXTRA_SCAN_MODE, ScannerActivity.MODE_ATTENDANCE)
+                        putExtra("EXTRA_GATE_ACTION", "GATE_OUT")
+                    }
+                    startActivity(intent)
+                }
+                binding.btnActionScanGateOut.setOnClickListener(clickAction)
+                binding.cardReminderGateOut.setOnClickListener(clickAction)
+
+                // Tampilkan dialog pop-up lembut sekali per hari saat pertama kali membuka aplikasi di jam kepulangan
+                val todayStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+                val keyShown = "GATE_OUT_DIALOG_SHOWN_$todayStr"
+                val alreadyShown = sessionManager.getPreferenceString(keyShown, "")
+                if (alreadyShown != todayStr) {
+                    sessionManager.setPreferenceString(keyShown, todayStr)
+                    showGateOutReminderDialog()
+                }
+            } else {
+                binding.cardReminderGateOut.visibility = View.GONE
+            }
+        } catch (e: Exception) {
+            // Safe fallback
+        }
+    }
+
+    private fun showGateOutReminderDialog() {
+        try {
+            val dialog = AlertDialog.Builder(this)
+                .setTitle("📢 Waktunya Presensi Pulang!")
+                .setMessage("Halo! Anda sudah hadir pagi ini tetapi belum melakukan presensi kepulangan (Gate-Out).\n\nKBM sekolah telah berakhir, pastikan Anda melakukan scan presensi kepulangan sekarang sebelum meninggalkan lingkungan sekolah agar kehadiran Anda tercatat lengkap.")
+                .setPositiveButton("⚡ Scan Pulang Sekarang") { d, _ ->
+                    d.dismiss()
+                    val intent = Intent(this, ScannerActivity::class.java).apply {
+                        putExtra(ScannerActivity.EXTRA_SCAN_MODE, ScannerActivity.MODE_ATTENDANCE)
+                        putExtra("EXTRA_GATE_ACTION", "GATE_OUT")
+                    }
+                    startActivity(intent)
+                }
+                .setNegativeButton("Nanti Saja") { d, _ -> d.dismiss() }
+                .create()
+            dialog.show()
+        } catch (e: Exception) {}
     }
 
     private fun setupNoticeBoard() {
@@ -2351,6 +2461,9 @@ class StudentMainActivity : AppCompatActivity() {
         binding.btnNavTugas.setOnClickListener {
             requireAllFilesAccess { switchTab(1) }
         }
+        binding.btnNavSholat.setOnClickListener {
+            requireAllFilesAccess { switchTab(2) }
+        }
         binding.btnNavEFile.setOnClickListener {
             requireAllFilesAccess { switchTab(2) }
         }
@@ -2376,7 +2489,8 @@ class StudentMainActivity : AppCompatActivity() {
         currentTabIndex = index
         binding.pageHome.visibility = if (index == 0) View.VISIBLE else View.GONE
         binding.pageCbtTugas.visibility = if (index == 1) View.VISIBLE else View.GONE
-        binding.pageEFiles.visibility = if (index == 2) View.VISIBLE else View.GONE
+        binding.pagePrayerSchedule.visibility = if (index == 2) View.VISIBLE else View.GONE
+        binding.pageEFiles.visibility = View.GONE
         binding.pageProfile.visibility = if (index == 3) View.VISIBLE else View.GONE
 
         val activeColor = resources.getColor(com.school.smartcbt.R.color.accent_blue, theme)
@@ -2384,23 +2498,23 @@ class StudentMainActivity : AppCompatActivity() {
 
         binding.tvLabelHome.setTextColor(if (index == 0) activeColor else inactiveColor)
         binding.tvLabelTugas.setTextColor(if (index == 1) activeColor else inactiveColor)
-        binding.tvLabelEFile.setTextColor(if (index == 2) activeColor else inactiveColor)
+        binding.tvLabelSholat.setTextColor(if (index == 2) activeColor else inactiveColor)
         binding.tvLabelProfile.setTextColor(if (index == 3) activeColor else inactiveColor)
 
         binding.tvLabelHome.setTypeface(null, if (index == 0) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
         binding.tvLabelTugas.setTypeface(null, if (index == 1) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
-        binding.tvLabelEFile.setTypeface(null, if (index == 2) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+        binding.tvLabelSholat.setTypeface(null, if (index == 2) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
         binding.tvLabelProfile.setTypeface(null, if (index == 3) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
 
         binding.ivNavHome.setColorFilter(if (index == 0) activeColor else inactiveColor)
         binding.ivNavTugas.setColorFilter(if (index == 1) activeColor else inactiveColor)
-        binding.ivNavEFile.setColorFilter(if (index == 2) activeColor else inactiveColor)
+        binding.ivNavSholat.setColorFilter(if (index == 2) activeColor else inactiveColor)
         binding.ivNavProfile.setColorFilter(if (index == 3) activeColor else inactiveColor)
 
         if (index == 1) {
             loadHomeworks()
         } else if (index == 2) {
-            loadStudentEFiles()
+            loadStudentWeeklyPrayerSchedule()
         }
     }
 
@@ -2704,6 +2818,7 @@ class StudentMainActivity : AppCompatActivity() {
 
             // Tab Navigasi Bawah
             binding.btnNavTugas.alpha = targetAlpha
+            binding.btnNavSholat.alpha = targetAlpha
             binding.btnNavEFile.alpha = targetAlpha
 
             // Banner Status Izin Berkas
@@ -4645,11 +4760,24 @@ class StudentMainActivity : AppCompatActivity() {
             }
             topRow.addView(tvSubject)
 
+            val isCbt = hw.type == "CBT_EXAM"
+            val isUh = hw.type == "ULANGAN_HARIAN"
             val isPr = hw.category?.contains("PR", ignoreCase = true) == true || hw.title.contains("PR", ignoreCase = true) || hw.title.contains("Rumah", ignoreCase = true)
-            val catLabel = if (isPr) "🏠 Pekerjaan Rumah (PR)" else "📝 Tugas Harian"
+            val catLabel = when {
+                isCbt -> "🏛️ Asesmen CBT Resmi"
+                isUh -> "⭐ Ulangan Harian (UH)"
+                isPr -> "🏠 Pekerjaan Rumah (PR)"
+                else -> "📝 Tugas Harian"
+            }
+            val catColor = when {
+                isCbt -> Color.parseColor("#7C3AED")
+                isUh -> Color.parseColor("#059669")
+                isPr -> Color.parseColor("#B45309")
+                else -> Color.parseColor("#047857")
+            }
             val tvCatBadge = TextView(this).apply {
                 text = catLabel
-                setTextColor(if (isPr) Color.parseColor("#B45309") else Color.parseColor("#047857"))
+                setTextColor(catColor)
                 textSize = 10.5f
                 setTypeface(null, Typeface.BOLD)
                 background = android.graphics.drawable.GradientDrawable().apply {
@@ -4874,8 +5002,20 @@ class StudentMainActivity : AppCompatActivity() {
                 btnRow.addView(btnDetail)
 
                 val btnSubmit = Button(this).apply {
-                    text = if (isOverdue) "📤 Kumpul Telat" else "📤 Kerjakan Tugas"
-                    setBackgroundColor(if (isOverdue) Color.parseColor("#DC2626") else Color.parseColor("#2563EB"))
+                    val submitBtnText = when {
+                        isCbt -> "🚀 Buka Ujian CBT"
+                        isUh -> "📝 Mulai Ulangan Harian"
+                        isOverdue -> "📤 Kumpul Telat"
+                        else -> "📤 Kerjakan Tugas"
+                    }
+                    val submitBtnBg = when {
+                        isCbt -> Color.parseColor("#7C3AED")
+                        isUh -> Color.parseColor("#059669")
+                        isOverdue -> Color.parseColor("#DC2626")
+                        else -> Color.parseColor("#2563EB")
+                    }
+                    text = submitBtnText
+                    setBackgroundColor(submitBtnBg)
                     setTextColor(Color.WHITE)
                     textSize = 11f
                     setTypeface(null, Typeface.BOLD)
@@ -4883,7 +5023,11 @@ class StudentMainActivity : AppCompatActivity() {
                         marginStart = dp(4)
                     }
                     setOnClickListener {
-                        showSubmitHomeworkDialog(hw)
+                        when {
+                            isCbt -> startActivity(Intent(this@StudentMainActivity, ExambroGatewayActivity::class.java))
+                            isUh -> showUnifiedInboxDialog()
+                            else -> showSubmitHomeworkDialog(hw)
+                        }
                     }
                 }
                 btnRow.addView(btnSubmit)
@@ -5039,6 +5183,85 @@ class StudentMainActivity : AppCompatActivity() {
             container.addView(subCard)
         }
 
+        // Gembok & Pembahasan Kunci Jawaban Pasca-Deadline (Self-Study Evaluasi Mandiri)
+        if (!hw.questions.isNullOrEmpty()) {
+            val nowTime = java.util.Date()
+            val isoFormat = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.getDefault())
+            var isDeadlinePassed = false
+            try {
+                val parsedDate = if (hw.deadline.contains("T")) isoFormat.parse(hw.deadline) else null
+                if (parsedDate != null) {
+                    isDeadlinePassed = nowTime.after(parsedDate)
+                }
+            } catch (_: Exception) {}
+
+            val reviewCard = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(14), dp(12), dp(14), dp(12))
+                val lp = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { bottomMargin = dp(12) }
+                layoutParams = lp
+            }
+
+            if (!isDeadlinePassed) {
+                reviewCard.background = GradientDrawable().apply {
+                    setColor(Color.parseColor("#FFFBEB"))
+                    cornerRadius = dp(10).toFloat()
+                    setStroke(dp(1), Color.parseColor("#FDE68A"))
+                }
+                reviewCard.addView(TextView(this).apply {
+                    text = "🔒 Kunci Jawaban & Pembahasan Masih Terkunci"
+                    textSize = 12f
+                    setTypeface(null, Typeface.BOLD)
+                    setTextColor(Color.parseColor("#B45309"))
+                })
+                reviewCard.addView(TextView(this).apply {
+                    val cleanDeadline = hw.deadline.replace("T", " ").substringBeforeLast(":")
+                    text = "Kunci jawaban dan penjelasan lengkap akan terbuka otomatis setelah batas waktu pengerjaan berakhir ($cleanDeadline WIB) demi kejujuran belajar."
+                    textSize = 11f
+                    setTextColor(Color.parseColor("#92400E"))
+                    setPadding(0, dp(2), 0, 0)
+                })
+            } else {
+                reviewCard.background = GradientDrawable().apply {
+                    setColor(Color.parseColor("#F0FDF4"))
+                    cornerRadius = dp(10).toFloat()
+                    setStroke(dp(1), Color.parseColor("#86EFAC"))
+                }
+                reviewCard.addView(TextView(this).apply {
+                    text = "💡 Pembahasan & Kunci Jawaban Terbuka!"
+                    textSize = 12f
+                    setTypeface(null, Typeface.BOLD)
+                    setTextColor(Color.parseColor("#15803D"))
+                })
+                reviewCard.addView(TextView(this).apply {
+                    text = "Batas waktu pengerjaan telah berakhir. Anda dapat membuka pembahasan resmi setiap butir soal untuk evaluasi belajar mandiri."
+                    textSize = 11f
+                    setTextColor(Color.parseColor("#166534"))
+                    setPadding(0, dp(2), 0, dp(8))
+                })
+
+                val btnOpenReview = Button(this).apply {
+                    text = "🔍 Buka Lembar Pembahasan Soal"
+                    textSize = 11.5f
+                    setTextColor(Color.WHITE)
+                    setTypeface(null, Typeface.BOLD)
+                    setBackgroundColor(Color.parseColor("#059669"))
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        dp(40)
+                    )
+                    setOnClickListener {
+                        showHomeworkSolutionsDialog(hw)
+                    }
+                }
+                reviewCard.addView(btnOpenReview)
+            }
+            container.addView(reviewCard)
+        }
+
         sv.addView(container)
 
         val dialog = AlertDialog.Builder(this)
@@ -5053,6 +5276,121 @@ class StudentMainActivity : AppCompatActivity() {
             dialog.setNegativeButton("Tutup", null)
         }
         dialog.show()
+    }
+
+    private fun showHomeworkSolutionsDialog(hw: HomeworkDto) {
+        val density = resources.displayMetrics.density
+        fun dp(v: Int): Int = (v * density).toInt()
+
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(16), dp(16), dp(20))
+        }
+
+        root.addView(TextView(this).apply {
+            text = "💡 Pembahasan Soal: ${hw.title}"
+            textSize = 15f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#0F172A"))
+        })
+        root.addView(TextView(this).apply {
+            text = "Kunci jawaban resmi dan penjelasan materi kurikulum SMP:"
+            textSize = 11f
+            setTextColor(Color.parseColor("#64748B"))
+            setPadding(0, dp(2), 0, dp(10))
+        })
+
+        try {
+            val arr = org.json.JSONArray(hw.questions ?: "[]")
+            for (i in 0 until arr.length()) {
+                val qObj = arr.getJSONObject(i)
+                val qNum = qObj.optInt("number", i + 1)
+                val qText = qObj.optString("content", qObj.optString("text", "Soal #$qNum"))
+                val correctLetter = qObj.optString("correctOption", "A").uppercase()
+                val explanation = qObj.optString("explanation", "")
+
+                val card = CardView(this).apply {
+                    radius = dp(10).toFloat()
+                    cardElevation = dp(2).toFloat()
+                    setCardBackgroundColor(Color.WHITE)
+                    val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        bottomMargin = dp(10)
+                    }
+                    layoutParams = lp
+                }
+                val inner = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(dp(12), dp(10), dp(12), dp(10))
+                }
+
+                inner.addView(TextView(this).apply {
+                    text = "$qNum. $qText"
+                    textSize = 12.5f
+                    setTypeface(null, Typeface.BOLD)
+                    setTextColor(Color.parseColor("#1E293B"))
+                })
+
+                val optsArr = qObj.optJSONArray("options")
+                if (optsArr != null) {
+                    for (j in 0 until optsArr.length()) {
+                        val optText = optsArr.getString(j)
+                        val letter = ('A'.code + j).toChar().toString()
+                        val isCorrect = letter == correctLetter
+
+                        val tvOpt = TextView(this).apply {
+                            text = if (isCorrect) "✅ [$letter] $optText (Kunci Benar)" else "  [$letter] $optText"
+                            textSize = 11.5f
+                            if (isCorrect) {
+                                setTypeface(null, Typeface.BOLD)
+                                setTextColor(Color.parseColor("#15803D"))
+                                background = GradientDrawable().apply {
+                                    setColor(Color.parseColor("#DCFCE7"))
+                                    cornerRadius = dp(6).toFloat()
+                                    setStroke(dp(1), Color.parseColor("#86EFAC"))
+                                }
+                                setPadding(dp(8), dp(4), dp(8), dp(4))
+                            } else {
+                                setTextColor(Color.parseColor("#475569"))
+                                setPadding(dp(4), dp(2), dp(4), dp(2))
+                            }
+                        }
+                        inner.addView(tvOpt)
+                    }
+                }
+
+                if (explanation.isNotEmpty()) {
+                    val expCard = LinearLayout(this).apply {
+                        orientation = LinearLayout.VERTICAL
+                        setPadding(dp(10), dp(6), dp(10), dp(6))
+                        background = GradientDrawable().apply {
+                            setColor(Color.parseColor("#EFF6FF"))
+                            cornerRadius = dp(6).toFloat()
+                            setStroke(dp(1), Color.parseColor("#BFDBFE"))
+                        }
+                        val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                            topMargin = dp(6)
+                        }
+                        layoutParams = lp
+                    }
+                    expCard.addView(TextView(this).apply {
+                        text = "📝 Pembahasan:\n$explanation"
+                        textSize = 11f
+                        setTextColor(Color.parseColor("#1E40AF"))
+                    })
+                    inner.addView(expCard)
+                }
+
+                card.addView(inner)
+                root.addView(card)
+            }
+        } catch (_: Exception) {}
+
+        val sv = ScrollView(this).apply { addView(root) }
+        AlertDialog.Builder(this)
+            .setTitle("💡 Kunci & Pembahasan")
+            .setView(sv)
+            .setPositiveButton("Tutup", null)
+            .show()
     }
 
     // ==========================================
@@ -6006,7 +6344,18 @@ class StudentMainActivity : AppCompatActivity() {
                             opts.add(optArr.getString(j))
                         }
                     }
-                    val correct = if (obj.has("correctOption")) obj.optInt("correctOption") else null
+                    val correct = if (obj.has("correctOption")) {
+                        val raw = obj.opt("correctOption")
+                        if (raw is Number) raw.toInt()
+                        else when (raw?.toString()?.uppercase()?.trim()) {
+                            "A" -> 0
+                            "B" -> 1
+                            "C" -> 2
+                            "D" -> 3
+                            "E" -> 4
+                            else -> obj.optInt("correctOption", 0)
+                        }
+                    } else null
                     val pts = obj.optDouble("points", 10.0)
                     questionList.add(HomeworkQuestionItem(qId, qText, opts, correct, pts))
                 }
@@ -6025,6 +6374,48 @@ class StudentMainActivity : AppCompatActivity() {
         }
 
         val selectedAnswersMap = mutableMapOf<Int, Int>() // questionId -> selectedOptionIdx
+
+        // Local Auto-Save Draft
+        val hwDraftPrefs = getSharedPreferences("smartcbt_hw_drafts", Context.MODE_PRIVATE)
+        val hwDraftKey = "draft_hw_${hw.id}"
+        val rawHwDraft = hwDraftPrefs.getString(hwDraftKey, null)
+        val draftAnswersMap = mutableMapOf<Int, Int>()
+        var draftNotes = ""
+        if (!rawHwDraft.isNullOrEmpty()) {
+            try {
+                val dObj = org.json.JSONObject(rawHwDraft)
+                val aObj = dObj.optJSONObject("answers")
+                if (aObj != null) {
+                    val kIter = aObj.keys()
+                    while (kIter.hasNext()) {
+                        val k = kIter.next()
+                        val qId = k.toIntOrNull() ?: continue
+                        draftAnswersMap[qId] = aObj.getInt(k)
+                    }
+                }
+                draftNotes = dObj.optString("notes", "")
+            } catch (_: Exception) {}
+        }
+
+        if (draftAnswersMap.isNotEmpty() || draftNotes.isNotEmpty()) {
+            val tvDraftBanner = TextView(this).apply {
+                text = "💾 Melanjutkan pengerjaan sebelumnya (Draft tersimpan otomatis di perangkat ini)"
+                textSize = 11f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(Color.parseColor("#047857"))
+                background = GradientDrawable().apply {
+                    setColor(Color.parseColor("#ECFDF5"))
+                    cornerRadius = 6 * density
+                    setStroke((1 * density).toInt(), Color.parseColor("#A7F3D0"))
+                }
+                setPadding((10 * density).toInt(), (6 * density).toInt(), (10 * density).toInt(), (6 * density).toInt())
+                val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    bottomMargin = (8 * density).toInt()
+                }
+                layoutParams = lp
+            }
+            rootLayout.addView(tvDraftBanner)
+        }
 
         // Render CBT questions sheet if available
         if (questionList.isNotEmpty()) {
@@ -6084,9 +6475,23 @@ class StudentMainActivity : AppCompatActivity() {
                         text = if (optText.matches(Regex("^[A-Ea-e][\\.\\s].*"))) optText else "$prefix$optText"
                         textSize = 11.5f
                         setTextColor(Color.parseColor("#334155"))
+
+                        val isDraftSelected = draftAnswersMap[q.id] == optIdx
+                        if (isDraftSelected) {
+                            selectedAnswersMap[q.id] = optIdx
+                            isChecked = true
+                        }
+
                         setOnCheckedChangeListener { _, isChecked ->
                             if (isChecked) {
                                 selectedAnswersMap[q.id] = optIdx
+                                try {
+                                    val dObj = org.json.JSONObject()
+                                    val aObj = org.json.JSONObject()
+                                    selectedAnswersMap.forEach { (k, v) -> aObj.put(k.toString(), v) }
+                                    dObj.put("answers", aObj)
+                                    hwDraftPrefs.edit().putString(hwDraftKey, dObj.toString()).apply()
+                                } catch (_: Exception) {}
                             }
                         }
                     }
@@ -6101,6 +6506,9 @@ class StudentMainActivity : AppCompatActivity() {
         // Render Essay Answer & File Attachment (for ESSAY or MIXED)
         val etAnswer = EditText(this).apply {
             hint = if (hwType == "MULTIPLE_CHOICE") "Catatan tambahan untuk guru (opsional)..." else "Tuliskan ringkasan jawaban tugas di sini..."
+            if (draftNotes.isNotEmpty()) {
+                setText(draftNotes)
+            }
             minLines = 2
             setBackgroundColor(Color.parseColor("#F1F5F9"))
             setPadding(20, 20, 20, 20)
@@ -6152,8 +6560,10 @@ class StudentMainActivity : AppCompatActivity() {
                     val arr = org.json.JSONArray()
                     selectedAnswersMap.forEach { (qId, optIdx) ->
                         val obj = org.json.JSONObject()
+                        val letter = ('A'.code + optIdx).toChar().toString()
                         obj.put("questionId", qId)
                         obj.put("selectedOption", optIdx)
+                        obj.put("selectedOptionLetter", letter)
                         arr.put(obj)
                     }
                     arr.toString()
@@ -6171,6 +6581,7 @@ class StudentMainActivity : AppCompatActivity() {
                 ApiClient.getClient(this).submitHomework(request).enqueue(object : Callback<BasicResponse> {
                     override fun onResponse(call: Call<BasicResponse>, response: Response<BasicResponse>) {
                         if (response.isSuccessful) {
+                            hwDraftPrefs.edit().remove(hwDraftKey).apply()
                             val msg = response.body()?.message ?: "✅ Tugas berhasil dikumpulkan!"
                             com.school.smartcbt.utils.ClientLogger.logHomework(
                                 context = this@StudentMainActivity,
@@ -8061,6 +8472,19 @@ class StudentMainActivity : AppCompatActivity() {
                 openStudentSubjectAttendanceAction()
             }
 
+            // c) Rekap Sholat Berjamaah -> memicu buka AttendanceActivity tab 3 (Rekap Sholat)
+            val cardRekapSholat = createActionCard(
+                icon = "📊",
+                badge = "REKAP LENGKAP",
+                title = "Rekap Sholat & Ibadah",
+                desc = "Lihat catatan keaktifan sholat Dhuha, Dhuhur, Jumat & Uzur Syar'i secara lengkap",
+                gradientColors = intArrayOf(Color.parseColor("#065F46"), Color.parseColor("#0D9488"))
+            ) {
+                val intent = Intent(this, AttendanceActivity::class.java)
+                intent.putExtra(AttendanceActivity.EXTRA_INITIAL_TAB, 3)
+                startActivity(intent)
+            }
+
             val btnClose = Button(this).apply {
                 text = "Tutup Pilihan"
                 val bBg = GradientDrawable().apply {
@@ -8082,6 +8506,7 @@ class StudentMainActivity : AppCompatActivity() {
             root.addView(tvSub)
             root.addView(cardMushola)
             root.addView(cardMapel)
+            root.addView(cardRekapSholat)
             root.addView(btnClose)
 
             dialog.setView(root)
@@ -8349,6 +8774,262 @@ class StudentMainActivity : AppCompatActivity() {
         } catch (e: Exception) {
             // Fallback safe
         }
+    }
+
+    private fun loadStudentWeeklyPrayerSchedule() {
+        val studentClass = sessionManager.getClassName().trim()
+        val studentGender = sessionManager.getGender().uppercase()
+        val isFemale = studentGender.contains("P") || studentGender.contains("WANITA") || studentGender.contains("PEREMPUAN")
+
+        binding.tvStudentPrayerScheduleClassTitle.text = if (studentClass.isNotEmpty() && studentClass != "-") {
+            "🕌 Jadwal Sholat Rombel: Kelas $studentClass"
+        } else {
+            "🕌 Jadwal Sholat Rombel Kamu"
+        }
+
+        binding.tvDedicatedPrayerSubtitle?.text = if (studentClass.isNotEmpty() && studentClass != "-") {
+            "Jadwal Resmi Kelas $studentClass • Mushola & Masjid SMPN 1 Boyolangu"
+        } else {
+            "Senin s/d Sabtu • Mushola & Masjid SMPN 1 Boyolangu"
+        }
+
+        binding.btnStudentPresensiPrayerQuick.setOnClickListener {
+            openPrayerAttendanceAction()
+        }
+
+        binding.btnStudentPresensiPrayerTab?.setOnClickListener {
+            openPrayerAttendanceAction()
+        }
+
+        ApiClient.getClient(this).getAllPrayerSchedules().enqueue(object : Callback<AllPrayerSchedulesResponse> {
+            override fun onResponse(call: Call<AllPrayerSchedulesResponse>, response: Response<AllPrayerSchedulesResponse>) {
+                if (isFinishing || isDestroyed) return
+                if (response.isSuccessful && response.body()?.schedules != null) {
+                    val schedules = response.body()!!.schedules!!
+                    renderStudentWeeklyPrayerSchedule(schedules, studentClass, isFemale)
+                }
+            }
+
+            override fun onFailure(call: Call<AllPrayerSchedulesResponse>, t: Throwable) {
+                // Keep default state
+            }
+        })
+    }
+
+    private fun isClassInSchedule(studentClass: String, classNames: String?, prayerType: String?, isFemale: Boolean): Boolean {
+        if (classNames.isNullOrBlank()) return false
+        val cUpper = classNames.uppercase()
+        if (cUpper == "ALL") return true
+        if (cUpper == "ALL_MALE") return !isFemale
+        if (cUpper == "ALL_FEMALE") return isFemale
+
+        val target = studentClass.uppercase().replace(" ", "").replace("-", "")
+        val list = cUpper.split(",").map { it.trim().replace(" ", "").replace("-", "") }
+        return list.contains(target) || list.any { target.contains(it) || it.contains(target) }
+    }
+
+    private fun renderStudentWeeklyPrayerSchedule(schedules: List<PrayerClassScheduleDto>, studentClass: String, isFemale: Boolean) {
+        val density = resources.displayMetrics.density
+        binding.layoutStudentWeeklyPrayerList.removeAllViews()
+        binding.layoutDedicatedPrayerItems?.removeAllViews()
+
+        val dayNames = listOf("", "SENIN", "SELASA", "RABU", "KAMIS", "JUMAT", "SABTU")
+        val currentDay = Calendar.getInstance().get(Calendar.DAY_OF_WEEK)
+        val todayWeekIndex = when (currentDay) {
+            Calendar.MONDAY -> 1
+            Calendar.TUESDAY -> 2
+            Calendar.WEDNESDAY -> 3
+            Calendar.THURSDAY -> 4
+            Calendar.FRIDAY -> 5
+            Calendar.SATURDAY -> 6
+            else -> 0
+        }
+
+        // 1. Render Student's Class Schedule Only (Senin - Sabtu)
+        for (d in 1..6) {
+            val dName = dayNames[d]
+            val daySchedules = schedules.filter { it.dayOfWeek == d }
+            val isToday = (d == todayWeekIndex)
+
+            // Cari apakah rombel siswa terjadwal pada hari ini
+            val matchingSchedule = daySchedules.firstOrNull { isClassInSchedule(studentClass, it.classNames, it.prayerType, isFemale) }
+
+            val rowCard = CardView(this).apply {
+                radius = 12 * density
+                cardElevation = if (isToday) 2.5f * density else 0.5f * density
+                val bgColor = if (matchingSchedule != null) {
+                    if (isToday) Color.parseColor("#ECFDF5") else Color.parseColor("#F0FDF4")
+                } else {
+                    Color.parseColor("#F8FAFC")
+                }
+                setCardBackgroundColor(bgColor)
+                val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    bottomMargin = (8 * density).toInt()
+                }
+                layoutParams = lp
+            }
+
+            val rowContent = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                val pad = (12 * density).toInt()
+                setPadding(pad, pad, pad, pad)
+            }
+
+            val topRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+
+            val tvDayName = TextView(this).apply {
+                text = dName
+                textSize = 12.5f
+                setTextColor(if (matchingSchedule != null) Color.parseColor("#065F46") else Color.parseColor("#475569"))
+                setTypeface(null, Typeface.BOLD)
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            topRow.addView(tvDayName)
+
+            if (isToday) {
+                val badgeToday = TextView(this).apply {
+                    text = "● HARI INI"
+                    textSize = 9.5f
+                    setTextColor(Color.WHITE)
+                    setTypeface(null, Typeface.BOLD)
+                    val px = (8 * density).toInt()
+                    val py = (2 * density).toInt()
+                    setPadding(px, py, px, py)
+                    background = GradientDrawable().apply {
+                        setColor(Color.parseColor("#059669"))
+                        cornerRadius = 6 * density
+                    }
+                }
+                topRow.addView(badgeToday)
+            }
+            rowContent.addView(topRow)
+
+            if (matchingSchedule != null) {
+                val pType = matchingSchedule.prayerType ?: "DHUHUR"
+                val pIcon = if (pType == "DHUHA") "🌅" else if (pType == "JUMAT") "🕌" else if (pType == "KEPUTRIAN") "🧕" else "☀️"
+                val pTitle = if (pType == "DHUHA") "Sholat Dhuha Berjamaah" else if (pType == "JUMAT") "Sholat Jumat (Putra)" else if (pType == "KEPUTRIAN") "Keputrian Siswi Muslimah" else "Sholat Dhuhur Berjamaah"
+                val timeInfo = "Wudhu: ${matchingSchedule.wudhuTime ?: "11:45"} • Scan: ${matchingSchedule.scanStartTime ?: "12:00"} - ${matchingSchedule.scanEndTime ?: "12:30"} WIB"
+
+                val tvDetail = TextView(this).apply {
+                    text = "$pIcon $pTitle\n⏱ $timeInfo"
+                    textSize = 11.5f
+                    setTextColor(Color.parseColor("#047857"))
+                    setTypeface(null, Typeface.BOLD)
+                    val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        topMargin = (4 * density).toInt()
+                    }
+                    layoutParams = lp
+                }
+                rowContent.addView(tvDetail)
+
+                rowCard.setOnClickListener {
+                    openPrayerAttendanceAction()
+                }
+            } else {
+                val tvNotScheduled = TextView(this).apply {
+                    text = "○ Dhuha Mandiri / Belum Giliran Dhuhur di Mushola"
+                    textSize = 11f
+                    setTextColor(Color.parseColor("#94A3B8"))
+                    val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        topMargin = (2 * density).toInt()
+                    }
+                    layoutParams = lp
+                }
+                rowContent.addView(tvNotScheduled)
+            }
+
+            rowCard.addView(rowContent)
+            binding.layoutStudentWeeklyPrayerList.addView(rowCard)
+
+            // Buat duplikat card untuk dedicated page
+            val dedicatedCard = CardView(this).apply {
+                radius = 12 * density
+                cardElevation = if (isToday) 2.5f * density else 0.5f * density
+                val bgColor = if (matchingSchedule != null) {
+                    if (isToday) Color.parseColor("#ECFDF5") else Color.parseColor("#F0FDF4")
+                } else {
+                    Color.parseColor("#F8FAFC")
+                }
+                setCardBackgroundColor(bgColor)
+                val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    bottomMargin = (8 * density).toInt()
+                }
+                layoutParams = lp
+            }
+
+            val dedicatedContent = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                val pad = (12 * density).toInt()
+                setPadding(pad, pad, pad, pad)
+            }
+            val dTopRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            val dTvDayName = TextView(this).apply {
+                text = dName
+                textSize = 12.5f
+                setTextColor(if (matchingSchedule != null) Color.parseColor("#065F46") else Color.parseColor("#475569"))
+                setTypeface(null, Typeface.BOLD)
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            dTopRow.addView(dTvDayName)
+            if (isToday) {
+                val dBadgeToday = TextView(this).apply {
+                    text = "● HARI INI"
+                    textSize = 9.5f
+                    setTextColor(Color.WHITE)
+                    setTypeface(null, Typeface.BOLD)
+                    val px = (8 * density).toInt()
+                    val py = (2 * density).toInt()
+                    setPadding(px, py, px, py)
+                    background = GradientDrawable().apply {
+                        setColor(Color.parseColor("#059669"))
+                        cornerRadius = 6 * density
+                    }
+                }
+                dTopRow.addView(dBadgeToday)
+            }
+            dedicatedContent.addView(dTopRow)
+
+            if (matchingSchedule != null) {
+                val pType = matchingSchedule.prayerType ?: "DHUHUR"
+                val pIcon = if (pType == "DHUHA") "🌅" else if (pType == "JUMAT") "🕌" else if (pType == "KEPUTRIAN") "🧕" else "☀️"
+                val pTitle = if (pType == "DHUHA") "Sholat Dhuha Berjamaah" else if (pType == "JUMAT") "Sholat Jumat (Putra)" else if (pType == "KEPUTRIAN") "Keputrian Siswi Muslimah" else "Sholat Dhuhur Berjamaah"
+                val timeInfo = "Wudhu: ${matchingSchedule.wudhuTime ?: "11:45"} • Scan: ${matchingSchedule.scanStartTime ?: "12:00"} - ${matchingSchedule.scanEndTime ?: "12:30"} WIB"
+
+                val dTvDetail = TextView(this).apply {
+                    text = "$pIcon $pTitle\n⏱ $timeInfo"
+                    textSize = 11.5f
+                    setTextColor(Color.parseColor("#047857"))
+                    setTypeface(null, Typeface.BOLD)
+                    val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        topMargin = (4 * density).toInt()
+                    }
+                    layoutParams = lp
+                }
+                dedicatedContent.addView(dTvDetail)
+                dedicatedCard.setOnClickListener { openPrayerAttendanceAction() }
+            } else {
+                val dTvNotScheduled = TextView(this).apply {
+                    text = "○ Dhuha Mandiri / Belum Giliran Dhuhur di Mushola"
+                    textSize = 11f
+                    setTextColor(Color.parseColor("#94A3B8"))
+                    val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        topMargin = (2 * density).toInt()
+                    }
+                    layoutParams = lp
+                }
+                dedicatedContent.addView(dTvNotScheduled)
+            }
+
+            dedicatedCard.addView(dedicatedContent)
+            binding.layoutDedicatedPrayerItems?.addView(dedicatedCard)
+        }
+        // Catatan: Jadwal seluruh rombel lain sengaja ditiadakan sesuai regulasi privasi & efisiensi siswa
     }
 
     private fun openPrayerAttendanceAction() {

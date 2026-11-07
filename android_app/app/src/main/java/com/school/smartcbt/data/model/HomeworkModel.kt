@@ -66,16 +66,26 @@ data class HomeworkSubmissionsResponse(
 )
 
 data class TeacherHomeworkSubmissionItemDto(
+    val id: String? = null,
+    val submissionId: String? = null,
     val studentId: String,
     val studentName: String,
     val nisn: String?,
     val submitted: Boolean,
+    val status: String? = null,
     val fileUrl: String?,
     val notes: String?,
+    val answers: String? = null,
+    val autoScore: Double? = null,
     val score: Double?,
     val teacherNote: String?,
     val submittedAt: String?,
-    val isLate: Boolean? = false
+    val isLate: Boolean? = false,
+    val totalQuestions: Int? = null,
+    val answeredCount: Int? = null,
+    val kurangCount: Int? = null,
+    val lastAnsweredNo: Int? = null,
+    val posisiSoal: Int? = null
 )
 
 data class HomeworkStatsDto(

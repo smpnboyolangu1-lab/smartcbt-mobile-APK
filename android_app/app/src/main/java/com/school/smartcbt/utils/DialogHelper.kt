@@ -46,10 +46,19 @@ object DialogHelper {
         if (activity.isFinishing || activity.isDestroyed) return
         if (isAllFilesAccessGranted(activity)) return
 
-        if (mandatoryFilesDialogInstance?.isShowing == true) return
+        if (mandatoryFilesDialogInstance?.isShowing == true) {
+            val owner = mandatoryFilesDialogInstance?.ownerActivity
+            if (owner != null && owner != activity) {
+                try { mandatoryFilesDialogInstance?.dismiss() } catch (e: Exception) {}
+                mandatoryFilesDialogInstance = null
+            } else {
+                return
+            }
+        }
 
         try {
             val dialog = Dialog(activity)
+            dialog.setOwnerActivity(activity)
             dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
             val dialogView = LayoutInflater.from(activity).inflate(
                 R.layout.dialog_mandatory_all_files_access, null
@@ -69,21 +78,65 @@ object DialogHelper {
             val btnActivate = dialogView.findViewById<android.widget.Button>(
                 R.id.btnActivateAllFilesAccess
             )
+            val btnAlternative = dialogView.findViewById<android.widget.Button>(
+                R.id.btnAlternativeSettings
+            )
             val btnExit = dialogView.findViewById<android.widget.Button>(
                 R.id.btnExitApp
             )
 
+            val isXiaomi = Build.MANUFACTURER.contains("Xiaomi", ignoreCase = true) ||
+                    Build.BRAND.contains("Xiaomi", ignoreCase = true) ||
+                    Build.BRAND.contains("Redmi", ignoreCase = true) ||
+                    Build.BRAND.contains("POCO", ignoreCase = true)
+
             btnActivate?.setOnClickListener {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    try {
-                        val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
-                            data = Uri.parse("package:${activity.packageName}")
-                        }
-                        activity.startActivity(intent)
-                    } catch (e: Exception) {
+                    if (isXiaomi) {
+                        // Pada perangkat Xiaomi/MIUI/HyperOS, intent langsung dengan package: sering kali
+                        // otomatis di-close oleh Security app MIUI ("tertutup"). Maka prioritaskan daftar global.
+                        var opened = false
                         try {
                             activity.startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
-                        } catch (e2: Exception) {
+                            opened = true
+                        } catch (e: Exception) {}
+
+                        if (!opened) {
+                            try {
+                                val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+                                    data = Uri.parse("package:${activity.packageName}")
+                                }
+                                activity.startActivity(intent)
+                                opened = true
+                            } catch (e2: Exception) {}
+                        }
+
+                        if (!opened) {
+                            try {
+                                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                    data = Uri.parse("package:${activity.packageName}")
+                                }
+                                activity.startActivity(intent)
+                            } catch (e3: Exception) {}
+                        }
+                    } else {
+                        var opened = false
+                        try {
+                            val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+                                data = Uri.parse("package:${activity.packageName}")
+                            }
+                            activity.startActivity(intent)
+                            opened = true
+                        } catch (e: Exception) {}
+
+                        if (!opened) {
+                            try {
+                                activity.startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+                                opened = true
+                            } catch (e2: Exception) {}
+                        }
+
+                        if (!opened) {
                             try {
                                 val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                                     data = Uri.parse("package:${activity.packageName}")
@@ -102,8 +155,22 @@ object DialogHelper {
                 }
             }
 
+            btnAlternative?.setOnClickListener {
+                // Alternatif aman jika jendela izin vendor tertutup otomatis: langsung buka Info Izin Aplikasi
+                try {
+                    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                        data = Uri.parse("package:${activity.packageName}")
+                    }
+                    activity.startActivity(intent)
+                } catch (e: Exception) {
+                    try {
+                        activity.startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+                    } catch (e2: Exception) {}
+                }
+            }
+
             btnExit?.setOnClickListener {
-                dialog.dismiss()
+                try { dialog.dismiss() } catch (e: Exception) {}
                 mandatoryFilesDialogInstance = null
                 activity.finishAffinity()
             }
@@ -128,7 +195,9 @@ object DialogHelper {
 
     fun dismissMandatoryAllFilesDialogIfGranted(activity: Activity): Boolean {
         if (isAllFilesAccessGranted(activity)) {
-            mandatoryFilesDialogInstance?.dismiss()
+            try {
+                mandatoryFilesDialogInstance?.dismiss()
+            } catch (e: Exception) {}
             mandatoryFilesDialogInstance = null
             return true
         }

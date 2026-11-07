@@ -386,8 +386,12 @@ export const getClassMonitoringStatus = async (req: Request, res: Response) => {
         const dbClasses = await prisma.class.findMany({
             orderBy: { name: 'asc' }
         });
-        const defaultClassNames = ['VII-A', 'VII-B', 'VII-C', 'VII-D', 'VII-E', 'VII-F', 'VII-G', 'VII-H', 'VII-I', 'VII-J', 'VII-K'];
-        const classNames = dbClasses.length > 0 ? dbClasses.map(c => c.name) : defaultClassNames;
+        const defaultClassNames = [
+            'VII-A', 'VII-B', 'VII-C', 'VII-D', 'VII-E', 'VII-F', 'VII-G', 'VII-H', 'VII-I', 'VII-J', 'VII-K',
+            'VIII-A', 'VIII-B', 'VIII-C', 'VIII-D', 'VIII-E', 'VIII-F', 'VIII-G', 'VIII-H', 'VIII-I', 'VIII-J', 'VIII-K',
+            'IX-A', 'IX-B', 'IX-C', 'IX-D', 'IX-E', 'IX-F', 'IX-G', 'IX-H', 'IX-I', 'IX-J', 'IX-K'
+        ];
+        const classNames = dbClasses.length >= 33 ? dbClasses.map(c => c.name) : defaultClassNames;
 
         // Ambil sesi KBM aktif hari ini dari classPeriodSession
         const activeSessions = await (prisma as any).classPeriodSession.findMany({
@@ -552,38 +556,21 @@ export const getClassMonitoringStatus = async (req: Request, res: Response) => {
                             };
                         }
 
-                        if (elapsedMinutes >= 10) {
-                            // LEBIH DARI 10 MENIT GURU BELUM HADIR -> OTOMATIS MERAH!
-                            return {
-                                className: clsName,
-                                cam: `CAM ${camNumber}`,
-                                status: 'RED',
-                                badge: 'KELAS KOSONG! (GURU BELUM HADIR > 10 MENIT)',
-                                isAlarm: true,
-                                alarmReason: 'TIMEOUT_10_MINUTES',
-                                elapsedMinutes,
-                                teacherName: sch.teacherName || 'Belum Terisi',
-                                subjectName: sch.subjectName || 'Mata Pelajaran',
-                                periodIndex: `JP ${sch.periodIndex || 1}`,
-                                timeRange: `${sch.startTime} - ${sch.endTime}`,
-                                details: `Jadwal dimulai pukul ${sch.startTime} (${elapsedMinutes} menit lalu). Belum ada konfirmasi kehadiran guru di ruang kelas.`
-                            };
-                        } else {
-                            // Menunggu Guru (Baru Dimulai < 10 Menit) -> KUNING / AMBER
-                            return {
-                                className: clsName,
-                                cam: `CAM ${camNumber}`,
-                                status: 'AMBER',
-                                badge: 'MENUNGGU GURU MASUK KELAS',
-                                isAlarm: false,
-                                elapsedMinutes,
-                                teacherName: sch.teacherName || 'Guru Pengampu',
-                                subjectName: sch.subjectName || 'Mata Pelajaran',
-                                periodIndex: `JP ${sch.periodIndex || 1}`,
-                                timeRange: `${sch.startTime} - ${sch.endTime}`,
-                                details: `Jam pelajaran baru dimulai ${elapsedMinutes} menit lalu. Menunggu guru klik IN Kelas.`
-                            };
-                        }
+                        // Sesuai aturan sekolah: Begitu jam KBM berjalan dan guru belum ngetab presensi kelas -> Otomatis KELAS KOSONG (MERAH)!
+                        return {
+                            className: clsName,
+                            cam: `CAM ${camNumber}`,
+                            status: 'RED',
+                            badge: 'KELAS KOSONG! (GURU BELUM NGETAP PRESENSI)',
+                            isAlarm: true,
+                            alarmReason: 'TEACHER_NOT_CHECKED_IN',
+                            elapsedMinutes,
+                            teacherName: sch.teacherName || 'Belum Terisi',
+                            subjectName: sch.subjectName || 'Mata Pelajaran',
+                            periodIndex: `JP ${sch.periodIndex || 1}`,
+                            timeRange: `${sch.startTime} - ${sch.endTime}`,
+                            details: `Jadwal KBM dimulai pukul ${sch.startTime} (${elapsedMinutes} menit lalu). Guru ${sch.teacherName || ''} belum melakukan presensi tap di kelas.`
+                        };
                     }
                 }
             }
@@ -861,5 +848,244 @@ export const forwardEmptyClassToKurikulum = async (req: Request, res: Response) 
         });
     } catch (error: any) {
         res.status(500).json({ success: false, message: 'Gagal meneruskan ke kurikulum: ' + error.message });
+    }
+};
+
+
+/**
+ * 4. Rekomendasi Cerdas Guru Pengganti / Guru Badal (Smart Teacher Substitution)
+ * Mengidentifikasi guru piket hari ini yang sedang bebas jam mengajar (standby)
+ * dan memprioritaskan rumpun mata pelajaran yang relevan.
+ */
+export const getSmartSubstitutionCandidates = async (req: Request, res: Response) => {
+    try {
+        const { className, periodLesson, subjectName } = req.query;
+
+        // Tentukan hari ini (WIB)
+        const now = new Date();
+        const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+        const wib = new Date(utc + (3600000 * 7));
+        const dayOfWeek = wib.getDay(); // 0: Minggu, 1: Senin, dst.
+        const dayNames = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+        const currentDayName = dayNames[dayOfWeek];
+
+        // 1. Ambil guru piket aktif hari ini
+        const piketDuties = await prisma.piketSchedule.findMany({
+            where: {
+                dayOfWeek,
+                isActive: true
+            },
+            include: {
+                teacher: {
+                    select: {
+                        id: true,
+                        name: true,
+                        username: true,
+                        teachingSubject: true,
+                        teachingClasses: true
+                    }
+                }
+            }
+        });
+
+        // 2. Ambil jadwal mengajar pada hari ini untuk memeriksa apakah guru sedang mengajar di kelas lain
+        let periodIndices: number[] = [];
+        if (typeof periodLesson === 'string') {
+            const matches = periodLesson.match(/\d+/g);
+            if (matches) {
+                periodIndices = matches.map(n => parseInt(n, 10));
+            }
+        }
+
+        const busySchedules = await prisma.classPeriodSchedule.findMany({
+            where: {
+                day: currentDayName,
+                ...(periodIndices.length > 0 ? { periodIndex: { in: periodIndices } } : {})
+            },
+            select: {
+                teacherId: true,
+                teacherName: true,
+                className: true,
+                subjectName: true,
+                periodIndex: true
+            }
+        });
+
+        const busyTeacherIds = new Set(busySchedules.map(s => s.teacherId).filter(Boolean));
+        const busyTeacherMap = new Map<string, any>();
+        busySchedules.forEach(s => {
+            if (s.teacherId) {
+                busyTeacherMap.set(s.teacherId, s);
+            }
+        });
+
+        // 3. Klasifikasi Rumpun Mata Pelajaran
+        const subjectClusterMap: Record<string, string[]> = {
+            'MIPA': ['Matematika', 'IPA', 'Ilmu Pengetahuan Alam', 'Fisika', 'Biologi', 'Informatika'],
+            'BAHASA': ['Bahasa Indonesia', 'Bahasa Inggris', 'Bahasa Jawa'],
+            'IPS_HUMANIORA': ['IPS', 'Ilmu Pengetahuan Sosial', 'PPKn', 'Pendidikan Pancasila', 'Sejarah', 'Pendidikan Agama Islam', 'PAI'],
+            'SENI_OR': ['PJOK', 'Pendidikan Jasmani', 'Seni Budaya', 'Prakarya', 'BK']
+        };
+
+        const targetSubj = String(subjectName || '').toLowerCase();
+        let targetCluster = 'UMUM';
+        for (const [cluster, subjects] of Object.entries(subjectClusterMap)) {
+            if (subjects.some(s => targetSubj.includes(s.toLowerCase()) || s.toLowerCase().includes(targetSubj))) {
+                targetCluster = cluster;
+                break;
+            }
+        }
+
+        // 4. Analisis & Skoring Kandidat
+        const candidates = piketDuties.map(duty => {
+            const t = duty.teacher;
+            const isBusy = busyTeacherIds.has(t.id);
+            const busyInfo = isBusy ? busyTeacherMap.get(t.id) : null;
+            const teacherSubj = (t.teachingSubject || '').toLowerCase();
+
+            let matchLevel = 'UMUM';
+            let priorityScore = 10;
+
+            if (targetSubj && teacherSubj && (teacherSubj.includes(targetSubj) || targetSubj.includes(teacherSubj))) {
+                matchLevel = 'SAMA';
+                priorityScore += 40;
+            } else if (targetCluster !== 'UMUM') {
+                const clusterSubjects = subjectClusterMap[targetCluster] || [];
+                if (clusterSubjects.some(s => teacherSubj.includes(s.toLowerCase()))) {
+                    matchLevel = 'SERUMPUN';
+                    priorityScore += 25;
+                }
+            }
+
+            if (!isBusy) {
+                priorityScore += 50;
+            } else {
+                priorityScore -= 30;
+            }
+
+            return {
+                teacherId: t.id,
+                name: t.name,
+                nip: t.username,
+                subject: t.teachingSubject || 'Guru Mata Pelajaran',
+                classes: t.teachingClasses || '-',
+                piketHours: `${duty.startTime || '07:00'} - ${duty.endTime || '14:00'}`,
+                piketNotes: duty.notes,
+                isStandby: !isBusy,
+                conflict: isBusy ? `Sedang mengajar di ${busyInfo?.className || 'kelas lain'} (${busyInfo?.subjectName || 'KBM'}) Jam ke-${busyInfo?.periodIndex || ''}` : null,
+                matchLevel,
+                priorityScore,
+                recommendation: !isBusy ? (matchLevel === 'SAMA' ? 'Sangat Direkomendasikan (Standby & Guru Sebidang)' : (matchLevel === 'SERUMPUN' ? 'Direkomendasikan (Standby & Rumpun Terkait)' : 'Siap Ditugaskan (Guru Piket Standby)')) : 'Kurang Disarankan (Sedang Mengajar)'
+            };
+        });
+
+        candidates.sort((a, b) => b.priorityScore - a.priorityScore);
+
+        res.json({
+            success: true,
+            currentDay: currentDayName,
+            targetClass: className || '-',
+            targetPeriod: periodLesson || '-',
+            targetSubject: subjectName || '-',
+            targetCluster,
+            totalPiketOnDuty: piketDuties.length,
+            availableStandbyCount: candidates.filter(c => c.isStandby).length,
+            candidates
+        });
+    } catch (error: any) {
+        console.error('Error getting smart substitution candidates:', error);
+        res.status(500).json({ success: false, message: 'Gagal menganalisis kandidat guru pengganti: ' + error.message });
+    }
+};
+
+/**
+ * 5. Distribusi Tugas Mandiri Darurat Siswa (Emergency Assignment Delivery)
+ * Membagikan instruksi tugas langsung ke seluruh siswa di kelas dan memutakhirkan TV monitor
+ */
+export const dispatchEmergencyAssignment = async (req: Request, res: Response) => {
+    try {
+        const user = (req as any).user;
+        const {
+            reportId,
+            className,
+            periodLesson,
+            subjectName,
+            assignmentTitle,
+            instructions,
+            dueDate,
+            attachmentUrl
+        } = req.body;
+
+        if (!className || !instructions) {
+            return res.status(400).json({ success: false, message: 'Nama kelas dan instruksi tugas mandiri wajib diisi' });
+        }
+
+        const resolvedTitle = assignmentTitle || `Tugas Mandiri ${subjectName || 'KBM'} (${periodLesson || 'Jam Pelajaran'})`;
+        const senderName = user?.name ? `${user.name} (${user.role === 'TEACHER' ? 'Guru' : 'Piket/Kurikulum'})` : 'Posko Piket & Kurikulum';
+
+        // 1. Perbarui EmptyClassReport jika reportId tersedia
+        let report = null;
+        if (reportId) {
+            report = await (prisma as any).emptyClassReport.update({
+                where: { id: reportId },
+                data: {
+                    status: 'TUGAS_MANDIRI',
+                    hasAssignment: true,
+                    assignmentDetails: `${resolvedTitle}: ${instructions}`,
+                    substituteTeacher: `Tugas Mandiri Disupervisi oleh ${senderName}`,
+                    substituteNotes: instructions,
+                    handledBy: user?.name || 'Guru Piket',
+                    handledAt: new Date()
+                }
+            });
+        }
+
+        // 2. Kirim pesan notifikasi darurat ke seluruh siswa di kelas tersebut
+        const studentsInClass = await prisma.user.findMany({
+            where: {
+                role: 'STUDENT',
+                className: { equals: className }
+            },
+            select: { id: true, name: true }
+        });
+
+        const notifTitle = `📝 TUGAS MANDIRI KELAS ${className}: ${resolvedTitle}`;
+        const notifMsg = `Instruksi dari ${senderName}:\n"${instructions}"\nHarap dikerjakan dengan tertib di ruang kelas selama jam pelajaran berlangsung.`;
+
+        for (const s of studentsInClass) {
+            await prisma.notificationMessage.create({
+                data: {
+                    recipientId: s.id,
+                    recipientRole: 'STUDENT',
+                    studentId: s.id,
+                    studentName: s.name,
+                    className,
+                    title: notifTitle,
+                    message: notifMsg,
+                    category: 'HOMEWORK'
+                }
+            });
+
+            sendFcmToUser(s.id, notifTitle, notifMsg, {
+                type: 'EMERGENCY_ASSIGNMENT',
+                className,
+                reportId: reportId || ''
+            }).catch(() => null);
+        }
+
+        // 3. Broadcast ke display TV koridor via SSE
+        if (report) {
+            global.emitEmptyClassUpdate && global.emitEmptyClassUpdate(report);
+        }
+
+        res.json({
+            success: true,
+            message: `Tugas mandiri berhasil didistribusikan ke seluruh siswa Kelas ${className} (${studentsInClass.length} siswa).`,
+            recipientsCount: studentsInClass.length,
+            report
+        });
+    } catch (error: any) {
+        console.error('Error dispatching emergency assignment:', error);
+        res.status(500).json({ success: false, message: 'Gagal mendistribusikan tugas mandiri: ' + error.message });
     }
 };

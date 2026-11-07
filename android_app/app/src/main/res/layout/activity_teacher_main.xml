@@ -36,7 +36,7 @@
                     android:id="@+id/ivTeacherAvatar"
                     android:layout_width="52dp"
                     android:layout_height="52dp"
-                    android:src="@drawable/ic_default_avatar" />
+                    android:src="@drawable/img_guru_keki_wanita_hijab" />
 
                 <LinearLayout
                     android:layout_width="0dp"
@@ -1372,6 +1372,108 @@
                 </LinearLayout>
             </androidx.cardview.widget.CardView>
 
+            <!-- ================= PUSAT KONTROL & MONITORING SISWA (UH, PR, CBT) ================= -->
+            <androidx.cardview.widget.CardView
+                android:id="@+id/cardTeacherMonitoringCenter"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="14dp"
+                android:visibility="gone"
+                android:clickable="true"
+                android:focusable="true"
+                app:cardCornerRadius="16dp"
+                app:cardElevation="2dp"
+                app:cardBackgroundColor="#FFFFFF">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="14dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <LinearLayout
+                            android:layout_width="40dp"
+                            android:layout_height="40dp"
+                            android:background="@drawable/bg_icon_indigo"
+                            android:gravity="center">
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="📊"
+                                android:textSize="20sp" />
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="10dp"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <LinearLayout
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:gravity="center_vertical"
+                                android:orientation="horizontal">
+
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="PUSAT KONTROL &amp; MONITORING"
+                                    android:textColor="#4338CA"
+                                    android:textSize="11sp"
+                                    android:textStyle="bold" />
+
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginStart="6dp"
+                                    android:background="@drawable/bg_badge_emerald"
+                                    android:paddingHorizontal="6dp"
+                                    android:paddingVertical="1dp"
+                                    android:text="REAL-TIME"
+                                    android:textColor="#059669"
+                                    android:textSize="8.5sp"
+                                    android:textStyle="bold" />
+                            </LinearLayout>
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="2dp"
+                                android:text="Kontrol UH, Tugas/PR &amp; Ujian CBT"
+                                android:textColor="#0F172A"
+                                android:textSize="13sp"
+                                android:textStyle="bold" />
+                        </LinearLayout>
+
+                        <Button
+                            android:id="@+id/btnQuickOpenMonitoringCenter"
+                            android:layout_width="wrap_content"
+                            android:layout_height="34dp"
+                            android:backgroundTint="#4F46E5"
+                            android:text="Buka ↗"
+                            android:textColor="#FFFFFF"
+                            android:textSize="11sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:text="Pantau siswa yang sedang mengerjakan, periksa progress pengerjaan, acak token, dan input penilaian."
+                        android:textColor="#64748B"
+                        android:textSize="11sp" />
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
+
             <!-- ================= MODERN ICON GRID MENU GURU ================= -->
                         <!-- ================= MODERN ICON GRID MENU GURU (4 KOLOM PENUH) ================= -->
             <TextView
@@ -1944,11 +2046,40 @@
                         android:textStyle="bold" />
                 </LinearLayout>
 
-                <!-- Spacer untuk mengisi 4 kolom simetris -->
-                <View
+                <!-- Menu 16: Posko Guru Piket -->
+                <LinearLayout
+                    android:id="@+id/gridTeacherPiket"
                     android:layout_width="0dp"
-                    android:layout_height="0dp"
-                    android:layout_weight="1" />
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:padding="4dp">
+
+                    <LinearLayout
+                        android:layout_width="52dp"
+                        android:layout_height="52dp"
+                        android:background="@drawable/bg_icon_amber"
+                        android:gravity="center">
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="🛡️"
+                            android:textSize="22sp" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:gravity="center"
+                        android:text="Guru Piket"
+                        android:textColor="#B45309"
+                        android:textSize="11sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
             </LinearLayout>
 
             <!-- Hidden compatibility containers (Kept for ViewBinding without layout clutter) -->
@@ -1956,7 +2087,6 @@
                 android:layout_width="0dp"
                 android:layout_height="0dp"
                 android:visibility="gone">
-                <LinearLayout android:id="@+id/gridTeacherPiket" android:layout_width="0dp" android:layout_height="0dp" />
                 <LinearLayout android:id="@+id/gridTeacherManagement" android:layout_width="0dp" android:layout_height="0dp" />
                 <LinearLayout android:id="@+id/gridTeacherHelpdesk" android:layout_width="0dp" android:layout_height="0dp" />
                 <LinearLayout android:id="@+id/gridTeacherPanduan" android:layout_width="0dp" android:layout_height="0dp" />
@@ -1966,6 +2096,83 @@
                 <LinearLayout android:id="@+id/gridTeacherWifi" android:layout_width="0dp" android:layout_height="0dp" />
                 <TextView android:id="@+id/tvClassesCount" android:layout_width="0dp" android:layout_height="0dp" />
             </LinearLayout>
+
+            <!-- ================= JADWAL SHOLAT BERJAMAAH SEPEKAN GURU PAI & ROMBEL ================= -->
+            <androidx.cardview.widget.CardView
+                android:id="@+id/cardTeacherWeeklyPrayerSchedule"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:layout_marginBottom="8dp"
+                app:cardCornerRadius="16dp"
+                app:cardElevation="2dp"
+                app:cardBackgroundColor="#FFFFFF">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:layout_width="38dp"
+                            android:layout_height="38dp"
+                            android:background="@drawable/bg_icon_green"
+                            android:gravity="center"
+                            android:text="🕌"
+                            android:textSize="18sp" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="10dp"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Jadwal Sholat &amp; Rotasi Rombel"
+                                android:textColor="#065F46"
+                                android:textSize="13.5sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:id="@+id/tvTeacherPrayerScheduleSubtitle"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="1dp"
+                                android:text="Rotasi Dhuha, Dhuhur &amp; Jumat • Mushola &amp; Masjid SMPN 1 Boyolangu"
+                                android:textColor="#64748B"
+                                android:textSize="10.5sp" />
+                        </LinearLayout>
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnTeacherOpenPaiControl"
+                            android:layout_width="wrap_content"
+                            android:layout_height="34dp"
+                            android:text="Kelola PAI"
+                            android:textSize="10.5sp"
+                            android:textColor="#FFFFFF"
+                            app:backgroundTint="#059669"
+                            app:cornerRadius="8dp" />
+                    </LinearLayout>
+
+                    <!-- Dynamic Weekly Items Container (Senin - Sabtu) -->
+                    <LinearLayout
+                        android:id="@+id/layoutTeacherWeeklyPrayerItems"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:orientation="vertical" />
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
             <!-- END OF TAB 1: layoutTabTeacherKbmContent -->
         </LinearLayout>
 
@@ -2207,7 +2414,40 @@
                 android:textStyle="bold" />
         </LinearLayout>
 
-        <!-- TAB 2: REKAP MAPEL -->
+        <!-- TAB 2: JADWAL KBM GURU -->
+        <LinearLayout
+            android:id="@+id/btnNavTeacherSchedule"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:orientation="vertical">
+
+            <ImageView
+                android:id="@+id/ivNavTeacherSchedule"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:src="@drawable/ic_menu_jadwal_pelajaran"
+                app:tint="#64748B" />
+
+            <TextView
+                android:id="@+id/tvLabelTeacherSchedule"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="Jadwal KBM"
+                android:textColor="#64748B"
+                android:textSize="10sp" />
+        </LinearLayout>
+
+        <!-- CENTER PLACEHOLDER FOR SCANNER (56dp) -->
+        <View
+            android:layout_width="56dp"
+            android:layout_height="match_parent" />
+
+        <!-- TAB 3: REKAP MAPEL -->
         <LinearLayout
             android:id="@+id/btnNavTeacherRecap"
             android:layout_width="0dp"
@@ -2235,40 +2475,7 @@
                 android:textSize="10sp" />
         </LinearLayout>
 
-        <!-- CENTER PLACEHOLDER FOR SCANNER -->
-        <View
-            android:layout_width="56dp"
-            android:layout_height="match_parent" />
-
-        <!-- TAB 3: SHOLAT PAI -->
-        <LinearLayout
-            android:id="@+id/btnNavTeacherPrayer"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:clickable="true"
-            android:focusable="true"
-            android:gravity="center"
-            android:orientation="vertical">
-
-            <ImageView
-                android:id="@+id/ivNavTeacherPrayer"
-                android:layout_width="22dp"
-                android:layout_height="22dp"
-                android:src="@drawable/ic_menu_sholat"
-                app:tint="#64748B" />
-
-            <TextView
-                android:id="@+id/tvLabelTeacherPrayer"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="2dp"
-                android:text="Sholat PAI"
-                android:textColor="#64748B"
-                android:textSize="10sp" />
-        </LinearLayout>
-
-        <!-- TAB 4: WALI KELAS / PROFIL -->
+        <!-- TAB 4: WALI KELAS / PROFIL GURU -->
         <LinearLayout
             android:id="@+id/btnNavTeacherProfile"
             android:layout_width="0dp"
@@ -2294,6 +2501,22 @@
                 android:text="Profil Guru"
                 android:textColor="#64748B"
                 android:textSize="10sp" />
+        </LinearLayout>
+
+        <!-- HIDDEN BACKWARD COMPAT: SHOLAT PAI -->
+        <LinearLayout
+            android:id="@+id/btnNavTeacherPrayer"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:visibility="gone">
+            <ImageView
+                android:id="@+id/ivNavTeacherPrayer"
+                android:layout_width="0dp"
+                android:layout_height="0dp" />
+            <TextView
+                android:id="@+id/tvLabelTeacherPrayer"
+                android:layout_width="0dp"
+                android:layout_height="0dp" />
         </LinearLayout>
     </LinearLayout>
 

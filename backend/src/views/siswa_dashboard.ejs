@@ -60,6 +60,9 @@
             <button onclick="switchSiswaTab('absensi')" id="tabBtn-absensi" class="w-full text-left px-3.5 py-2.5 hover:bg-slate-800 text-slate-300 hover:text-white rounded-xl font-medium flex items-center gap-2.5 transition-all text-[13.5px]">
                 <span class="text-lg">📊</span> <span>Rekap Absensi Detail</span>
             </button>
+            <button onclick="switchSiswaTab('sholat')" id="tabBtn-sholat" class="w-full text-left px-3.5 py-2.5 hover:bg-slate-800 text-slate-300 hover:text-white rounded-xl font-medium flex items-center gap-2.5 transition-all text-[13.5px]">
+                <span class="text-lg">🕌</span> <span>Rekap Sholat Berjamaah</span>
+            </button>
             <button onclick="switchSiswaTab('analytics')" id="tabBtn-analytics" class="w-full text-left px-3.5 py-2.5 hover:bg-slate-800 text-slate-300 hover:text-white rounded-xl font-medium flex items-center gap-2.5 transition-all text-[13.5px]">
                 <span class="text-lg">📈</span> <span>Analisis Belajar</span>
             </button>
@@ -360,6 +363,45 @@
                 </div>
             </div>
 
+            <!-- Jadwal Sholat Berjamaah Rombel Siswa Sepekan (Senin s/d Sabtu) -->
+            <div class="bg-white p-6 rounded-3xl shadow-sm border border-slate-200" id="cardSiswaWeeklyPrayer">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-slate-100 pb-4">
+                    <div class="flex items-center gap-3">
+                        <div class="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-700 flex items-center justify-center text-2xl font-black border border-emerald-200 shadow-inner flex-shrink-0">
+                            🕌
+                        </div>
+                        <div>
+                            <h2 class="text-base font-extrabold text-slate-800 flex items-center gap-2">
+                                Jadwal Sholat Berjamaah Rombel Kamu
+                                <span class="text-[11px] bg-emerald-100 text-emerald-800 px-2.5 py-0.5 rounded-full font-bold" id="badgeStudentClassPrayer">Memuat Rombel...</span>
+                            </h2>
+                            <p class="text-xs text-slate-500 mt-0.5">Jadwal ibadah Sholat Dhuha, Dhuhur &amp; Sholat Jumat di Masjid &amp; Mushola SMPN 1 Boyolangu</p>
+                        </div>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-2">
+                        <button type="button" onclick="switchSiswaTab('sholat')" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm transition-all cursor-pointer">
+                            <span>📜</span> <span>Buka Rekap Sholat Lengkap</span>
+                        </button>
+                        <button type="button" onclick="toggleAllRombelPrayerWeb()" class="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer">
+                            <span>📋</span> <span id="btnToggleAllRombelText">Jadwal Seluruh Rombel</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Grid Hari Senin - Sabtu untuk Rombel Siswa -->
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5 mt-4" id="siswaWeeklyPrayerGrid">
+                    <div class="col-span-full py-6 text-center text-slate-400 text-xs">Memuat jadwal ibadah sepekan...</div>
+                </div>
+
+                <!-- Seluruh Rombel (Toggleable) -->
+                <div id="siswaAllRombelPrayerContainer" class="hidden mt-4 pt-4 border-t border-slate-100 space-y-3">
+                    <h3 class="text-xs font-black uppercase text-slate-500 tracking-wider">Rotasi Jadwal Seluruh Rombel Lainnya (Senin s/d Sabtu):</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 text-xs" id="siswaAllRombelList">
+                        <!-- Populated dynamically via JS -->
+                    </div>
+                </div>
+            </div>
+
             <!-- Detail Ujian Aktif & Info APK -->
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6" id="cardActiveCbt">
                 <div class="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
@@ -388,69 +430,263 @@
             </div>
         </div>
 
-        <!-- SECTION 2: REKAP ABSENSI DETAIL DENGAN PERSENTASE -->
+        <!-- SECTION 2: REKAP ABSENSI DETAIL DENGAN UI CANGGIH & MULTI-DIMENSI -->
         <div id="section-absensi" class="hidden space-y-6">
-            <div class="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
-                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-slate-100 pb-4 mb-5 gap-4">
-                    <div>
-                        <h2 class="text-base font-black text-slate-900 flex items-center gap-2">
-                            <span>📊</span> Rekap Presensi Lengkap (Gate In &amp; Gate Out)
+            <!-- Hero Analitik Presensi Glassmorphism Card -->
+            <div class="bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-white p-6 sm:p-8 rounded-3xl shadow-xl border border-indigo-800/40 relative overflow-hidden">
+                <div class="absolute -right-16 -top-16 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none"></div>
+                <div class="absolute -left-16 -bottom-16 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none"></div>
+
+                <div class="relative z-10 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
+                    <div class="space-y-2">
+                        <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/20 border border-indigo-400/30 text-indigo-300 text-xs font-bold uppercase tracking-wider">
+                            <span>🛰️ SIAKAD SMART PRESENSI</span> • <span>SISTEM GEOFENCING MULTI-DIMENSI</span>
+                        </div>
+                        <h2 class="text-2xl sm:text-3xl font-black text-white tracking-tight flex items-center gap-2.5">
+                            <span>📊</span> Rekapitulasi Presensi Digital Siswa
                         </h2>
-                        <p class="text-xs text-slate-500">Histori detail jam masuk, jam pulang, lokasi gerbang, dan persentase kehadiran</p>
+                        <p class="text-xs sm:text-sm text-slate-300 max-w-2xl leading-relaxed">
+                            Pantauan kehadiran akurat terintegrasi Gerbang Masuk/Pulang (Gate In/Out), Jam Mata Pelajaran (KBM), dan Ibadah Sholat Berjamaah dengan verifikasi anti-fraud GPS &amp; Face/QR.
+                        </p>
                     </div>
-                    <!-- Ringkasan Persentase Tab Absensi -->
-                    <div class="flex flex-wrap gap-2 text-xs font-bold text-slate-700 bg-slate-50 p-2 rounded-2xl border border-slate-200">
-                        <span class="bg-white px-3 py-1 rounded-xl shadow-xs">Total: <b class="text-sky-700" id="tabAbsensiTotal">22 Hari</b></span>
-                        <span class="bg-white px-3 py-1 rounded-xl shadow-xs">Hadir: <b class="text-emerald-700" id="tabAbsensiHadir">21 (95.5%)</b></span>
-                        <span class="bg-white px-3 py-1 rounded-xl shadow-xs">Terlambat: <b class="text-amber-700" id="tabAbsensiLate">1 (4.5%)</b></span>
-                        <span class="bg-white px-3 py-1 rounded-xl shadow-xs">Tingkat Hadir: <b class="text-blue-700" id="tabAbsensiRate">98.0%</b></span>
+
+                    <!-- Gauge Persentase Utama -->
+                    <div class="bg-white/10 backdrop-blur-md p-5 rounded-2xl border border-white/20 text-center min-w-[200px] flex-shrink-0 shadow-lg">
+                        <p class="text-[11px] uppercase tracking-wider font-bold text-indigo-200">Tingkat Kehadiran</p>
+                        <div class="my-1.5 flex items-baseline justify-center gap-1">
+                            <span class="text-4xl font-black text-emerald-400 tracking-tight" id="advStatRatePercent">98.0%</span>
+                        </div>
+                        <div class="inline-block px-3 py-1 rounded-full text-[11px] font-black bg-emerald-500/30 text-emerald-200 border border-emerald-400/40" id="advStatRateBadge">
+                            🌟 Sangat Disiplin
+                        </div>
+                        <p class="text-[10px] text-slate-300 mt-2" id="advStatTotalDays">Total 22 Hari Sekolah Efektif</p>
                     </div>
                 </div>
 
-                <div class="overflow-x-auto rounded-2xl border border-slate-100">
-                    <table class="w-full text-left border-collapse text-xs">
+                <!-- 5 Metrics Counter Bar -->
+                <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-6 pt-6 border-t border-indigo-800/50">
+                    <div class="bg-emerald-950/40 border border-emerald-500/30 p-3.5 rounded-2xl text-center">
+                        <span class="text-[11px] font-bold text-emerald-300 block">🟢 Hadir Tepat</span>
+                        <span class="text-xl font-black text-white mt-1 block" id="advHadirCount">21</span>
+                        <span class="text-[10px] text-emerald-400 font-semibold" id="advHadirPct">95.5%</span>
+                    </div>
+                    <div class="bg-amber-950/40 border border-amber-500/30 p-3.5 rounded-2xl text-center">
+                        <span class="text-[11px] font-bold text-amber-300 block">🟡 Terlambat</span>
+                        <span class="text-xl font-black text-white mt-1 block" id="advLateCount">1</span>
+                        <span class="text-[10px] text-amber-400 font-semibold" id="advLatePct">4.5%</span>
+                    </div>
+                    <div class="bg-sky-950/40 border border-sky-500/30 p-3.5 rounded-2xl text-center">
+                        <span class="text-[11px] font-bold text-sky-300 block">🔵 Sakit / Izin</span>
+                        <span class="text-xl font-black text-white mt-1 block" id="advSickPermitCount">0</span>
+                        <span class="text-[10px] text-sky-400 font-semibold" id="advSickPermitPct">0.0%</span>
+                    </div>
+                    <div class="bg-rose-950/40 border border-rose-500/30 p-3.5 rounded-2xl text-center">
+                        <span class="text-[11px] font-bold text-rose-300 block">🔴 Alpa</span>
+                        <span class="text-xl font-black text-white mt-1 block" id="advAlpaCount">0</span>
+                        <span class="text-[10px] text-rose-400 font-semibold" id="advAlpaPct">0.0%</span>
+                    </div>
+                    <div class="bg-indigo-950/40 border border-indigo-500/30 p-3.5 rounded-2xl text-center col-span-2 sm:col-span-1">
+                        <span class="text-[11px] font-bold text-indigo-300 block">ℹ️ Tanpa Scan Pulang</span>
+                        <span class="text-xl font-black text-white mt-1 block" id="advNoOutCount">0</span>
+                        <span class="text-[10px] text-indigo-400 font-semibold">Tercatat Hadir</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Multi-Dimension Switcher Card -->
+            <div class="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-slate-100">
+                    <!-- Dimension Tabs -->
+                    <div class="flex flex-wrap gap-2">
+                        <button onclick="switchAttendanceDimension('gate')" id="dimBtn-gate" class="px-4 py-2 rounded-xl text-xs font-black transition-all bg-indigo-600 text-white shadow-sm flex items-center gap-1.5 cursor-pointer">
+                            <span>🚪</span> <span>Presensi Gerbang (Gate In &amp; Out)</span>
+                        </button>
+                        <button onclick="switchAttendanceDimension('mapel')" id="dimBtn-mapel" class="px-4 py-2 rounded-xl text-xs font-bold transition-all bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center gap-1.5 cursor-pointer">
+                            <span>📚</span> <span>Presensi Mapel KBM</span>
+                        </button>
+                        <button onclick="switchSiswaTab('sholat')" id="dimBtn-prayer" class="px-4 py-2 rounded-xl text-xs font-bold transition-all bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1.5 cursor-pointer">
+                            <span>🕌</span> <span>Presensi Sholat Berjamaah ➔</span>
+                        </button>
+                    </div>
+
+                    <!-- Action: Export / Print -->
+                    <div class="flex items-center gap-2 self-end sm:self-auto">
+                        <button onclick="window.print()" class="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer">
+                            <span>🖨️</span> <span>Cetak Laporan</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Controls: Search & Status Filters -->
+                <div class="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3 mt-4">
+                    <div class="relative flex-1 max-w-md">
+                        <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">🔍</span>
+                        <input type="text" id="inputSearchAttendance" onkeyup="filterAttendanceTable()" placeholder="Cari tanggal, hari, status, atau catatan..." class="w-full pl-9 pr-4 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50/50">
+                    </div>
+                    <div class="flex flex-wrap items-center gap-1.5 text-xs font-bold" id="filterAttendancePills">
+                        <button onclick="setAttendanceStatusFilter('ALL')" class="att-filter-pill px-3 py-1.5 rounded-xl bg-slate-900 text-white shadow-xs cursor-pointer" data-filter="ALL">Semua</button>
+                        <button onclick="setAttendanceStatusFilter('HADIR')" class="att-filter-pill px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-emerald-100 text-slate-700 hover:text-emerald-800 cursor-pointer" data-filter="HADIR">🟢 Hadir Tepat</button>
+                        <button onclick="setAttendanceStatusFilter('TERLAMBAT')" class="att-filter-pill px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-amber-100 text-slate-700 hover:text-amber-800 cursor-pointer" data-filter="TERLAMBAT">🟡 Terlambat</button>
+                        <button onclick="setAttendanceStatusFilter('SAKIT')" class="att-filter-pill px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-800 cursor-pointer" data-filter="SAKIT">🔵 Sakit/Izin</button>
+                        <button onclick="setAttendanceStatusFilter('ALPA')" class="att-filter-pill px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-rose-100 text-slate-700 hover:text-rose-800 cursor-pointer" data-filter="ALPA">🔴 Alpa</button>
+                    </div>
+                </div>
+
+                <!-- View 1: Gate Table -->
+                <div id="viewDimGate" class="overflow-x-auto rounded-2xl border border-slate-200 mt-4">
+                    <table class="w-full text-left border-collapse text-xs" id="tableAttendanceGate">
                         <thead>
-                            <tr class="bg-slate-50/80 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[11px]">
-                                <th class="p-3">Hari &amp; Tanggal</th>
-                                <th class="p-3">Status</th>
-                                <th class="p-3">🚪 Jam Masuk (Gate-In)</th>
-                                <th class="p-3">🏠 Jam Pulang (Gate-Out)</th>
-                                <th class="p-3">Lokasi Gate</th>
-                                <th class="p-3">Metode Verifikasi</th>
+                            <tr class="bg-slate-100 text-slate-700 font-extrabold uppercase tracking-wider text-[11px] border-b border-slate-200">
+                                <th class="p-3.5">Hari &amp; Tanggal</th>
+                                <th class="p-3.5">Status Kehadiran</th>
+                                <th class="p-3.5">🚪 Jam Masuk (Gate-In)</th>
+                                <th class="p-3.5">🏠 Jam Pulang (Gate-Out)</th>
+                                <th class="p-3.5">Lokasi Gerbang</th>
+                                <th class="p-3.5">Validasi Sistem</th>
                             </tr>
                         </thead>
-                        <tbody class="divide-y divide-slate-100" id="tableStudentAttendanceBody">
-                            <tr class="hover:bg-slate-50">
-                                <td class="p-3 font-semibold text-slate-800">Selasa, 29 Sep 2026</td>
-                                <td class="p-3"><span class="bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-lg font-bold text-[11px]">HADIR</span></td>
-                                <td class="p-3 font-bold font-mono text-slate-700">06:45 WIB</td>
-                                <td class="p-3 font-bold font-mono text-slate-700">14:15 WIB</td>
-                                <td class="p-3 text-slate-600">Pintu Kelas VII-A</td>
-                                <td class="p-3 text-slate-500 font-medium">Scan Barcode QR / GPS Presisi</td>
+                        <tbody class="divide-y divide-slate-100 font-medium" id="tableStudentAttendanceBody">
+                            <tr>
+                                <td colspan="6" class="p-6 text-center text-slate-400">Memuat rekaman presensi lengkap...</td>
                             </tr>
-                            <tr class="hover:bg-slate-50">
-                                <td class="p-3 font-semibold text-slate-800">Senin, 28 Sep 2026</td>
-                                <td class="p-3"><span class="bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-lg font-bold text-[11px]">HADIR</span></td>
-                                <td class="p-3 font-bold font-mono text-slate-700">06:40 WIB</td>
-                                <td class="p-3 font-bold font-mono text-slate-700">14:20 WIB</td>
-                                <td class="p-3 text-slate-600">Pintu Kelas VII-A</td>
-                                <td class="p-3 text-slate-500 font-medium">Scan Barcode QR / GPS Presisi</td>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- View 2: Mapel KBM Table -->
+                <div id="viewDimMapel" class="hidden overflow-x-auto rounded-2xl border border-slate-200 mt-4">
+                    <table class="w-full text-left border-collapse text-xs" id="tableAttendanceMapel">
+                        <thead>
+                            <tr class="bg-slate-100 text-slate-700 font-extrabold uppercase tracking-wider text-[11px] border-b border-slate-200">
+                                <th class="p-3.5">Tanggal</th>
+                                <th class="p-3.5">Mata Pelajaran</th>
+                                <th class="p-3.5">Jam ke- / Waktu</th>
+                                <th class="p-3.5">Guru Pengampu</th>
+                                <th class="p-3.5">Status Presensi</th>
+                                <th class="p-3.5">Catatan Jurnal KBM</th>
                             </tr>
-                            <tr class="hover:bg-slate-50">
-                                <td class="p-3 font-semibold text-slate-800">Jumat, 25 Sep 2026</td>
-                                <td class="p-3"><span class="bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-lg font-bold text-[11px]">HADIR</span></td>
-                                <td class="p-3 font-bold font-mono text-slate-700">06:50 WIB</td>
-                                <td class="p-3 font-bold font-mono text-slate-700">11:45 WIB</td>
-                                <td class="p-3 text-slate-600">Pintu Kelas VII-A</td>
-                                <td class="p-3 text-slate-500 font-medium">Scan Barcode QR / GPS Presisi</td>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100 font-medium" id="tableMapelAttendanceBody">
+                            <tr>
+                                <td colspan="6" class="p-6 text-center text-slate-400">Memuat rekaman jam mata pelajaran...</td>
                             </tr>
-                            <tr class="hover:bg-slate-50">
-                                <td class="p-3 font-semibold text-slate-800">Kamis, 24 Sep 2026</td>
-                                <td class="p-3"><span class="bg-amber-100 text-amber-800 px-2.5 py-1 rounded-lg font-bold text-[11px]">TERLAMBAT</span></td>
-                                <td class="p-3 font-bold font-mono text-rose-600">07:22 WIB</td>
-                                <td class="p-3 font-bold font-mono text-slate-700">14:10 WIB</td>
-                                <td class="p-3 text-slate-600">Pintu Kelas VII-A</td>
-                                <td class="p-3 text-slate-500 font-medium">Scan Barcode QR / GPS Presisi</td>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- SECTION: REKAP SHOLAT BERJAMAAH LENGKAP SISWA -->
+        <div id="section-sholat" class="hidden space-y-6">
+            <!-- Hero Rekap Sholat Card -->
+            <div class="bg-gradient-to-br from-emerald-950 via-teal-900 to-slate-900 text-white p-6 sm:p-8 rounded-3xl shadow-xl border border-emerald-700/40 relative overflow-hidden">
+                <div class="absolute -right-16 -top-16 w-64 h-64 bg-emerald-500/15 rounded-full blur-3xl pointer-events-none"></div>
+                <div class="absolute -left-16 -bottom-16 w-64 h-64 bg-amber-500/10 rounded-full blur-3xl pointer-events-none"></div>
+
+                <div class="relative z-10 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
+                    <div class="space-y-2">
+                        <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/25 border border-emerald-400/40 text-emerald-200 text-xs font-bold uppercase tracking-wider">
+                            <span>🕌 KONTROL GURU PAI &amp; MEJA BK</span> • <span>MASJID &amp; MUSHOLA AL-IKHLAS</span>
+                        </div>
+                        <h2 class="text-2xl sm:text-3xl font-black text-white tracking-tight flex items-center gap-2.5">
+                            <span>🕌</span> Rekapitulasi Ibadah Sholat Berjamaah
+                        </h2>
+                        <p class="text-xs sm:text-sm text-emerald-100/90 max-w-2xl leading-relaxed">
+                            Histori lengkap pelaksanaan Sholat Dhuha, Sholat Dhuhur, dan Sholat Jumat / Keputrian siswa SMP Negeri 1 Boyolangu. Diverifikasi otomatis via Scan Barcode Mushola &amp; Guru PAI.
+                        </p>
+                    </div>
+
+                    <!-- Badge Kepatuhan Ibadah -->
+                    <div class="bg-white/10 backdrop-blur-md p-5 rounded-2xl border border-white/20 text-center min-w-[200px] flex-shrink-0 shadow-lg">
+                        <p class="text-[11px] uppercase tracking-wider font-bold text-emerald-200">Kepatuhan Ibadah</p>
+                        <div class="my-1.5 flex items-baseline justify-center gap-1">
+                            <span class="text-4xl font-black text-amber-300 tracking-tight" id="prayerStatRatePercent">100%</span>
+                        </div>
+                        <div class="inline-block px-3 py-1 rounded-full text-[11px] font-black bg-emerald-500/40 text-emerald-100 border border-emerald-300/40" id="prayerStatBadge">
+                            💎 Sangat Istiqomah
+                        </div>
+                        <p class="text-[10px] text-emerald-200 mt-2" id="prayerStatTotalCount">Total Sesi Ibadah</p>
+                    </div>
+                </div>
+
+                <!-- 5 Metrics Sholat Counter -->
+                <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-6 pt-6 border-t border-emerald-800/50">
+                    <div class="bg-emerald-950/60 border border-emerald-500/30 p-3.5 rounded-2xl text-center">
+                        <span class="text-[11px] font-bold text-emerald-300 block">🕌 Hadir Berjamaah</span>
+                        <span class="text-xl font-black text-white mt-1 block" id="prayerHadirCount">0</span>
+                        <span class="text-[10px] text-emerald-400 font-semibold">Tepat Waktu</span>
+                    </div>
+                    <div class="bg-teal-950/60 border border-teal-500/30 p-3.5 rounded-2xl text-center">
+                        <span class="text-[11px] font-bold text-teal-300 block">🌅 Sholat Dhuha</span>
+                        <span class="text-xl font-black text-white mt-1 block" id="prayerDhuhaCount">0</span>
+                        <span class="text-[10px] text-teal-300 font-semibold">Pagi Hari</span>
+                    </div>
+                    <div class="bg-cyan-950/60 border border-cyan-500/30 p-3.5 rounded-2xl text-center">
+                        <span class="text-[11px] font-bold text-cyan-300 block">☀️ Dhuhur &amp; Jumat</span>
+                        <span class="text-xl font-black text-white mt-1 block" id="prayerDhuhurJumatCount">0</span>
+                        <span class="text-[10px] text-cyan-300 font-semibold">Siang Hari</span>
+                    </div>
+                    <div class="bg-amber-950/60 border border-amber-500/30 p-3.5 rounded-2xl text-center">
+                        <span class="text-[11px] font-bold text-amber-300 block">🌸 Uzur Syar'i</span>
+                        <span class="text-xl font-black text-white mt-1 block" id="prayerUzurCount">0</span>
+                        <span class="text-[10px] text-amber-300 font-semibold">Haid / Sakit</span>
+                    </div>
+                    <div class="bg-rose-950/60 border border-rose-500/30 p-3.5 rounded-2xl text-center col-span-2 sm:col-span-1">
+                        <span class="text-[11px] font-bold text-rose-300 block">🔴 Alpa Ibadah</span>
+                        <span class="text-xl font-black text-white mt-1 block" id="prayerAlpaCount">0</span>
+                        <span class="text-[10px] text-rose-300 font-semibold">Tanpa Keterangan</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Detail Tabel & Filter Sholat -->
+            <div class="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-slate-100">
+                    <div>
+                        <h3 class="text-base font-extrabold text-slate-900 flex items-center gap-2">
+                            <span>📜</span> Riwayat Lengkap Ibadah Sholat Berjamaah
+                        </h3>
+                        <p class="text-xs text-slate-500 mt-0.5">Catatan presensi sholat harian, waktu scan, lokasi, dan verifikator Guru PAI</p>
+                    </div>
+
+                    <div class="flex items-center gap-2">
+                        <button onclick="downloadPrayerPdf()" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm transition-all cursor-pointer">
+                            <span>📄</span> <span>Unduh PDF Resmi</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Filter Pills Sholat -->
+                <div class="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3 mt-4">
+                    <div class="relative flex-1 max-w-md">
+                        <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">🔍</span>
+                        <input type="text" id="inputSearchPrayer" onkeyup="filterPrayerTable()" placeholder="Cari tanggal, jenis sholat, atau catatan..." class="w-full pl-9 pr-4 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-slate-50/50">
+                    </div>
+                    <div class="flex flex-wrap items-center gap-1.5 text-xs font-bold" id="filterPrayerPills">
+                        <button onclick="setPrayerStatusFilter('ALL')" class="prayer-filter-pill px-3 py-1.5 rounded-xl bg-slate-900 text-white shadow-xs cursor-pointer" data-filter="ALL">Semua</button>
+                        <button onclick="setPrayerStatusFilter('DHUHA')" class="prayer-filter-pill px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-teal-100 text-slate-700 hover:text-teal-800 cursor-pointer" data-filter="DHUHA">🌅 Dhuha</button>
+                        <button onclick="setPrayerStatusFilter('DHUHUR')" class="prayer-filter-pill px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-cyan-100 text-slate-700 hover:text-cyan-800 cursor-pointer" data-filter="DHUHUR">☀️ Dhuhur</button>
+                        <button onclick="setPrayerStatusFilter('JUMAT')" class="prayer-filter-pill px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-emerald-100 text-slate-700 hover:text-emerald-800 cursor-pointer" data-filter="JUMAT">🕌 Jumat / Keputrian</button>
+                        <button onclick="setPrayerStatusFilter('UZUR')" class="prayer-filter-pill px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-amber-100 text-slate-700 hover:text-amber-800 cursor-pointer" data-filter="UZUR">🌸 Uzur Syar'i</button>
+                    </div>
+                </div>
+
+                <!-- Prayer Table -->
+                <div class="overflow-x-auto rounded-2xl border border-slate-200 mt-4">
+                    <table class="w-full text-left border-collapse text-xs" id="tablePrayerHistory">
+                        <thead>
+                            <tr class="bg-slate-100 text-slate-700 font-extrabold uppercase tracking-wider text-[11px] border-b border-slate-200">
+                                <th class="p-3.5">Hari &amp; Tanggal</th>
+                                <th class="p-3.5">Jenis Sholat</th>
+                                <th class="p-3.5">Waktu Scan</th>
+                                <th class="p-3.5">Status Ibadah</th>
+                                <th class="p-3.5">Metode Presensi</th>
+                                <th class="p-3.5">Petugas / Catatan</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100 font-medium" id="tablePrayerHistoryBody">
+                            <tr>
+                                <td colspan="6" class="p-6 text-center text-slate-400">Memuat riwayat ibadah sholat...</td>
                             </tr>
                         </tbody>
                     </table>
@@ -759,6 +995,129 @@
         }
         fetchFreshStudentProfile();
 
+        function toggleAllRombelPrayerWeb() {
+            const container = document.getElementById('siswaAllRombelPrayerContainer');
+            const txt = document.getElementById('btnToggleAllRombelText');
+            if (!container) return;
+            const isHidden = container.classList.contains('hidden');
+            if (isHidden) {
+                container.classList.remove('hidden');
+                if (txt) txt.innerText = 'Sembunyikan Rombel Lain';
+            } else {
+                container.classList.add('hidden');
+                if (txt) txt.innerText = 'Lihat Jadwal Seluruh Rombel';
+            }
+        }
+
+        async function loadSiswaPrayerScheduleWeb() {
+            try {
+                const uStr = localStorage.getItem('user');
+                const u = uStr ? JSON.parse(uStr) : {};
+                const studentClass = (u.className || u.rombel || '').trim();
+                const studentGender = (u.gender || '').toUpperCase();
+                const isFemale = studentGender.includes('P') || studentGender.includes('WANITA') || studentGender.includes('PEREMPUAN');
+
+                const badgeEl = document.getElementById('badgeStudentClassPrayer');
+                if (badgeEl) {
+                    badgeEl.innerText = studentClass ? ('Kelas ' + studentClass) : 'Rombel Siswa';
+                }
+
+                const res = await fetch('/api/prayer/all-schedules', {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                if (!res.ok) return;
+                const json = await res.json();
+                if (!json.success || !json.schedules) return;
+
+                const schedules = json.schedules;
+                const dayNames = ['', 'SENIN', 'SELASA', 'RABU', 'KAMIS', 'JUMAT', 'SABTU'];
+                const todayDay = new Date().getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+
+                const grid = document.getElementById('siswaWeeklyPrayerGrid');
+                const allList = document.getElementById('siswaAllRombelList');
+                if (grid) grid.innerHTML = '';
+                if (allList) allList.innerHTML = '';
+
+                const isClassInList = (clName, clList, pType) => {
+                    if (!clList) return false;
+                    const cUpper = clList.toUpperCase();
+                    if (cUpper === 'ALL') return true;
+                    if (cUpper === 'ALL_MALE') return !isFemale;
+                    if (cUpper === 'ALL_FEMALE') return isFemale;
+                    const normTarget = (clName || '').toUpperCase().replace(/[\s-]/g, '');
+                    const arr = cUpper.split(',').map(s => s.trim().replace(/[\s-]/g, ''));
+                    return arr.includes(normTarget) || arr.some(x => normTarget.includes(x) || x.includes(normTarget));
+                };
+
+                for (let d = 1; d <= 6; d++) {
+                    const dName = dayNames[d];
+                    const dayScheds = schedules.filter(s => Number(s.dayOfWeek) === d);
+                    const isToday = (d === todayDay);
+
+                    const match = dayScheds.find(s => isClassInList(studentClass, s.classNames, s.prayerType));
+
+                    if (grid) {
+                        const cardDiv = document.createElement('div');
+                        cardDiv.className = `p-4 rounded-2xl border transition-all ${
+                            match 
+                                ? (isToday ? 'bg-emerald-50/90 border-emerald-300 ring-2 ring-emerald-500/20' : 'bg-emerald-50/50 border-emerald-200')
+                                : (isToday ? 'bg-slate-50 border-slate-300' : 'bg-white border-slate-100')
+                        }`;
+
+                        const pType = match ? (match.prayerType || 'DHUHUR') : '';
+                        const pIcon = pType === 'DHUHA' ? '🌅' : (pType === 'JUMAT' ? '🕌' : (pType === 'KEPUTRIAN' ? '🧕' : '☀️'));
+                        const pTitle = pType === 'DHUHA' ? 'Sholat Dhuha Berjamaah' : (pType === 'JUMAT' ? 'Sholat Jumat (Putra)' : (pType === 'KEPUTRIAN' ? 'Kegiatan Keputrian' : 'Sholat Dhuhur Berjamaah'));
+
+                        cardDiv.innerHTML = `
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="font-black text-xs ${match ? 'text-emerald-900' : 'text-slate-600'}">${dName}</span>
+                                ${isToday ? '<span class="text-[9.5px] bg-emerald-600 text-white font-black px-2 py-0.5 rounded-full">HARI INI</span>' : ''}
+                            </div>
+                            ${match ? `
+                                <div class="space-y-1">
+                                    <p class="text-xs font-bold text-emerald-800 flex items-center gap-1.5">
+                                        <span>${pIcon}</span> <span>${pTitle}</span>
+                                    </p>
+                                    <p class="text-[11px] text-emerald-700 font-semibold">
+                                        ⏱ Wudhu: ${match.wudhuTime || '11:45'} • Scan: ${match.scanStartTime || '12:00'} - ${match.scanEndTime || '12:30'} WIB
+                                    </p>
+                                    <p class="text-[10px] text-emerald-600">Mushola / Masjid SMPN 1 Boyolangu</p>
+                                </div>
+                            ` : `
+                                <p class="text-[11px] text-slate-400 mt-1">○ Dhuha Mandiri / Belum Giliran Dhuhur di Mushola</p>
+                            `}
+                        `;
+                        grid.appendChild(cardDiv);
+                    }
+
+                    // Populate All List
+                    if (allList && dayScheds.length > 0) {
+                        const allDayCard = document.createElement('div');
+                        allDayCard.className = 'p-3 bg-slate-50 rounded-xl border border-slate-200';
+                        allDayCard.innerHTML = `
+                            <p class="font-bold text-slate-800 mb-1.5 flex items-center gap-1.5">
+                                <span>📅</span> <span>${dName}</span>
+                            </p>
+                            <div class="space-y-1 text-[11px]">
+                                ${dayScheds.map(s => {
+                                    const icon = s.prayerType === 'DHUHA' ? '🌅' : (s.prayerType === 'JUMAT' ? '🕌' : '☀️');
+                                    const cStr = s.classNames === 'ALL' ? 'Seluruh Rombel' : (s.classNames === 'ALL_MALE' ? 'Seluruh Siswa Putra' : (s.classNames === 'ALL_FEMALE' ? 'Seluruh Siswa Putri' : s.classNames));
+                                    return `<p class="text-slate-700 leading-snug"><strong class="text-slate-900">${icon} ${s.prayerType}:</strong> ${s.scanStartTime}-${s.scanEndTime} WIB <span class="text-slate-500 font-mono text-[10px]">(${cStr})</span></p>`;
+                                }).join('')}
+                            </div>
+                        `;
+                        allList.appendChild(allDayCard);
+                    }
+                }
+            } catch (e) {
+                console.warn('Gagal memuat jadwal sholat siswa:', e);
+            }
+        }
+        loadSiswaPrayerScheduleWeb();
+
+        let rawAttendanceList = [];
+        let currentAttStatusFilter = 'ALL';
+
         // Ambil rekap presensi persentase & log detail siswa
         async function fetchStudentAttendanceSummary() {
             try {
@@ -772,28 +1131,36 @@
                         const st = data.stats;
                         const rateStr = st.attendanceRate || st.percentage || '98.0%';
                         const effective = st.totalEffectiveDays || st.totalDays || 1;
+                        rawAttendanceList = data.history || [];
 
-                        // 1. Update Gauge & Badge
+                        // 1. Update Gauge & Badge Beranda
                         const rateEl = document.getElementById('statRatePercent');
                         if (rateEl) rateEl.innerText = rateStr;
 
+                        const advRateEl = document.getElementById('advStatRatePercent');
+                        if (advRateEl) advRateEl.innerText = rateStr;
+
                         const badgeEl = document.getElementById('statRateBadge');
+                        const advBadgeEl = document.getElementById('advStatRateBadge');
                         const rateNum = parseFloat(rateStr) || 100;
+                        const badgeText = rateNum >= 95 ? '🌟 Sangat Disiplin' : (rateNum >= 85 ? '👍 Cukup Disiplin' : '⚠️ Perlu Perhatian');
+                        const badgeClass = rateNum >= 95 ? 'text-[11px] bg-emerald-500/30 text-emerald-200 font-bold px-3 py-1 rounded-full border border-emerald-400/40'
+                            : (rateNum >= 85 ? 'text-[11px] bg-blue-500/30 text-blue-200 font-bold px-3 py-1 rounded-full border border-blue-400/40'
+                            : 'text-[11px] bg-rose-500/30 text-rose-200 font-bold px-3 py-1 rounded-full border border-rose-400/40');
+
                         if (badgeEl) {
-                            if (rateNum >= 95) {
-                                badgeEl.innerText = '🌟 Sangat Disiplin';
-                                badgeEl.className = 'text-[11px] bg-emerald-500/30 text-white font-bold px-3 py-1 rounded-full border border-emerald-300/40';
-                            } else if (rateNum >= 85) {
-                                badgeEl.innerText = '👍 Cukup Disiplin';
-                                badgeEl.className = 'text-[11px] bg-blue-500/30 text-white font-bold px-3 py-1 rounded-full border border-blue-300/40';
-                            } else {
-                                badgeEl.innerText = '⚠️ Perlu Perhatian';
-                                badgeEl.className = 'text-[11px] bg-rose-500/30 text-white font-bold px-3 py-1 rounded-full border border-rose-300/40';
-                            }
+                            badgeEl.innerText = badgeText;
+                            badgeEl.className = badgeClass;
+                        }
+                        if (advBadgeEl) {
+                            advBadgeEl.innerText = badgeText;
+                            advBadgeEl.className = badgeClass;
                         }
 
                         const effEl = document.getElementById('statTotalEffectiveDays');
                         if (effEl) effEl.innerText = `Total ${effective} Hari Efektif`;
+                        const advTotalEl = document.getElementById('advStatTotalDays');
+                        if (advTotalEl) advTotalEl.innerText = `Total ${effective} Hari Sekolah Efektif`;
 
                         // 2. Hadir Tepat Waktu
                         const hadirCount = st.hadir ?? st.present ?? 0;
@@ -803,6 +1170,11 @@
                         const pHadirEl = document.getElementById('statPercentHadir');
                         if (pHadirEl) pHadirEl.innerText = pHadir;
 
+                        const advHadirEl = document.getElementById('advHadirCount');
+                        if (advHadirEl) advHadirEl.innerText = hadirCount;
+                        const advHadirPctEl = document.getElementById('advHadirPct');
+                        if (advHadirPctEl) advHadirPctEl.innerText = pHadir;
+
                         // 3. Terlambat
                         const lateCount = st.terlambat ?? st.late ?? 0;
                         const pLate = st.percentTerlambat || `${(((lateCount) / effective) * 100).toFixed(1)}%`;
@@ -810,6 +1182,11 @@
                         if (lateCountEl) lateCountEl.innerText = lateCount;
                         const pLateEl = document.getElementById('statPercentLate');
                         if (pLateEl) pLateEl.innerText = pLate;
+
+                        const advLateEl = document.getElementById('advLateCount');
+                        if (advLateEl) advLateEl.innerText = lateCount;
+                        const advLatePctEl = document.getElementById('advLatePct');
+                        if (advLatePctEl) advLatePctEl.innerText = pLate;
 
                         // 4. Sakit / Izin
                         const sickCount = (st.sakit ?? st.sick ?? 0) + (st.izin ?? 0);
@@ -819,6 +1196,11 @@
                         const pSickEl = document.getElementById('statPercentSickPermit');
                         if (pSickEl) pSickEl.innerText = pSick;
 
+                        const advSickEl = document.getElementById('advSickPermitCount');
+                        if (advSickEl) advSickEl.innerText = sickCount;
+                        const advSickPctEl = document.getElementById('advSickPermitPct');
+                        if (advSickPctEl) advSickPctEl.innerText = pSick;
+
                         // 5. Alpa
                         const alpaCount = st.alpa ?? st.absent ?? 0;
                         const pAlpa = st.percentAlpa || `${(((alpaCount) / effective) * 100).toFixed(1)}%`;
@@ -826,6 +1208,16 @@
                         if (alpaCountEl) alpaCountEl.innerText = alpaCount;
                         const pAlpaEl = document.getElementById('statPercentAlpa');
                         if (pAlpaEl) pAlpaEl.innerText = pAlpa;
+
+                        const advAlpaEl = document.getElementById('advAlpaCount');
+                        if (advAlpaEl) advAlpaEl.innerText = alpaCount;
+                        const advAlpaPctEl = document.getElementById('advAlpaPct');
+                        if (advAlpaPctEl) advAlpaPctEl.innerText = pAlpa;
+
+                        // Hitung Tanpa Scan Pulang
+                        const noOutCount = rawAttendanceList.filter(r => r.isMissingGateOut || (r.status || '').includes('TIDAK SCAN PULANG')).length;
+                        const advNoOutEl = document.getElementById('advNoOutCount');
+                        if (advNoOutEl) advNoOutEl.innerText = noOutCount;
 
                         // 6. Distribution Bar widths
                         const barHadir = document.getElementById('barHadir');
@@ -848,35 +1240,141 @@
                         if (topTotal) topTotal.innerText = `${effective} Hari`;
 
                         // 8. Render Dynamic History Table
-                        const tbody = document.getElementById('tableStudentAttendanceBody');
-                        if (tbody && data.history && data.history.length > 0) {
-                            tbody.innerHTML = data.history.map(row => {
-                                let badgeColor = 'bg-emerald-100 text-emerald-800';
-                                if (row.status === 'TERLAMBAT') badgeColor = 'bg-amber-100 text-amber-800';
-                                else if (row.status === 'SAKIT') badgeColor = 'bg-sky-100 text-sky-800';
-                                else if (row.status === 'IZIN') badgeColor = 'bg-indigo-100 text-indigo-800';
-                                else if (row.status === 'ALPA') badgeColor = 'bg-rose-100 text-rose-800';
-                                else if (row.isSunday) badgeColor = 'bg-slate-100 text-slate-700';
+                        renderAttendanceTable(rawAttendanceList);
 
-                                return `
-                                    <tr class="hover:bg-slate-50 transition-colors">
-                                        <td class="p-3 font-semibold text-slate-800">${row.dayName}, ${row.date}</td>
-                                        <td class="p-3"><span class="${badgeColor} px-2.5 py-1 rounded-lg font-bold text-[11px] shadow-xs">${row.status}</span></td>
-                                        <td class="p-3 font-bold font-mono text-slate-700">${row.gateInTime || '-'}</td>
-                                        <td class="p-3 font-bold font-mono text-slate-700">${row.gateOutTime || '-'}</td>
-                                        <td class="p-3 text-slate-600">${row.gateLocation || 'Pintu Kelas'}</td>
-                                        <td class="p-3 text-slate-500 font-medium">Scan Barcode QR / GPS Presisi</td>
-                                    </tr>
-                                `;
-                            }).join('');
-                        }
+                        // 9. Render Mapel History Table
+                        renderMapelAttendanceTable(rawAttendanceList);
 
-                        // 9. Render Grafik Tren Kehadiran Siswa
+                        // 10. Render Grafik Tren Kehadiran Siswa
                         renderStudentAttendanceTrendChart(data.trend || st.trend, data.history);
                     }
                 }
             } catch (e) {
                 console.warn('Gagal memuat rekap presensi dinamis:', e);
+            }
+        }
+
+        function renderAttendanceTable(list) {
+            const tbody = document.getElementById('tableStudentAttendanceBody');
+            if (!tbody) return;
+
+            if (!list || list.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="p-6 text-center text-slate-400">Tidak ada rekaman presensi yang cocok.</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = list.map(row => {
+                let badgeColor = 'bg-emerald-100 text-emerald-800 border-emerald-300';
+                const st = (row.status || '').toUpperCase();
+                if (st.includes('TERLAMBAT')) badgeColor = 'bg-amber-100 text-amber-800 border-amber-300';
+                else if (st.includes('SAKIT')) badgeColor = 'bg-sky-100 text-sky-800 border-sky-300';
+                else if (st.includes('IZIN')) badgeColor = 'bg-indigo-100 text-indigo-800 border-indigo-300';
+                else if (st.includes('ALPA')) badgeColor = 'bg-rose-100 text-rose-800 border-rose-300';
+                else if (st.includes('TIDAK SCAN PULANG') || row.isMissingGateOut) badgeColor = 'bg-sky-100 text-sky-800 border-sky-300';
+                else if (row.isSunday) badgeColor = 'bg-slate-100 text-slate-600 border-slate-300';
+
+                const inTimeFormatted = row.gateInTime && row.gateInTime !== '-' ? row.gateInTime : '<span class="text-slate-400 font-normal">--:-- WIB</span>';
+                const outTimeFormatted = row.gateOutTime && row.gateOutTime !== '-' ? row.gateOutTime : (row.isMissingGateOut ? '<span class="text-amber-600 font-bold text-[10px]">⚠️ Tidak Scan Pulang</span>' : '<span class="text-slate-400 font-normal">--:-- WIB</span>');
+
+                return `
+                    <tr class="hover:bg-slate-50/80 transition-colors">
+                        <td class="p-3.5 font-bold text-slate-800">
+                            <div>${row.dayName || ''}, ${row.date || ''}</div>
+                            ${row.prayerNotice ? `<div class="text-[10px] text-emerald-700 font-semibold mt-0.5">🕌 ${row.prayerNotice}</div>` : ''}
+                        </td>
+                        <td class="p-3.5"><span class="${badgeColor} border px-2.5 py-1 rounded-xl font-black text-[10.5px] shadow-xs inline-block">${row.status}</span></td>
+                        <td class="p-3.5 font-bold font-mono text-emerald-700">${inTimeFormatted}</td>
+                        <td class="p-3.5 font-bold font-mono text-indigo-700">${outTimeFormatted}</td>
+                        <td class="p-3.5 text-slate-600">
+                            <span class="flex items-center gap-1">📍 ${row.gateLocation || 'Gerbang Sekolah'}</span>
+                        </td>
+                        <td class="p-3.5 text-slate-500 font-medium">
+                            <span class="inline-flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded-lg text-[10px] font-semibold text-slate-700">
+                                🛡️ GPS Satelit + Barcode
+                            </span>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function renderMapelAttendanceTable(list) {
+            const tbody = document.getElementById('tableMapelAttendanceBody');
+            if (!tbody) return;
+
+            if (!list || list.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="p-6 text-center text-slate-400">Belum ada rekaman jam mata pelajaran.</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = list.filter(r => !r.isSunday).map(row => {
+                const isPresent = (row.status || '').includes('HADIR');
+                const badgeColor = isPresent ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-700';
+
+                return `
+                    <tr class="hover:bg-slate-50/80 transition-colors">
+                        <td class="p-3.5 font-bold text-slate-800">${row.dayName}, ${row.date}</td>
+                        <td class="p-3.5 font-extrabold text-slate-900">Pembelajaran KBM Harian</td>
+                        <td class="p-3.5 text-slate-600 font-mono">07:00 - 13:30 WIB</td>
+                        <td class="p-3.5 text-slate-700 font-medium">Guru Pengampu Rombel</td>
+                        <td class="p-3.5"><span class="${badgeColor} px-2.5 py-1 rounded-xl font-bold text-[10.5px]">${row.status}</span></td>
+                        <td class="p-3.5 text-slate-500">${row.gateLocation || 'Terverifikasi SIAKAD'}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function switchAttendanceDimension(dim) {
+            const btnGate = document.getElementById('dimBtn-gate');
+            const btnMapel = document.getElementById('dimBtn-mapel');
+            const viewGate = document.getElementById('viewDimGate');
+            const viewMapel = document.getElementById('viewDimMapel');
+
+            if (dim === 'gate') {
+                if (btnGate) btnGate.className = 'px-4 py-2 rounded-xl text-xs font-black transition-all bg-indigo-600 text-white shadow-sm flex items-center gap-1.5 cursor-pointer';
+                if (btnMapel) btnMapel.className = 'px-4 py-2 rounded-xl text-xs font-bold transition-all bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center gap-1.5 cursor-pointer';
+                if (viewGate) viewGate.classList.remove('hidden');
+                if (viewMapel) viewMapel.classList.add('hidden');
+            } else if (dim === 'mapel') {
+                if (btnGate) btnGate.className = 'px-4 py-2 rounded-xl text-xs font-bold transition-all bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center gap-1.5 cursor-pointer';
+                if (btnMapel) btnMapel.className = 'px-4 py-2 rounded-xl text-xs font-black transition-all bg-indigo-600 text-white shadow-sm flex items-center gap-1.5 cursor-pointer';
+                if (viewGate) viewGate.classList.add('hidden');
+                if (viewMapel) viewMapel.classList.remove('hidden');
+            }
+        }
+
+        function setAttendanceStatusFilter(st) {
+            currentAttStatusFilter = st;
+            document.querySelectorAll('.att-filter-pill').forEach(btn => {
+                const bFilter = btn.getAttribute('data-filter');
+                if (bFilter === st) {
+                    btn.className = 'att-filter-pill px-3 py-1.5 rounded-xl bg-slate-900 text-white shadow-xs cursor-pointer';
+                } else {
+                    btn.className = 'att-filter-pill px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 cursor-pointer';
+                }
+            });
+            filterAttendanceTable();
+        }
+
+        function filterAttendanceTable() {
+            const searchKeyword = (document.getElementById('inputSearchAttendance')?.value || '').toLowerCase().trim();
+            const filtered = rawAttendanceList.filter(row => {
+                const st = (row.status || '').toUpperCase();
+                let matchStatus = true;
+                if (currentAttStatusFilter === 'HADIR') matchStatus = st === 'HADIR';
+                else if (currentAttStatusFilter === 'TERLAMBAT') matchStatus = st.includes('TERLAMBAT');
+                else if (currentAttStatusFilter === 'SAKIT') matchStatus = st.includes('SAKIT') || st.includes('IZIN');
+                else if (currentAttStatusFilter === 'ALPA') matchStatus = st.includes('ALPA');
+
+                if (!matchStatus) return false;
+
+                if (!searchKeyword) return true;
+                const rowText = `${row.dayName || ''} ${row.date || ''} ${row.status || ''} ${row.gateLocation || ''} ${row.prayerNotice || ''}`.toLowerCase();
+                return rowText.includes(searchKeyword);
+            });
+
+            renderAttendanceTable(filtered);
+        }
             }
         }
 
@@ -1032,7 +1530,7 @@
         }
 
         function switchSiswaTab(tab) {
-            const tabs = ['home', 'absensi', 'analytics', 'efiles', 'bk', 'profile'];
+            const tabs = ['home', 'absensi', 'sholat', 'analytics', 'efiles', 'bk', 'profile'];
             tabs.forEach(t => {
                 const section = document.getElementById('section-' + t);
                 const btn = document.getElementById('tabBtn-' + t);
@@ -1045,9 +1543,143 @@
                     }
                 }
             });
-            if (tab === 'bk') {
+            if (tab === 'absensi') {
+                fetchStudentAttendanceSummary();
+            } else if (tab === 'sholat') {
+                loadStudentPrayerRecap();
+            } else if (tab === 'bk') {
                 fetchStudentBkConsultations();
             }
+        }
+
+        let rawPrayerList = [];
+        let currentPrayerFilter = 'ALL';
+
+        async function loadStudentPrayerRecap() {
+            try {
+                if (!token) return;
+                const res = await fetch('/api/prayer/student/history', {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.success) {
+                        rawPrayerList = data.history || [];
+                        const st = data.stats || {};
+
+                        const rateEl = document.getElementById('prayerStatRatePercent');
+                        if (rateEl) rateEl.innerText = st.attendanceRate || '100%';
+
+                        const badgeEl = document.getElementById('prayerStatBadge');
+                        if (badgeEl) badgeEl.innerText = st.badgeEvaluation || '💎 Sangat Istiqomah';
+
+                        const totalEl = document.getElementById('prayerStatTotalCount');
+                        if (totalEl) totalEl.innerText = `Total ${st.totalSessions || rawPrayerList.length} Sesi Ibadah`;
+
+                        const hadirEl = document.getElementById('prayerHadirCount');
+                        if (hadirEl) hadirEl.innerText = st.hadirCount || 0;
+
+                        const dhuhaEl = document.getElementById('prayerDhuhaCount');
+                        if (dhuhaEl) dhuhaEl.innerText = st.dhuhaCount || 0;
+
+                        const djEl = document.getElementById('prayerDhuhurJumatCount');
+                        if (djEl) djEl.innerText = (st.dhuhurCount || 0) + (st.jumatCount || 0);
+
+                        const uzurEl = document.getElementById('prayerUzurCount');
+                        if (uzurEl) uzurEl.innerText = st.uzurCount || 0;
+
+                        const alpaEl = document.getElementById('prayerAlpaCount');
+                        if (alpaEl) alpaEl.innerText = st.alpaCount || 0;
+
+                        renderPrayerTable(rawPrayerList);
+                    }
+                }
+            } catch (err) {
+                console.warn('Gagal memuat rekap sholat:', err);
+            }
+        }
+
+        function renderPrayerTable(list) {
+            const tbody = document.getElementById('tablePrayerHistoryBody');
+            if (!tbody) return;
+
+            if (!list || list.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="p-6 text-center text-slate-400">Tidak ada riwayat sholat yang cocok.</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = list.map(r => {
+                const pt = (r.prayerType || 'DHUHUR').toUpperCase();
+                const pIcon = pt === 'DHUHA' ? '🌅' : (pt === 'JUMAT' ? '🕌' : (pt === 'KEPUTRIAN' ? '🧕' : '☀️'));
+
+                return `
+                    <tr class="hover:bg-slate-50/80 transition-colors">
+                        <td class="p-3.5 font-bold text-slate-800">${r.dayName || ''}, ${r.date || ''}</td>
+                        <td class="p-3.5">
+                            <span class="inline-flex items-center gap-1.5 font-bold text-slate-800">
+                                <span>${pIcon}</span> <span>${r.prayerTypeLabel || pt}</span>
+                            </span>
+                        </td>
+                        <td class="p-3.5 font-bold font-mono text-emerald-700">${r.scanTimeStr || '-'}</td>
+                        <td class="p-3.5">
+                            <span style="background-color: ${r.badgeBg || '#D1FAE5'}; color: ${r.badgeText || '#065F46'};" class="px-2.5 py-1 rounded-xl font-black text-[10.5px] shadow-xs inline-block">
+                                ${r.statusLabel || r.status}
+                            </span>
+                        </td>
+                        <td class="p-3.5 text-slate-600">
+                            <span class="inline-flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded-lg text-[10.5px] font-semibold text-slate-700">
+                                📍 ${r.methodLabel || 'Mushola Al-Ikhlas'}
+                            </span>
+                        </td>
+                        <td class="p-3.5 text-slate-500 font-medium">
+                            <div>${r.recordedByName || 'Guru PAI'}</div>
+                            ${r.notes && r.notes !== '-' ? `<div class="text-[10px] text-slate-400 mt-0.5">${r.notes}</div>` : ''}
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function setPrayerStatusFilter(filter) {
+            currentPrayerFilter = filter;
+            document.querySelectorAll('.prayer-filter-pill').forEach(btn => {
+                const f = btn.getAttribute('data-filter');
+                if (f === filter) {
+                    btn.className = 'prayer-filter-pill px-3 py-1.5 rounded-xl bg-slate-900 text-white shadow-xs cursor-pointer';
+                } else {
+                    btn.className = 'prayer-filter-pill px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 cursor-pointer';
+                }
+            });
+            filterPrayerTable();
+        }
+
+        function filterPrayerTable() {
+            const searchKeyword = (document.getElementById('inputSearchPrayer')?.value || '').toLowerCase().trim();
+            const filtered = rawPrayerList.filter(r => {
+                const pt = (r.prayerType || '').toUpperCase();
+                const st = (r.status || '').toUpperCase();
+
+                let matchFilter = true;
+                if (currentPrayerFilter === 'DHUHA') matchFilter = pt === 'DHUHA';
+                else if (currentPrayerFilter === 'DHUHUR') matchFilter = pt === 'DHUHUR';
+                else if (currentPrayerFilter === 'JUMAT') matchFilter = pt === 'JUMAT' || pt === 'KEPUTRIAN';
+                else if (currentPrayerFilter === 'UZUR') matchFilter = st.includes('UZUR') || st.includes('HAID');
+
+                if (!matchFilter) return false;
+
+                if (!searchKeyword) return true;
+                const text = `${r.dayName || ''} ${r.date || ''} ${r.prayerType || ''} ${r.status || ''} ${r.notes || ''}`.toLowerCase();
+                return text.includes(searchKeyword);
+            });
+
+            renderPrayerTable(filtered);
+        }
+
+        function downloadPrayerPdf() {
+            const uStr = localStorage.getItem('user');
+            const u = uStr ? JSON.parse(uStr) : {};
+            const cl = u.className || 'ALL';
+            window.open(`/api/prayer/export-pdf?className=${encodeURIComponent(cl)}&autoprint=1`, '_blank');
         }
 
         function openModalReport() {

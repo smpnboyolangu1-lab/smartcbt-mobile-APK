@@ -1500,7 +1500,10 @@ export const getMonitoringCbt = async (req: AuthRequest, res: Response) => {
         const whereClause: any = {};
 
         if (status === 'aktif') {
-            whereClause.isActive = true;
+            whereClause.OR = [
+                { isTokenActive: true },
+                { status: { in: ['ACTIVE', 'ONGOING', 'AKTIF'] } }
+            ];
         }
 
         const exams = await (prisma as any).exam.findMany({

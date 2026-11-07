@@ -2,7 +2,7 @@ import prisma from '../utils/db';
 import { getWibDayBounds } from '../utils/dateUtils';
 import { broadcastMonitoringEvent, resetExamTokenTimer, setClassExamToken } from '../controllers/cbtController';
 import { autoNotifyUnscannedGateOutStudents } from '../controllers/attendanceController';
-import { sendFcmToUser } from './fcmService';
+import { sendFcmToUser, sendSilentFcmWakeupToTokens } from './fcmService';
 import { sendSingleWhatsApp, WHATSAPP_NOTIFICATION_POLICY } from './whatsappBlastService';
 import { runDatabaseBackup } from './backupService';
 
@@ -73,6 +73,11 @@ export function initMasterSchedulers() {
             // 11. AUTO-CLEANUP PASIEN UKS GENTAYANGAN & PELEPASAN KASUR (> 3 JAM)
             if (currentMinute % 15 === 0) {
                 await processUksZombieVisitsCleanup(now);
+            }
+
+            // 12. PERIODIC SILENT FCM WAKEUP FOR STANDBY/OFFLINE DEVICES (Setiap 15 Menit saat jam sekolah 06:30 - 15:30 WIB)
+            if (currentMinute % 15 === 0) {
+                await processPeriodicDeviceSilentWakeup(now);
             }
 
         } catch (err: any) {
@@ -249,7 +254,7 @@ export async function processEmptyClassMonitoring(now: Date) {
             const endTotal = eH * 60 + eM;
 
             // Jika saat ini KBM sudah berjalan minimal 10 menit (melewati toleransi wajar) dan belum selesai
-            if (currentTotalMinutes >= startTotal + 10 && currentTotalMinutes <= endTotal) {
+            if (currentTotalMinutes >= startTotal && currentTotalMinutes <= endTotal) {
                 const clsName = sch.className;
                 
                 // Cek apakah guru sudah check-in di kelas ini
@@ -706,10 +711,12 @@ export async function processPrayerReminders(now: Date = new Date()) {
             const isEarlyDismissalToday = Boolean(gateSettings?.isEmergencyGateOut || gateSettings?.isEarlyDismissal);
 
             if (!holiday && !isEarlyDismissalToday) {
-                const todaySchedules = await (prisma as any).prayerClassSchedule.findMany({
+                const { getResolvedDayPrayerSchedules } = require('../controllers/prayerAttendanceController');
+                const dbTodaySchedules = await (prisma as any).prayerClassSchedule.findMany({
                     where: { dayOfWeek: todayDay, isActive: true },
                     orderBy: { scanEndTime: 'asc' }
                 });
+                const todaySchedules = getResolvedDayPrayerSchedules(todayDay, dbTodaySchedules);
 
                 for (const schedule of todaySchedules) {
                     const pType = (schedule.prayerType || 'DHUHUR').toUpperCase();
@@ -887,6 +894,17 @@ export async function sendDailyAlpaPushNotifications(referenceDate: Date = new D
             return { success: true, count: 0 };
         }
 
+        // Cek apakah hari ini ada Agenda Khusus Sekolah (misal: Hari Santri, Upacara, dll) yang memproteksi blast ALPA
+        const activeAgendas = await (prisma as any).schoolAgenda.findMany({
+            where: { date: todayYmd, suppressAlpaBlast: true }
+        }).catch(() => []);
+
+        if (activeAgendas && activeAgendas.length > 0) {
+            const agendaTitles = activeAgendas.map((a: any) => a.title).join(', ');
+            console.log(`📅 [Daily Alpa] Notifikasi ALPA pukul 15:00 WIB DITANGGUHKAN karena ada Agenda Khusus Sekolah aktif: "${agendaTitles}".`);
+            return { success: true, count: 0, suppressedByAgenda: agendaTitles };
+        }
+
         const startOfDay = new Date(`${todayYmd}T00:00:00.000+07:00`);
         const endOfDay = new Date(`${todayYmd}T23:59:59.999+07:00`);
 
@@ -1037,21 +1055,32 @@ let lastGateOutNotifyDate = '';
 
 /**
  * Otomatis mengirim notifikasi peringatan ke orang tua siswa yang hadir pagi tetapi belum scan pulang (Gate-Out).
- * Dijalankan pada sore hari pukul 16:15 WIB pada hari aktif sekolah.
+ * Dijalankan setelah jam kepulangan KBM dan pada sore hari pukul 16:15 WIB pada hari aktif sekolah.
  */
 async function processGateOutUnscannedNotification(now: Date) {
     try {
-        const todayDay = now.getDay();
+        const nowWib = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Jakarta' }));
+        const todayDay = nowWib.getDay();
         if (todayDay === 0) return; // Libur hari Minggu
 
-        const hour = now.getHours();
-        const minute = now.getMinutes();
-        const todayYmd = now.toISOString().substring(0, 10);
+        const hour = nowWib.getHours();
+        const minute = nowWib.getMinutes();
+        const todayYmd = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(now);
 
-        // Jalankan pada sore hari pukul 16:15 WIB (atau pemicu setelah jam kepulangan)
-        if (hour === 16 && minute === 15 && lastGateOutNotifyDate !== todayYmd) {
-            lastGateOutNotifyDate = todayYmd;
-            console.log(`⏰ [Scheduler] Menjalankan auto-notify siswa belum scan pulang ke orang tua (${todayYmd})...`);
+        // Waktu pemicu notifikasi berdasarkan hari:
+        // Jumat: mulai 10:15 WIB
+        // Sabtu: mulai 11:15 WIB
+        // Senin-Kamis: mulai 12:15 WIB
+        // Sore hari: 16:15 WIB (Pengecekan final)
+        const isDismissalTrigger = (todayDay === 5 && hour === 10 && minute === 15) ||
+                                  (todayDay === 6 && hour === 11 && minute === 15) ||
+                                  (todayDay >= 1 && todayDay <= 4 && hour === 12 && minute === 15) ||
+                                  (hour === 16 && minute === 15);
+
+        const notifyKey = `${todayYmd}_${hour}_${minute >= 30 ? '30' : '00'}`;
+        if (isDismissalTrigger && lastGateOutNotifyDate !== notifyKey) {
+            lastGateOutNotifyDate = notifyKey;
+            console.log(`⏰ [Scheduler] Menjalankan auto-notify pengingat scan pulang (${todayYmd} ${hour}:${minute} WIB)...`);
             await autoNotifyUnscannedGateOutStudents();
         }
     } catch (err: any) {
@@ -1353,4 +1382,63 @@ async function processUksZombieVisitsCleanup(now: Date) {
         console.error('[processUksZombieVisitsCleanup Error]:', err.message);
     }
 }
+
+/**
+ * 12. Otomatis Membangunkan HP Standby/Offline Menggunakan High-Priority Silent FCM Wakeup Ping
+ * Berjalan setiap 15 menit pada jam sekolah (Senin - Sabtu, 06:30 - 15:30 WIB).
+ * Memaksa background service di HP siswa lapor heartbeat & sinkronisasi data tanpa notifikasi popup.
+ */
+async function processPeriodicDeviceSilentWakeup(now: Date) {
+    try {
+        const cal = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Jakarta' }));
+        const hour = cal.getHours();
+        const minute = cal.getMinutes();
+        const totalMinutes = hour * 60 + minute;
+
+        // Jalankan hanya di jam operasional sekolah (06:30 s.d. 15:30 WIB) pada hari Senin - Sabtu
+        const dayOfWeek = cal.getDay();
+        if (dayOfWeek === 0) return; // Skip hari Minggu
+        if (totalMinutes < 6 * 60 + 30 || totalMinutes > 15 * 60 + 30) return;
+
+        // Ambil perangkat yang lastSeen > 5 menit lalu (sedang STANDBY / OFFLINE)
+        const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
+        const inactiveDevices = await prisma.deviceSession.findMany({
+            where: {
+                lastSeen: { lt: fiveMinAgo },
+                status: { not: 'BLOCKED' }
+            },
+            select: { id: true, deviceAndroidId: true, userId: true },
+            take: 100
+        });
+
+        if (!inactiveDevices.length) return;
+
+        const deviceIds = inactiveDevices.map(d => d.deviceAndroidId).filter(Boolean);
+        const userIds = inactiveDevices.map(d => d.userId).filter(Boolean);
+
+        const fcmRecords = await (prisma as any).userFcmToken.findMany({
+            where: {
+                OR: [
+                    { deviceAndroidId: { in: deviceIds } },
+                    { userId: { in: userIds } }
+                ]
+            },
+            select: { token: true }
+        });
+
+        const tokens = Array.from(new Set(fcmRecords.map((r: any) => r.token).filter(Boolean)));
+        if (!tokens.length) return;
+
+        const sent = await sendSilentFcmWakeupToTokens(tokens as string[], 'WAKEUP_PING', {
+            autoCronWakeup: 'true'
+        });
+
+        if (sent > 0) {
+            console.log(`[Scheduler] 📡 Berhasil mengirim silent FCM wakeup ping ke ${sent} HP standby/offline agar lapor telemetri & sinkron.`);
+        }
+    } catch (e: any) {
+        console.warn('[Scheduler] processPeriodicDeviceSilentWakeup error:', e.message);
+    }
+}
+
 

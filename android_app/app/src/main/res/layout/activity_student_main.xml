@@ -536,6 +536,79 @@
                     android:orientation="vertical"
                     android:padding="16dp">
 
+                    <!-- ================= PENGINGAT SCAN PULANG (GATE-OUT) ================= -->
+                    <androidx.cardview.widget.CardView
+                        android:id="@+id/cardReminderGateOut"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="14dp"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:visibility="gone"
+                        app:cardBackgroundColor="#FFF7ED"
+                        app:cardCornerRadius="18dp"
+                        app:cardElevation="3dp">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical"
+                            android:padding="14dp">
+
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:gravity="center_vertical"
+                                android:orientation="horizontal">
+
+                                <TextView
+                                    android:layout_width="44dp"
+                                    android:layout_height="44dp"
+                                    android:background="@drawable/bg_icon_orange"
+                                    android:gravity="center"
+                                    android:text="📢"
+                                    android:textSize="20sp" />
+
+                                <LinearLayout
+                                    android:layout_width="0dp"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginStart="12dp"
+                                    android:layout_weight="1"
+                                    android:orientation="vertical">
+
+                                    <TextView
+                                        android:layout_width="wrap_content"
+                                        android:layout_height="wrap_content"
+                                        android:text="WAKTUNYA SCAN PULANG"
+                                        android:textColor="#C2410C"
+                                        android:textSize="12sp"
+                                        android:textStyle="bold" />
+
+                                    <TextView
+                                        android:id="@+id/tvReminderGateOutSubtitle"
+                                        android:layout_width="wrap_content"
+                                        android:layout_height="wrap_content"
+                                        android:layout_marginTop="2dp"
+                                        android:text="KBM hari ini telah usai. Jangan lupa lakukan presensi kepulangan (Gate-Out) sebelum meninggalkan sekolah!"
+                                        android:textColor="#9A3412"
+                                        android:textSize="11sp" />
+                                </LinearLayout>
+                            </LinearLayout>
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btnActionScanGateOut"
+                                android:layout_width="match_parent"
+                                android:layout_height="42dp"
+                                android:layout_marginTop="10dp"
+                                android:backgroundTint="#EA580C"
+                                android:text="⚡ Scan Presensi Pulang Sekarang"
+                                android:textColor="#FFFFFF"
+                                android:textSize="11.5sp"
+                                android:textStyle="bold"
+                                app:cornerRadius="12dp" />
+                        </LinearLayout>
+                    </androidx.cardview.widget.CardView>
+
                     <!-- ================= MENU GRID BERANDA LENGKAP ================= -->
 
                     <!-- ================= MENU PENGURUS KELAS (1 MENU UTAMA TUNGGAL) ================= -->
@@ -1160,40 +1233,12 @@
                                 android:textStyle="bold" />
                         </LinearLayout>
 
-                        <!-- Menu 11: Ekstrakurikuler -->
+                        <!-- Menu 11: Ekstrakurikuler (Hidden / Dihapus per permintaan user) -->
                         <LinearLayout
                             android:id="@+id/gridMenuEkskul"
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:clickable="true"
-                            android:focusable="true"
-                            android:gravity="center"
-                            android:orientation="vertical"
-                            android:padding="4dp">
-
-                            <LinearLayout
-                                android:layout_width="52dp"
-                                android:layout_height="52dp"
-                                android:background="@drawable/bg_icon_purple"
-                                android:gravity="center">
-                                <ImageView
-                                    android:layout_width="26dp"
-                                    android:layout_height="26dp"
-                                    android:src="@drawable/ic_menu_ekskul"
-                                    app:tint="#FFFFFF" />
-                            </LinearLayout>
-
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:layout_marginTop="6dp"
-                                android:gravity="center"
-                                android:text="Ekstrakurikuler"
-                                android:textColor="#7C3AED"
-                                android:textSize="10.5sp"
-                                android:textStyle="bold" />
-                        </LinearLayout>
+                            android:visibility="gone" />
 
                         <!-- Menu 12: Wi-Fi Siswa -->
                         <LinearLayout
@@ -1264,19 +1309,8 @@
                                 android:textSize="11sp"
                                 android:textStyle="bold" />
                         </LinearLayout>
-                    </LinearLayout>
 
-                    <!-- Row 4: Panduan Aplikasi & Update APK (Rata Kiri Selaras Kolom 1 & 2) -->
-                    <LinearLayout
-                        android:id="@+id/layoutRow4Grid"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="10dp"
-                        android:orientation="horizontal"
-                        android:gravity="start|center_vertical"
-                        android:weightSum="4">
-
-                        <!-- Menu 14: Panduan Aplikasi -->
+                        <!-- Menu 14: Panduan Aplikasi (Pindah ke Row 3 Menempati Slot Ekskul) -->
                         <LinearLayout
                             android:id="@+id/gridMenuPanduan"
                             android:layout_width="0dp"
@@ -1310,6 +1344,17 @@
                                 android:textSize="11sp"
                                 android:textStyle="bold" />
                         </LinearLayout>
+                    </LinearLayout>
+
+                    <!-- Row 4: Update APK (Rata Kiri Selaras Kolom 1) -->
+                    <LinearLayout
+                        android:id="@+id/layoutRow4Grid"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:orientation="horizontal"
+                        android:gravity="start|center_vertical"
+                        android:weightSum="4">
 
                         <!-- Menu 15: Update APK -->
                         <LinearLayout
@@ -1346,7 +1391,7 @@
                                 android:textStyle="bold" />
                         </LinearLayout>
 
-                        <!-- Spacer Kanan (2 Kolom Kosong di Kanan) -->
+                        <!-- Spacer Kanan (3 Kolom Kosong di Kanan) -->
                         <View
                             android:id="@+id/spacerRow4Right"
                             android:layout_width="0dp"
@@ -1365,6 +1410,86 @@
                         <LinearLayout android:id="@+id/gridMenuEvoting" android:layout_width="0dp" android:layout_height="0dp" />
                         <LinearLayout android:id="@+id/gridMenuBiodataRaport" android:layout_width="0dp" android:layout_height="0dp" />
                     </LinearLayout>
+
+                    <!-- ================= JADWAL SHOLAT BERJAMAAH PEKANAN SISWA (SENIN - SABTU) ================= -->
+                    <!-- Sesuai instruksi: Jadwal sholat tidak dimunculkan di dashboard, dipindahkan ke tab khusus -->
+                    <androidx.cardview.widget.CardView
+                        android:id="@+id/cardStudentWeeklyPrayerSchedule"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="16dp"
+                        android:layout_marginBottom="8dp"
+                        android:visibility="gone"
+                        app:cardCornerRadius="16dp"
+                        app:cardElevation="2dp"
+                        app:cardBackgroundColor="#FFFFFF">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical"
+                            android:padding="16dp">
+
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:gravity="center_vertical"
+                                android:orientation="horizontal">
+
+                                <TextView
+                                    android:layout_width="38dp"
+                                    android:layout_height="38dp"
+                                    android:background="@drawable/bg_icon_green"
+                                    android:gravity="center"
+                                    android:text="🕌"
+                                    android:textSize="18sp" />
+
+                                <LinearLayout
+                                    android:layout_width="0dp"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginStart="10dp"
+                                    android:layout_weight="1"
+                                    android:orientation="vertical">
+
+                                    <TextView
+                                        android:id="@+id/tvStudentPrayerScheduleClassTitle"
+                                        android:layout_width="wrap_content"
+                                        android:layout_height="wrap_content"
+                                        android:text="Jadwal Sholat Rombel Kamu"
+                                        android:textColor="#065F46"
+                                        android:textSize="13.5sp"
+                                        android:textStyle="bold" />
+
+                                    <TextView
+                                        android:id="@+id/tvStudentPrayerScheduleClassSubtitle"
+                                        android:layout_width="wrap_content"
+                                        android:layout_height="wrap_content"
+                                        android:layout_marginTop="1dp"
+                                        android:text="Senin s/d Sabtu • Mushola &amp; Masjid SMPN 1 Boyolangu"
+                                        android:textColor="#64748B"
+                                        android:textSize="10.5sp" />
+                                </LinearLayout>
+
+                                <com.google.android.material.button.MaterialButton
+                                    android:id="@+id/btnStudentPresensiPrayerQuick"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="34dp"
+                                    android:text="Presensi"
+                                    android:textSize="10.5sp"
+                                    android:textColor="#FFFFFF"
+                                    app:backgroundTint="#059669"
+                                    app:cornerRadius="8dp" />
+                            </LinearLayout>
+
+                            <!-- List Jadwal Sholat Rombel Siswa Hari Senin - Sabtu -->
+                            <LinearLayout
+                                android:id="@+id/layoutStudentWeeklyPrayerList"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="12dp"
+                                android:orientation="vertical" />
+                        </LinearLayout>
+                    </androidx.cardview.widget.CardView>
                 </LinearLayout>
             </LinearLayout>
         </ScrollView>
@@ -1756,6 +1881,91 @@
             </LinearLayout>
         </LinearLayout>
     </ScrollView>
+
+        <!-- ================= PAGE 3: JADWAL SHOLAT RESMI SISWA ================= -->
+        <ScrollView
+            android:id="@+id/pagePrayerSchedule"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:fillViewport="true"
+            android:background="#F8FAFC"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingBottom="96dp">
+
+                <!-- Header Hero Banner (Emerald Gradient) -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/bg_profile_card"
+                    android:orientation="vertical"
+                    android:padding="20dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:layout_width="48dp"
+                            android:layout_height="48dp"
+                            android:background="#26FFFFFF"
+                            android:gravity="center"
+                            android:text="🕌"
+                            android:textSize="24sp" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="14dp"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Jadwal Sholat Rombel"
+                                android:textColor="#FFFFFF"
+                                android:textSize="18sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:id="@+id/tvDedicatedPrayerSubtitle"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="2dp"
+                                android:text="Senin s/d Sabtu • Mushola &amp; Masjid SMPN 1 Boyolangu"
+                                android:textColor="#E2E8F0"
+                                android:textSize="11sp" />
+                        </LinearLayout>
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnStudentPresensiPrayerTab"
+                            android:layout_width="wrap_content"
+                            android:layout_height="36dp"
+                            android:text="Presensi"
+                            android:textSize="11sp"
+                            android:textColor="#FFFFFF"
+                            app:backgroundTint="#059669"
+                            app:cornerRadius="10dp" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- Container Jadwal Sholat Rombel Siswa -->
+                <LinearLayout
+                    android:id="@+id/layoutDedicatedPrayerItems"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:paddingHorizontal="16dp"
+                    android:paddingTop="16dp" />
+            </LinearLayout>
+        </ScrollView>
 
         <!-- ================= PAGE 4: PROFIL SAYA (MODERN & MINIMALIS) ================= -->
         <ScrollView
@@ -2738,9 +2948,9 @@
             android:layout_width="56dp"
             android:layout_height="match_parent" />
 
-        <!-- TAB 3: E-FILE -->
+        <!-- TAB 3: JADWAL SHOLAT -->
         <LinearLayout
-            android:id="@+id/btnNavEFile"
+            android:id="@+id/btnNavSholat"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
@@ -2750,20 +2960,36 @@
             android:orientation="vertical">
 
             <ImageView
-                android:id="@+id/ivNavEFile"
+                android:id="@+id/ivNavSholat"
                 android:layout_width="22dp"
                 android:layout_height="22dp"
-                android:src="@drawable/ic_efile_folder"
+                android:src="@drawable/ic_menu_sholat"
                 app:tint="#64748B" />
 
             <TextView
-                android:id="@+id/tvLabelEFile"
+                android:id="@+id/tvLabelSholat"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="2dp"
-                android:text="E-File"
+                android:text="Sholat"
                 android:textColor="#64748B"
                 android:textSize="10sp" />
+        </LinearLayout>
+
+        <!-- Hidden compat: btnNavEFile -->
+        <LinearLayout
+            android:id="@+id/btnNavEFile"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:visibility="gone">
+            <ImageView
+                android:id="@+id/ivNavEFile"
+                android:layout_width="0dp"
+                android:layout_height="0dp" />
+            <TextView
+                android:id="@+id/tvLabelEFile"
+                android:layout_width="0dp"
+                android:layout_height="0dp" />
         </LinearLayout>
 
         <!-- TAB 4: PROFIL (PROFILE TAB) -->

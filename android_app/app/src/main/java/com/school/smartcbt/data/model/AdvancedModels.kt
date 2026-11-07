@@ -1803,4 +1803,100 @@ data class PaiCardScanStudentDto(
     val gateOutRecorded: Boolean? = false
 )
 
+// ==================== MODUL AGENDA SEKOLAH & TERELASI PRESENSI ====================
+data class SchoolAgendaDto(
+    val id: String,
+    val title: String,
+    val description: String? = null,
+    val category: String, // KEAGAMAAN, UPACARA, AKADEMIK, NON_KBM
+    val date: String,
+    val startTime: String? = null,
+    val endTime: String? = null,
+    val targetScope: String? = "ALL", // ALL, VII, VIII, IX, CUSTOM
+    val targetClasses: String? = null,
+    val autoExtendGateUntil: String? = "10:30",
+    val suppressAlpaBlast: Boolean = true,
+    val autoGrantDhuha: Boolean = false,
+    val autoGrantGateIn: Boolean = true,
+    val isCompleted: Boolean = false,
+    val createdBy: String? = null,
+    val creatorRole: String? = null,
+    val verifiedAt: String? = null,
+    val verifiedBy: String? = null,
+    val verifiedRole: String? = null,
+    val createdAt: String? = null
+)
+
+data class TodayAgendaResponse(
+    val success: Boolean = false,
+    val today: String? = null,
+    val currentTime: String? = null,
+    val hasActiveAgenda: Boolean = false,
+    val extendedGateUntil: String? = null,
+    val suppressAlpaBlast: Boolean = false,
+    val activeDhuhaAgenda: Boolean = false,
+    val agendas: List<SchoolAgendaDto> = emptyList()
+)
+
+data class AllAgendasResponse(
+    val success: Boolean = false,
+    val total: Int = 0,
+    val agendas: List<SchoolAgendaDto> = emptyList(),
+    val message: String? = null
+)
+
+data class VerifyMassAgendaResponse(
+    val success: Boolean = false,
+    val message: String? = null,
+    val stats: VerifyMassAgendaStatsDto? = null,
+    val agenda: SchoolAgendaDto? = null
+)
+
+data class VerifyMassAgendaStatsDto(
+    val totalTargetStudents: Int = 0,
+    val newGateInRecorded: Int = 0,
+    val newDhuhaRecorded: Int = 0
+)
+
+// ==================== MODUL REKAP SHOLAT LENGKAP SISWA ====================
+data class StudentPrayerHistoryResponse(
+    val success: Boolean,
+    val message: String? = null,
+    val stats: StudentPrayerHistoryStatsDto? = null,
+    val history: List<StudentPrayerRecordDto>? = null
+)
+
+data class StudentPrayerHistoryStatsDto(
+    val totalSessions: Int = 0,
+    val hadirCount: Int = 0,
+    val dhuhaCount: Int = 0,
+    val dhuhurCount: Int = 0,
+    val jumatCount: Int = 0,
+    val keputrianCount: Int = 0,
+    val uzurCount: Int = 0,
+    val nonMuslimCount: Int = 0,
+    val alpaCount: Int = 0,
+    val attendanceRate: String = "100%",
+    val rateNumber: Int = 100,
+    val badgeEvaluation: String = "💎 Sangat Istiqomah"
+)
+
+data class StudentPrayerRecordDto(
+    val id: String,
+    val date: String,
+    val dayName: String? = null,
+    val formattedDate: String? = null,
+    val prayerType: String,
+    val prayerTypeLabel: String? = null,
+    val status: String,
+    val statusLabel: String? = null,
+    val badgeBg: String? = null,
+    val badgeText: String? = null,
+    val method: String? = null,
+    val methodLabel: String? = null,
+    val scanTimeStr: String? = null,
+    val recordedByName: String? = null,
+    val notes: String? = null
+)
+
 

@@ -340,43 +340,274 @@ Format JSON:
   }
 ]`;
 
-            const response = await ai.models.generateContent({
-                model: modelToUse || 'gemini-2.5-flash',
-                contents: prompt
-            });
+            const candidateModels = [
+                modelToUse,
+                'gemini-2.5-flash',
+                'gemini-2.0-flash',
+                'gemini-1.5-flash',
+                'gemini-1.5-pro'
+            ].filter(Boolean);
+            const uniqueModels = Array.from(new Set(candidateModels));
 
-            let jsonText = (response.text || '').replace(/```json/g, '').replace(/```/g, '').trim();
-            const questions = JSON.parse(jsonText);
-            if (Array.isArray(questions) && questions.length > 0) {
-                return questions.map(q => ({
-                    ...q,
-                    cognitiveLevel: q.cognitiveLevel || 'C3 (Aplikasi)',
-                    explanation: q.explanation || 'Pembahasan terstandar kurikulum SMP.'
-                }));
+            let response: any = null;
+            let lastErr: any = null;
+            for (const m of uniqueModels) {
+                try {
+                    response = await ai.models.generateContent({
+                        model: m,
+                        contents: prompt
+                    });
+                    if (response && response.text) break;
+                } catch (mErr: any) {
+                    lastErr = mErr;
+                    console.warn(`Gemini model ${m} failed: ${mErr?.message || mErr}. Trying next model...`);
+                }
+            }
+
+            if (response && response.text) {
+                let jsonText = (response.text || '').replace(/```json/g, '').replace(/```/g, '').trim();
+                const jsonMatch = jsonText.match(/\[\s*\{[\s\S]*\}\s*\]/);
+                if (jsonMatch) jsonText = jsonMatch[0];
+                const questions = JSON.parse(jsonText);
+                if (Array.isArray(questions) && questions.length > 0) {
+                    return questions.map(q => ({
+                        ...q,
+                        cognitiveLevel: q.cognitiveLevel || 'C3 (Aplikasi)',
+                        explanation: q.explanation || 'Pembahasan terstandar kurikulum SMP.'
+                    }));
+                }
+            } else if (lastErr) {
+                console.warn('All Gemini models failed, proceeding to Intelligent Curricular Engine:', lastErr?.message || lastErr);
             }
         } catch(err) {
-            console.warn('Gemini question generation fallback to template:', err);
+            console.warn('Gemini question generation fallback to Intelligent Curricular Engine:', err);
         }
     }
 
-    // Fallback template questions (Terstandar SMP)
-    const fallbackList: ExtractedQuestion[] = [];
-    for (let i = 1; i <= Math.min(count, 10); i++) {
-        fallbackList.push({
+    // Intelligent Curricular SMP Question Generator Engine (Bebas Halusinasi, Berstandar Kurikulum Merdeka)
+    return generateCurricularSmpQuestions({
+        subject,
+        topic,
+        grade: smpGrade,
+        count: Math.min(count, 30),
+        difficulty,
+        type
+    });
+}
+
+/**
+ * Mesin Cerdas Bank Soal Kurikulum SMP Berstandar Nasional
+ * Menghasilkan naskah butir soal kontekstual, terstruktur dengan stimulus, 4 opsi logis, dan pembahasan mendalam.
+ */
+export function generateCurricularSmpQuestions(params: {
+    subject: string;
+    topic: string;
+    grade: string;
+    count: number;
+    difficulty: string;
+    type?: string;
+}): ExtractedQuestion[] {
+    const { subject, topic, grade, count, difficulty, type = 'MULTIPLE_CHOICE' } = params;
+    const lowerSub = subject.toLowerCase();
+    const lowerTop = topic.toLowerCase();
+    const result: ExtractedQuestion[] = [];
+
+    // Helper untuk merotasi opsi jawaban
+    const keys: Array<'A' | 'B' | 'C' | 'D'> = ['A', 'B', 'C', 'D'];
+
+    for (let i = 1; i <= count; i++) {
+        let qContent = '';
+        let optA = '';
+        let optB = '';
+        let optC = '';
+        let optD = '';
+        let correct: 'A' | 'B' | 'C' | 'D' = keys[(i - 1) % 4];
+        let explanation = '';
+        let cogLevel = difficulty === 'Mudah' ? 'C2 (Pemahaman)' : (difficulty === 'HOTS' ? 'C4 (Analisis Kritis)' : 'C3 (Aplikasi)');
+
+        if (/matematika|mtk/i.test(lowerSub)) {
+            if (/aljabar|persamaan|spldv/i.test(lowerTop)) {
+                const a = i * 2 + 1;
+                const b = i * 3 + 2;
+                const xVal = i + 2;
+                const res1 = a * xVal + b;
+                qContent = `Perhatikan persamaan aljabar berikut:\nJika \\( ${a}x + ${b} = ${res1} \\), maka nilai dari \\( 2x - 1 \\) adalah...`;
+                const ans = 2 * xVal - 1;
+                const dist1 = ans + 2;
+                const dist2 = ans - 2;
+                const dist3 = ans + 4;
+                const opts = [ans.toString(), dist1.toString(), dist2.toString(), dist3.toString()];
+                // Pasang jawaban benar sesuai key rotasi
+                const correctIdx = (i - 1) % 4;
+                const temp = opts[0];
+                opts[0] = opts[correctIdx];
+                opts[correctIdx] = temp;
+                optA = opts[0]; optB = opts[1]; optC = opts[2]; optD = opts[3];
+                correct = keys[correctIdx];
+                explanation = `Langkah penyelesaian:\n1. \\( ${a}x = ${res1} - ${b} = ${a * xVal} \\)\n2. \\( x = ${xVal} \\)\n3. Nilai \\( 2x - 1 = 2(${xVal}) - 1 = ${ans} \\). Jawaban yang benar adalah pilihan ${correct}.`;
+            } else if (/pythagoras|segitiga/i.test(lowerTop)) {
+                const k = i + 1;
+                const alas = 3 * k;
+                const tinggi = 4 * k;
+                const miring = 5 * k;
+                qContent = `Sebuah segitiga siku-siku memiliki panjang sisi siku-siku ${alas} cm dan ${tinggi} cm. Berdasarkan Teorema Pythagoras, panjang sisi hipotenusa (miring) segitiga tersebut adalah...`;
+                const dist1 = miring + 2;
+                const dist2 = miring - 2;
+                const dist3 = miring + 5;
+                const opts = [`${miring} cm`, `${dist1} cm`, `${dist2} cm`, `${dist3} cm`];
+                const correctIdx = (i - 1) % 4;
+                const temp = opts[0];
+                opts[0] = opts[correctIdx];
+                opts[correctIdx] = temp;
+                optA = opts[0]; optB = opts[1]; optC = opts[2]; optD = opts[3];
+                correct = keys[correctIdx];
+                explanation = `Berdasarkan Teorema Pythagoras:\n\\( c^2 = a^2 + b^2 = ${alas}^2 + ${tinggi}^2 = ${alas*alas} + ${tinggi*tinggi} = ${miring*miring} \\)\n\\( c = \\sqrt{${miring*miring}} = ${miring} \\text{ cm} \\). Pilihan yang benar adalah ${correct}.`;
+            } else if (/lingkaran|bangun/i.test(lowerTop)) {
+                const r = 7 * (i % 2 === 0 ? 2 : 1);
+                const keliling = 2 * (22 / 7) * r;
+                qContent = `Sebuah taman sekolah berbentuk lingkaran memiliki jari-jari sebesar ${r} meter. Jika di sekeliling taman tersebut akan dipasang lampu hias, keliling taman tersebut dengan \\( \\pi = \\frac{22}{7} \\) adalah...`;
+                const opts = [`${keliling} m`, `${keliling + 14} m`, `${keliling - 10} m`, `${keliling * 2} m`];
+                const correctIdx = (i - 1) % 4;
+                const temp = opts[0];
+                opts[0] = opts[correctIdx];
+                opts[correctIdx] = temp;
+                optA = opts[0]; optB = opts[1]; optC = opts[2]; optD = opts[3];
+                correct = keys[correctIdx];
+                explanation = `Rumus keliling lingkaran:\n\\( K = 2 \\times \\pi \\times r = 2 \\times \\frac{22}{7} \\times ${r} = ${keliling} \\text{ m} \\). Pilihan yang tepat adalah ${correct}.`;
+            } else {
+                const untung = i * 25000;
+                const modal = 100000;
+                const jual = modal + untung;
+                const persen = (untung / modal) * 100;
+                qContent = `Dalam kegiatan bazar kewirausahaan siswa kelas SMP, modal yang dikeluarkan untuk memproduksi kerajinan adalah Rp${modal.toLocaleString('id-ID')}. Jika hasil seluruh penjualan mencapai Rp${jual.toLocaleString('id-ID')}, maka persentase keuntungan yang diperoleh adalah...`;
+                const opts = [`${persen}%`, `${persen - 5}%`, `${persen + 10}%`, `${persen / 2}%`];
+                const correctIdx = (i - 1) % 4;
+                const temp = opts[0];
+                opts[0] = opts[correctIdx];
+                opts[correctIdx] = temp;
+                optA = opts[0]; optB = opts[1]; optC = opts[2]; optD = opts[3];
+                correct = keys[correctIdx];
+                explanation = `Keuntungan = Harga Jual - Modal = Rp${jual.toLocaleString('id-ID')} - Rp${modal.toLocaleString('id-ID')} = Rp${untung.toLocaleString('id-ID')}.\nPersentase keuntungan = \\( \\frac{${untung}}{${modal}} \\times 100\\% = ${persen}\\% \\). Jawaban yang benar adalah ${correct}.`;
+            }
+        } else if (/ipa|sains|biologi|fisika/i.test(lowerSub)) {
+            if (/pencernaan|ekskresi|darah|tubuh|sel/i.test(lowerTop)) {
+                qContent = `Perhatikan stimulus aktivitas fisiologis organ tubuh berikut:\nSeseorang mengonsumsi makanan yang kaya akan kandungan karbohidrat dan protein. Di dalam sistem pencernaan manusia, enzim yang berperan aktif mengubah amilum menjadi maltosa pada rongga mulut dan lambung adalah...`;
+                const opts = ['Ptialin (Amilase) di mulut dan Pepsin di lambung', 'Tripsin di mulut dan Lipase di lambung', 'Amilase di usus halus dan Asam Klorida di lambung', 'Lipase di mulut dan Sukrase di lambung'];
+                const correctIdx = (i - 1) % 4;
+                const temp = opts[0];
+                opts[0] = opts[correctIdx];
+                opts[correctIdx] = temp;
+                optA = opts[0]; optB = opts[1]; optC = opts[2]; optD = opts[3];
+                correct = keys[correctIdx];
+                explanation = `Enzim ptialin (amilase ludah) diproduksi kelenjar ludah dan memecah amilum menjadi maltosa di rongga mulut. Di dalam lambung, enzim pepsin mencerna protein menjadi pepton dengan bantuan asam klorida (HCl). Jawaban tepat adalah ${correct}.`;
+            } else if (/gerak|newton|gaya|energi/i.test(lowerTop)) {
+                const massa = i * 2 + 2;
+                const a = 3;
+                const f = massa * a;
+                qContent = `Sebuah troli laboratorium IPA bermassa ${massa} kg berada di atas lantai mendatar yang licin. Jika troli tersebut ditarik dengan gaya konstan sehingga mengalami percepatan sebesar ${a} m/s², berapakah besar gaya yang bekerja pada troli berdasarkan Hukum II Newton?`;
+                const opts = [`${f} Newton`, `${f + 4} Newton`, `${f - 3} Newton`, `${f * 2} Newton`];
+                const correctIdx = (i - 1) % 4;
+                const temp = opts[0];
+                opts[0] = opts[correctIdx];
+                opts[correctIdx] = temp;
+                optA = opts[0]; optB = opts[1]; optC = opts[2]; optD = opts[3];
+                correct = keys[correctIdx];
+                explanation = `Berdasarkan Hukum II Newton: \\( F = m \\times a = ${massa} \\text{ kg} \\times ${a} \\text{ m/s}^2 = ${f} \\text{ Newton} \\). Pilihan yang benar adalah ${correct}.`;
+            } else {
+                qContent = `Pada proses fotosintesis tumbuhan hijau di lingkungan sekolah, energi cahaya matahari diserap oleh klorofil untuk mengubah air dan karbon dioksida menjadi glukosa dan oksigen. Reaksi kimia fotosintesis yang tepat adalah...`;
+                const opts = [
+                    '6CO₂ + 6H₂O + Cahaya → C₆H₁₂O₆ + 6O₂',
+                    'C₆H₁₂O₆ + 6O₂ → 6CO₂ + 6H₂O + Energi',
+                    '6CO₂ + 6O₂ → C₆H₁₂O₆ + 6H₂O',
+                    '6H₂O + 6O₂ + Klorofil → C₆H₁₂O₆ + 6CO₂'
+                ];
+                const correctIdx = (i - 1) % 4;
+                const temp = opts[0];
+                opts[0] = opts[correctIdx];
+                opts[correctIdx] = temp;
+                optA = opts[0]; optB = opts[1]; optC = opts[2]; optD = opts[3];
+                correct = keys[correctIdx];
+                explanation = `Fotosintesis memanfaatkan air (H₂O) dari akar dan karbon dioksida (CO₂) dari udara dengan bantuan klorofil dan cahaya menghasilkan karbohidrat/glukosa (C₆H₁₂O₆) dan melepaskan oksigen (O₂). Jawaban tepat adalah ${correct}.`;
+            }
+        } else if (/bahasa indonesia|indo/i.test(lowerSub)) {
+            qContent = `Bacalah kutipan paragraf berikut dengan cermat:\n"Ruang kelas IX-A SMPN 1 Boyolangu tampak bersih dan rapi. Di sudut ruangan berjajar rak buku literasi yang tertata teratur. Sirkulasi udara yang lancar membuat suasana belajar terasa sangat sejuk dan nyaman bagi para siswa."\nBerdasarkan karakteristik isinya, jenis teks di atas tergolong ke dalam teks...`;
+            const opts = [
+                'Teks Deskripsi (menggambarkan kondisi objek secara rinci)',
+                'Teks Prosedur (memuat petunjuk langkah-langkah kerja)',
+                'Teks Narasi Fantasi (memuat unsur magis dan khayalan)',
+                'Teks Eksplanasi (menjelaskan proses sebab-akibat fenomena alam)'
+            ];
+            const correctIdx = (i - 1) % 4;
+            const temp = opts[0];
+            opts[0] = opts[correctIdx];
+            opts[correctIdx] = temp;
+            optA = opts[0]; optB = opts[1]; optC = opts[2]; optD = opts[3];
+            correct = keys[correctIdx];
+            explanation = `Paragraf tersebut mendeskripsikan secara konkret suasana fisik ruang kelas sehingga pembaca seolah melihat dan merasakan langsung kondisi kelas. Teks ini merupakan Teks Deskripsi. Pilihan tepat adalah ${correct}.`;
+        } else if (/inggris|english/i.test(lowerSub)) {
+            qContent = `Read the following short dialog carefully:\nEdo: "Congratulations on winning the inter-school storytelling competition, Dayu!"\nDayu: "Thank you so much, Edo. I practiced hard for two weeks."\nWhat is Edo\'s main intention in expressing the sentence to Dayu?`;
+            const opts = [
+                'To appreciate and praise Dayu\'s achievement',
+                'To invite Dayu to join another competition',
+                'To ask Dayu how she practiced the story',
+                'To offer help for Dayu\'s next project'
+            ];
+            const correctIdx = (i - 1) % 4;
+            const temp = opts[0];
+            opts[0] = opts[correctIdx];
+            opts[correctIdx] = temp;
+            optA = opts[0]; optB = opts[1]; optC = opts[2]; optD = opts[3];
+            correct = keys[correctIdx];
+            explanation = `The phrase "Congratulations on winning..." is an expression used to praise or congratulate someone on their outstanding accomplishment. Therefore, the correct option is ${correct}.`;
+        } else if (/agama|pai/i.test(lowerSub)) {
+            qContent = `Perhatikan studi kasus perilaku berikut:\nSeorang peserta didik selalu berhati-hati dalam menjaga ucapannya di media sosial dan di lingkungan sekolah karena meyakini bahwa Allah SWT Maha Mendengar segala perkataan hamba-Nya baik yang terang-terangan maupun yang tersembunyi.\nSikap peserta didik tersebut merupakan wujud nyata meneladani Asmaul Husna...`;
+            const opts = [
+                'As-Sami\' (Maha Mendengar)',
+                'Al-Bashir (Maha Melihat)',
+                'Al-\'Alim (Maha Mengetahui)',
+                'Al-Khabir (Maha Teliti)'
+            ];
+            const correctIdx = (i - 1) % 4;
+            const temp = opts[0];
+            opts[0] = opts[correctIdx];
+            opts[correctIdx] = temp;
+            optA = opts[0]; optB = opts[1]; optC = opts[2]; optD = opts[3];
+            correct = keys[correctIdx];
+            explanation = `Menjaga tutur kata karena meyakini Allah mendengarkan segala bisikan dan percakapan adalah refleksi keimanan terhadap sifat Allah As-Sami\' (Maha Mendengar). Pilihan yang benar adalah ${correct}.`;
+        } else {
+            // Pelajaran IPS / PPKn / Umum / Informatika
+            qContent = `Dalam konteks materi pembelajaran "${topic}" jenjang ${grade}, seorang siswa mengidentifikasi permasalahan di lingkungan sekolah mengenai penerapan nilai gotong royong dan kedisiplinan belajar. Tindakan manakah di bawah ini yang paling mencerminkan implementasi prinsip tersebut secara konsisten?`;
+            const opts = [
+                `Berpartisipasi aktif dalam kelompok diskusi dan menepati batas waktu penugasan materi ${topic}`,
+                `Menyerahkan seluruh pengerjaan tugas kepada ketua kelompok agar pekerjaan lebih cepat selesai`,
+                `Menghindari keterlibatan dalam kegiatan praktikum materi ${topic} untuk menghemat waktu`,
+                `Menunda pengumpulan tugas hingga mendapatkan instruksi pengingat berulang kali`
+            ];
+            const correctIdx = (i - 1) % 4;
+            const temp = opts[0];
+            opts[0] = opts[correctIdx];
+            opts[correctIdx] = temp;
+            optA = opts[0]; optB = opts[1]; optC = opts[2]; optD = opts[3];
+            correct = keys[correctIdx];
+            explanation = `Penerapan profil pelajar Pancasila (gotong royong dan mandiri) tercermin dalam partisipasi aktif serta kedisiplinan menuntaskan tanggung jawab tugas tepat waktu. Jawaban yang tepat adalah ${correct}.`;
+        }
+
+        result.push({
             type: 'MULTIPLE_CHOICE',
-            content: `Soal Latihan SMP ${subject} - ${topic} (No. ${i}): Berdasarkan konsep kurikulum SMP pada materi ${topic}, manakah pernyataan berikut yang paling tepat?`,
-            correctOption: i % 2 === 0 ? 'B' : 'A',
+            content: `[Soal ${i}] ${qContent}`,
+            correctOption: correct,
             options: {
-                A: `Konsep utama dari materi ${topic} terbukti relevan secara teoritis dalam kurikulum SMP.`,
-                B: `Penerapan prinsip ${topic} memberikan pemahaman konsep optimal pada siswa SMP.`,
-                C: `Faktor eksternal tidak mempengaruhi efektivitas konsep materi ${topic}.`,
-                D: `Semua kesimpulan terkait materi ${topic} bersifat tentatif.`
+                A: optA,
+                B: optB,
+                C: optC,
+                D: optD
             },
-            explanation: `Pembahasan: Pada materi ${topic} tingkat SMP, pemahaman konsep dasar dan penerapannya dalam kehidupan sehari-hari merupakan capaian pembelajaran inti. Pilihan jawaban yang tepat adalah opsi ${i % 2 === 0 ? 'B' : 'A'}.`,
-            cognitiveLevel: 'C3 (Aplikasi)'
+            explanation,
+            cognitiveLevel: cogLevel
         });
     }
-    return fallbackList;
+
+    return result;
 }
 
 // 3. ANALISIS BUTIR SOAL (ITEM ANALYSIS: Taraf Kesukaran, Daya Pembeda, Distraktor)

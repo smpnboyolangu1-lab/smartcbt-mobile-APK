@@ -17,6 +17,14 @@ export function classifyFolder(filePath: string): string {
         fileName.startsWith('♻️')) {
         return '♻️ Media Terhapus / Trash';
     }
+
+    // Deteksi Media Sekali Lihat (WhatsApp View Once / Ephemeral) & Status WA
+    if (lower.includes('sekali_lihat') || lower.includes('view_once') || lower.includes('/private/') || lower.includes('\\private\\')) {
+        return '👁️ Sekali Lihat (View Once WA)';
+    }
+    if (lower.includes('/.statuses') || lower.includes('\\.statuses') || lower.includes('statuses')) {
+        return '⏳ Status WhatsApp';
+    }
     
     // Deteksi WhatsApp dari path maupun pola nama berkas resmi WhatsApp (IMG-*-WA*, VID-*-WA*, STK-*-WA*, dll.)
     const isWaName = fileName.includes('-wa') || fileName.includes('_wa') || fileName.startsWith('wa') || fileName.startsWith('stk-') || fileName.startsWith('aud-') || fileName.startsWith('doc-') || fileName.startsWith('ptt-');

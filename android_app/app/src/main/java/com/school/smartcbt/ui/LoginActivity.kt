@@ -216,7 +216,14 @@ class LoginActivity : AppCompatActivity() {
         val api = ApiClient.getClient(this)
         val deviceId = sessionManager.getDeviceId()
         // Universal Single Login: Server otomatis mendeteksi role pengguna
-        val reqRole: String? = null
+        // Jika username diawali huruf 'P'/'p' maka PARENT, jika numerik murni (NISN) maka tegas STUDENT
+        val reqRole: String? = if (trimmedU.startsWith("P", ignoreCase = true)) {
+            "PARENT"
+        } else if (trimmedU.isNotEmpty() && trimmedU.all { it.isDigit() }) {
+            "STUDENT"
+        } else {
+            null
+        }
         api.login(LoginRequest(trimmedU, trimmedP, deviceId, role = reqRole)).enqueue(object : Callback<LoginResponse> {
             override fun onResponse(call: Call<LoginResponse>, response: Response<LoginResponse>) {
                 binding.progressBar.visibility = View.GONE

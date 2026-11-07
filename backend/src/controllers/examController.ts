@@ -9,14 +9,16 @@ export const getTeacherExams = async (req: Request, res: Response) => {
         
         const whereClause: any = {};
         if (!isOfficialAdmin && user) {
-            // Guru biasa: HANYA tampilkan Ulangan Harian (UH/FORMATIF) miliknya sendiri atau buatannya
-            // Ujian Resmi (SAS/STS/ASAT/US) dikelola oleh Kurikulum & Operator, disembunyikan dari guru
-            whereClause.OR = [
+            // Guru biasa: Tampilkan ujian miliknya sendiri (teacherId), atau guru sebagai Penulis Soal, atau mapel yang diampu
+            const orList: any[] = [
                 { teacherId: user.id },
                 { authorTeacherIds: { contains: user.id } },
-                { authorTeacherIds: { contains: user.name } }
+                ...(user.name ? [{ authorTeacherIds: { contains: user.name } }] : [])
             ];
-            whereClause.examType = { in: ['UH', 'FORMATIF', 'HARIAN', 'ULANGAN_HARIAN', 'REMEDIAL'] };
+            if (user.subject) {
+                orList.push({ subject: { name: { contains: user.subject, mode: 'insensitive' } } });
+            }
+            whereClause.OR = orList;
         }
 
         const [exams, classes] = await Promise.all([
@@ -66,6 +68,52 @@ export const getTeacherExams = async (req: Request, res: Response) => {
             };
         });
 
+        // Sertakan juga Ulangan Harian (UH) yang dibuat guru via APK agar terpantau di Portal CBT
+        try {
+            const uhWhere = (user && user.role === 'TEACHER')
+                ? { OR: [{ guruId: user.id }, { guruName: user.name }] }
+                : {};
+            const uhList = await (prisma as any).ulanganHarian.findMany({
+                where: uhWhere,
+                orderBy: { createdAt: 'desc' },
+                take: 30
+            }).catch(() => []);
+
+            for (const uh of uhList) {
+                if (enrichedExams.some(e => e.id === uh.id)) continue;
+                enrichedExams.push({
+                    id: uh.id,
+                    title: `[UH] ${uh.mapelId} — ${uh.topik || 'Ulangan Harian'}`,
+                    packageCode: `UH-${uh.mode || 'CBT'}`,
+                    subjectId: '',
+                    durationMinutes: uh.durasiMenit || 60,
+                    minDurationMinutes: 15,
+                    token: 'UH-AUTO',
+                    isTokenActive: uh.status === 'AKTIF',
+                    status: uh.status === 'AKTIF' ? 'PUBLISHED' : 'DRAFT',
+                    assignedClasses: uh.kelasId || 'ALL',
+                    sessionName: `Sesi UH Mode ${uh.mode || 'CBT'}`,
+                    roomName: 'Ruang Kelas',
+                    proctorName: uh.guruName || 'Guru Mapel',
+                    passingGrade: uh.kkm || 75,
+                    level: 'ALL',
+                    examType: 'UH',
+                    executionDate: uh.waktuMulai ? new Date(uh.waktuMulai).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+                    startTimeStr: '07:30',
+                    endTimeStr: '15:00',
+                    createdAt: uh.createdAt,
+                    updatedAt: uh.updatedAt,
+                    subject: { id: '', name: uh.mapelId || 'UH' },
+                    _count: { questions: uh.totalSoal || 0, studentExams: 0 },
+                    classTokens: {},
+                    classProctors: {},
+                    targetClassesList: (uh.kelasId || 'ALL').split(',').map((s: string) => s.trim())
+                } as any);
+            }
+        } catch (uhErr) {
+            console.warn('Error bridging UH to getTeacherExams:', uhErr);
+        }
+
         res.json(enrichedExams);
     } catch (error) {
         console.error('Error fetching exams:', error);
@@ -75,16 +123,16 @@ export const getTeacherExams = async (req: Request, res: Response) => {
 
 export const createExam = async (req: Request, res: Response) => {
     const {
-        title, subjectName, durationMinutes, minDurationMinutes, assignedClasses,
-        sessionName, executionDate, startTimeStr, endTimeStr, randomizeQuestions,
-        randomizeOptions, showScoreToStudent, maxStrikes, examType, roomName,
+        title, subjectName, subject: subjectAlias, durationMinutes, minDurationMinutes, assignedClasses,
+        sessionName, executionDate, startTimeStr, startTime, endTimeStr, endTime, randomizeQuestions,
+        randomizeOptions, showScoreToStudent, maxStrikes, examType, examCategory, roomName,
         proctorName, passingGrade, level, packageCode, status, authorTeacherIds,
         isOptionDOnly, isSpecialExam, autoActiveOnSchedule
     } = req.body;
     const user = (req as any).user;
 
     try {
-        const subName = (subjectName || 'Umum').trim();
+        const subName = (subjectName || subjectAlias || 'Umum').trim();
         let subject = await prisma.subject.findUnique({ where: { name: subName } });
         if (!subject) {
             subject = await prisma.subject.create({ data: { name: subName } });
@@ -108,10 +156,10 @@ export const createExam = async (req: Request, res: Response) => {
                 proctorName: proctorName || 'Proktor Utama',
                 passingGrade: Number(passingGrade) || 75,
                 level: level || 'ALL',
-                examType: examType || 'SAS',
+                examType: examType || examCategory || 'SAS',
                 executionDate: executionDate || new Date().toISOString().split('T')[0],
-                startTimeStr: startTimeStr || '07:30',
-                endTimeStr: endTimeStr || '09:30',
+                startTimeStr: startTimeStr || startTime || '07:30',
+                endTimeStr: endTimeStr || endTime || '09:30',
                 randomizeQuestions: randomizeQuestions !== undefined ? Boolean(randomizeQuestions) : true,
                 randomizeOptions: randomizeOptions !== undefined ? Boolean(randomizeOptions) : true,
                 isOptionDOnly: isOptionDOnly !== undefined ? Boolean(isOptionDOnly) : true,
@@ -124,9 +172,42 @@ export const createExam = async (req: Request, res: Response) => {
             },
             include: { subject: true }
         });
+
+        // SINKRONISASI DUA ARAH: Buat juga catatan UlanganHarian agar langsung tampil di modul UH APK
+        try {
+            await (prisma as any).ulanganHarian.upsert({
+                where: { id: exam.id },
+                create: {
+                    id: exam.id,
+                    guruId: user?.id || 'GURU_SYS',
+                    guruName: user?.name || proctorName || 'Guru Pengampu',
+                    mapelId: subName,
+                    kelasId: exam.assignedClasses || 'ALL',
+                    topik: exam.title,
+                    mode: 'STANDAR',
+                    durasiMenit: exam.durationMinutes || 60,
+                    totalSoal: 0,
+                    bobotNilai: 100,
+                    waktuMulai: new Date(),
+                    status: exam.status === 'PUBLISHED' ? 'AKTIF' : 'DRAFT',
+                    tokenAktif: exam.token,
+                    soalJson: '[]'
+                },
+                update: {
+                    topik: exam.title,
+                    mapelId: subName,
+                    kelasId: exam.assignedClasses || 'ALL',
+                    durasiMenit: exam.durationMinutes || 60
+                }
+            });
+        } catch (uhSyncErr) {
+            console.warn('Error syncing created Exam to UlanganHarian:', uhSyncErr);
+        }
+
         res.json({
             success: true,
             message: 'Ulangan CBT berhasil dibuat!',
+            exam,
             ...exam
         });
     } catch (error) {
@@ -183,7 +264,29 @@ export const scheduleNationalExam = async (req: Request, res: Response) => {
             where: { id },
             data: updateData,
             include: { subject: true }
-        });
+        }).catch(() => null);
+
+        // Sinkronisasi pembaruan ke UlanganHarian jika ada
+        try {
+            const uhUpdateData: any = {};
+            if (title) uhUpdateData.topik = title;
+            if (durationMinutes) uhUpdateData.durasiMenit = Number(durationMinutes);
+            if (assignedClasses !== undefined) {
+                uhUpdateData.kelasId = Array.isArray(assignedClasses) ? assignedClasses.join(',') : assignedClasses;
+            }
+            if (subjectName) uhUpdateData.mapelId = subjectName;
+            if (isTokenActive !== undefined) uhUpdateData.status = isTokenActive ? 'AKTIF' : 'SELESAI';
+            if (resetToken && updated?.token) uhUpdateData.tokenAktif = updated.token;
+
+            if (Object.keys(uhUpdateData).length > 0) {
+                await (prisma as any).ulanganHarian.update({
+                    where: { id },
+                    data: uhUpdateData
+                }).catch(() => null);
+            }
+        } catch (uhUpErr) {
+            console.warn('Error updating UlanganHarian from Exam schedule:', uhUpErr);
+        }
 
         const { proctorAssignments } = req.body;
         if (Array.isArray(proctorAssignments) && proctorAssignments.length > 0) {
@@ -206,10 +309,13 @@ export const scheduleNationalExam = async (req: Request, res: Response) => {
     }
 };
 
+export const updateExam = scheduleNationalExam;
+
 export const getExamResults = async (req: Request, res: Response) => {
     try {
         const examId = (req.params.id || req.query.examId) as string;
         const className = (req.query.className || req.query.targetClass) as string;
+        const includeUnstarted = req.query.includeUnstarted !== 'false';
 
         const whereClause: any = {};
         if (examId && examId !== 'ALL') {
@@ -230,10 +336,125 @@ export const getExamResults = async (req: Request, res: Response) => {
 
         let results = studentExams;
         if (className && className !== 'ALL') {
-            results = results.filter(se => se.user.className === className);
+            results = results.filter(se => se.user?.className === className);
         }
 
-        res.json(results);
+        const parseExamAnswerStats = (answersRaw: any): { answeredCount: number; lastAnsweredNo: number } => {
+            if (!answersRaw) return { answeredCount: 0, lastAnsweredNo: 0 };
+            let count = 0;
+            let lastNo = 0;
+            try {
+                const parsed = typeof answersRaw === 'string' ? JSON.parse(answersRaw) : answersRaw;
+                if (Array.isArray(parsed)) {
+                    parsed.forEach((x, idx) => {
+                        if (x !== null && x !== undefined && String(x).trim() !== '') {
+                            count++;
+                            lastNo = idx + 1;
+                        }
+                    });
+                } else if (typeof parsed === 'object' && parsed !== null) {
+                    Object.keys(parsed).forEach(k => {
+                        const v = (parsed as any)[k];
+                        if (v !== null && v !== undefined && String(v).trim() !== '') {
+                            count++;
+                            const num = parseInt(k.replace(/\D/g, ''), 10);
+                            if (!isNaN(num) && num > lastNo) lastNo = num;
+                        }
+                    });
+                }
+            } catch {}
+            return { answeredCount: count, lastAnsweredNo: lastNo };
+        };
+
+        const mappedResults: any[] = results.map(se => {
+            const totalQ = se.exam?._count?.questions || 0;
+            const stats = parseExamAnswerStats((se as any).answers);
+            const ansCount = stats.answeredCount;
+            const kurangCount = Math.max(0, totalQ - ansCount);
+            const posisiSoal = stats.lastAnsweredNo > 0
+                ? (ansCount < totalQ ? stats.lastAnsweredNo + 1 : stats.lastAnsweredNo)
+                : (ansCount > 0 ? ansCount : 1);
+
+            return {
+                ...se,
+                studentId: se.userId,
+                studentName: se.user?.name,
+                className: se.user?.className,
+                answeredCount: ansCount,
+                totalQuestions: totalQ,
+                kurangCount,
+                posisiSoal
+            };
+        });
+
+        // Jika examId spesifik diminta dan includeUnstarted aktif, sertakan juga siswa dari assignedClasses yang BELUM_MULAI
+        if (examId && examId !== 'ALL' && includeUnstarted) {
+            const examObj = await prisma.exam.findUnique({
+                where: { id: String(examId) },
+                include: { subject: true, _count: { select: { questions: true } } }
+            });
+            if (examObj && examObj.assignedClasses) {
+                const assignedList = examObj.assignedClasses
+                    .split(',')
+                    .map(c => c.trim())
+                    .filter(Boolean);
+
+                const targetClasses = (className && className !== 'ALL')
+                    ? assignedList.filter(c => c.toUpperCase() === className.trim().toUpperCase())
+                    : assignedList;
+
+                if (targetClasses.length > 0 && !targetClasses.includes('ALL')) {
+                    const classStudents = await prisma.user.findMany({
+                        where: {
+                            role: 'STUDENT',
+                            isActive: true,
+                            className: { in: targetClasses }
+                        },
+                        orderBy: [{ className: 'asc' }, { name: 'asc' }]
+                    });
+
+                    const existingUserIds = new Set(mappedResults.map(r => r.userId));
+                    const totalQ = examObj._count?.questions || 0;
+
+                    for (const st of classStudents) {
+                        if (!existingUserIds.has(st.id)) {
+                            mappedResults.push({
+                                id: `unstarted_${examObj.id}_${st.id}`,
+                                examId: examObj.id,
+                                userId: st.id,
+                                studentId: st.id,
+                                studentName: st.name,
+                                className: st.className,
+                                status: 'NOT_STARTED',
+                                score: null,
+                                startTime: '',
+                                endTime: null,
+                                cheatStrikes: 0,
+                                answeredCount: 0,
+                                totalQuestions: totalQ,
+                                kurangCount: totalQ,
+                                posisiSoal: 1,
+                                user: {
+                                    id: st.id,
+                                    name: st.name,
+                                    username: st.username,
+                                    nisn: st.nisn || st.username,
+                                    className: st.className
+                                },
+                                exam: {
+                                    id: examObj.id,
+                                    title: examObj.title,
+                                    subject: examObj.subject,
+                                    _count: examObj._count
+                                }
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        res.json(mappedResults);
     } catch (error) {
         console.error('Error getting exam results:', error);
         res.status(500).json({ message: 'Gagal mengambil rekap hasil ujian' });
@@ -243,9 +464,11 @@ export const getExamResults = async (req: Request, res: Response) => {
 export const deleteExam = async (req: Request, res: Response) => {
     try {
         const id = req.params.id as string;
-        await prisma.question.deleteMany({ where: { examId: id } });
-        await prisma.studentExam.deleteMany({ where: { examId: id } });
-        await prisma.exam.delete({ where: { id } });
+        await prisma.question.deleteMany({ where: { examId: id } }).catch(() => null);
+        await prisma.studentExam.deleteMany({ where: { examId: id } }).catch(() => null);
+        await prisma.exam.delete({ where: { id } }).catch(() => null);
+        await (prisma as any).ulanganHarianSubmission.deleteMany({ where: { ulanganId: id } }).catch(() => null);
+        await (prisma as any).ulanganHarian.delete({ where: { id } }).catch(() => null);
         res.json({ message: 'Paket ujian berhasil dihapus' });
     } catch (error) {
         res.status(500).json({ message: 'Gagal menghapus ujian' });
@@ -258,7 +481,11 @@ import path from 'path';
 export const deleteQuestion = async (req: Request, res: Response) => {
     try {
         const id = req.params.id as string;
+        const q = await prisma.question.findUnique({ where: { id } });
         await prisma.question.delete({ where: { id } });
+        if (q?.examId) {
+            await syncExamQuestionsToUh(q.examId).catch(() => null);
+        }
         res.json({ message: 'Butir soal berhasil dihapus' });
     } catch (error) {
         console.error('Error deleting question:', error);
@@ -344,16 +571,152 @@ export const uploadQuestionAudio = async (req: Request, res: Response) => {
     }
 };
 
+export const syncExamQuestionsToUh = async (examId: string) => {
+    try {
+        const [exam, questions] = await Promise.all([
+            prisma.exam.findUnique({
+                where: { id: examId },
+                include: { subject: true }
+            }),
+            prisma.question.findMany({
+                where: { examId },
+                orderBy: { orderNum: 'asc' }
+            })
+        ]);
+
+        if (!exam) return;
+
+        const mappedSoal = questions.map((q, idx) => {
+            let opts: string[] = ['A', 'B', 'C', 'D'];
+            try {
+                const parsed = q.options ? JSON.parse(q.options) : [];
+                if (Array.isArray(parsed)) opts = parsed.map(String);
+                else if (typeof parsed === 'object' && parsed !== null) {
+                    opts = [parsed.A || '', parsed.B || '', parsed.C || '', parsed.D || ''].filter(Boolean);
+                }
+            } catch {}
+            return {
+                id: q.id,
+                number: q.orderNum || (idx + 1),
+                type: q.type === 'ESSAY' || q.type === 'URAIAN' ? 'URAIAN' : 'PG',
+                content: q.content,
+                options: opts,
+                correctOption: q.correctOption || 'A',
+                explanation: q.explanation || '',
+                imageUrl: q.imageUrl || null,
+                audioUrl: q.audioUrl || null,
+                points: Math.round(100 / Math.max(1, questions.length))
+            };
+        });
+
+        const subName = exam.subject?.name || 'Umum';
+        await (prisma as any).ulanganHarian.upsert({
+            where: { id: examId },
+            create: {
+                id: examId,
+                guruId: exam.teacherId || 'GURU_SYS',
+                guruName: exam.proctorName || 'Guru Pengampu',
+                mapelId: subName,
+                kelasId: exam.assignedClasses || 'ALL',
+                topik: exam.title,
+                mode: 'STANDAR',
+                durasiMenit: exam.durationMinutes || 60,
+                totalSoal: mappedSoal.length,
+                bobotNilai: 100,
+                waktuMulai: new Date(),
+                status: 'AKTIF',
+                tokenAktif: exam.token,
+                soalJson: JSON.stringify(mappedSoal)
+            },
+            update: {
+                totalSoal: mappedSoal.length,
+                soalJson: JSON.stringify(mappedSoal),
+                topik: exam.title,
+                mapelId: subName,
+                kelasId: exam.assignedClasses || 'ALL',
+                durasiMenit: exam.durationMinutes || 60,
+                status: exam.status === 'PUBLISHED' ? 'AKTIF' : 'DRAFT'
+            }
+        }).catch((err: any) => console.warn('upsert ulanganHarian error in syncExamQuestionsToUh:', err));
+    } catch (e) {
+        console.warn('syncExamQuestionsToUh error:', e);
+    }
+};
+
 export const getQuestions = async (req: Request, res: Response) => {
     try {
         const examId = req.params.examId as string;
         const user = (req as any).user;
         const isStudent = !user || user.role === 'STUDENT';
 
-        const questions = await prisma.question.findMany({
+        let questions = await prisma.question.findMany({
             where: { examId },
             orderBy: { orderNum: 'asc' }
         });
+
+        // SINKRONISASI DUA ARAH: Jika butir soal di tabel Question masih kosong, periksa tabel UlanganHarian (hasil pembuatan dari APK)
+        if (questions.length === 0) {
+            const uh = await (prisma as any).ulanganHarian.findUnique({
+                where: { id: examId }
+            }).catch(() => null);
+
+            if (uh && uh.soalJson) {
+                try {
+                    const parsed = JSON.parse(uh.soalJson);
+                    if (Array.isArray(parsed) && parsed.length > 0) {
+                        // Pastikan ada row Exam parent jika belum ada
+                        let examParent = await prisma.exam.findUnique({ where: { id: examId } });
+                        if (!examParent) {
+                            let sub = await prisma.subject.findFirst({
+                                where: { name: { contains: uh.mapelId || 'Umum', mode: 'insensitive' } }
+                            });
+                            if (!sub) {
+                                sub = await prisma.subject.create({ data: { name: uh.mapelId || 'Umum' } });
+                            }
+                            await prisma.exam.create({
+                                data: {
+                                    id: uh.id,
+                                    title: uh.topik || 'Ulangan Harian CBT',
+                                    packageCode: `UH-${uh.mode || 'CBT'}`,
+                                    subjectId: sub.id,
+                                    durationMinutes: uh.durasiMenit || 60,
+                                    token: uh.tokenAktif || generate5CharToken(),
+                                    assignedClasses: uh.kelasId || 'ALL',
+                                    examType: 'UH',
+                                    status: 'PUBLISHED',
+                                    teacherId: uh.guruId
+                                }
+                            }).catch(() => null);
+                        }
+
+                        // Backfill ke Question agar memiliki row database resmi yang bisa diedit di Web Portal
+                        for (let i = 0; i < parsed.length; i++) {
+                            const q = parsed[i];
+                            let optsStr: string | null = null;
+                            if (q.options) {
+                                optsStr = typeof q.options === 'string' ? q.options : JSON.stringify(q.options);
+                            }
+                            const created = await prisma.question.create({
+                                data: {
+                                    examId,
+                                    type: (q.type === 'URAIAN' || q.type === 'ESSAY') ? 'ESSAY' : 'MULTIPLE_CHOICE',
+                                    content: q.content || q.questionText || '',
+                                    options: optsStr,
+                                    correctOption: q.correctOption || q.correctAnswer || 'A',
+                                    explanation: q.explanation || '',
+                                    imageUrl: q.imageUrl || null,
+                                    audioUrl: q.audioUrl || null,
+                                    orderNum: q.number || (i + 1)
+                                }
+                            }).catch(() => null);
+                            if (created) questions.push(created);
+                        }
+                    }
+                } catch (e) {
+                    console.warn('Error backfilling UH questions to Question table:', e);
+                }
+            }
+        }
 
         // A-02: Siswa TIDAK PERNAH menerima kunci jawaban (correctOption) atau pembahasan (explanation)
         const sanitized = questions.map(q => {
@@ -425,21 +788,34 @@ function sanitizeSmpOptionsAndKey(options: any, rawCorrectOption: any): { option
 
 export const createQuestion = async (req: Request, res: Response) => {
     const examId = req.params.examId as string;
-    const { content, type, correctOption, options, imageUrl, audioUrl, cognitiveLevel, kdTag, explanation } = req.body;
+    const {
+        content, questionText, type, questionType, correctOption, correctAnswer,
+        options, optionA, optionB, optionC, optionD,
+        imageUrl, audioUrl, cognitiveLevel, kdTag, explanation
+    } = req.body;
     try {
+        const resolvedContent = content !== undefined ? content : (questionText || '');
+        const resolvedType = type || questionType || 'MULTIPLE_CHOICE';
+        const resolvedCorrect = correctOption !== undefined ? correctOption : correctAnswer;
+        const resolvedOptions = options !== undefined
+            ? options
+            : (optionA !== undefined || optionB !== undefined || optionC !== undefined || optionD !== undefined
+                ? { A: optionA || '', B: optionB || '', C: optionC || '', D: optionD || '' }
+                : null);
+
         const count = await prisma.question.count({ where: { examId } });
         const mediaType = imageUrl && audioUrl ? 'BOTH' : (imageUrl ? 'IMAGE' : (audioUrl ? 'AUDIO' : 'NONE'));
-        const isEssay = type === 'ESSAY' || type === 'URAIAN';
+        const isEssay = resolvedType === 'ESSAY' || resolvedType === 'URAIAN';
 
         const sanitized = !isEssay
-            ? sanitizeSmpOptionsAndKey(options, correctOption)
-            : { optionsStr: null, correctOption: correctOption ? String(correctOption).trim() : null };
+            ? sanitizeSmpOptionsAndKey(resolvedOptions, resolvedCorrect)
+            : { optionsStr: null, correctOption: resolvedCorrect ? String(resolvedCorrect).trim() : null };
 
         const question = await prisma.question.create({
             data: {
                 examId,
-                content,
-                type: type || 'MULTIPLE_CHOICE',
+                content: resolvedContent,
+                type: resolvedType,
                 imageUrl: imageUrl || null,
                 audioUrl: audioUrl || null,
                 mediaType,
@@ -451,7 +827,8 @@ export const createQuestion = async (req: Request, res: Response) => {
                 orderNum: count + 1
             }
         });
-        res.json(question);
+        await syncExamQuestionsToUh(examId).catch(() => null);
+        res.json({ success: true, question, ...question });
     } catch (error) {
         console.error('Error creating question:', error);
         res.status(500).json({ message: 'Error creating question' });
@@ -460,24 +837,37 @@ export const createQuestion = async (req: Request, res: Response) => {
 
 export const updateQuestion = async (req: Request, res: Response) => {
     const id = req.params.id as string;
-    const { content, type, correctOption, options, imageUrl, audioUrl, cognitiveLevel, kdTag, orderNum, explanation } = req.body;
+    const {
+        content, questionText, type, questionType, correctOption, correctAnswer,
+        options, optionA, optionB, optionC, optionD,
+        imageUrl, audioUrl, cognitiveLevel, kdTag, orderNum, explanation
+    } = req.body;
     try {
+        const resolvedContent = content !== undefined ? content : (questionText || '');
+        const resolvedType = type || questionType;
+        const resolvedCorrect = correctOption !== undefined ? correctOption : correctAnswer;
+        const resolvedOptions = options !== undefined
+            ? options
+            : (optionA !== undefined || optionB !== undefined || optionC !== undefined || optionD !== undefined
+                ? { A: optionA || '', B: optionB || '', C: optionC || '', D: optionD || '' }
+                : null);
+
         const mediaType = imageUrl && audioUrl ? 'BOTH' : (imageUrl ? 'IMAGE' : (audioUrl ? 'AUDIO' : 'NONE'));
-        const isEssay = type === 'ESSAY' || type === 'URAIAN';
+        const isEssay = resolvedType === 'ESSAY' || resolvedType === 'URAIAN';
 
         const sanitized = !isEssay
-            ? sanitizeSmpOptionsAndKey(options, correctOption)
-            : { optionsStr: null, correctOption: correctOption ? String(correctOption).trim() : null };
+            ? sanitizeSmpOptionsAndKey(resolvedOptions, resolvedCorrect)
+            : { optionsStr: null, correctOption: resolvedCorrect ? String(resolvedCorrect).trim() : null };
 
         const updateData: any = {
-            content,
+            content: resolvedContent,
             correctOption: sanitized.correctOption,
             options: sanitized.optionsStr,
             imageUrl: imageUrl || null,
             audioUrl: audioUrl || null,
             mediaType
         };
-        if (type !== undefined) updateData.type = type;
+        if (resolvedType !== undefined) updateData.type = resolvedType;
         if (cognitiveLevel !== undefined) updateData.cognitiveLevel = cognitiveLevel;
         if (kdTag !== undefined) updateData.kdTag = kdTag;
         if (orderNum !== undefined) updateData.orderNum = Number(orderNum);
@@ -487,7 +877,8 @@ export const updateQuestion = async (req: Request, res: Response) => {
             where: { id },
             data: updateData
         });
-        res.json(question);
+        await syncExamQuestionsToUh(question.examId).catch(() => null);
+        res.json({ success: true, question, ...question });
     } catch (error) {
         console.error('Error updating question:', error);
         res.status(500).json({ message: 'Error updating question' });

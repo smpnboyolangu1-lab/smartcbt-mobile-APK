@@ -92,6 +92,10 @@
             <button onclick="switchTab('laporan')" id="btnTab-laporan" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 flex items-center gap-2 transition-all">
                 <span>📄</span> <span>Laporan &amp; Cetak</span>
             </button>
+            <button onclick="switchTab('agenda')" id="btnTab-agenda" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 flex items-center gap-2 transition-all">
+                <span>📅</span> <span>Agenda &amp; Kegiatan Khusus</span>
+                <span id="badgeActiveAgenda" class="bg-amber-500 text-slate-950 text-[10px] font-black px-1.5 py-0.2 rounded-full hidden">AKTIF</span>
+            </button>
         </div>
     </nav>
 
@@ -750,6 +754,77 @@
             </div>
         </section>
 
+        <!-- 9. TAB AGENDA SEKOLAH & TERELASI PRESENSI -->
+        <section id="section-agenda" class="space-y-6 hidden">
+            <!-- Header Banner -->
+            <div class="bg-gradient-to-r from-amber-700 via-orange-800 to-slate-900 rounded-3xl p-6 sm:p-8 text-white shadow-lg relative overflow-hidden">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 relative z-10">
+                    <div>
+                        <span class="bg-amber-400/30 text-amber-200 text-xs uppercase px-3 py-1 rounded-full font-black border border-amber-300/30">
+                            AGENDA &amp; KEGIATAN KHUSUS TERELASI PRESENSI
+                        </span>
+                        <h2 class="text-xl sm:text-2xl font-black mt-2">Manajemen Agenda Sekolah &amp; Relasi Presensi</h2>
+                        <p class="text-amber-100 text-xs sm:text-sm mt-1 max-w-2xl leading-relaxed">
+                            Mencegah kegagalan presensi saat kegiatan khusus (Hari Santri, Upacara, Sholat Akbar, dll). Sistem otomatis melonggarkan batas waktu scan gerbang (Gate-In), melindungi siswa dari blast ALPA jam 15:00 WIB, dan menyediakan 1-Klik Verifikasi Kehadiran Massal.
+                        </p>
+                    </div>
+                    <div class="flex items-center gap-2.5">
+                        <button onclick="openModalAddAgenda()" class="px-4 py-2.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black rounded-xl text-xs flex items-center gap-2 shadow-lg transition-all cursor-pointer">
+                            <span>➕</span> Tambah Agenda Baru
+                        </button>
+                        <button onclick="loadAgendas()" class="px-3.5 py-2.5 bg-white/10 hover:bg-white/20 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 transition-all cursor-pointer">
+                            <span>🔄</span> Refresh
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Banner Agenda Hari Ini (Jika Ada) -->
+            <div id="todayAgendaContainer" class="hidden">
+                <!-- Injected via JS -->
+            </div>
+
+            <!-- Tabel Daftar Agenda Sekolah -->
+            <div class="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm space-y-4">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+                    <div>
+                        <h3 class="font-black text-base text-slate-800 flex items-center gap-2">
+                            <span>📋</span> Kalender &amp; Riwayat Agenda Sekolah
+                        </h3>
+                        <p class="text-xs text-slate-500 mt-0.5">Daftar agenda yang terdaftar beserta status integrasi presensi dan verifikasi massal.</p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <select id="agendaFilterCategory" onchange="loadAgendas()" class="text-xs border border-slate-200 bg-slate-50 rounded-xl px-3 py-2 font-bold text-slate-700 focus:outline-none focus:border-amber-500">
+                            <option value="">Semua Kategori</option>
+                            <option value="KEAGAMAAN">🕌 Keagamaan / PAI</option>
+                            <option value="UPACARA">🎖️ Upacara &amp; Hari Besar</option>
+                            <option value="AKADEMIK">📚 Akademik &amp; KBM Khusus</option>
+                            <option value="NON_KBM">🎯 Non-KBM / Porseni / Lomba</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-xs text-slate-600 min-w-[760px]">
+                        <thead class="bg-slate-50 text-slate-700 font-extrabold uppercase text-[11px] border-b border-slate-200">
+                            <tr>
+                                <th class="p-3.5">Tanggal &amp; Jam</th>
+                                <th class="p-3.5">Nama Agenda</th>
+                                <th class="p-3.5">Kategori</th>
+                                <th class="p-3.5">Target Siswa</th>
+                                <th class="p-3.5">Efek Presensi (Gate &amp; Dhuha)</th>
+                                <th class="p-3.5 text-center">Status Verifikasi</th>
+                                <th class="p-3.5 text-right">Aksi</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tableAgendaBody" class="divide-y divide-slate-100">
+                            <tr><td colspan="7" class="p-8 text-center text-slate-400">Memuat data agenda...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
     </main>
 
     <!-- FOOTER SIBOY FRESH -->
@@ -770,6 +845,112 @@
             <div class="pt-3 border-t flex justify-end gap-2" id="mIzinActions">
                 <button onclick="closeModalDetailIzin()" class="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs">Tutup</button>
             </div>
+        </div>
+    </div>
+
+    <!-- MODAL TAMBAH / EDIT AGENDA -->
+    <div id="modalAddAgenda" class="fixed inset-0 bg-slate-950/70 z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between border-b pb-3">
+                <div class="flex items-center gap-2">
+                    <span class="text-xl">📅</span>
+                    <h4 class="font-black text-base text-slate-800" id="mAgendaModalTitle">Tambah Agenda Sekolah Baru</h4>
+                </div>
+                <button onclick="closeModalAddAgenda()" class="text-slate-400 hover:text-slate-600 text-lg font-bold">✕</button>
+            </div>
+
+            <form id="formAddAgenda" onsubmit="submitSaveAgenda(event)" class="space-y-4 text-xs">
+                <input type="hidden" id="agendaEditId" value="">
+
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1">Judul / Nama Agenda <span class="text-rose-500">*</span></label>
+                    <input type="text" id="agendaInputTitle" required placeholder="Contoh: Peringatan Hari Santri Nasional 2026" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:border-amber-500 focus:outline-none font-semibold text-slate-800">
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">Kategori <span class="text-rose-500">*</span></label>
+                        <select id="agendaInputCategory" required class="w-full px-3 py-2.5 rounded-xl border border-slate-200 font-semibold text-slate-800">
+                            <option value="KEAGAMAAN">🕌 Keagamaan / PAI (Hari Santri, Sholat Akbar)</option>
+                            <option value="UPACARA">🎖️ Upacara (Hari Pahlawan, Sumpah Pemuda)</option>
+                            <option value="AKADEMIK">📚 Akademik / KBM Khusus</option>
+                            <option value="NON_KBM">🎯 Non-KBM / Porseni / Classmeeting</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">Tanggal Kegiatan <span class="text-rose-500">*</span></label>
+                        <input type="date" id="agendaInputDate" required class="w-full px-3.5 py-2 rounded-xl border border-slate-200 font-semibold text-slate-800">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">Jam Mulai</label>
+                        <input type="time" id="agendaInputStartTime" value="06:30" class="w-full px-3.5 py-2 rounded-xl border border-slate-200 font-semibold text-slate-800">
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">Jam Selesai</label>
+                        <input type="time" id="agendaInputEndTime" value="11:30" class="w-full px-3.5 py-2 rounded-xl border border-slate-200 font-semibold text-slate-800">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1">Target Peserta Siswa</label>
+                    <select id="agendaInputTargetScope" class="w-full px-3 py-2.5 rounded-xl border border-slate-200 font-semibold text-slate-800">
+                        <option value="ALL">Seluruh Siswa (Kelas VII, VIII, IX)</option>
+                        <option value="VII">Hanya Kelas VII (Tingkat 7)</option>
+                        <option value="VIII">Hanya Kelas VIII (Tingkat 8)</option>
+                        <option value="IX">Hanya Kelas IX (Tingkat 9)</option>
+                    </select>
+                </div>
+
+                <div class="bg-amber-50 rounded-2xl p-4 border border-amber-200 space-y-3">
+                    <p class="font-extrabold text-amber-900 flex items-center gap-1.5">
+                        <span>⚙️</span> Pengaturan Relasi Presensi Otomatis
+                    </p>
+
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <span class="font-bold text-slate-800">Perpanjang Batas Scan Gerbang (Gate-In)</span>
+                            <p class="text-[11px] text-slate-500">Siswa yang scan sebelum jam ini tetap dianggap Hadir Tepat Waktu</p>
+                        </div>
+                        <input type="time" id="agendaInputGateExtend" value="10:30" class="px-2.5 py-1 rounded-lg border border-amber-300 font-bold bg-white text-xs">
+                    </div>
+
+                    <div class="flex items-center gap-2">
+                        <input type="checkbox" id="agendaInputSuppressAlpa" checked class="w-4 h-4 rounded text-amber-600 focus:ring-amber-500">
+                        <label for="agendaInputSuppressAlpa" class="font-bold text-slate-800 cursor-pointer">
+                            Lindungi dari Blast Notifikasi ALPA 15:00 WIB
+                        </label>
+                    </div>
+
+                    <div class="flex items-center gap-2">
+                        <input type="checkbox" id="agendaInputAutoDhuha" checked class="w-4 h-4 rounded text-amber-600 focus:ring-amber-500">
+                        <label for="agendaInputAutoDhuha" class="font-bold text-slate-800 cursor-pointer">
+                            Otomatis Catat Sholat Dhuha Berjamaah (PAI) saat Verifikasi
+                        </label>
+                    </div>
+
+                    <div class="flex items-center gap-2">
+                        <input type="checkbox" id="agendaInputAutoGateIn" checked class="w-4 h-4 rounded text-amber-600 focus:ring-amber-500">
+                        <label for="agendaInputAutoGateIn" class="font-bold text-slate-800 cursor-pointer">
+                            Otomatis Catat Kehadiran Masuk (GATE_IN Hadir Tepat Waktu)
+                        </label>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1">Keterangan / Catatan Tambahan (Opsional)</label>
+                    <textarea id="agendaInputDesc" rows="2" placeholder="Contoh: Siswa membawa perlengkapan sholat & bersarung/berbusana muslim." class="w-full px-3.5 py-2 rounded-xl border border-slate-200 font-medium text-slate-800"></textarea>
+                </div>
+
+                <div class="flex justify-end gap-2.5 pt-3 border-t">
+                    <button type="button" onclick="closeModalAddAgenda()" class="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 font-bold">Batal</button>
+                    <button type="submit" id="btnSubmitAgenda" class="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black shadow-md flex items-center gap-1.5 cursor-pointer">
+                        <span>💾</span> Simpan Agenda
+                    </button>
+                </div>
+            </form>
         </div>
     </div>
 
@@ -811,7 +992,7 @@
         }
 
         function switchTab(tabId) {
-            const tabs = ['dashboard', 'approval', 'rekap-guru', 'rekap-siswa', 'kelas-kosong', 'cbt', 'laporan', 'tpp'];
+            const tabs = ['dashboard', 'approval', 'rekap-guru', 'rekap-siswa', 'kelas-kosong', 'cbt', 'laporan', 'tpp', 'agenda'];
             tabs.forEach(t => {
                 const btn = document.getElementById('btnTab-' + t);
                 const sec = document.getElementById('section-' + t);
@@ -833,6 +1014,7 @@
             else if (tabId === 'kelas-kosong') loadMonitoringKelasKosong();
             else if (tabId === 'cbt') loadMonitoringCbt();
             else if (tabId === 'tpp') loadKurikulumTppData();
+            else if (tabId === 'agenda') loadAgendas();
         }
 
         // 1. Load Dashboard
@@ -1642,6 +1824,309 @@
                     </tr>
                 `;
             }).join('');
+        }
+
+        // ==================== MODUL AGENDA SEKOLAH & RELASI PRESENSI ====================
+        let currentAgendas = [];
+
+        async function loadAgendas() {
+            try {
+                const category = document.getElementById('agendaFilterCategory')?.value || '';
+                const q = category ? `?category=${category}` : '';
+                const [allRes, todayRes] = await Promise.all([
+                    kurikulumFetch('/api/agenda/all' + q),
+                    kurikulumFetch('/api/agenda/today')
+                ]);
+
+                const allData = await allRes.json();
+                const todayData = await todayRes.json();
+
+                if (todayData.success) {
+                    renderTodayAgendaCard(todayData);
+                    const badge = document.getElementById('badgeActiveAgenda');
+                    if (badge) {
+                        badge.classList.toggle('hidden', !todayData.hasActiveAgenda);
+                    }
+                }
+
+                if (allData.success) {
+                    currentAgendas = allData.agendas || [];
+                    renderAgendaTable(currentAgendas);
+                }
+            } catch (err) {
+                console.error('[loadAgendas]', err);
+            }
+        }
+
+        function renderTodayAgendaCard(data) {
+            const container = document.getElementById('todayAgendaContainer');
+            if (!container) return;
+
+            if (!data.hasActiveAgenda || !data.agendas || data.agendas.length === 0) {
+                container.classList.add('hidden');
+                container.innerHTML = '';
+                return;
+            }
+
+            container.classList.remove('hidden');
+            const itemsHtml = data.agendas.map(a => {
+                const isVerified = a.isCompleted;
+                return `
+                    <div class="bg-gradient-to-r from-amber-500/15 via-orange-500/10 to-amber-500/5 border-2 border-amber-400 rounded-2xl p-5 shadow-sm space-y-3">
+                        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                            <div class="flex items-center gap-2.5">
+                                <span class="text-2xl">${a.category === 'KEAGAMAAN' ? '🕌' : a.category === 'UPACARA' ? '🎖️' : '📅'}</span>
+                                <div>
+                                    <div class="flex items-center gap-2">
+                                        <h3 class="font-extrabold text-base text-slate-900">${a.title}</h3>
+                                        <span class="bg-amber-100 text-amber-800 text-[10px] font-black px-2.5 py-0.5 rounded-full border border-amber-200 uppercase">${a.category}</span>
+                                    </div>
+                                    <p class="text-xs text-slate-600 mt-0.5">Waktu: <strong class="font-mono text-slate-800">${a.startTime || '06:30'} - ${a.endTime || '11:30'} WIB</strong> • Target: <strong class="text-amber-800">${a.targetScope === 'ALL' ? 'Seluruh Rombel (VII-IX)' : 'Kelas ' + a.targetScope}</strong></p>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                ${isVerified ? `
+                                    <span class="inline-flex items-center gap-1.5 bg-emerald-100 text-emerald-800 px-3 py-1.5 rounded-xl text-xs font-black border border-emerald-300">
+                                        <span>✅</span> Terverifikasi Massal
+                                    </span>
+                                ` : `
+                                    <button onclick="executeVerifyMassAgenda('${a.id}', '${escapeJs(a.title)}')" class="bg-emerald-600 hover:bg-emerald-500 text-white font-black px-4 py-2 rounded-xl text-xs shadow-md flex items-center gap-1.5 transition-all cursor-pointer">
+                                        <span>⚡</span> 1-Klik Verifikasi Massal Presensi
+                                    </button>
+                                `}
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-2 border-t border-amber-200/70 text-[11.5px]">
+                            <div class="flex items-center gap-2 bg-white/80 p-2.5 rounded-xl border border-amber-100">
+                                <span class="text-base">🚪</span>
+                                <div>
+                                    <span class="text-slate-500 block text-[10px] uppercase font-bold">Batas Gerbang (Gate-In)</span>
+                                    <span class="font-bold text-slate-800">Diperpanjang s.d. ${a.autoExtendGateUntil || '10:30'} WIB</span>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-2 bg-white/80 p-2.5 rounded-xl border border-amber-100">
+                                <span class="text-base">🛡️</span>
+                                <div>
+                                    <span class="text-slate-500 block text-[10px] uppercase font-bold">Proteksi Alpa 15:00 WIB</span>
+                                    <span class="font-bold ${a.suppressAlpaBlast ? 'text-emerald-700' : 'text-slate-500'}">${a.suppressAlpaBlast ? 'AKTIF (Bebas False-Alpa)' : 'Non-Aktif'}</span>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-2 bg-white/80 p-2.5 rounded-xl border border-amber-100">
+                                <span class="text-base">🕌</span>
+                                <div>
+                                    <span class="text-slate-500 block text-[10px] uppercase font-bold">Ibadah Sholat Dhuha</span>
+                                    <span class="font-bold ${a.autoGrantDhuha ? 'text-teal-700' : 'text-slate-500'}">${a.autoGrantDhuha ? 'Otomatis Masuk Rekap PAI' : 'Tidak Tercatat'}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            container.innerHTML = `
+                <div class="space-y-3">
+                    <div class="flex items-center gap-2 text-xs font-black text-amber-800 uppercase tracking-wider">
+                        <span class="w-2.5 h-2.5 rounded-full bg-amber-500 animate-ping"></span>
+                        <span>🌟 Agenda Sekolah Aktif Hari Ini (${data.today})</span>
+                    </div>
+                    ${itemsHtml}
+                </div>
+            `;
+        }
+
+        function renderAgendaTable(agendas) {
+            const tbody = document.getElementById('tableAgendaBody');
+            if (!tbody) return;
+
+            if (!agendas || agendas.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="7" class="p-8 text-center text-slate-400">Belum ada agenda sekolah terdaftar. Klik "+ Tambah Agenda Baru" untuk menambahkan agenda seperti Hari Santri, Upacara, dll.</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = agendas.map(a => {
+                const catBadge = a.category === 'KEAGAMAAN' ? '<span class="bg-teal-100 text-teal-800 px-2 py-0.5 rounded font-black text-[10px]">🕌 KEAGAMAAN</span>'
+                    : a.category === 'UPACARA' ? '<span class="bg-rose-100 text-rose-800 px-2 py-0.5 rounded font-black text-[10px]">🎖️ UPACARA</span>'
+                    : a.category === 'AKADEMIK' ? '<span class="bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded font-black text-[10px]">📚 AKADEMIK</span>'
+                    : '<span class="bg-amber-100 text-amber-800 px-2 py-0.5 rounded font-black text-[10px]">🎯 NON-KBM</span>';
+
+                const targetLabel = a.targetScope === 'ALL' ? 'Semua Rombel (VII-IX)' : 'Kelas ' + a.targetScope;
+
+                const effects = [];
+                if (a.autoExtendGateUntil) effects.push(`Gate s.d. ${a.autoExtendGateUntil}`);
+                if (a.suppressAlpaBlast) effects.push('Alpa Shield');
+                if (a.autoGrantDhuha) effects.push('Dhuha PAI');
+
+                const statusBadge = a.isCompleted ? `
+                    <span class="inline-flex items-center gap-1 bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-full font-extrabold text-[10px]">
+                        <span>✅</span> Selesai Diverifikasi
+                    </span>
+                    <span class="text-[9.5px] text-slate-400 block mt-0.5 font-mono">oleh ${a.verifiedBy || 'Petugas'}</span>
+                ` : `
+                    <span class="inline-flex items-center gap-1 bg-amber-100 text-amber-800 px-2.5 py-1 rounded-full font-bold text-[10px]">
+                        <span>⏳</span> Menunggu Verifikasi
+                    </span>
+                `;
+
+                return `
+                    <tr class="hover:bg-slate-50 transition-colors">
+                        <td class="p-3.5">
+                            <span class="font-extrabold text-slate-800 block text-xs">${a.date}</span>
+                            <span class="text-[10.5px] text-slate-500 font-mono">${a.startTime || '06:30'} - ${a.endTime || '11:30'} WIB</span>
+                        </td>
+                        <td class="p-3.5">
+                            <span class="font-black text-slate-900 block text-xs">${a.title}</span>
+                            ${a.description ? `<span class="text-[10.5px] text-slate-500 block truncate max-w-xs">${a.description}</span>` : ''}
+                        </td>
+                        <td class="p-3.5">${catBadge}</td>
+                        <td class="p-3.5 font-bold text-slate-700">${targetLabel}</td>
+                        <td class="p-3.5">
+                            <div class="flex flex-wrap gap-1">
+                                ${effects.map(ef => `<span class="bg-slate-100 text-slate-700 text-[10px] px-1.5 py-0.5 rounded font-bold">${ef}</span>`).join('')}
+                            </div>
+                        </td>
+                        <td class="p-3.5 text-center">${statusBadge}</td>
+                        <td class="p-3.5 text-right whitespace-nowrap space-x-1">
+                            ${!a.isCompleted ? `
+                                <button onclick="executeVerifyMassAgenda('${a.id}', '${escapeJs(a.title)}')" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-2.5 py-1 rounded-lg text-[11px] shadow-sm transition-all cursor-pointer" title="1-Klik Verifikasi Kehadiran Massal">
+                                    ⚡ Verifikasi
+                                </button>
+                            ` : ''}
+                            <button onclick="openModalAddAgenda('${a.id}')" class="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-2 py-1 rounded-lg text-[11px] transition-all cursor-pointer" title="Edit">
+                                ✏️
+                            </button>
+                            <button onclick="deleteAgenda('${a.id}', '${escapeJs(a.title)}')" class="bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold px-2 py-1 rounded-lg text-[11px] transition-all cursor-pointer" title="Hapus">
+                                🗑️
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function escapeJs(str) {
+            return (str || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+        }
+
+        function openModalAddAgenda(id = null) {
+            const modal = document.getElementById('modalAddAgenda');
+            if (!modal) return;
+            document.getElementById('formAddAgenda').reset();
+            document.getElementById('agendaEditId').value = id || '';
+
+            if (id) {
+                const a = currentAgendas.find(x => x.id === id);
+                if (a) {
+                    document.getElementById('mAgendaModalTitle').innerText = 'Edit Agenda Sekolah';
+                    document.getElementById('agendaInputTitle').value = a.title || '';
+                    document.getElementById('agendaInputCategory').value = a.category || 'NON_KBM';
+                    document.getElementById('agendaInputDate').value = a.date || '';
+                    document.getElementById('agendaInputStartTime').value = a.startTime || '06:30';
+                    document.getElementById('agendaInputEndTime').value = a.endTime || '11:30';
+                    document.getElementById('agendaInputTargetScope').value = a.targetScope || 'ALL';
+                    document.getElementById('agendaInputGateExtend').value = a.autoExtendGateUntil || '10:30';
+                    document.getElementById('agendaInputSuppressAlpa').checked = Boolean(a.suppressAlpaBlast);
+                    document.getElementById('agendaInputAutoDhuha').checked = Boolean(a.autoGrantDhuha);
+                    document.getElementById('agendaInputAutoGateIn').checked = Boolean(a.autoGrantGateIn);
+                    document.getElementById('agendaInputDesc').value = a.description || '';
+                }
+            } else {
+                document.getElementById('mAgendaModalTitle').innerText = 'Tambah Agenda Sekolah Baru';
+                const todayStr = new Date(Date.now() + 7 * 3600000).toISOString().slice(0, 10);
+                document.getElementById('agendaInputDate').value = todayStr;
+                document.getElementById('agendaInputGateExtend').value = '10:30';
+                document.getElementById('agendaInputSuppressAlpa').checked = true;
+                document.getElementById('agendaInputAutoDhuha').checked = true;
+                document.getElementById('agendaInputAutoGateIn').checked = true;
+            }
+
+            modal.classList.remove('hidden');
+        }
+
+        function closeModalAddAgenda() {
+            const modal = document.getElementById('modalAddAgenda');
+            if (modal) modal.classList.add('hidden');
+        }
+
+        async function submitSaveAgenda(e) {
+            e.preventDefault();
+            const btn = document.getElementById('btnSubmitAgenda');
+            btn.disabled = true;
+            btn.innerHTML = 'Menyimpan...';
+
+            try {
+                const editId = document.getElementById('agendaEditId').value;
+                const payload = {
+                    title: document.getElementById('agendaInputTitle').value,
+                    category: document.getElementById('agendaInputCategory').value,
+                    date: document.getElementById('agendaInputDate').value,
+                    startTime: document.getElementById('agendaInputStartTime').value,
+                    endTime: document.getElementById('agendaInputEndTime').value,
+                    targetScope: document.getElementById('agendaInputTargetScope').value,
+                    autoExtendGateUntil: document.getElementById('agendaInputGateExtend').value,
+                    suppressAlpaBlast: document.getElementById('agendaInputSuppressAlpa').checked,
+                    autoGrantDhuha: document.getElementById('agendaInputAutoDhuha').checked,
+                    autoGrantGateIn: document.getElementById('agendaInputAutoGateIn').checked,
+                    description: document.getElementById('agendaInputDesc').value
+                };
+
+                const url = editId ? `/api/agenda/${editId}` : '/api/agenda/create';
+                const method = editId ? 'PUT' : 'POST';
+
+                const res = await kurikulumFetch(url, {
+                    method,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const result = await res.json();
+                if (result.success) {
+                    alert(result.message || 'Agenda berhasil disimpan!');
+                    closeModalAddAgenda();
+                    await loadAgendas();
+                } else {
+                    alert('Gagal menyimpan: ' + (result.message || 'Terjadi kesalahan'));
+                }
+            } catch (err) {
+                alert('Kesalahan jaringan: ' + err.message);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<span>💾</span> Simpan Agenda';
+            }
+        }
+
+        async function deleteAgenda(id, title) {
+            if (!confirm(`Hapus agenda "${title}"? Penyesuaian presensi untuk agenda ini akan dibatalkan.`)) return;
+            try {
+                const res = await kurikulumFetch(`/api/agenda/${id}`, { method: 'DELETE' });
+                const result = await res.json();
+                if (result.success) {
+                    alert(result.message);
+                    await loadAgendas();
+                } else {
+                    alert(result.message || 'Gagal menghapus');
+                }
+            } catch (err) {
+                alert('Gagal menghapus: ' + err.message);
+            }
+        }
+
+        async function executeVerifyMassAgenda(id, title) {
+            const conf = confirm(`Konfirmasi Kehadiran Massal Agenda "${title}"?\n\nSistem akan otomatis mencatat presensi Masuk Sekolah (Gate-In) dan/atau Sholat Dhuha PAI untuk seluruh siswa yang menjadi target agenda ini.`);
+            if (!conf) return;
+
+            try {
+                const res = await kurikulumFetch(`/api/agenda/${id}/verify-mass`, { method: 'POST' });
+                const result = await res.json();
+                if (result.success) {
+                    alert(result.message + `\n\nStatistik:\n- Target Siswa: ${result.stats.totalTargetStudents}\n- Presensi Gate-In Dicatat: ${result.stats.newGateInRecorded}\n- Sholat Dhuha PAI Dicatat: ${result.stats.newDhuhaRecorded}`);
+                    await loadAgendas();
+                } else {
+                    alert('Gagal verifikasi: ' + (result.message || 'Terjadi kesalahan'));
+                }
+            } catch (err) {
+                alert('Gagal verifikasi massal: ' + err.message);
+            }
         }
 
         // ==================== PORTAL DARK / LIGHT THEME ====================

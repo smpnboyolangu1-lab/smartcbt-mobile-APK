@@ -210,3 +210,69 @@ export async function sendFcmToTokens(tokens: string[], title: string, body: str
 
     return successCount;
 }
+
+// Send silent data-only push to wake up devices in background (no notification popup on student's screen)
+export async function sendSilentFcmWakeupToTokens(tokens: string[], action: string = 'WAKEUP_PING', extraData: Record<string, string> = {}): Promise<number> {
+    if (!initFirebaseAdmin() || !tokens.length) return 0;
+
+    const uniqueTokens = Array.from(new Set(tokens));
+    let successCount = 0;
+
+    const message: any = {
+        tokens: uniqueTokens,
+        android: {
+            priority: 'high'
+        },
+        data: {
+            action: action, // "WAKEUP_PING", "HEARTBEAT_REQUEST", "SYNC_DATA"
+            silentWakeup: 'true',
+            timestamp: new Date().toISOString(),
+            ...extraData
+        }
+    };
+
+    try {
+        const messaging = getMessaging();
+        const response = await messaging.sendEachForMulticast(message);
+        successCount = response.successCount;
+
+        if (response.failureCount > 0) {
+            const badTokens: string[] = [];
+            response.responses.forEach((resp: any, idx: number) => {
+                if (!resp.success) {
+                    const errCode = resp.error?.code;
+                    if (errCode === 'messaging/invalid-registration-token' ||
+                        errCode === 'messaging/registration-token-not-registered') {
+                        badTokens.push(uniqueTokens[idx]);
+                    }
+                }
+            });
+
+            if (badTokens.length > 0) {
+                await (prisma as any).userFcmToken.deleteMany({
+                    where: { token: { in: badTokens } }
+                }).catch(() => {});
+            }
+        }
+    } catch (err: any) {
+        console.error('[FCM] sendSilentFcmWakeupToTokens error:', err.message);
+    }
+
+    return successCount;
+}
+
+// Send silent wakeup to all active tokens or specific user
+export async function sendSilentFcmWakeupToUser(userId: string, action: string = 'WAKEUP_PING', extraData: Record<string, string> = {}): Promise<number> {
+    try {
+        const userTokens = await (prisma as any).userFcmToken.findMany({
+            where: { userId },
+            select: { token: true }
+        });
+        const tokens = userTokens.map((t: any) => t.token);
+        if (!tokens.length) return 0;
+        return await sendSilentFcmWakeupToTokens(tokens, action, extraData);
+    } catch (e: any) {
+        console.error('[FCM] sendSilentFcmWakeupToUser error:', e.message);
+        return 0;
+    }
+}

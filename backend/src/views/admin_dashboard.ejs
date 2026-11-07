@@ -43,6 +43,32 @@
             </div>
         </header>
 
+        <!-- Trial APK Announcement Card for Admin/Guru Testing -->
+        <div class="mb-6 p-4 rounded-2xl bg-gradient-to-r from-amber-500/10 via-slate-900 to-indigo-950/40 border border-amber-500/30 text-white shadow-md flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div class="flex items-start md:items-center gap-3.5">
+                <div class="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center text-xl flex-shrink-0 border border-amber-500/30">
+                    🧪
+                </div>
+                <div>
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs font-black uppercase text-amber-400 tracking-wider">Build APK Trial Internal Guru &amp; Admin</span>
+                        <span class="text-[10px] bg-amber-400/20 text-amber-300 font-mono px-2 py-0.5 rounded border border-amber-400/30 font-bold">v2.9.16_trial</span>
+                    </div>
+                    <p class="text-xs text-slate-300 mt-0.5">
+                        Tersedia untuk pengujian modul Guru (Editor Soal Back/Next, Simpan ke Bank Soal, Quick Grading, Ulangan Cepat Full-Mode, PR Multi-Kelas &amp; Monitoring LJS). Tidak terdistribusi otomatis ke siswa.
+                    </p>
+                </div>
+            </div>
+            <div class="flex items-center gap-2 flex-shrink-0">
+                <a href="/download-apk-trial" download="SmartCBT_v2.9.16_trial.apk" class="px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-black rounded-xl text-xs shadow-md transition-all flex items-center gap-1.5 transform hover:scale-105">
+                    <span>⬇️ Unduh APK (17.8 MB)</span>
+                </a>
+                <a href="/admin/app-releases#trial-apk" class="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold rounded-xl text-xs border border-slate-700 transition-all flex items-center gap-1">
+                    <span>🔍 Detail &amp; QR</span>
+                </a>
+            </div>
+        </div>
+
         <!-- 4 Key Metrics Overview Cards -->
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
             <!-- Card 1: Total Siswa -->
@@ -554,14 +580,28 @@
                     document.getElementById('absNotYet').innerText = absData.stats.notYet || 0;
                 }
 
-                // CBT Exams stats
+                // CBT Exams stats (Hanya hitung ujian yang benar-benar aktif & berlangsung hari ini)
                 const resExams = await fetch('/api/guru/exams', { headers: { 'Authorization': 'Bearer ' + token } });
                 const examData = await resExams.json();
                 if(Array.isArray(examData)) {
-                    document.getElementById('dashActiveExams').innerText = examData.length;
-                    if(examData.length > 0) {
-                        const tokenEl = document.getElementById('dashTokenBadge');
-                        if (tokenEl) tokenEl.innerText = (examData[0].isTokenActive && examData[0].token) ? examData[0].token : (examData[0].token || 'OFF');
+                    const todayWib = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(new Date());
+                    const activeExams = examData.filter(e => {
+                        const isOngoing = (e.status === 'ACTIVE' || e.status === 'ONGOING');
+                        if (!isOngoing || !e.isTokenActive) return false;
+                        if (e.isExpired) return false;
+                        if (e.executionDate && e.executionDate !== 'ALL' && e.executionDate !== todayWib) return false;
+                        return true;
+                    });
+                    document.getElementById('dashActiveExams').innerText = activeExams.length;
+                    const tokenEl = document.getElementById('dashTokenBadge');
+                    if (tokenEl) {
+                        if (activeExams.length > 0 && activeExams[0].token) {
+                            tokenEl.innerText = activeExams[0].token;
+                            tokenEl.className = "inline-flex items-center px-2 py-0.5 rounded text-xs font-bold bg-emerald-100 text-emerald-800";
+                        } else {
+                            tokenEl.innerText = "OFF";
+                            tokenEl.className = "inline-flex items-center px-2 py-0.5 rounded text-xs font-bold bg-slate-100 text-slate-500";
+                        }
                     }
                 }
 

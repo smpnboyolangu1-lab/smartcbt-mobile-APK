@@ -105,6 +105,7 @@ class SessionManager(private val context: Context) {
     fun saveStudentProfileJson(json: String) = prefs.edit().putString("student_profile_json", json).apply()
     fun getStudentProfileJson(): String? = prefs.getString("student_profile_json", null)
     fun getTeachingClasses(): String = prefs.getString(KEY_TEACHING_CLASSES, "") ?: ""
+    fun saveTeachingClasses(classes: String) = prefs.edit().putString(KEY_TEACHING_CLASSES, classes).apply()
     fun getTugasTambahan(): String = prefs.getString("user_tugas_tambahan", "") ?: ""
     fun getAvailableRoles(): List<String> {
         val saved = prefs.getString("user_available_roles", "") ?: ""

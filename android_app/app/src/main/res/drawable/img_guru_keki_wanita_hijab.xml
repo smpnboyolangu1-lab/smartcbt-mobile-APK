@@ -1,0 +1,124 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="96dp"
+    android:height="96dp"
+    android:viewportWidth="96"
+    android:viewportHeight="96">
+    <!-- Background Circle - Soft Warm Cream -->
+    <path
+        android:fillColor="#FEF3C7"
+        android:pathData="M48,48m-44,0a44,44 0,1 1,88 0a44,44 0,1 1,-88 0" />
+
+    <!-- Baju Seragam Keki / Khaki PNS Guru (Tubuh & Pundak) -->
+    <path
+        android:fillColor="#BFA054"
+        android:pathData="M22,92 C24,76 34,70 48,70 C62,70 72,76 74,92 Z" />
+    
+    <!-- Kerah Seragam Keki Gelap -->
+    <path
+        android:fillColor="#9E7F33"
+        android:pathData="M40,70 L48,82 L56,70 Z" />
+
+    <!-- Lencana KORPRI Emas / Tanda Jabatan PNS -->
+    <path
+        android:fillColor="#FBBF24"
+        android:pathData="M31,80 L35,80 L33,84 Z" />
+    <!-- Name Tag Putih Guru -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M60,80 L68,80 L68,83 L60,83 Z" />
+
+    <!-- Bagian Bawah Jilbab / Hijab Menutupi Leher & Dada -->
+    <path
+        android:fillColor="#EED9B3"
+        android:pathData="M32,60 C32,74 42,78 48,78 C54,78 64,74 64,60 C62,56 58,54 48,54 C38,54 34,56 32,60 Z" />
+
+    <!-- Lipatan Bayangan Hijab Bawah -->
+    <path
+        android:fillColor="#D8BE93"
+        android:pathData="M40,64 C44,70 48,74 48,78 C48,74 52,70 56,64 Z" />
+
+    <!-- Kepala Hijab Luar Melingkar -->
+    <path
+        android:fillColor="#EED9B3"
+        android:pathData="M48,12 C30,12 24,26 24,44 C24,62 34,70 48,70 C62,70 72,62 72,44 C72,26 66,12 48,12 Z" />
+
+    <!-- Bayangan Dalam Hijab Membingkai Wajah -->
+    <path
+        android:fillColor="#DEC59B"
+        android:pathData="M48,18 C34,18 31,30 31,44 C31,56 38,64 48,64 C58,64 65,56 65,44 C65,30 62,18 48,18 Z" />
+
+    <!-- Wajah Kartun Guru (Oval Halus) -->
+    <path
+        android:fillColor="#FDE4D0"
+        android:pathData="M48,22 C37,22 35,32 35,44 C35,54 41,60 48,60 C55,60 61,54 61,44 C61,32 59,22 48,22 Z" />
+
+    <!-- Pipi Merona / Blush Cantik Ramah -->
+    <path
+        android:fillColor="#FCA5A5"
+        android:pathData="M37,47m-3.5,0a3.5,2.5 0,1 1,7 0a3.5,2.5 0,1 1,-7 0" />
+    <path
+        android:fillColor="#FCA5A5"
+        android:pathData="M59,47m-3.5,0a3.5,2.5 0,1 1,7 0a3.5,2.5 0,1 1,-7 0" />
+
+    <!-- Alis Mata Rapi -->
+    <path
+        android:fillColor="#78350F"
+        android:pathData="M39,36 C41,35 44,35 45,36"
+        android:strokeColor="#78350F"
+        android:strokeWidth="1.2"
+        android:strokeLineCap="round" />
+    <path
+        android:fillColor="#78350F"
+        android:pathData="M51,36 C52,35 55,35 57,36"
+        android:strokeColor="#78350F"
+        android:strokeWidth="1.2"
+        android:strokeLineCap="round" />
+
+    <!-- Mata Kartun Bersinar & Ramah -->
+    <!-- Mata Kiri -->
+    <path
+        android:fillColor="#1E293B"
+        android:pathData="M42,41m-2.8,0a2.8,3.2 0,1 1,5.6 0a2.8,3.2 0,1 1,-5.6 0" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M41,39.5m-1,0a1,1 0,1 1,2 0a1,1 0,1 1,-2 0" />
+
+    <!-- Mata Kanan -->
+    <path
+        android:fillColor="#1E293B"
+        android:pathData="M54,41m-2.8,0a2.8,3.2 0,1 1,5.6 0a2.8,3.2 0,1 1,-5.6 0" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M53,39.5m-1,0a1,1 0,1 1,2 0a1,1 0,1 1,-2 0" />
+
+    <!-- Kacamata Elegan Guru (Frame Emas / Coklat Lembut) -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#B45309"
+        android:strokeWidth="1.4"
+        android:pathData="M38,42m-5.5,0a5.5,5.5 0,1 1,11 0a5.5,5.5 0,1 1,-11 0" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#B45309"
+        android:strokeWidth="1.4"
+        android:pathData="M58,42m-5.5,0a5.5,5.5 0,1 1,11 0a5.5,5.5 0,1 1,-11 0" />
+    <!-- Jembatan Kacamata -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#B45309"
+        android:strokeWidth="1.4"
+        android:pathData="M43.5,41 C46,39.5 50,39.5 52.5,41" />
+
+    <!-- Hidung Mungil -->
+    <path
+        android:fillColor="#E2A679"
+        android:pathData="M47.5,47m-0.8,0a0.8,0.8 0,1 1,1.6 0a0.8,0.8 0,1 1,-1.6 0" />
+
+    <!-- Senyum Kartun Ramah -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#DC2626"
+        android:strokeWidth="1.6"
+        android:strokeLineCap="round"
+        android:pathData="M44,52 C46,55 50,55 52,52" />
+</vector>

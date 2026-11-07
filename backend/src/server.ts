@@ -54,7 +54,7 @@ const candidateViewDirs = [
 const resolvedViewsDir = candidateViewDirs.find(d => fs.existsSync(d)) || path.join(__dirname, "views");
 app.set("views", resolvedViewsDir);
 
-// Explicit route for APK download with correct Android Package headers
+// Explicit route for APK download with correct Android Package headers (Public Release Only)
 app.get([
   '/uploads/SmartSchool_CBT_Release.apk',
   '/SmartSchool_CBT_Release.apk',
@@ -72,27 +72,60 @@ app.get([
     path.join(process.cwd(), "public/uploads/smartcbt-latest.apk"),
     path.join(process.cwd(), "public/smartcbt-latest.apk"),
     path.join(process.cwd(), "smartcbt-latest.apk"),
-    path.join(process.cwd(), "../android_app/app/build/outputs/apk/debug/app-debug.apk"),
-    path.join(process.cwd(), "../android_app/app/build/outputs/apk/release/app-release.apk"),
     path.join(__dirname, "../uploads/smartcbt-latest.apk"),
     path.join(__dirname, "../public/uploads/smartcbt-latest.apk")
   ];
 
-  const existingFiles = candidateApkPaths
-    .filter(p => fs.existsSync(p))
-    .map(p => ({ path: p, stat: fs.statSync(p) }))
-    .sort((a, b) => b.stat.mtimeMs - a.stat.mtimeMs);
+  const existingFile = candidateApkPaths.find(p => fs.existsSync(p));
 
-  if (existingFiles.length > 0) {
-    const apkPath = existingFiles[0].path;
+  if (existingFile) {
     res.setHeader('Content-Type', 'application/vnd.android.package-archive');
     res.setHeader('Content-Disposition', 'attachment; filename="SmartSchool_CBT_Release.apk"');
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
-    return res.sendFile(path.resolve(apkPath));
+    return res.sendFile(path.resolve(existingFile));
   }
   res.status(404).send('APK file not found on server');
+});
+
+// Dedicated endpoint for Admin / Teacher Trial APK download (Local Trial Only)
+app.get([
+  '/download-apk-trial',
+  '/download/trial',
+  '/admin/download/trial-apk',
+  '/uploads/SmartCBT_v2.9.19_trial.apk',
+  '/uploads/SmartCBT_v2.9.18_trial.apk',
+  '/uploads/SmartCBT_v2.9.17_trial.apk',
+  '/uploads/SmartCBT_v2.9.16_trial.apk',
+  '/uploads/SmartCBT_v2.9.15_trial.apk',
+  '/uploads/smartcbt-trial.apk'
+], (req, res) => {
+  const trialApkPaths = [
+    path.join(process.cwd(), "uploads/SmartCBT_v2.9.19_trial.apk"),
+    path.join(process.cwd(), "uploads/SmartCBT_v2.9.18_trial.apk"),
+    path.join(process.cwd(), "uploads/SmartCBT_v2.9.17_trial.apk"),
+    path.join(process.cwd(), "uploads/SmartCBT_v2.9.16_trial.apk"),
+    path.join(process.cwd(), "uploads/smartcbt-trial.apk"),
+    path.join(process.cwd(), "../SmartCBT_v2.9.19_trial.apk"),
+    path.join(process.cwd(), "../SmartCBT_v2.9.18_trial.apk"),
+    path.join(process.cwd(), "../SmartCBT_v2.9.17_trial.apk"),
+    path.join(process.cwd(), "../android_app/app/build/outputs/apk/release/app-release.apk"),
+    path.join(__dirname, "../uploads/SmartCBT_v2.9.19_trial.apk"),
+    path.join(__dirname, "../uploads/SmartCBT_v2.9.18_trial.apk"),
+    path.join(__dirname, "../uploads/SmartCBT_v2.9.17_trial.apk")
+  ];
+
+  const existingFile = trialApkPaths.find(p => fs.existsSync(p));
+  if (existingFile) {
+    res.setHeader('Content-Type', 'application/vnd.android.package-archive');
+    res.setHeader('Content-Disposition', 'attachment; filename="SmartCBT_v2.9.19_trial.apk"');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    return res.sendFile(path.resolve(existingFile));
+  }
+  res.status(404).send('Trial APK file not found on server');
 });
 
 // Smart Per-Student Document Resolver (KK, Akta Kelahiran, Dokumen Siswa)
@@ -543,8 +576,8 @@ app.get('/elibrary/cover/:id', getBookCoverSvg);
 app.get('/library/cover/:id', getBookCoverSvg);
 app.get('/api/library/cover/:id', getBookCoverSvg);
 app.get('/admin/files', authenticateWebAdminUtama, (req, res) => res.render('remote_file_manager'));
-app.get(['/admin/elibrary', '/admin/perpus', '/admin/perpustakaan'], authenticateWebAdminAndOperator, (req, res) => res.render('manajemen_elibrary', { isOperator: false }));
-app.get(['/elibrary', '/perpustakaan'], authenticateWebAdminAndOperator, (req, res) => res.render('manajemen_elibrary', { isOperator: false }));
+app.get(['/admin/elibrary', '/admin/perpus', '/admin/perpustakaan'], authenticateWebPerpus, (req, res) => res.render('manajemen_elibrary', { isOperator: false }));
+app.get(['/elibrary', '/perpustakaan'], authenticateWebPerpus, (req, res) => res.render('manajemen_elibrary', { isOperator: false }));
 app.get(['/admin/monitoring', '/operator/monitoring', '/kurikulum/monitoring', '/guru/monitoring', '/monitoring', '/proktor', '/guru/proktor', '/kurikulum/proktor'], authenticateWebGuru, async (req, res) => {
   const isOperator = req.path.startsWith('/operator') || (req as any).user?.role === 'OPERATOR';
   const token = extractWebToken(req);
@@ -703,7 +736,7 @@ app.get(['/absensi/tap-kartu', '/admin/tap-kartu', '/operator/tap-kartu'], (req,
 app.get(['/cbt/room', '/cbt/room/:roomId', '/cbt/student', '/cbt/ujian'], (req, res) => {
   res.status(403).send(`<!DOCTYPE html><html lang="id"><head><meta charset="UTF-8"><title>Akses CBT Web Dibatasi</title><script src="/js/tailwind.js"></script></head><body class="bg-slate-900 text-white min-h-screen flex items-center justify-center p-6 text-center"><div class="max-w-md bg-slate-800 p-8 rounded-2xl border border-rose-500/30 shadow-2xl"><div class="text-5xl mb-4">🛡️</div><h1 class="text-xl font-bold text-rose-400 mb-2">Akses Web CBT Ditutup</h1><p class="text-slate-300 text-sm leading-relaxed mb-6">Sesuai kebijakan integritas asesmen SMPN 1 Boyolangu, seluruh siswa <b>WAJIB</b> mengerjakan ujian menggunakan aplikasi resmi <b>SmartCBT Kiosk Lockdown Android</b>. Akses melalui peramban web umum (Chrome/Firefox/Edge) diblokir untuk mencegah kecurangan.</p><a href="/download/apk" class="inline-block bg-blue-600 hover:bg-blue-500 text-white font-bold py-2.5 px-6 rounded-xl text-sm transition-all shadow-lg">Unduh Aplikasi Resmi SmartCBT APK</a></div></body></html>`);
 });
-app.get(['/admin/cbt', '/kurikulum/cbt', '/operator/cbt'], authenticateWebAkademik, (req, res) => {
+app.get(['/admin/cbt', '/kurikulum/cbt', '/operator/cbt', '/guru/cbt'], authenticateWebGuru, (req, res) => {
   const isOperator = req.path.startsWith('/operator') || (req as any).user?.role === 'OPERATOR';
   const activeTab = String(req.query.tab || 'jadwal').toLowerCase();
   res.render('manajemen_cbt', { isOperator, activeTab });
@@ -786,7 +819,7 @@ app.get('/operator/cbt/capacity', authenticateWebAdminAndOperator, async (req, r
     res.render('server_capacity_dashboard', { initialData: null, isOperator: true });
   }
 });
-app.get(['/admin/tugas', '/operator/tugas', '/kurikulum/tugas'], authenticateWebAkademik, (req, res) => {
+app.get(['/admin/tugas', '/operator/tugas', '/kurikulum/tugas', '/guru/tugas'], authenticateWebGuru, (req, res) => {
   const isOperator = req.path.startsWith('/operator') || (req as any).user?.role === 'OPERATOR';
   res.render('manajemen_tugas', { isOperator });
 });
@@ -813,6 +846,7 @@ app.get('/operator/client-logs', authenticateWebAdminAndOperator, (req, res) => 
 
 // OPERATOR Routes (Amber) - Halaman dashboard utama /operator HANYA untuk Operator & Super Admin
 app.get('/operator', authenticateWebOperator, (req, res) => res.render('operator_dashboard'));
+app.get(['/operator/agenda', '/admin/agenda'], authenticateWebAkademik, (req, res) => res.render('operator_agenda'));
 app.get('/operator/cbt', authenticateWebAkademik, (req, res) => res.render('manajemen_cbt', { isOperator: true }));
 app.get(['/operator/jam-pelajaran', '/kurikulum/jam-pelajaran', '/admin/jam-pelajaran'], authenticateWebAkademik, (req, res) => res.render('operator_jam_pelajaran'));
 app.get('/operator/piket', authenticateWebAkademik, (req, res) => res.render('operator_piket'));
@@ -838,7 +872,7 @@ app.get('/siswa', authenticateWebSiswa, (req, res) => res.render('siswa_dashboar
 app.get('/orangtua', authenticateWebParent, (req, res) => res.render('parent_dashboard'));
 
 // BK & UKS Routes (Teal & Rose) - Wajib Autentikasi Sisi Server
-app.get('/bk', authenticateWebBk, (req, res) => res.render('bk_dashboard'));
+app.get(['/admin/bk', '/operator/bk', '/bk'], authenticateWebBk, (req, res) => res.render('bk_dashboard'));
 app.get(['/admin/uks', '/operator/uks', '/uks'], authenticateWebUks, (req, res) => res.render('uks_dashboard'));
 
 // EKSTRAKURIKULER Routes
@@ -914,6 +948,20 @@ async function ensureDefaultSecurityAndDisciplineData() {
 import { initTahfizTables } from './utils/tahfizDbInit';
 import { initKesiswaanDriveTables } from './utils/kesiswaanDbInit';
 import { ensureAllStudentDocFolders } from './utils/studentDocFolders';
+
+// Centralized Express Error Handler (handles aborted uploads, Multer errors, etc. without crashing or log spam)
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (err.message === 'Request aborted' || err.code === 'ECONNABORTED' || err.code === 'LIMIT_FILE_SIZE') {
+    if (!res.headersSent) {
+      return res.status(400).json({ success: false, message: 'Upload dibatalkan oleh klien atau koneksi terputus.' });
+    }
+    return;
+  }
+  console.error('[Unhandled Express Error]:', err.message || err);
+  if (!res.headersSent) {
+    res.status(500).json({ success: false, message: err.message || 'Terjadi kesalahan pada server.' });
+  }
+});
 
 const server = httpServer.listen({ port: Number(PORT), host: '::', ipv6Only: false }, () => {
   console.log(`[Server] Running on port ${PORT} (Dual-stack IPv4 0.0.0.0 & IPv6 [::])`);

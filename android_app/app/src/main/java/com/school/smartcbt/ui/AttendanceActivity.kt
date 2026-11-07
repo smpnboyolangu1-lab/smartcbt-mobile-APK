@@ -76,6 +76,8 @@ class AttendanceActivity : AppCompatActivity() {
     private var currentSelectedTab: Int = 0
     private var currentHistoryPage: Int = 1
     private val historyPageSize: Int = 20
+    private var allPrayerHistory: List<com.school.smartcbt.data.model.StudentPrayerRecordDto> = emptyList()
+    private var currentPrayerFilter: String = "ALL"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -1175,8 +1177,10 @@ class AttendanceActivity : AppCompatActivity() {
         binding.tabBtnTodayCalendar.setOnClickListener { switchAttendanceTab(0) }
         binding.tabBtnHistoryList.setOnClickListener { switchAttendanceTab(1) }
         binding.tabBtnSemesterStats.setOnClickListener { switchAttendanceTab(2) }
+        binding.tabBtnPrayerAttendance.setOnClickListener { switchAttendanceTab(3) }
 
         setupHistoryFilterButtons()
+        setupPrayerFilterButtons()
 
         val initialTab = intent.getIntExtra(EXTRA_INITIAL_TAB, 0)
         switchAttendanceTab(initialTab)
@@ -1203,13 +1207,17 @@ class AttendanceActivity : AppCompatActivity() {
         binding.containerTabCalendar.visibility = if (tabIndex == 0) View.VISIBLE else View.GONE
         binding.containerTabHistory.visibility = if (tabIndex == 1) View.VISIBLE else View.GONE
         binding.containerTabStats.visibility = if (tabIndex == 2) View.VISIBLE else View.GONE
+        binding.containerTabPrayer.visibility = if (tabIndex == 3) View.VISIBLE else View.GONE
 
         applyTabStyle(binding.tabBtnTodayCalendar, binding.tvTabTodayCalendar, tabIndex == 0, "#0A2E5C")
         applyTabStyle(binding.tabBtnHistoryList, binding.tvTabHistoryList, tabIndex == 1, "#059669")
         applyTabStyle(binding.tabBtnSemesterStats, binding.tvTabSemesterStats, tabIndex == 2, "#7C3AED")
+        applyTabStyle(binding.tabBtnPrayerAttendance, binding.tvTabPrayerAttendance, tabIndex == 3, "#065F46")
 
         if (tabIndex == 1) {
             renderAttendanceHistoryList(allAttendanceHistory)
+        } else if (tabIndex == 3) {
+            loadPrayerAttendanceData()
         }
     }
 
@@ -1352,6 +1360,218 @@ class AttendanceActivity : AppCompatActivity() {
                     setPadding(0, dp(2), 0, 0)
                 }
                 card.addView(tvLoc)
+            }
+
+            container.addView(card)
+        }
+    }
+
+    private fun setupPrayerFilterButtons() {
+        fun updatePrayerFilter(filter: String) {
+            currentPrayerFilter = filter
+            val inactiveBg = Color.parseColor("#F1F5F9")
+            val inactiveText = Color.parseColor("#64748B")
+            val activeBg = Color.parseColor("#065F46")
+            val activeText = Color.WHITE
+
+            fun styleBtn(btn: Button, isActive: Boolean) {
+                if (isActive) {
+                    btn.backgroundTintList = android.content.res.ColorStateList.valueOf(activeBg)
+                    btn.setTextColor(activeText)
+                } else {
+                    btn.backgroundTintList = android.content.res.ColorStateList.valueOf(inactiveBg)
+                    btn.setTextColor(inactiveText)
+                }
+            }
+
+            styleBtn(binding.btnFilterPrayerAll, filter == "ALL")
+            styleBtn(binding.btnFilterPrayerDhuha, filter == "DHUHA")
+            styleBtn(binding.btnFilterPrayerDhuhur, filter == "DHUHUR")
+            styleBtn(binding.btnFilterPrayerJumat, filter == "JUMAT")
+            styleBtn(binding.btnFilterPrayerUzur, filter == "UZUR")
+
+            renderPrayerHistoryList(allPrayerHistory)
+        }
+
+        binding.btnFilterPrayerAll.setOnClickListener { updatePrayerFilter("ALL") }
+        binding.btnFilterPrayerDhuha.setOnClickListener { updatePrayerFilter("DHUHA") }
+        binding.btnFilterPrayerDhuhur.setOnClickListener { updatePrayerFilter("DHUHUR") }
+        binding.btnFilterPrayerJumat.setOnClickListener { updatePrayerFilter("JUMAT") }
+        binding.btnFilterPrayerUzur.setOnClickListener { updatePrayerFilter("UZUR") }
+    }
+
+    private fun loadPrayerAttendanceData() {
+        val studentId = targetStudentId ?: if (isParentMode) "me" else "me"
+        ApiClient.getClient(this).getStudentPrayerHistory(studentId).enqueue(object : Callback<com.school.smartcbt.data.model.StudentPrayerHistoryResponse> {
+            override fun onResponse(
+                call: Call<com.school.smartcbt.data.model.StudentPrayerHistoryResponse>,
+                response: Response<com.school.smartcbt.data.model.StudentPrayerHistoryResponse>
+            ) {
+                if (response.isSuccessful && response.body() != null) {
+                    val body = response.body()!!
+                    val stats = body.stats
+                    if (stats != null) {
+                        binding.tvPrayerHeroRate.text = "Tingkat Kepatuhan: ${stats.attendanceRate} • ${stats.badgeEvaluation}"
+                        binding.tvPrayerCountDhuha.text = stats.dhuhaCount.toString()
+                        binding.tvPrayerCountDhuhur.text = stats.dhuhurCount.toString()
+                        binding.tvPrayerCountJumat.text = stats.jumatCount.toString()
+                        binding.tvPrayerCountUzur.text = stats.uzurCount.toString()
+                    }
+                    val studentName = if (isParentMode) {
+                        intent.getStringExtra(EXTRA_STUDENT_NAME)?.ifEmpty { null } ?: sessionManager.getName().ifEmpty { "Ananda" }
+                    } else {
+                        sessionManager.getName().ifEmpty { "Siswa" }
+                    }
+                    val className = if (isParentMode) {
+                        intent.getStringExtra(EXTRA_CLASS_NAME)?.ifEmpty { null } ?: sessionManager.getClassName().ifEmpty { "VII-A" }
+                    } else {
+                        sessionManager.getClassName().ifEmpty { "VII-A" }
+                    }
+                    binding.tvPrayerHeroStudentClass.text = "$studentName • Kelas $className"
+
+                    allPrayerHistory = body.history ?: emptyList()
+                    renderPrayerHistoryList(allPrayerHistory)
+                } else {
+                    Toast.makeText(this@AttendanceActivity, "Gagal memuat rekap sholat siswa", Toast.LENGTH_SHORT).show()
+                }
+            }
+
+            override fun onFailure(call: Call<com.school.smartcbt.data.model.StudentPrayerHistoryResponse>, t: Throwable) {
+                Toast.makeText(this@AttendanceActivity, "Koneksi rekap sholat terputus: ${t.message}", Toast.LENGTH_SHORT).show()
+            }
+        })
+    }
+
+    private fun renderPrayerHistoryList(history: List<com.school.smartcbt.data.model.StudentPrayerRecordDto>) {
+        val container = binding.containerPrayerHistoryList
+        container.removeAllViews()
+
+        val filtered = when (currentPrayerFilter) {
+            "DHUHA" -> history.filter { it.prayerType.equals("DHUHA", ignoreCase = true) }
+            "DHUHUR" -> history.filter { it.prayerType.equals("DHUHUR", ignoreCase = true) }
+            "JUMAT" -> history.filter { it.prayerType.equals("JUMAT", ignoreCase = true) }
+            "UZUR" -> history.filter { it.status.equals("UZUR", ignoreCase = true) || it.status.equals("UZUR_SYARI", ignoreCase = true) }
+            else -> history
+        }
+
+        if (filtered.isEmpty()) {
+            binding.tvPrayerEmptyHistory.visibility = View.VISIBLE
+            container.addView(binding.tvPrayerEmptyHistory)
+            return
+        }
+        binding.tvPrayerEmptyHistory.visibility = View.GONE
+
+        val density = resources.displayMetrics.density
+        fun dp(v: Int): Int = (v * density).toInt()
+
+        filtered.sortedByDescending { it.date }.forEach { item ->
+            val card = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(14), dp(12), dp(14), dp(12))
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    setColor(Color.WHITE)
+                    cornerRadius = dp(14).toFloat()
+                    setStroke(dp(1), Color.parseColor("#E2E8F0"))
+                }
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { bottomMargin = dp(10) }
+            }
+
+            // Top Row: Prayer Type & Status Badge
+            val topRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+
+            val pIcon = when (item.prayerType.uppercase()) {
+                "DHUHA" -> "🌅"
+                "DHUHUR" -> "☀️"
+                "JUMAT" -> "🕌"
+                "KEPUTRIAN" -> "🧕"
+                else -> "📿"
+            }
+
+            val tvTitle = TextView(this).apply {
+                val label = item.prayerTypeLabel ?: item.prayerType
+                text = "$pIcon Sholat $label"
+                setTextColor(Color.parseColor("#064E3B"))
+                textSize = 14f
+                setTypeface(null, Typeface.BOLD)
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            topRow.addView(tvTitle)
+
+            val badgeText = item.statusLabel ?: when (item.status.uppercase()) {
+                "HADIR" -> "✅ Hadir"
+                "UZUR", "UZUR_SYARI" -> "🌸 Uzur Syar'i"
+                "TIDAK_HADIR", "ALPA" -> "❌ Tidak Hadir"
+                else -> item.status
+            }
+            val badgeBg = item.badgeBg ?: when (item.status.uppercase()) {
+                "HADIR" -> "#DCFCE7"
+                "UZUR", "UZUR_SYARI" -> "#FCE7F3"
+                else -> "#FEE2E2"
+            }
+            val badgeTextColor = item.badgeText ?: when (item.status.uppercase()) {
+                "HADIR" -> "#15803D"
+                "UZUR", "UZUR_SYARI" -> "#BE185D"
+                else -> "#B91C1C"
+            }
+
+            val tvStatus = TextView(this).apply {
+                text = badgeText
+                try {
+                    setTextColor(Color.parseColor(badgeTextColor))
+                } catch (e: Exception) {
+                    setTextColor(Color.parseColor("#15803D"))
+                }
+                textSize = 10.5f
+                setTypeface(null, Typeface.BOLD)
+                setPadding(dp(8), dp(3), dp(8), dp(3))
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    try {
+                        setColor(Color.parseColor(badgeBg))
+                    } catch (e: Exception) {
+                        setColor(Color.parseColor("#DCFCE7"))
+                    }
+                    cornerRadius = dp(8).toFloat()
+                }
+            }
+            topRow.addView(tvStatus)
+            card.addView(topRow)
+
+            // Middle Row: Date & Time Info
+            val midRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(0, dp(6), 0, 0)
+            }
+
+            val dateDisplay = item.formattedDate ?: item.date
+            val timeDisplay = if (!item.scanTimeStr.isNullOrEmpty()) " • Jam ${item.scanTimeStr}" else ""
+            val methodDisplay = if (!item.methodLabel.isNullOrEmpty()) " • ${item.methodLabel}" else ""
+
+            val tvSub = TextView(this).apply {
+                text = "📅 $dateDisplay$timeDisplay$methodDisplay"
+                setTextColor(Color.parseColor("#475569"))
+                textSize = 11.5f
+            }
+            midRow.addView(tvSub)
+            card.addView(midRow)
+
+            // Notes / Verifier if available
+            if (!item.notes.isNullOrEmpty() || !item.recordedByName.isNullOrEmpty()) {
+                val verifier = if (!item.recordedByName.isNullOrEmpty()) "Oleh: ${item.recordedByName}" else ""
+                val noteStr = if (!item.notes.isNullOrEmpty()) " • ${item.notes}" else ""
+                val tvNote = TextView(this).apply {
+                    text = "📝 $verifier$noteStr"
+                    setTextColor(Color.parseColor("#64748B"))
+                    textSize = 10.5f
+                    setPadding(0, dp(2), 0, 0)
+                }
+                card.addView(tvNote)
             }
 
             container.addView(card)

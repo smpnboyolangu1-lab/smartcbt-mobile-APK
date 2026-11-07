@@ -120,9 +120,9 @@ export const getWaliKelasDashboard = async (req: Request, res: Response) => {
 
         // Ambil pengaturan gate untuk cek status pulang
         const gateSetting = await (prisma as any).gateSetting.findFirst() || {
-            gateInMaxTime: '07:15',
-            gateOutStartTime: '14:00',
-            gateOutEndTime: '17:00'
+            gateInMaxTime: '08:00',
+            gateOutStartTime: '12:00',
+            gateOutEndTime: '16:00'
         };
 
         const currTimeStr = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false });
@@ -410,9 +410,9 @@ export const getWaliKelasStudents = async (req: Request, res: Response) => {
         const leaveMap = new Map<string, any>(todayLeaves.map((l: any) => [l.studentId, l]));
 
         const gateSetting = await (prisma as any).gateSetting.findFirst() || {
-            gateInMaxTime: '07:15',
-            gateOutStartTime: '14:00',
-            gateOutEndTime: '17:00'
+            gateInMaxTime: '08:00',
+            gateOutStartTime: '12:00',
+            gateOutEndTime: '16:00'
         };
 
         const currTimeStr = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false });
@@ -1985,5 +1985,265 @@ export const verifyWaliKelasLeave = async (req: Request, res: Response) => {
     } catch (error) {
         console.error('Error in verifyWaliKelasLeave:', error);
         res.status(500).json({ success: false, message: 'Gagal memproses verifikasi izin' });
+    }
+};
+
+/**
+ * 9. GET /api/teacher/wali-kelas/monitoring-tugas-ujian
+ * Monitoring menyeluruh Tugas/PR, Ulangan Harian (UH), dan Ujian CBT untuk seluruh siswa kelas binaan
+ */
+export const getWaliKelasAcademicMonitoring = async (req: Request, res: Response) => {
+    try {
+        const user = (req as any).user;
+        const requestedClass = (req.query.className as string)?.trim();
+        const homeroomClass = requestedClass || await resolveHomeroomClass(user);
+
+        if (!homeroomClass) {
+            return res.json({
+                success: true,
+                homeroomClass: null,
+                students: [],
+                homeworks: [],
+                ulanganHarian: [],
+                cbtExams: []
+            });
+        }
+
+        // 1. Seluruh siswa aktif di kelas binaan
+        const students = await prisma.user.findMany({
+            where: { role: 'STUDENT', isActive: true, className: homeroomClass },
+            orderBy: { name: 'asc' },
+            select: {
+                id: true,
+                name: true,
+                nisn: true,
+                username: true,
+                className: true,
+                parentPhone: true
+            }
+        });
+        const studentIds = students.map(s => s.id);
+
+        // 2. Cari class record
+        const clsObj = await prisma.class.findFirst({
+            where: {
+                OR: [
+                    { name: homeroomClass },
+                    { name: { equals: homeroomClass, mode: 'insensitive' as any } }
+                ]
+            }
+        });
+
+        // 3. Tugas / PR untuk kelas ini
+        const homeworks = await prisma.homework.findMany({
+            where: {
+                OR: [
+                    ...(clsObj ? [{ classId: clsObj.id }] : []),
+                    { class: { name: { equals: homeroomClass, mode: 'insensitive' as any } } }
+                ]
+            },
+            include: {
+                subject: true,
+                submissions: {
+                    where: { userId: { in: studentIds } }
+                }
+            },
+            orderBy: { createdAt: 'desc' },
+            take: 30
+        });
+
+        const mappedHomeworks = homeworks.map(hw => {
+            const subMap = new Map(hw.submissions.map(s => [s.userId, s]));
+            let submittedCount = 0;
+            let gradedCount = 0;
+            const studentDetails = students.map(st => {
+                const sub = subMap.get(st.id);
+                if (sub) {
+                    submittedCount++;
+                    if (sub.score !== null && sub.score !== undefined) gradedCount++;
+                }
+                return {
+                    studentId: st.id,
+                    studentName: st.name,
+                    nisn: st.nisn || st.username,
+                    status: sub ? (sub.score !== null ? 'DINILAI' : 'SUDAH_KUMPUL') : 'BELUM_KUMPUL',
+                    score: sub?.score ?? sub?.autoScore ?? null,
+                    submittedAt: sub?.submittedAt || null
+                };
+            });
+            return {
+                id: hw.id,
+                title: hw.title,
+                subject: hw.subject?.name || 'Umum',
+                category: hw.category || 'PR',
+                deadline: hw.deadline,
+                totalStudents: students.length,
+                submittedCount,
+                unsubmittedCount: Math.max(0, students.length - submittedCount),
+                gradedCount,
+                students: studentDetails
+            };
+        });
+
+        // 4. Ulangan Harian (UH) yang menargetkan kelas ini
+        const allUhs = await (prisma as any).ulanganHarian.findMany({
+            include: {
+                submissions: {
+                    where: { siswaId: { in: studentIds } }
+                }
+            },
+            orderBy: { createdAt: 'desc' },
+            take: 40
+        });
+        const classUhs = allUhs.filter((uh: any) => {
+            const list = String(uh.kelasId || '').split(',').map(c => c.trim().toUpperCase());
+            return list.includes(homeroomClass.toUpperCase()) || list.includes('ALL');
+        });
+
+        const mappedUhs = classUhs.map((uh: any) => {
+            const subMap = new Map<string, any>((uh.submissions || []).map((s: any) => [s.siswaId, s]));
+            let selesaiCount = 0;
+            let mengerjakanCount = 0;
+            let belumCount = 0;
+            let sumScore = 0;
+
+            const studentDetails = students.map(st => {
+                const sub = subMap.get(st.id);
+                if (!sub) {
+                    belumCount++;
+                    return {
+                        studentId: st.id,
+                        studentName: st.name,
+                        nisn: st.nisn || st.username,
+                        status: 'BELUM_MULAI',
+                        progress: `0/${uh.totalSoal || 10}`,
+                        score: null
+                    };
+                }
+                let ansCount = 0;
+                try {
+                    const p = sub.jawabanJson ? JSON.parse(sub.jawabanJson) : {};
+                    ansCount = Object.keys(p).length;
+                } catch {}
+                if (sub.status === 'SELESAI') {
+                    selesaiCount++;
+                    sumScore += Number(sub.nilai || 0);
+                } else {
+                    mengerjakanCount++;
+                }
+                return {
+                    studentId: st.id,
+                    studentName: st.name,
+                    nisn: st.nisn || st.username,
+                    status: sub.status,
+                    progress: `${ansCount}/${uh.totalSoal || 10}`,
+                    score: sub.nilai ?? null
+                };
+            });
+
+            return {
+                id: uh.id,
+                topik: uh.topik,
+                mapel: uh.mapelId,
+                guruName: uh.guruName,
+                mode: uh.mode,
+                status: uh.status,
+                totalSoal: uh.totalSoal,
+                waktuMulai: uh.waktuMulai,
+                totalStudents: students.length,
+                selesaiCount,
+                mengerjakanCount,
+                belumCount,
+                avgScore: selesaiCount > 0 ? Math.round((sumScore / selesaiCount) * 10) / 10 : 0,
+                students: studentDetails
+            };
+        });
+
+        // 5. Ujian CBT Resmi yang menargetkan kelas ini
+        const allExams = await prisma.exam.findMany({
+            include: {
+                subject: true,
+                _count: { select: { questions: true } },
+                studentExams: {
+                    where: { userId: { in: studentIds } }
+                }
+            },
+            orderBy: { createdAt: 'desc' },
+            take: 30
+        });
+        const classExams = allExams.filter(ex => {
+            const list = String(ex.assignedClasses || '').split(',').map(c => c.trim().toUpperCase());
+            return list.includes(homeroomClass.toUpperCase()) || list.includes('ALL');
+        });
+
+        const mappedExams = classExams.map(ex => {
+            const seMap = new Map(ex.studentExams.map(se => [se.userId, se]));
+            const totalQ = ex._count?.questions || 0;
+            let selesaiCount = 0;
+            let mengerjakanCount = 0;
+            let belumCount = 0;
+            let sumScore = 0;
+
+            const studentDetails = students.map(st => {
+                const se = seMap.get(st.id);
+                if (!se) {
+                    belumCount++;
+                    return {
+                        studentId: st.id,
+                        studentName: st.name,
+                        nisn: st.nisn || st.username,
+                        status: 'BELUM_MULAI',
+                        progress: `0/${totalQ}`,
+                        score: null
+                    };
+                }
+                let ansCount = 0;
+                try {
+                    const p = (se as any).answers ? JSON.parse((se as any).answers) : {};
+                    if (Array.isArray(p)) ansCount = p.filter(Boolean).length;
+                    else if (typeof p === 'object' && p !== null) ansCount = Object.values(p).filter(v => v !== null && v !== '').length;
+                } catch {}
+                if (se.status === 'FINISHED') {
+                    selesaiCount++;
+                    sumScore += Number(se.score || 0);
+                } else {
+                    mengerjakanCount++;
+                }
+                return {
+                    studentId: st.id,
+                    studentName: st.name,
+                    nisn: st.nisn || st.username,
+                    status: se.status === 'FINISHED' ? 'SELESAI' : (se.status === 'LOCKED' ? 'TERKUNCI' : 'SEDANG_MENGERJAKAN'),
+                    progress: `${ansCount}/${totalQ}`,
+                    score: se.score ?? null
+                };
+            });
+
+            return {
+                id: ex.id,
+                title: ex.title,
+                subject: ex.subject?.name || 'Umum',
+                examType: ex.examType || 'UH',
+                totalQuestions: totalQ,
+                totalStudents: students.length,
+                selesaiCount,
+                mengerjakanCount,
+                belumCount,
+                avgScore: selesaiCount > 0 ? Math.round((sumScore / selesaiCount) * 10) / 10 : 0,
+                students: studentDetails
+            };
+        });
+
+        return res.json({
+            success: true,
+            homeroomClass,
+            totalStudents: students.length,
+            homeworks: mappedHomeworks,
+            ulanganHarian: mappedUhs,
+            cbtExams: mappedExams
+        });
+    } catch (error: any) {
+        console.error('Error in getWaliKelasAcademicMonitoring:', error);
+        return res.status(500).json({ success: false, message: 'Gagal memuat monitoring akademik kelas: ' + error.message });
     }
 };

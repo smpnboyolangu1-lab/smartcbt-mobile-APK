@@ -243,6 +243,19 @@
                     android:textStyle="bold"
                     app:cornerRadius="14dp" />
 
+                <!-- Action Button Alternative (Direct App Settings) -->
+                <Button
+                    android:id="@+id/btnAlternativeSettings"
+                    android:layout_width="match_parent"
+                    android:layout_height="44dp"
+                    android:layout_marginTop="8dp"
+                    android:backgroundTint="#E2E8F0"
+                    android:text="⚙️ Info Izin Aplikasi (Alternatif Jika Tertutup)"
+                    android:textColor="#1E293B"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    app:cornerRadius="12dp" />
+
                 <!-- Action Button 2 (Exit) -->
                 <Button
                     android:id="@+id/btnExitApp"

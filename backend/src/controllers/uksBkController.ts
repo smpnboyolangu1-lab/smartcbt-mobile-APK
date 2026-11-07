@@ -1212,6 +1212,7 @@ export const checkoutUksVisit = async (req: Request, res: Response) => {
             where: { id },
             data: {
                 checkOutTime: new Date(),
+                disposition: disposition || visit.disposition,
                 treatment: note ? `${visit.treatment || ''} [Selesai: ${note}]` : visit.treatment
             },
             include: { user: true }

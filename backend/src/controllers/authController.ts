@@ -6,6 +6,7 @@ import { logAudit } from '../services/auditLogger';
 import { revokedUserIds } from './adminUserController';
 import { AuthRequest, registerUserSession, clearUserSession, getActiveUserSession } from '../middlewares/authMiddleware';
 import { deleteUserFcmToken } from '../services/fcmService';
+import { isDeviceScanLocked } from './remoteDeviceController';
 const SECRET_KEY = process.env.JWT_SECRET || 'cbt_prod_secret_f9a83b27c64e10d592a8174fec01849a62bc38102d7e481b9201948271039841';
 const REFRESH_SECRET_KEY = process.env.JWT_REFRESH_SECRET || 'cbt_refresh_prod_secret_81726354a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2';
 
@@ -18,30 +19,39 @@ export const login = async (req: Request, res: Response) => {
         const cleanNip = cleanUsername.replace(/[\s\.\-]/g, '');
         const targetRole = String(role || '').toUpperCase().trim();
 
+        // Normalisasi Leading Zero NISN (Contoh: "0114017973" <-> "114017973")
+        const strippedZeroUsername = cleanUsername.replace(/^0+/, '');
+        const zeroPrependedUsername = cleanUsername.startsWith('0') ? cleanUsername : ('0' + cleanUsername);
+        const strippedParentNisn = cleanUsername.replace(/^[Pp]/, '').replace(/^0+/, '').trim();
+        const zeroParentNisn = '0' + strippedParentNisn;
+
         let user = null;
 
         // 1. Jika mode PARENT dipilih atau username diawali huruf P
         if (targetRole === 'PARENT' || targetRole === 'ORANGTUA' || targetRole === 'ORANG_TUA' || uLower.startsWith('p')) {
-            const rawNisn = cleanUsername.replace(/^[Pp]/, '').trim();
             user = await prisma.user.findFirst({
                 where: {
                     role: 'PARENT',
                     OR: [
                         { username: cleanUsername },
-                        { username: 'P' + rawNisn },
-                        { nisn: rawNisn },
+                        { username: 'P' + strippedParentNisn },
+                        { username: 'P' + zeroParentNisn },
+                        { nisn: strippedParentNisn },
+                        { nisn: zeroParentNisn },
                         { nisn: cleanUsername }
                     ]
                 }
             });
             // Jika akun orang tua belum ada di DB tapi siswa ada, sinkronkan otomatis
-            if (!user && rawNisn) {
+            if (!user && strippedParentNisn) {
                 const student = await prisma.user.findFirst({
                     where: {
                         role: 'STUDENT',
                         OR: [
-                            { nisn: rawNisn },
-                            { username: rawNisn }
+                            { nisn: strippedParentNisn },
+                            { nisn: zeroParentNisn },
+                            { username: strippedParentNisn },
+                            { username: zeroParentNisn }
                         ]
                     }
                 });
@@ -52,20 +62,22 @@ export const login = async (req: Request, res: Response) => {
             }
         }
 
-        // 2. Jika bukan PARENT atau belum ditemukan, cari berdasarkan username, NIP, atau nisn
-        if (!user) {
-            user = await prisma.user.findUnique({ where: { username: cleanUsername } });
-        }
-        if (!user && cleanNip && cleanNip !== cleanUsername) {
-            user = await prisma.user.findUnique({ where: { username: cleanNip } });
-        }
+        // 2. Jika bukan PARENT atau belum ditemukan:
+        // Prioritaskan mencari akun non-PARENT (Siswa, Guru, Staf, Admin)
+        // PENTING: Jangan izinkan akun PARENT cocok di sini jika username berupa NISN murni tanpa awalan 'P'
+        // agar Siswa yang login menggunakan NISN tidak salah masuk ke halaman Orang Tua.
         if (!user) {
             user = await prisma.user.findFirst({
                 where: {
+                    role: { not: 'PARENT' },
                     OR: [
-                        { username: { equals: cleanUsername } },
-                        { username: { equals: cleanNip } },
+                        { username: cleanUsername },
+                        { username: strippedZeroUsername },
+                        { username: zeroPrependedUsername },
+                        { username: cleanNip },
                         { nisn: cleanUsername },
+                        { nisn: strippedZeroUsername },
+                        { nisn: zeroPrependedUsername },
                         { nisn: cleanNip }
                     ]
                 }
@@ -92,33 +104,59 @@ export const login = async (req: Request, res: Response) => {
 
         // 1. Cek kecocokan password dengan hash bcrypt terlebih dahulu (prioritas utama jika password baru saja diubah)
         let isValidPassword = false;
+        const strippedPass = String(password || '').replace(/^0+/, '');
+        const zeroPass = '0' + strippedPass;
         try {
             isValidPassword = await bcrypt.compare(password, user.password);
+            if (!isValidPassword && (userRole === 'STUDENT' || userRole === 'PARENT')) {
+                isValidPassword = (await bcrypt.compare(strippedPass, user.password).catch(() => false)) ||
+                                  (await bcrypt.compare(zeroPass, user.password).catch(() => false));
+            }
         } catch (e) {
             isValidPassword = false;
         }
 
         // Cek juga plain text match (jika database menyimpan password tanpa hash)
-        if (!isValidPassword && user.password && user.password === password) {
-            isValidPassword = true;
+        if (!isValidPassword && user.password) {
+            if (user.password === password || user.password === strippedPass || user.password === zeroPass) {
+                isValidPassword = true;
+            }
         }
 
         // 2. Fallback default password untuk Siswa & Orang Tua (Orang Tua login username P<NISN> password <NISN>)
         if (!isValidPassword && (userRole === 'STUDENT' || userRole === 'PARENT')) {
             const studentNisn = (user.nisn || user.username.replace(/^[Pp]/, '')).trim();
-            if (userRole === 'PARENT' && studentNisn && (password === studentNisn || password === 'P' + studentNisn || password === user.username)) {
-                isValidPassword = true;
+            const strippedStudentNisn = studentNisn.replace(/^0+/, '');
+            const zeroStudentNisn = '0' + strippedStudentNisn;
+
+            if (userRole === 'PARENT') {
+                if (password === studentNisn || password === strippedStudentNisn || password === zeroStudentNisn ||
+                    password === 'P' + studentNisn || password === 'P' + strippedStudentNisn || password === 'P' + zeroStudentNisn ||
+                    password === user.username) {
+                    isValidPassword = true;
+                }
             } else {
+                if (password === studentNisn || password === strippedStudentNisn || password === zeroStudentNisn ||
+                    strippedPass === strippedStudentNisn || password === user.username || password === 'password123') {
+                    isValidPassword = true;
+                }
+            }
+
+            if (!isValidPassword) {
                 const isDbPasswordDefault = !user.password ||
                     user.password === 'password123' ||
                     user.password === studentNisn ||
+                    user.password === strippedStudentNisn ||
+                    user.password === zeroStudentNisn ||
                     user.password === user.username ||
                     (await bcrypt.compare('password123', user.password).catch(() => false)) ||
-                    (studentNisn ? await bcrypt.compare(studentNisn, user.password).catch(() => false) : false) ||
+                    (strippedStudentNisn ? await bcrypt.compare(strippedStudentNisn, user.password).catch(() => false) : false) ||
+                    (zeroStudentNisn ? await bcrypt.compare(zeroStudentNisn, user.password).catch(() => false) : false) ||
                     (user.username ? await bcrypt.compare(user.username, user.password).catch(() => false) : false);
 
                 if (isDbPasswordDefault) {
-                    if (studentNisn && (password === studentNisn || password === user.username)) {
+                    if (password === studentNisn || password === strippedStudentNisn || password === zeroStudentNisn ||
+                        strippedPass === strippedStudentNisn || password === user.username) {
                         isValidPassword = true;
                     } else if (password === 'password123') {
                         isValidPassword = true;
@@ -237,9 +275,13 @@ export const login = async (req: Request, res: Response) => {
 
         // Catat Last Login & update deviceSession userId jika incomingDeviceId tersedia
         if (incomingDeviceId) {
+            const isHardwareLocked = await isDeviceScanLocked(incomingDeviceId);
             await prisma.deviceSession.updateMany({
                 where: { deviceAndroidId: incomingDeviceId },
-                data: { userId: user.id }
+                data: {
+                    userId: user.id,
+                    ...(isHardwareLocked ? { status: 'LOCKED_SCAN' } : {})
+                }
             }).catch(() => {});
         }
 

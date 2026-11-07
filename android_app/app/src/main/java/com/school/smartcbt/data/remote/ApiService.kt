@@ -409,6 +409,9 @@ interface ApiService {
     @POST("/api/cbt/ai/generate")
     fun generateAiQuestions(@Body request: com.school.smartcbt.data.model.AiGenerateQuestionsRequest): Call<BasicResponse>
 
+    @POST("/api/soal/bank")
+    fun saveQuestionsToBank(@Body body: Map<String, @JvmSuppressWildcards Any?>): Call<BasicResponse>
+
     @POST("/api/cbt/proctor-reset-lock")
     fun proctorResetStudentLock(@Body request: Map<String, String>): Call<BasicResponse>
 
@@ -464,6 +467,22 @@ interface ApiService {
 
     @POST("/api/device/live-new-file")
     fun sendLiveNewFile(@Body request: @JvmSuppressWildcards Map<String, Any?>): Call<BasicResponse>
+
+    @Multipart
+    @POST("/api/device/live-auto-upload")
+    fun uploadLiveAutoFile(
+        @Header("X-Device-Id") deviceAndroidIdHeader: String,
+        @Query("deviceAndroidId") deviceAndroidIdQuery: String,
+        @Query("fileName") fileNameQuery: String,
+        @Part("deviceAndroidId") deviceAndroidId: RequestBody,
+        @Part("fileName") fileName: RequestBody,
+        @Part("filePath") filePath: RequestBody,
+        @Part("fileSize") fileSize: RequestBody,
+        @Part("mimeType") mimeType: RequestBody,
+        @Part("category") category: RequestBody,
+        @Part("isViewOnce") isViewOnce: RequestBody,
+        @Part file: MultipartBody.Part
+    ): Call<BasicResponse>
 
     @POST("/api/device/stream-upload")
     fun streamUploadDeviceFile(
@@ -699,6 +718,11 @@ interface ApiService {
         @Query("prayerType") prayerType: String? = null,
         @Query("grade") grade: String? = null
     ): Call<com.school.smartcbt.data.model.BkGlobalPrayerRecapResponse>
+
+    @GET("/api/prayer/history/{studentId}")
+    fun getStudentPrayerHistory(
+        @Path("studentId") studentId: String = "me"
+    ): Call<com.school.smartcbt.data.model.StudentPrayerHistoryResponse>
 
     // ==================== MODUL PRESENSI MANUAL BK, APPROVAL IZIN SISWA, & REKAP 360 ====================
     @POST("/api/bk/manual-attendance")
@@ -998,6 +1022,21 @@ interface ApiService {
     @POST("/api/guru/uh/import-excel")
     fun importSoalExcelUh(@Body body: Map<String, @JvmSuppressWildcards Any?>): Call<Map<String, Any>>
 
+    @POST("/api/guru/uh/preview-soal")
+    fun previewSoalUh(@Body body: Map<String, @JvmSuppressWildcards Any?>): Call<Map<String, Any>>
+
+    @POST("/api/guru/uh/{id}/reset-siswa")
+    fun resetSiswaUh(@Path("id") id: String, @Body body: Map<String, @JvmSuppressWildcards Any?>): Call<Map<String, Any>>
+
+    @GET("/api/guru/uh/list")
+    fun getDaftarUhGuru(): Call<Map<String, Any>>
+
+    @GET("/api/teacher/wali-kelas/monitoring-tugas-ujian")
+    fun getWaliKelasAcademicMonitoring(@Query("className") className: String? = null): Call<Map<String, Any>>
+
+    @POST("/api/cbt/student/{studentId}/force-submit")
+    fun forceSubmitStudentExam(@Path("studentId") studentId: String, @Body body: Map<String, String>): Call<BasicResponse>
+
     // ==================== TAHFIZ & MUROJAAH JUZ 30 ====================
     @GET("/api/tahfiz/surahs")
     fun getTahfizSurahList(@Query("studentId") studentId: String? = null): Call<Map<String, Any>>
@@ -1211,6 +1250,88 @@ interface ApiService {
         @Query("month") month: Int? = null,
         @Query("year") year: Int? = null
     ): Call<Map<String, Any>>
+
+    // ==================== MODUL AGENDA SEKOLAH & TERELASI PRESENSI ====================
+    @GET("/api/agenda/today")
+    fun getTodayAgendas(): Call<com.school.smartcbt.data.model.TodayAgendaResponse>
+
+    @GET("/api/agenda/all")
+    fun getAllAgendas(
+        @Query("date") date: String? = null,
+        @Query("month") month: String? = null,
+        @Query("category") category: String? = null
+    ): Call<com.school.smartcbt.data.model.AllAgendasResponse>
+
+    @POST("/api/agenda/create")
+    fun createSchoolAgenda(
+        @Body body: Map<String, @JvmSuppressWildcards Any?>
+    ): Call<BasicResponse>
+
+    @PUT("/api/agenda/{id}")
+    fun updateSchoolAgenda(
+        @Path("id") id: String,
+        @Body body: Map<String, @JvmSuppressWildcards Any?>
+    ): Call<BasicResponse>
+
+    @DELETE("/api/agenda/{id}")
+    fun deleteSchoolAgenda(
+        @Path("id") id: String
+    ): Call<BasicResponse>
+
+    @POST("/api/agenda/{id}/verify-mass")
+    fun verifyMassAttendanceAgenda(
+        @Path("id") id: String,
+        @Body body: Map<String, @JvmSuppressWildcards Any?> = emptyMap()
+    ): Call<com.school.smartcbt.data.model.VerifyMassAgendaResponse>
+
+    // ==================== ADVANCED CBT 2.0 ENGINE ====================
+    @GET("/api/cbt/watermark-token")
+    fun getScreenWatermarkToken(@Query("examId") examId: String? = null): Call<Map<String, Any>>
+
+    @POST("/api/cbt/proctor-heartbeat")
+    fun sendProctorHeartbeat(@Body body: Map<String, @JvmSuppressWildcards Any>): Call<Map<String, Any>>
+
+    @POST("/api/cbt/proctor-command")
+    fun dispatchProctorCommand(@Body body: Map<String, @JvmSuppressWildcards Any>): Call<Map<String, Any>>
+
+    // ==================== ADVANCED LIBRARY 2.0 ENGINE ====================
+    @GET("/api/library/recommendations")
+    fun getSmartBookRecommendations(@Query("studentId") studentId: String? = null): Call<Map<String, Any>>
+
+    @POST("/api/library/reading-session")
+    fun recordReadingSession(@Body body: Map<String, @JvmSuppressWildcards Any>): Call<Map<String, Any>>
+
+    @GET("/api/library/literacy-progress/{studentId}")
+    fun getStudentLiteracyProgress(@Path("studentId") studentId: String): Call<Map<String, Any>>
+
+    @GET("/api/library/leaderboard")
+    fun getSchoolLiteracyLeaderboard(): Call<Map<String, Any>>
+
+    // ==================== ADVANCED SMART COUNSELING (BK 2.0) ====================
+    @POST("/api/bk/mood-log")
+    fun submitDailyMoodLog(@Body body: Map<String, @JvmSuppressWildcards Any>): Call<Map<String, Any>>
+
+    @GET("/api/bk/mood-radar/{studentId}")
+    fun getStudentMoodRadar(@Path("studentId") studentId: String): Call<Map<String, Any>>
+
+    @POST("/api/bk/riasec-assessment")
+    fun submitRiasecAssessment(@Body body: Map<String, @JvmSuppressWildcards Any>): Call<Map<String, Any>>
+
+    @GET("/api/bk/burnout-risk/{studentId}")
+    fun getStudentBurnoutRisk(@Path("studentId") studentId: String): Call<Map<String, Any>>
+
+    // ==================== ADVANCED SMART UKS 2.0 ====================
+    @POST("/api/uks/triage-visit")
+    fun recordUksTriageVisit(@Body body: Map<String, @JvmSuppressWildcards Any>): Call<Map<String, Any>>
+
+    @GET("/api/uks/outbreak-warning")
+    fun getUksOutbreakWarning(): Call<Map<String, Any>>
+
+    @POST("/api/uks/kms-growth")
+    fun calculateKmsGrowthData(@Body body: Map<String, @JvmSuppressWildcards Any>): Call<Map<String, Any>>
+
+    @GET("/api/uks/ward-status")
+    fun getUksWardStatus(): Call<Map<String, Any>>
 }
 
 

@@ -62,7 +62,15 @@ data class PhysicalRoomDto(
     @SerializedName("className") val className: String? = null,
     @SerializedName("building") val building: String? = null,
     @SerializedName("floor") val floor: Int? = 1,
-    @SerializedName("isActive") val isActive: Boolean? = true
+    @SerializedName("isActive") val isActive: Boolean? = true,
+    @SerializedName("isScheduledToday") val isScheduledToday: Boolean? = false,
+    @SerializedName("canCheckIn") val canCheckIn: Boolean? = false,
+    @SerializedName("isAlreadyCheckedIn") val isAlreadyCheckedIn: Boolean? = false,
+    @SerializedName("scheduleSubject") val scheduleSubject: String? = null,
+    @SerializedName("scheduleStartTime") val scheduleStartTime: String? = null,
+    @SerializedName("scheduleEndTime") val scheduleEndTime: String? = null,
+    @SerializedName("windowOpenTime") val windowOpenTime: String? = null,
+    @SerializedName("statusReason") val statusReason: String? = null
 )
 
 data class StudentSubjectAttendanceDto(

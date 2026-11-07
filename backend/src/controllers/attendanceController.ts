@@ -120,16 +120,16 @@ export function getEffectiveGateSettings(settings: any, date: Date = new Date())
     const rootInStart = settings?.gateInStartTime || '06:00';
     const rootInEnd = settings?.gateInEndTime || '07:00';
     const rootInMax = settings?.gateInMaxTime || '08:00';
-    const rootOutStart = settings?.gateOutStartTime || '14:00';
-    const rootOutEnd = settings?.gateOutEndTime || '18:00';
+    const rootOutStart = settings?.gateOutStartTime || '12:00';
+    const rootOutEnd = settings?.gateOutEndTime || '16:00';
 
     let dailyList: DaySchedule[] = [
-        { day: 1, dayName: 'Senin', isActive: true, gateInStart: rootInStart, gateInEnd: rootInEnd, gateInMax: rootInMax, gateOutStart: rootOutStart, gateOutEnd: rootOutEnd },
-        { day: 2, dayName: 'Selasa', isActive: true, gateInStart: rootInStart, gateInEnd: rootInEnd, gateInMax: rootInMax, gateOutStart: rootOutStart, gateOutEnd: rootOutEnd },
-        { day: 3, dayName: 'Rabu', isActive: true, gateInStart: rootInStart, gateInEnd: rootInEnd, gateInMax: rootInMax, gateOutStart: rootOutStart, gateOutEnd: rootOutEnd },
-        { day: 4, dayName: 'Kamis', isActive: true, gateInStart: rootInStart, gateInEnd: rootInEnd, gateInMax: rootInMax, gateOutStart: rootOutStart, gateOutEnd: rootOutEnd },
-        { day: 5, dayName: 'Jumat', isActive: true, gateInStart: rootInStart, gateInEnd: rootInEnd, gateInMax: rootInMax, gateOutStart: '10:30', gateOutEnd: '16:00' },
-        { day: 6, dayName: 'Sabtu', isActive: true, gateInStart: rootInStart, gateInEnd: rootInEnd, gateInMax: rootInMax, gateOutStart: '11:30', gateOutEnd: '15:30' },
+        { day: 1, dayName: 'Senin', isActive: true, gateInStart: rootInStart, gateInEnd: rootInEnd, gateInMax: rootInMax, gateOutStart: '12:00', gateOutEnd: rootOutEnd },
+        { day: 2, dayName: 'Selasa', isActive: true, gateInStart: rootInStart, gateInEnd: rootInEnd, gateInMax: rootInMax, gateOutStart: '12:00', gateOutEnd: rootOutEnd },
+        { day: 3, dayName: 'Rabu', isActive: true, gateInStart: rootInStart, gateInEnd: rootInEnd, gateInMax: rootInMax, gateOutStart: '12:00', gateOutEnd: rootOutEnd },
+        { day: 4, dayName: 'Kamis', isActive: true, gateInStart: rootInStart, gateInEnd: rootInEnd, gateInMax: rootInMax, gateOutStart: '12:00', gateOutEnd: rootOutEnd },
+        { day: 5, dayName: 'Jumat', isActive: true, gateInStart: rootInStart, gateInEnd: rootInEnd, gateInMax: rootInMax, gateOutStart: '10:00', gateOutEnd: '16:00' },
+        { day: 6, dayName: 'Sabtu', isActive: true, gateInStart: rootInStart, gateInEnd: rootInEnd, gateInMax: rootInMax, gateOutStart: '11:00', gateOutEnd: '16:00' },
         { day: 0, dayName: 'Minggu', isActive: false, gateInStart: rootInStart, gateInEnd: rootInEnd, gateInMax: rootInMax, gateOutStart: rootOutStart, gateOutEnd: rootOutEnd }
     ];
 
@@ -1084,6 +1084,19 @@ export const scanClassGate = async (req: Request, res: Response) => {
         // ============================================================
         let isMissingIn = false;
 
+        // Relasi Agenda Khusus Sekolah (Hari Santri, Upacara, dll):
+        // Jika ada agenda sekolah aktif, otomatis perpanjang batas scan kelas & gerbang
+        const activeAgenda = await (prisma as any).schoolAgenda.findFirst({
+            where: { date: effective.currentDateStr }
+        }).catch(() => null);
+
+        let isAgendaActiveToday = false;
+        let agendaTitleToday = '';
+        if (activeAgenda) {
+            isAgendaActiveToday = true;
+            agendaTitleToday = activeAgenda.title;
+        }
+
         if (scanType === 'GATE_IN') {
             if (todayInRecord && !isTestingMode) {
                 const inTimeStr = formatTimeWib(todayInRecord.scanTime, true);
@@ -1096,8 +1109,16 @@ export const scanClassGate = async (req: Request, res: Response) => {
             }
 
             const gateInStartSec = '06:00:00';
-            const classCloseSec = '07:05:00';
-            const allScanCloseSec = '08:00:00';
+            let classCloseSec = '07:05:00';
+            let allScanCloseSec = '08:00:00';
+
+            if (activeAgenda && activeAgenda.autoExtendGateUntil) {
+                const extSec = activeAgenda.autoExtendGateUntil.length === 5 
+                    ? activeAgenda.autoExtendGateUntil + ':00' 
+                    : activeAgenda.autoExtendGateUntil;
+                if (extSec > allScanCloseSec) allScanCloseSec = extSec;
+                if (extSec > classCloseSec) classCloseSec = extSec;
+            }
 
             // 1. Lock jika sebelum jam buka gerbang masuk (06:00:00 WIB)
             if (compareTimeSec < gateInStartSec && !isTestingMode && !settings.isEmergencyGateOut) {
@@ -1107,12 +1128,13 @@ export const scanClassGate = async (req: Request, res: Response) => {
                 });
             }
 
-            // 2. Lock jika setelah pukul 08:00:00 WIB: seluruh scan QR (kelas maupun BK) ditutup total
+            // 2. Lock jika setelah batas akhir (normal 08:00 WIB atau diperpanjang sesuai agenda sekolah)
             if (compareTimeSec > allScanCloseSec && !isTestingMode && !settings.isEmergencyGateOut) {
+                const closeDisplayTime = allScanCloseSec.slice(0, 5);
                 return res.status(400).json({
                     success: false,
                     isGateInClosedAll: true,
-                    message: `⛔ Seluruh Jalur Presensi Masuk (Scan Kelas & BK) Telah Ditutup Pukul 08:00 WIB! Anda memindai pukul ${compareTimeSec} WIB. Siswa yang hadir setelah pukul 08:00 WIB wajib melapor ke Ruang BK untuk dicatat secara manual oleh Guru BK.`
+                    message: `⛔ Seluruh Jalur Presensi Masuk (Scan Kelas & BK) Telah Ditutup Pukul ${closeDisplayTime} WIB! Anda memindai pukul ${compareTimeSec} WIB.${isAgendaActiveToday ? ` (Batas toleransi agenda "${agendaTitleToday}" berakhir pukul ${closeDisplayTime} WIB).` : ' Siswa yang hadir setelah pukul 08:00 WIB wajib melapor ke Ruang BK untuk dicatat secara manual oleh Guru BK.'}`
                 });
             }
 
@@ -1284,7 +1306,15 @@ export const scanClassGate = async (req: Request, res: Response) => {
 
         if (scanType === 'GATE_IN') {
             const gateInEndSec = (effective.gateInEndTime || '07:00') + ':00';
-            if (isBkGateIn || effective.currentTimeWithSecStr > gateInEndSec) {
+            const effectiveAgendaLimitSec = (isAgendaActiveToday && activeAgenda?.autoExtendGateUntil) 
+                ? (activeAgenda.autoExtendGateUntil.length === 5 ? activeAgenda.autoExtendGateUntil + ':00' : activeAgenda.autoExtendGateUntil) 
+                : gateInEndSec;
+
+            if (isAgendaActiveToday && effective.currentTimeWithSecStr <= effectiveAgendaLimitSec) {
+                // Dalam rentang agenda sekolah (misal Hari Santri / Upacara): Dianggap hadir resmi mengikuti kegiatan
+                status = 'PRESENT';
+                note = `Hadir Tepat Waktu (Pukul ${currentTimeStr} WIB) via Agenda: ${agendaTitleToday}${autoRedirectedFromGateOut ? ' • Otomatis Presensi Masuk' : ''}`;
+            } else if (isBkGateIn || effective.currentTimeWithSecStr > gateInEndSec) {
                 const [endH, endM] = effective.gateInEndTime.split(':').map(Number);
                 const [currH, currM] = currentTimeStr.split(':').map(Number);
                 lateMinutes = Math.max(1, (currH * 60 + currM) - (endH * 60 + endM));
@@ -1813,7 +1843,7 @@ export const recordAttendanceScan = async (req: Request, res: Response) => {
         const gateInStartSec = (effective.gateInStartTime || '06:00') + ':00';
         const gateInEndSec = (effective.gateInEndTime || '07:00') + ':00';
         const classLateMaxSec = '07:30:00';
-        const gateOutStartSec = (effective.gateOutStartTime || '11:30') + ':00';
+        const gateOutStartSec = (effective.gateOutStartTime || '12:00') + ':00';
         const gateOutEndSec = (effective.gateOutEndTime || '18:00') + ':59';
 
         const isTestingMode = Boolean(
@@ -2132,19 +2162,26 @@ export const recordManualAttendance = async (req: Request, res: Response) => {
 
 export const getAttendanceToday = async (req: Request, res: Response) => {
     try {
-        const today = new Date();
-        const startOfDay = new Date(today.setHours(0, 0, 0, 0));
-        const endOfDay = new Date(today.setHours(23, 59, 59, 999));
+        // Gunakan zona waktu Asia/Jakarta (WIB) secara presisi
+        const now = new Date();
+        const dateStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(now);
+        const startOfDay = new Date(`${dateStr}T00:00:00.000+07:00`);
+        const endOfDay = new Date(`${dateStr}T23:59:59.999+07:00`);
 
         const totalStudents = await prisma.user.count({
             where: { role: 'STUDENT', isActive: true }
         });
 
+        // Ambil data presensi khusus siswa aktif hari ini
         const attendances = await prisma.attendance.findMany({
             where: {
                 scanTime: {
                     gte: startOfDay,
                     lte: endOfDay
+                },
+                user: {
+                    role: 'STUDENT',
+                    isActive: true
                 }
             },
             include: {
@@ -2158,16 +2195,45 @@ export const getAttendanceToday = async (req: Request, res: Response) => {
                     }
                 }
             },
-            orderBy: { scanTime: 'desc' }
+            orderBy: { scanTime: 'asc' } // Urutan kronologis masuk
         });
 
-        const present = attendances.filter(a => a.status === 'PRESENT').length;
-        const late = attendances.filter(a => a.status === 'LATE').length;
-        const sick = attendances.filter(a => a.status === 'SICK').length;
-        const permission = attendances.filter(a => a.status === 'PERMISSION').length;
-        const absent = attendances.filter(a => a.status === 'ABSENT').length;
-        const scannedCount = attendances.length;
-        const notYet = Math.max(0, totalStudents - scannedCount);
+        // Deduping per unik siswa agar siswa yang scan masuk dan pulang tidak dihitung ganda
+        const studentStatusMap = new Map<string, string>();
+
+        for (const att of attendances) {
+            const uid = att.userId;
+            const currentStatus = studentStatusMap.get(uid);
+
+            if (!currentStatus) {
+                studentStatusMap.set(uid, att.status);
+            } else {
+                // Prioritaskan GATE_IN untuk penentuan status kehadiran datang
+                if (att.type === 'GATE_IN') {
+                    studentStatusMap.set(uid, att.status);
+                } else if (['SICK', 'PERMISSION', 'ABSENT'].includes(att.status)) {
+                    studentStatusMap.set(uid, att.status);
+                }
+            }
+        }
+
+        let present = 0;
+        let late = 0;
+        let sick = 0;
+        let permission = 0;
+        let absent = 0;
+
+        for (const status of studentStatusMap.values()) {
+            if (status === 'PRESENT') present++;
+            else if (status === 'LATE') late++;
+            else if (status === 'SICK') sick++;
+            else if (status === 'PERMISSION') permission++;
+            else if (status === 'ABSENT') absent++;
+            else present++;
+        }
+
+        const attendedTotal = present + late + sick + permission + absent;
+        const notYet = Math.max(0, totalStudents - attendedTotal);
 
         res.json({
             stats: {
@@ -2177,9 +2243,10 @@ export const getAttendanceToday = async (req: Request, res: Response) => {
                 sick,
                 permission,
                 absent,
-                notYet
+                notYet,
+                attendanceRate: totalStudents > 0 ? Number((((present + late) / totalStudents) * 100).toFixed(1)) : 0
             },
-            recentLogs: attendances.slice(0, 50)
+            recentLogs: attendances.slice(-50).reverse()
         });
     } catch (error) {
         console.error('Error fetching today attendance:', error);
@@ -2709,7 +2776,7 @@ export async function autoNotifyUnscannedGateOutStudents(): Promise<number> {
         // Ambil siswa yang memiliki izin/gatepass keluar hari ini
         const gatepasses = await prisma.gatepassRequest.findMany({
             where: {
-                status: { in: ['APPROVED', 'USED', 'CHECKED_OUT'] },
+                status: { in: ['ACTIVE_APPROVED', 'COMPLETED', 'APPROVED', 'USED', 'CHECKED_OUT'] },
                 createdAt: { gte: startOfDay, lte: endOfDay }
             },
             select: { studentId: true }

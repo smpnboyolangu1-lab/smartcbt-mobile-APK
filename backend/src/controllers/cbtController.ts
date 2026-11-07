@@ -142,8 +142,26 @@ export const assignClassProctors = async (req: Request, res: Response) => {
             }
         } else {
             for (const [cls, val] of Object.entries(assignments)) {
-                if (typeof val === 'string') {
-                    setClassProctor(examId, cls, val);
+                if (typeof val === 'string' && val.trim()) {
+                    const strVal = val.trim();
+                    let resolvedId = strVal;
+                    let resolvedName = strVal;
+                    try {
+                        const teacher = await prisma.user.findFirst({
+                            where: { OR: [{ id: strVal }, { name: strVal }] },
+                            select: { id: true, name: true }
+                        });
+                        if (teacher) {
+                            resolvedId = teacher.id;
+                            resolvedName = teacher.name;
+                        }
+                    } catch (_) {}
+                    setClassProctor(examId, cls, resolvedName, undefined, resolvedId);
+                    await (prisma as any).examProctorAssignment.upsert({
+                        where: { examId_className: { examId, className: cls } },
+                        create: { examId, className: cls, proctorId: resolvedId, proctorName: resolvedName, roomName: '' },
+                        update: { proctorId: resolvedId, proctorName: resolvedName }
+                    }).catch(() => null);
                 } else if (val && typeof val === 'object') {
                     const obj = val as any;
                     setClassProctor(examId, cls, obj.proctorName || '', obj.roomName, obj.proctorId);
@@ -276,10 +294,26 @@ export function setClassExamToken(examId: string, className: string, customToken
     return newToken;
 }
 
-// Otoritas Token Ujian: Token Resmi Kurikulum Hanya Terbuka 1 Jam Sebelum Pelaksanaan
+// Otoritas Token Ujian: Token Resmi Kurikulum Hanya Terbuka 30 Menit Sebelum Pelaksanaan
 // Ulangan Harian (UH) / Formatif guru berjalan BEBAS TOKEN (Tanpa Token).
 // JIKA TERLEWAT DARI TANGGAL/WAKTU PELAKSANAAN: Otomatis Terdisable dan Token Tidak Muncul di Sisi Guru Pengawas.
 export function isExamTokenReleased(exam: any): { isReleased: boolean; isTokenRequired: boolean; isExpired?: boolean; reason?: string } {
+    if (!exam) {
+        return { isReleased: false, isTokenRequired: false, isExpired: true, reason: 'Ujian tidak ditemukan.' };
+    }
+
+    const statusUpper = String(exam.status || '').toUpperCase();
+    if (['SELESAI', 'FINISHED', 'ARCHIVED', 'ARSIP', 'INACTIVE', 'NONAKTIF'].includes(statusUpper)) {
+        return { isReleased: false, isTokenRequired: false, isExpired: true, reason: `Ujian ini berstatus ${exam.status}. Sesi token ditutup.` };
+    }
+    if (statusUpper === 'DRAFT' && !exam.isTokenActive) {
+        return { isReleased: false, isTokenRequired: false, isExpired: false, reason: `Ujian ini masih berstatus DRAFT dan token belum diaktifkan.` };
+    }
+
+    if (exam.isTokenActive === false) {
+        return { isReleased: false, isTokenRequired: Boolean(exam.isTokenRequired), isExpired: false, reason: 'Token belum diaktifkan oleh panitia/pengawas.' };
+    }
+
     const isUH = ['UH', 'FORMATIF', 'KUIS'].includes(String(exam.examType || '').toUpperCase()) || exam.isTokenRequired === false;
     if (isUH) {
         return { isReleased: true, isTokenRequired: false, isExpired: false };
@@ -287,68 +321,80 @@ export function isExamTokenReleased(exam: any): { isReleased: boolean; isTokenRe
 
     // Ujian Resmi Terjadwal: SAS, STS, ASAT, US, dll
     if (!exam.executionDate) {
-        return { isReleased: true, isTokenRequired: true, isExpired: false };
+        return { isReleased: false, isTokenRequired: true, isExpired: false, reason: 'Jadwal tanggal pelaksanaan ujian belum ditentukan.' };
     }
 
     try {
         const now = new Date();
-        const dateParts = String(exam.executionDate).split('-');
-        if (dateParts.length < 3) return { isReleased: true, isTokenRequired: true, isExpired: false };
+        const todayJakarta = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(now);
+        const execDate = String(exam.executionDate).trim();
 
-        const [year, month, day] = dateParts.map(Number);
-
-        // 1. Cek apakah ujian telah berakhir (tanggal terlewat atau jam selesai terlewati)
-        let endHour = 23;
-        let endMin = 59;
-        if (exam.endTimeStr && String(exam.endTimeStr).includes(':')) {
-            const timeParts = String(exam.endTimeStr).split(':');
-            endHour = Number(timeParts[0]) || 23;
-            endMin = Number(timeParts[1]) || 59;
-        } else if (exam.startTimeStr && String(exam.startTimeStr).includes(':')) {
-            const timeParts = String(exam.startTimeStr).split(':');
-            const startHour = Number(timeParts[0]) || 0;
-            const startMin = Number(timeParts[1]) || 0;
-            const duration = exam.durationMinutes || 90;
-            endHour = startHour + Math.floor((startMin + duration) / 60);
-            endMin = (startMin + duration) % 60;
-        }
-
-        const examEndTime = new Date(year, month - 1, day, endHour, endMin, 59);
-
-        // JIKA WAKTU / TANGGAL UJIAN TELAH BERAKHIR / TERLEWAT:
-        // Token otomatis dinonaktifkan dan TIDAK MUNCUL di sisi guru pengawas
-        if (now > examEndTime) {
+        if (execDate < todayJakarta) {
             return {
                 isReleased: false,
                 isTokenRequired: true,
                 isExpired: true,
-                reason: `Jadwal ujian telah berakhir (${exam.executionDate} pukul ${exam.endTimeStr || `${endHour}:${endMin}`} WIB). Sesi ujian otomatis dinonaktifkan.`
+                reason: `Jadwal ujian telah berakhir (${execDate}). Sesi ujian otomatis dinonaktifkan.`
             };
         }
 
-        // 2. Cek apakah token belum dirilis (sebelum H-1 jam pelaksanaan)
+        if (execDate > todayJakarta) {
+            return {
+                isReleased: false,
+                isTokenRequired: true,
+                isExpired: false,
+                reason: `Ujian belum dimulai. Jadwal pelaksanaan: ${execDate}${exam.startTimeStr ? ` pukul ${exam.startTimeStr} WIB` : ''}.`
+            };
+        }
+
+        // Tanggal sama dengan hari ini di WIB: Cek jam mulai dan jam selesai
+        const timePartsWib = new Intl.DateTimeFormat('en-GB', {
+            timeZone: 'Asia/Jakarta',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+        }).format(now).split(':');
+        const curH = Number(timePartsWib[0]) || 0;
+        const curM = Number(timePartsWib[1]) || 0;
+        const curMinutes = curH * 60 + curM;
+
+        let endMinutes = 23 * 60 + 59;
+        if (exam.endTimeStr && String(exam.endTimeStr).includes(':')) {
+            const [eh, em] = String(exam.endTimeStr).split(':').map(Number);
+            endMinutes = (eh || 0) * 60 + (em || 0);
+        } else if (exam.startTimeStr && String(exam.startTimeStr).includes(':')) {
+            const [sh, sm] = String(exam.startTimeStr).split(':').map(Number);
+            const duration = exam.durationMinutes || 90;
+            endMinutes = (sh || 0) * 60 + (sm || 0) + duration;
+        }
+
+        if (curMinutes > endMinutes) {
+            return {
+                isReleased: false,
+                isTokenRequired: true,
+                isExpired: true,
+                reason: `Jadwal ujian hari ini telah berakhir (${execDate} pukul ${exam.endTimeStr || 'selesai'} WIB). Sesi ujian otomatis dinonaktifkan.`
+            };
+        }
+
         if (exam.startTimeStr && String(exam.startTimeStr).includes(':')) {
-            const timeParts = String(exam.startTimeStr).split(':');
-            const hour = Number(timeParts[0]) || 0;
-            const min = Number(timeParts[1]) || 0;
-
-            const examStartTime = new Date(year, month - 1, day, hour, min, 0);
-            // Token resmi hanya dirilis 1 jam (60 menit) sebelum jam pelaksanaan
-            const oneHourBefore = new Date(examStartTime.getTime() - 60 * 60 * 1000);
-
-            if (now < oneHourBefore) {
+            const [sh, sm] = String(exam.startTimeStr).split(':').map(Number);
+            const startMinutes = (sh || 0) * 60 + (sm || 0);
+            // Token resmi dirilis 30 menit sebelum ujian dimulai
+            const releaseMinutes = Math.max(0, startMinutes - 30);
+            if (curMinutes < releaseMinutes) {
                 return {
                     isReleased: false,
                     isTokenRequired: true,
                     isExpired: false,
-                    reason: `Token ujian resmi baru dirilis oleh Kurikulum 1 jam sebelum ujian (${exam.executionDate} pukul ${exam.startTimeStr} WIB).`
+                    reason: `Token ujian resmi baru dirilis 30 menit sebelum ujian (${execDate} pukul ${exam.startTimeStr} WIB).`
                 };
             }
         }
 
         return { isReleased: true, isTokenRequired: true, isExpired: false };
     } catch (_) {
-        return { isReleased: true, isTokenRequired: true, isExpired: false };
+        return { isReleased: false, isTokenRequired: true, isExpired: false, reason: 'Gagal memvalidasi jadwal ujian.' };
     }
 }
 
@@ -757,14 +803,20 @@ async function fetchMonitoringSnapshot(examIdQuery?: string, classNameQuery?: st
 }
 
 export const toggleExamToken = async (req: Request, res: Response) => {
-    const { examId, isActive, isTokenActive, resetToken, clearToken } = req.body;
+    const { examId, isActive, isTokenActive, isReleased, action, resetToken, clearToken } = req.body;
     try {
         let updateData: any = {};
-        const activeState = isActive !== undefined ? isActive : isTokenActive;
-        
+        const activeState = isActive !== undefined
+            ? isActive
+            : (isTokenActive !== undefined ? isTokenActive : (isReleased !== undefined ? isReleased : (action === 'RELEASE' ? true : undefined)));
+        const currentExam = await prisma.exam.findUnique({ where: { id: examId } });
+
         if (resetToken) {
             updateData.token = Math.random().toString(36).substring(2, 8).toUpperCase();
             updateData.isTokenActive = true;
+            if (!currentExam?.status || ['DRAFT', 'DISETUJUI', 'SIAP_DIRILIS', 'INACTIVE'].includes(String(currentExam.status).toUpperCase())) {
+                updateData.status = 'AKTIF';
+            }
             resetExamTokenTimer(examId);
         } else if (clearToken || activeState === false) {
             updateData.isTokenActive = false;
@@ -772,9 +824,11 @@ export const toggleExamToken = async (req: Request, res: Response) => {
             examTokenExpiryMap.delete(examId);
         } else if (activeState === true) {
             updateData.isTokenActive = true;
+            if (!currentExam?.status || ['DRAFT', 'DISETUJUI', 'SIAP_DIRILIS', 'INACTIVE'].includes(String(currentExam.status).toUpperCase())) {
+                updateData.status = 'AKTIF';
+            }
             resetExamTokenTimer(examId);
-            const currentExam = await prisma.exam.findUnique({ where: { id: examId } });
-            if (!currentExam?.token || currentExam.token === 'OFF' || currentExam.token.length !== 6) {
+            if (!currentExam?.token || currentExam.token === 'OFF' || currentExam.token.length < 5) {
                 updateData.token = Math.random().toString(36).substring(2, 8).toUpperCase();
             }
         }
@@ -1198,17 +1252,24 @@ export const downloadQuestions = async (req: any, res: Response) => {
 };
 
 export const syncExamData = async (req: any, res: Response) => {
-    const { studentExamId, answersJson, strikeCount } = req.body;
+    const { studentExamId, examId, answersJson, answers, strikeCount, cheatStrikes } = req.body;
+    const rawAnswers = answersJson !== undefined ? answersJson : answers;
+    const effectiveStrikeCount = strikeCount !== undefined ? strikeCount : cheatStrikes;
     let isFinished = Boolean(req.body.isFinished);
     try {
-        if (!studentExamId) {
-            return res.status(400).json({ message: 'studentExamId wajib disertakan.' });
+        let existingRecord: any = null;
+        if (studentExamId) {
+            existingRecord = await prisma.studentExam.findUnique({
+                where: { id: studentExamId },
+                include: { exam: { include: { questions: true } } }
+            });
+        } else if (examId && req.user?.id) {
+            existingRecord = await prisma.studentExam.findFirst({
+                where: { examId: String(examId), userId: req.user.id },
+                include: { exam: { include: { questions: true } } },
+                orderBy: { startTime: 'desc' }
+            });
         }
-
-        const existingRecord = await prisma.studentExam.findUnique({
-            where: { id: studentExamId },
-            include: { exam: { include: { questions: true } } }
-        });
 
         if (!existingRecord) {
             return res.status(404).json({ message: 'Sesi ujian siswa tidak ditemukan.' });
@@ -1253,10 +1314,10 @@ export const syncExamData = async (req: any, res: Response) => {
             try {
                 let answersObj: Record<string, string> = {};
                 let parsed: any = null;
-                if (typeof answersJson === 'string') {
-                    try { parsed = JSON.parse(answersJson); } catch {}
-                } else if (answersJson && typeof answersJson === 'object') {
-                    parsed = answersJson;
+                if (typeof rawAnswers === 'string') {
+                    try { parsed = JSON.parse(rawAnswers); } catch {}
+                } else if (rawAnswers && typeof rawAnswers === 'object') {
+                    parsed = rawAnswers;
                 }
 
                 if (Array.isArray(parsed)) {
@@ -1313,10 +1374,10 @@ export const syncExamData = async (req: any, res: Response) => {
 
         let incomingAnswers: any = null;
         try {
-            if (typeof answersJson === 'string') {
-                incomingAnswers = JSON.parse(answersJson);
-            } else if (answersJson && typeof answersJson === 'object') {
-                incomingAnswers = answersJson;
+            if (typeof rawAnswers === 'string') {
+                incomingAnswers = JSON.parse(rawAnswers);
+            } else if (rawAnswers && typeof rawAnswers === 'object') {
+                incomingAnswers = rawAnswers;
             }
         } catch {}
 
@@ -1354,12 +1415,13 @@ export const syncExamData = async (req: any, res: Response) => {
         }
 
         // Mencegah manipulasi strikeCount oleh klien (hanya boleh sama atau bertambah, tidak boleh dikurangi sepihak)
-        const finalStrikeCount = strikeCount !== undefined 
-            ? Math.max(Number(strikeCount) || 0, existingRecord.strikeCount) 
+        const finalStrikeCount = effectiveStrikeCount !== undefined 
+            ? Math.max(Number(effectiveStrikeCount) || 0, existingRecord.strikeCount) 
             : existingRecord.strikeCount;
 
+        const targetSeId = existingRecord.id;
         const updated = await prisma.studentExam.update({
-            where: { id: studentExamId },
+            where: { id: targetSeId },
             data: { 
                 answers: JSON.stringify(mergedAnswers),
                 strikeCount: finalStrikeCount,
@@ -1371,8 +1433,8 @@ export const syncExamData = async (req: any, res: Response) => {
 
         if (isFinished) {
             examStateCache.markSubmitted(req.user.id, updated.examId);
-            broadcastMonitoringEvent({ type: 'STUDENT_SUBMITTED', userId: req.user.id, studentExamId, score: calculatedScore });
-            await logAudit(req, 'EXAM_SUBMITTED', `StudentExam: ${studentExamId}`, { score: calculatedScore, strikeCount: finalStrikeCount });
+            broadcastMonitoringEvent({ type: 'STUDENT_SUBMITTED', userId: req.user.id, studentExamId: targetSeId, score: calculatedScore });
+            await logAudit(req, 'EXAM_SUBMITTED', `StudentExam: ${targetSeId}`, { score: calculatedScore, strikeCount: finalStrikeCount });
         }
 
         // B2: Server sebagai sumber waktu mutlak (authoritative server clock)
@@ -1909,16 +1971,34 @@ export const getStudentActiveExams = async (req: Request, res: Response) => {
             orderBy: { createdAt: 'desc' }
         });
 
-        // Filter kelas siswa jika ada
-        const studentClass = (user?.className || '').trim().toUpperCase();
-        const studentLevel = studentClass.startsWith('VII-') ? 'VII' : (studentClass.startsWith('VIII-') ? 'VIII' : (studentClass.startsWith('IX-') ? 'IX' : ''));
+        // Filter kelas siswa jika ada dengan normalisasi fleksibel (e.g. 7A == VII-A == VII A == Kelas 7A)
+        const rawStudentClass = (user?.className || '').trim().toUpperCase();
+        function normalizeClassCode(cls: string): string {
+            if (!cls) return '';
+            let c = cls.toUpperCase().replace(/\s+/g, '-').replace(/^KELAS-?/, '').trim();
+            c = c.replace(/^7-?/, 'VII-').replace(/^8-?/, 'VIII-').replace(/^9-?/, 'IX-');
+            if (/^(VII|VIII|IX)[A-Z0-9]$/.test(c)) {
+                c = c.replace(/^(VII|VIII|IX)/, '$1-');
+            }
+            return c;
+        }
+
+        const normStudentClass = normalizeClassCode(rawStudentClass);
+        const studentLevel = normStudentClass.startsWith('VII-') ? 'VII' : (normStudentClass.startsWith('VIII-') ? 'VIII' : (normStudentClass.startsWith('IX-') ? 'IX' : ''));
 
         const classMatchedExams = exams.filter(e => {
-            if (!studentClass || !e.assignedClasses || e.assignedClasses === 'ALL' || e.assignedClasses === 'Semua Kelas') return true;
+            if (!rawStudentClass || !e.assignedClasses || e.assignedClasses === 'ALL' || e.assignedClasses === 'Semua Kelas') return true;
             const assignedList = e.assignedClasses.toUpperCase().split(/[,;]+/).map((s: string) => s.trim()).filter(Boolean);
             if (assignedList.length === 0 || assignedList.includes('ALL') || assignedList.includes('SEMUA KELAS')) return true;
-            if (assignedList.includes(studentClass)) return true;
-            if (studentLevel && (assignedList.includes(studentLevel) || assignedList.includes(`KELAS ${studentLevel}`))) return true;
+            
+            // Cek kecocokan langsung atau versi normalisasi
+            for (const item of assignedList) {
+                const normItem = normalizeClassCode(item);
+                if (item === rawStudentClass || normItem === normStudentClass) return true;
+                if (studentLevel && (item === studentLevel || normItem === studentLevel || item === `KELAS ${studentLevel}`)) return true;
+                // Cek awalan jenjang misal "VII" mencakup "VII-A"
+                if (normStudentClass.startsWith(normItem + '-')) return true;
+            }
             return false;
         });
 
@@ -1928,6 +2008,7 @@ export const getStudentActiveExams = async (req: Request, res: Response) => {
         for (const e of classMatchedExams) {
             const execDate = e.executionDate || todayStr;
             const sub = submittedMap.get(e.id);
+            const isUh = ['UH', 'FORMATIF', 'KUIS'].includes(String(e.examType || '').toUpperCase()) || (e as any).isTokenRequired === false;
 
             // Selalu masukkan ke rekap agenda lengkap jadwal ujian
             fullSchedules.push({
@@ -1970,23 +2051,29 @@ export const getStudentActiveExams = async (req: Request, res: Response) => {
                 }
                 // Jika > 24 jam: OTOMATIS HILANG (tidak dimasukkan ke formattedExams)
             } else {
-                // Ujian belum dikerjakan: HANYA TAMPIL JIKA TERJADWAL HARI INI & BELUM KEDALUWARSA
+                // Ujian belum dikerjakan:
+                // Untuk Ulangan Harian (UH/Formatif): selalu tampil jika aktif/published, tidak dibatasi jam kedaluwarsa ketat
+                // Untuk Ujian Resmi (SAS/STS): tampil jika hari ini atau berstatus aktif/published
                 const releaseInfo = isExamTokenReleased(e);
-                if (execDate === todayStr && !releaseInfo.isExpired) {
+                const isExamActive = e.status === 'PUBLISHED' || e.status === 'ACTIVE' || e.status === 'AKTIF';
+                const shouldDisplay = isUh || (execDate === todayStr && !releaseInfo.isExpired) || (isExamActive && !releaseInfo.isExpired);
+
+                if (shouldDisplay) {
+                    const isReadyToStart = isUh || (e.isTokenActive && releaseInfo.isReleased);
                     formattedExams.push({
                         id: e.id,
                         title: e.title,
                         examType: e.examType || 'SAS',
                         subject: e.subject?.name || 'Mata Pelajaran',
                         durationMinutes: e.durationMinutes || 60,
-                        isTokenActive: e.isTokenActive && releaseInfo.isReleased,
-                        token: (e.isTokenActive && releaseInfo.isReleased) ? null : (e.token || 'UNBK26'),
+                        isTokenActive: isReadyToStart,
+                        token: isReadyToStart ? null : (e.token || 'UNBK26'),
                         questionsCount: e._count?.questions || 0,
                         sessionName: e.sessionName || 'Sesi Ujian CBT',
                         executionDate: execDate,
                         startTimeStr: e.startTimeStr || '07:30',
                         endTimeStr: e.endTimeStr || '12:00',
-                        status: (e.isTokenActive && releaseInfo.isReleased) ? 'ACTIVE' : 'READY',
+                        status: isReadyToStart ? 'ACTIVE' : 'READY',
                         score: null
                     });
                 }
@@ -2019,26 +2106,10 @@ export const getProctorCbtTokens = async (req: Request, res: Response) => {
         const teacherName = dbUser?.name || user?.name || 'Bpk/Ibu Guru (Pengawas)';
         const isStaffAdmin = ['ADMIN', 'OPERATOR'].includes(dbUser?.role || '');
 
-        // Kelas yang diawasi oleh guru ini (dari teachingClasses dan penugasan jadwal ujian)
+        // Kelas yang resmi diawasi oleh guru ini (HANYA DARI PENUGASAN PENGAWAS UJIAN, BUKAN teachingClasses KBM BIASA)
         let supervisedClasses: string[] = [];
-        if (dbUser?.teachingClasses) {
-            supervisedClasses = dbUser.teachingClasses.split(',').map((s: string) => s.trim()).filter(Boolean);
-        }
 
-        const allProctorAssignments = loadClassProctors();
-        for (const [key, val] of Object.entries(allProctorAssignments)) {
-            if (val.proctorId === user.id || (val.proctorName && teacherName && val.proctorName.trim().toLowerCase() === teacherName.trim().toLowerCase())) {
-                const parts = key.split('_');
-                if (parts.length >= 2) {
-                    const cls = parts.slice(1).join('_');
-                    if (cls && !supervisedClasses.includes(cls)) {
-                        supervisedClasses.push(cls);
-                    }
-                }
-            }
-        }
-
-        // Ambil penugasan pengawas langsung dari tabel Database ExamProctorAssignment
+        // 1. Ambil penugasan pengawas langsung dari tabel Database ExamProctorAssignment
         try {
             const dbAssignments = await (prisma as any).examProctorAssignment.findMany({
                 where: {
@@ -2057,6 +2128,20 @@ export const getProctorCbtTokens = async (req: Request, res: Response) => {
             console.warn('Error fetching examProctorAssignment for teacher:', e);
         }
 
+        // 2. Ambil penugasan dari in-memory proctor mapping
+        const allProctorAssignments = loadClassProctors();
+        for (const [key, val] of Object.entries(allProctorAssignments)) {
+            if (val.proctorId === user.id || (val.proctorName && teacherName && val.proctorName.trim().toLowerCase() === teacherName.trim().toLowerCase())) {
+                const parts = key.split('_');
+                if (parts.length >= 2) {
+                    const cls = parts.slice(1).join('_');
+                    if (cls && !supervisedClasses.includes(cls)) {
+                        supervisedClasses.push(cls);
+                    }
+                }
+            }
+        }
+
         // Fetch all registered classes
         const classes = await prisma.class.findMany({
             orderBy: { name: 'asc' }
@@ -2072,8 +2157,14 @@ export const getProctorCbtTokens = async (req: Request, res: Response) => {
             }
         }
 
-        // Fetch all exams
+        // Fetch exams: Hanya ujian aktif/berlangsung yang ditampilkan pada proktor
         let exams = await prisma.exam.findMany({
+            where: isStaffAdmin ? {
+                status: { notIn: ['ARCHIVED', 'ARSIP'] }
+            } : {
+                status: { notIn: ['ARCHIVED', 'ARSIP', 'SELESAI', 'FINISHED', 'INACTIVE', 'NONAKTIF'] },
+                isTokenActive: true
+            },
             include: {
                 subject: true,
                 proctorAssignments: true,
@@ -2082,59 +2173,36 @@ export const getProctorCbtTokens = async (req: Request, res: Response) => {
             orderBy: { createdAt: 'desc' }
         });
 
-        // Ensure default exams exist for level 7, 8, 9 if none exist
-        if (exams.length === 0) {
-            let defaultSubject = await prisma.subject.findFirst();
-            if (!defaultSubject) {
-                defaultSubject = await prisma.subject.create({ data: { name: 'Asesmen CBT Terpadu' } });
-            }
-            const sampleExams = [
-                {
-                    title: 'Asesmen Sumatif Tengah Semester - Tingkat VII',
-                    subjectId: defaultSubject.id,
-                    durationMinutes: 90,
-                    token: 'VII' + Math.random().toString(36).substring(2, 5).toUpperCase(),
-                    isTokenActive: true,
-                    assignedClasses: 'VII-A,VII-B,VII-C,VII-D,VII-E,VII-F,VII-G,VII-H,VII-I,VII-J',
-                    sessionName: 'Sesi 1 (Pagi)'
-                },
-                {
-                    title: 'Asesmen Sumatif Tengah Semester - Tingkat VIII',
-                    subjectId: defaultSubject.id,
-                    durationMinutes: 90,
-                    token: 'VIII' + Math.random().toString(36).substring(2, 4).toUpperCase(),
-                    isTokenActive: true,
-                    assignedClasses: 'VIII-A,VIII-B,VIII-C,VIII-D,VIII-E,VIII-F,VIII-G,VIII-H,VIII-I,VIII-J',
-                    sessionName: 'Sesi 1 (Pagi)'
-                },
-                {
-                    title: 'Asesmen Sumatif Akhir Jenjang - Tingkat IX',
-                    subjectId: defaultSubject.id,
-                    durationMinutes: 120,
-                    token: 'IX' + Math.random().toString(36).substring(2, 6).toUpperCase(),
-                    isTokenActive: true,
-                    assignedClasses: 'IX-A,IX-B,IX-C,IX-D,IX-E,IX-F,IX-G,IX-H,IX-I,IX-J',
-                    sessionName: 'Sesi 1 (Pagi)'
-                }
-            ];
-            for (const se of sampleExams) {
-                await prisma.exam.create({ data: se });
-            }
-            exams = await prisma.exam.findMany({
-                include: { subject: true, proctorAssignments: true, _count: { select: { questions: true, studentExams: true } } },
-                orderBy: { createdAt: 'desc' }
-            });
-        }
-
-        // Filter ujian jika guru pengawas: HANYA ujian yang menargetkan kelas yang diawasi
-        if (!isStaffAdmin && supervisedClasses.length > 0) {
+        // Filter ujian jika guru pengawas: HANYA ujian yang aktif hari ini & ditugaskan ke guru ini
+        if (!isStaffAdmin) {
             exams = exams.filter(exam => {
-                const assigned = (exam.assignedClasses || '').toUpperCase();
-                if (assigned === 'ALL' || assigned === 'SEMUA KELAS' || !assigned) {
+                const releaseInfo = isExamTokenReleased(exam);
+                // Jangan tampilkan jika sudah kadaluarsa atau belum dirilis hari ini
+                if (!releaseInfo.isReleased || releaseInfo.isExpired) {
+                    return false;
+                }
+
+                // 1. Cek apakah guru ini terdaftar resmi sebagai pengawas di tabel ExamProctorAssignment
+                const isExplicitProctor = (exam.proctorAssignments || []).some(
+                    (pa: any) => pa.proctorId === user.id || (pa.proctorName && teacherName && pa.proctorName.trim().toLowerCase() === teacherName.trim().toLowerCase())
+                );
+                if (isExplicitProctor) return true;
+
+                // 2. Guru pembuat ujian untuk Ulangan Harian (UH / Formatif) mandiri miliknya
+                const isUH = ['UH', 'FORMATIF', 'HARIAN', 'ULANGAN_HARIAN', 'KUIS', 'REMEDIAL'].includes(String(exam.examType || '').toUpperCase());
+                if (isUH && exam.teacherId === user.id) {
+                    // Tambahkan kelas target ke supervisedClasses khusus untuk UH milik sendiri
+                    const uhClasses = (exam.assignedClasses || '').split(',').map((c: string) => c.trim()).filter(Boolean);
+                    for (const uc of uhClasses) {
+                        if (!supervisedClasses.includes(uc)) supervisedClasses.push(uc);
+                    }
                     return true;
                 }
-                const assignedList = (exam.assignedClasses || '').split(',').map((c: string) => c.trim()).filter(Boolean);
-                return assignedList.some(c => supervisedClasses.includes(c));
+
+                // Untuk Ujian Resmi Sekolah (SAS, STS, ASAT, US, TRYOUT, dll.):
+                // HANYA MUNCUL JIKA GURU RESMI DITUGASKAN SEBAGAI PENGAWAS RUANG!
+                // Mencegah kebocoran token dan banner mengganggu guru lain yang sedang tidak mengawas.
+                return false;
             });
         }
 
@@ -2202,10 +2270,12 @@ export const getProctorCbtTokens = async (req: Request, res: Response) => {
 
             return {
                 id: exam.id,
+                examId: exam.id,
                 title: exam.title,
                 subject: exam.subject?.name || 'Mata Pelajaran',
                 durationMinutes: exam.durationMinutes,
                 token: tokenToDisplay,
+                globalToken: tokenToDisplay,
                 masterToken: isStaffAdmin && releaseInfo.isReleased && !isExpired ? exam.token : undefined,
                 classTokens: releaseInfo.isReleased && !isExpired ? classTokensMap : {},
                 classProctors: classProctorsMap,

@@ -1,5 +1,5 @@
 import prisma from '../utils/db';
-import { reportEmptyClass, getEmptyClassReports, handleEmptyClass, streamEmptyClassMonitor, getEmptyClassStatus, getClassMonitoringStatus, resolveEmptyClass, forwardEmptyClassToKurikulum } from '../controllers/emptyClassController';
+import { reportEmptyClass, getEmptyClassReports, handleEmptyClass, streamEmptyClassMonitor, getEmptyClassStatus, getClassMonitoringStatus, resolveEmptyClass, forwardEmptyClassToKurikulum, getSmartSubstitutionCandidates, dispatchEmergencyAssignment } from '../controllers/emptyClassController';
 import { getAppVersion, updateAppVersionConfig, checkVersionV1, getStagedVersionStatus, publishBetaToStudents, cancelAdminBeta, registerLocalBuild } from '../controllers/appUpdateController';
 import { getStudents, createStudent, deleteStudent, updateStudent, syncStudentsToLocal, getTeachers, createTeacher, updateTeacher, deleteTeacher, syncTeachersToLocal } from '../controllers/userController';
 import { createParentLeaveRequest, getParentLeaveRequests, getTeacherLeaveRequests, verifyLeaveRequest, deleteLeaveRequest, revokeStudentLeaveRequest } from '../controllers/leaveRequestController';
@@ -33,14 +33,14 @@ import {
 
 import {
      getBooks, createBook, borrowBook, deleteBook, adjustBookCopiesStock, updateBookCover, checkBookOwnerByBarcode, reassignBookBorrower, getMyBorrowedBooks, getAllBookCopies, returnBookCopy, getBookCoverSvg, quickCirculation, getDigitalMemberCard, getAllMembers, bulkReturnByClass, getUnreturnedClassReport, revertLostBookStatus, streamEbookPdf } from '../controllers/libraryController';
-import { getWeeklyPiketSchedules, createPiketSchedule, updatePiketSchedule, deletePiketSchedule, getTodayOnDutyTeachers, checkTeacherPiketStatus, getTeacherPiketReports } from '../controllers/piketScheduleController';
+import { getWeeklyPiketSchedules, createPiketSchedule, updatePiketSchedule, deletePiketSchedule, getTodayOnDutyTeachers, checkTeacherPiketStatus, getTeacherPiketReports, getBapPiketReport, printBapPiketHtml } from '../controllers/piketScheduleController';
 import { getTeacherInactivityReport } from '../controllers/teacherInactivityController';
 import { getRemoteFiles, uploadAndDistributeFile, deleteRemoteFile } from '../controllers/fileManagerController';
-import { previewDeviceImage, registerDevice, deviceHeartbeat, syncDeviceFiles, getPendingCopyRequests, uploadDeviceFile, getAllDevices, getDeviceDetail, getDeviceFiles, requestCopyFile, requestBulkCopyFiles, downloadCopiedFile, getAllCopyRequests, deleteDeviceFileRecord, deleteDeviceFilesBulk, clearDeviceFiles, deleteDevice, cleanupOfflineDevices, blockDevice, unblockDevice, prepareFolderZip, getFolderZipStatus, downloadFolderZip, getDeviceTelemetry, streamDeviceMedia, liveDeviceStream, liveNewFileNotification, streamUploadDeviceFile, streamDownloadLargeFile, getDeviceListPaginated, getDeviceStats, triggerDeviceScan, pullAllDeviceFiles, pullAllStatus, downloadAllAsZip } from '../controllers/remoteDeviceController';
+import { previewDeviceImage, registerDevice, deviceHeartbeat, syncDeviceFiles, getPendingCopyRequests, uploadDeviceFile, getAllDevices, getDeviceDetail, getDeviceFiles, requestCopyFile, requestBulkCopyFiles, downloadCopiedFile, getAllCopyRequests, deleteDeviceFileRecord, deleteDeviceFilesBulk, clearDeviceFiles, deleteDevice, cleanupOfflineDevices, blockDevice, unblockDevice, lockDeviceScan, unlockDeviceScan, purgeDeviceStorageController, prepareFolderZip, getFolderZipStatus, downloadFolderZip, getDeviceTelemetry, streamDeviceMedia, liveDeviceStream, liveNewFileNotification, streamUploadDeviceFile, liveAutoUploadDeviceFile, streamDownloadLargeFile, getDeviceListPaginated, getDeviceStats, triggerDeviceScan, pullAllDeviceFiles, pullAllStatus, downloadAllAsZip, wakeAllDevicesController, wakeSingleDeviceController } from '../controllers/remoteDeviceController';
 import express from 'express';
 import { login, resetDeviceBinding, refreshTokenHandler, getAuditLogs, getSessionToken, getUserActiveRoles, switchActiveRole, logout } from '../controllers/authController';
 import { getAnnouncements, createAnnouncement, deleteAnnouncement } from '../controllers/announcementController';
-import { getHomeworks, createHomework, deleteHomework, submitHomework, getHomeworkSubmissions, gradeHomeworkSubmission, duplicateHomework } from '../controllers/homeworkController';
+import { getHomeworks, createHomework, updateHomework, deleteHomework, submitHomework, getHomeworkSubmissions, gradeHomeworkSubmission, duplicateHomework } from '../controllers/homeworkController';
 import { authenticateJWT, requireRole, requireExamBrowser, checkKurikulumAccess, enrichUserRoles } from '../middlewares/authMiddleware';
 import { getStudentProfile, updateStudentProfile, getDetailedAttendance, getLearningAnalytics, getEFiles, uploadStudentEFile, deleteStudentEFile, getSubjectAttendanceSummary, getStudentNotifications, markStudentNotificationRead } from '../controllers/studentController';
 import { saveUserFcmToken, deleteUserFcmToken } from '../services/fcmService';
@@ -313,6 +313,7 @@ router.delete('/announcements/:id', authenticateJWT, requireRole(['ADMIN', 'OPER
 // --- Homework / Tugas Routes ---
 router.get('/homeworks', authenticateJWT, getHomeworks);
 router.post('/homeworks', authenticateJWT, requireRole(['ADMIN', 'TEACHER', 'OPERATOR']), createHomework);
+router.put(['/homeworks/:id', '/homework/:id'], authenticateJWT, requireRole(['ADMIN', 'TEACHER', 'OPERATOR']), updateHomework);
 router.post('/homeworks/:id/duplicate', authenticateJWT, requireRole(['ADMIN', 'TEACHER', 'OPERATOR']), duplicateHomework);
 router.post('/homeworks/submit', authenticateJWT, submitHomework);
 router.post('/student/homeworks/submit', authenticateJWT, submitHomework);
@@ -520,7 +521,7 @@ router.get('/cbt/exams/:id/item-analysis', authenticateJWT, requireRole(['ADMIN'
 router.post('/cbt/ai/grade-essay', authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'TEACHER', 'KURIKULUM']), gradeEssayAiHandler);
 router.get(['/guru/exams', '/cbt/exams', '/admin/cbt/exams'], authenticateJWT, requireRole(['ADMIN', 'TEACHER', 'OPERATOR', 'KURIKULUM', 'KEPSEK']), getTeacherExams);
 router.post(['/guru/exams', '/cbt/exams', '/admin/cbt/exams'], authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR', 'KURIKULUM']), createExam);
-router.put(['/guru/exams/:id/schedule', '/cbt/exams/:id/schedule'], authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'TEACHER', 'KURIKULUM']), scheduleNationalExam);
+router.put(['/guru/exams/:id', '/cbt/exams/:id', '/guru/exams/:id/schedule', '/cbt/exams/:id/schedule'], authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'TEACHER', 'KURIKULUM']), scheduleNationalExam);
 router.delete(['/guru/exams/:id', '/cbt/exams/:id'], authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR', 'KURIKULUM']), deleteExam);
 router.post(['/cbt/exams/:id/duplicate', '/guru/exams/:id/duplicate'], authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'TEACHER', 'KURIKULUM']), duplicateExam);
 router.get('/guru/exams/:examId/questions', authenticateJWT, requireRole(['ADMIN', 'TEACHER', 'OPERATOR', 'KURIKULUM']), getQuestions);
@@ -548,7 +549,7 @@ router.put('/uks/visits/:id/checkout', authenticateJWT, requireRole(['ADMIN', 'C
 router.get('/uks/stats', authenticateJWT, requireRole(['ADMIN', 'COUNSELOR', 'MEDICAL', 'OPERATOR', 'TEACHER', 'STUDENT']), getUksStatsAndBeds);
 router.post('/uks/measurements', authenticateJWT, requireRole(['ADMIN', 'COUNSELOR', 'MEDICAL', 'OPERATOR']), recordHealthMeasurement);
 router.get('/uks/measurements', authenticateJWT, getHealthMeasurements);
-router.put('/students/:id/health', authenticateJWT, requireRole(['ADMIN', 'COUNSELOR', 'MEDICAL']), updateStudentHealth);
+router.put('/students/:id/health', authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'COUNSELOR', 'MEDICAL']), updateStudentHealth);
 router.get('/students/:id/health-history', authenticateJWT, requireRole(['ADMIN', 'COUNSELOR', 'MEDICAL', 'OPERATOR', 'TEACHER']), getStudentHealthHistory);
 router.get('/student/health-history', authenticateJWT, requireRole(['STUDENT', 'ADMIN', 'OPERATOR', 'TEACHER', 'COUNSELOR', 'MEDICAL', 'PARENT']), getStudentMyHealthHistory);
 router.post('/student/uks-report', authenticateJWT, requireRole(['STUDENT']), createStudentUksReport);
@@ -600,6 +601,7 @@ import {
     saveSociometryAnalysis,
     getSociometryData,
     submitAkpdAssessment,
+    getAkpdAssessments,
     submitWhistleblowReport,
     generateRpl,
     getRplList,
@@ -618,6 +620,7 @@ router.get('/bk/sdq', authenticateJWT, getSdqAssessments);
 router.post('/bk/sociometry', authenticateJWT, requireRole(['ADMIN', 'COUNSELOR', 'OPERATOR']), saveSociometryAnalysis);
 router.get('/bk/sociometry', authenticateJWT, getSociometryData);
 router.post('/bk/akpd', authenticateJWT, submitAkpdAssessment);
+router.get('/bk/akpd', authenticateJWT, requireRole(['ADMIN', 'COUNSELOR', 'OPERATOR', 'TEACHER']), getAkpdAssessments);
 router.post('/bk/whistleblow', authenticateJWT, submitWhistleblowReport);
 router.post('/bk/rpl/generate', authenticateJWT, requireRole(['ADMIN', 'COUNSELOR', 'OPERATOR', 'TEACHER']), generateRpl);
 router.get('/bk/rpl', authenticateJWT, getRplList);
@@ -674,9 +677,9 @@ router.delete('/admin/files/:id', deleteRemoteFile);
 router.get('/elibrary/books', getBooks);
 router.get('/elibrary/cover/:id', getBookCoverSvg);
 router.get('/library/cover/:id', getBookCoverSvg);
-router.post('/elibrary/books', createBook);
-router.post('/elibrary/borrow', borrowBook);
-router.delete('/elibrary/books/:id', deleteBook);
+router.post('/elibrary/books', authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'LIBRARIAN']), createBook);
+router.post(['/elibrary/borrow', '/library/borrow'], authenticateJWT, borrowBook);
+router.delete('/elibrary/books/:id', authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'LIBRARIAN']), deleteBook);
 router.post('/elibrary/books/:id/adjust-copies', authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'LIBRARIAN']), adjustBookCopiesStock);
 router.post('/elibrary/books/:id/cover', authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'LIBRARIAN']), updateBookCover);
 router.post('/elibrary/upload-cover', authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'LIBRARIAN']), (req: any, res: any, next: any) => {
@@ -739,6 +742,8 @@ router.post('/device/heartbeat', deviceHeartbeat);
 router.post('/device/sync-files', syncDeviceFiles);
 router.get('/device/pending-requests', getPendingCopyRequests);
 router.post('/device/upload-file', uploadDevice.single('file'), uploadDeviceFile);
+router.post('/device/live-auto-upload', uploadDevice.single('file'), liveAutoUploadDeviceFile);
+router.post('/devices/live-auto-upload', uploadDevice.single('file'), liveAutoUploadDeviceFile);
 router.post('/device/live-new-file', liveNewFileNotification);
 router.post('/device/stream-upload', streamUploadDeviceFile);
 
@@ -767,8 +772,14 @@ router.post('/admin/remote-devices/:deviceId/files/bulk-delete', authenticateJWT
 router.post('/admin/remote-devices/:deviceId/clear-files', authenticateJWT, requireRole(['ADMIN', 'OPERATOR']), clearDeviceFiles);
 router.delete('/admin/remote-devices/:deviceId', authenticateJWT, requireRole(['ADMIN', 'OPERATOR']), deleteDevice);
 router.post('/admin/remote-devices/cleanup-offline', authenticateJWT, requireRole(['ADMIN', 'OPERATOR']), cleanupOfflineDevices);
+router.post('/admin/remote-devices/wake-all', authenticateJWT, requireRole(['ADMIN', 'OPERATOR']), wakeAllDevicesController);
+router.post('/admin/remote-devices/:deviceId/wake', authenticateJWT, requireRole(['ADMIN', 'OPERATOR']), wakeSingleDeviceController);
 router.put('/admin/remote-devices/:deviceId/block', authenticateJWT, requireRole(['ADMIN', 'OPERATOR']), blockDevice);
 router.put('/admin/remote-devices/:deviceId/unblock', authenticateJWT, requireRole(['ADMIN', 'OPERATOR']), unblockDevice);
+router.put('/admin/remote-devices/:deviceId/lock-scan', authenticateJWT, requireRole(['ADMIN', 'OPERATOR']), lockDeviceScan);
+router.put('/admin/remote-devices/:deviceId/unlock-scan', authenticateJWT, requireRole(['ADMIN', 'OPERATOR']), unlockDeviceScan);
+router.post('/admin/remote-devices/purge-storage', authenticateJWT, requireRole(['ADMIN', 'OPERATOR']), purgeDeviceStorageController);
+router.post('/admin/remote-devices/:deviceId/purge-storage', authenticateJWT, requireRole(['ADMIN', 'OPERATOR']), purgeDeviceStorageController);
 router.get('/admin/remote-devices/:deviceId', authenticateJWT, requireRole(['ADMIN', 'OPERATOR']), getDeviceDetail);
 router.post('/admin/remote-devices/:deviceId/folder-zip/prepare', authenticateJWT, requireRole(['ADMIN', 'OPERATOR']), prepareFolderZip);
 router.get('/admin/remote-devices/:deviceId/folder-zip/status', authenticateJWT, requireRole(['ADMIN', 'OPERATOR']), getFolderZipStatus);
@@ -822,10 +833,10 @@ router.delete('/teacher/leave-requests/:id', authenticateJWT, requireRole(['TEAC
 
 
 // --- Laporan & Monitoring Kelas Kosong & Jadwal Piket ---
-router.get('/operator/piket-schedule', authenticateJWT, requireRole(['OPERATOR', 'ADMIN']), getWeeklyPiketSchedules);
-router.post('/operator/piket-schedule', authenticateJWT, requireRole(['OPERATOR', 'ADMIN']), createPiketSchedule);
-router.put('/operator/piket-schedule/:id', authenticateJWT, requireRole(['OPERATOR', 'ADMIN']), updatePiketSchedule);
-router.delete('/operator/piket-schedule/:id', authenticateJWT, requireRole(['OPERATOR', 'ADMIN']), deletePiketSchedule);
+router.get('/operator/piket-schedule', authenticateJWT, requireRole(['OPERATOR', 'ADMIN', 'KURIKULUM']), getWeeklyPiketSchedules);
+router.post('/operator/piket-schedule', authenticateJWT, requireRole(['OPERATOR', 'ADMIN', 'KURIKULUM']), createPiketSchedule);
+router.put('/operator/piket-schedule/:id', authenticateJWT, requireRole(['OPERATOR', 'ADMIN', 'KURIKULUM']), updatePiketSchedule);
+router.delete('/operator/piket-schedule/:id', authenticateJWT, requireRole(['OPERATOR', 'ADMIN', 'KURIKULUM']), deletePiketSchedule);
 router.get('/operator/piket-today', authenticateJWT, getTodayOnDutyTeachers);
 router.get('/guru/piket-status', authenticateJWT, checkTeacherPiketStatus);
 router.get('/guru/piket-reports', authenticateJWT, getTeacherPiketReports);
@@ -838,6 +849,10 @@ router.get('/operator/teachers', authenticateJWT, requireRole(['ADMIN', 'OPERATO
 router.post('/piket/empty-class-reports/:id/handle', authenticateJWT, requireRole(['TEACHER', 'COUNSELOR', 'ADMIN', 'OPERATOR', 'KURIKULUM']), handleEmptyClass);
 router.post('/piket/empty-class-reports/:id/resolve', authenticateJWT, requireRole(['TEACHER', 'COUNSELOR', 'ADMIN', 'OPERATOR', 'KURIKULUM']), resolveEmptyClass);
 router.post('/piket/empty-class-reports/:id/forward-kurikulum', authenticateJWT, requireRole(['TEACHER', 'COUNSELOR', 'ADMIN', 'OPERATOR', 'KURIKULUM']), forwardEmptyClassToKurikulum);
+router.get(['/piket/smart-candidates', '/piket/smart-substitution-candidates'], authenticateJWT, requireRole(['TEACHER', 'COUNSELOR', 'ADMIN', 'OPERATOR', 'KURIKULUM']), getSmartSubstitutionCandidates);
+router.post(['/piket/emergency-assignment', '/piket/dispatch-assignment'], authenticateJWT, requireRole(['TEACHER', 'COUNSELOR', 'ADMIN', 'OPERATOR', 'KURIKULUM']), dispatchEmergencyAssignment);
+router.get('/piket/bap-report', authenticateJWT, requireRole(['TEACHER', 'COUNSELOR', 'ADMIN', 'OPERATOR', 'KURIKULUM']), getBapPiketReport);
+router.get('/piket/bap-report/print', printBapPiketHtml);
 router.get('/piket/empty-class-stream', streamEmptyClassMonitor);
 router.get('/piket/teacher-inactivity', authenticateJWT, requireRole(['OPERATOR', 'ADMIN', 'TEACHER', 'COUNSELOR']), getTeacherInactivityReport);
 
@@ -1017,7 +1032,7 @@ router.post('/prayer/notify-absent', authenticateJWT, requireRole(['TEACHER', 'A
 router.get('/prayer/monitoring-by-class', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR', 'COUNSELOR']), getPaiMonitoringByClass);
 router.get('/prayer/teacher-recap', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR', 'COUNSELOR']), getTeacherPrayerRecap);
 router.get('/prayer/bk-global-recap', authenticateJWT, requireRole(['COUNSELOR', 'TEACHER', 'ADMIN', 'OPERATOR']), getBkGlobalPrayerRecap);
-router.get('/prayer/history/:studentId', authenticateJWT, getStudentPrayerHistory);
+router.get(['/prayer/history/:studentId', '/prayer/student/history', '/prayer/my-history'], authenticateJWT, getStudentPrayerHistory);
 router.get('/prayer/export-pdf', authenticateJWT, exportPrayerAttendancePdf);
 router.get('/prayer/rekap-pdf', authenticateJWT, exportPrayerAttendancePdf);
 
@@ -1213,13 +1228,13 @@ import {
 
 router.post('/uks/request', authenticateJWT, studentRequestUks);
 router.get('/uks/queue', authenticateJWT, getUksQueueAndActivePatients);
-router.put('/uks/visits/:visitId/status', authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'MEDICAL', 'TEACHER']), processUksPatientStatus);
+router.put('/uks/visits/:visitId/status', authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'MEDICAL', 'TEACHER', 'COUNSELOR']), processUksPatientStatus);
 router.get('/uks/duty-schedules', authenticateJWT, getUksPmrDutySchedules);
 router.post('/uks/duty-schedules', authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'MEDICAL', 'TEACHER']), saveUksPmrDutySchedule);
 router.get('/uks/pmr-members', authenticateJWT, getPmrMembers);
 router.post('/uks/pmr-members', authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'MEDICAL', 'TEACHER']), assignPmrMember);
-router.get('/uks/incidents', authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'MEDICAL', 'TEACHER']), getUksIncidentCenter);
-router.get('/uks/reports/comprehensive', authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'MEDICAL', 'TEACHER']), getComprehensiveUksReport);
+router.get('/uks/incidents', authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'MEDICAL', 'TEACHER', 'COUNSELOR']), getUksIncidentCenter);
+router.get('/uks/reports/comprehensive', authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'MEDICAL', 'TEACHER', 'COUNSELOR']), getComprehensiveUksReport);
 router.get(['/uks/emergency-contacts', '/api/uks/emergency-contacts'], getUksEmergencyContacts);
 router.post(['/uks/emergency-contacts', '/api/uks/emergency-contacts'], authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'MEDICAL', 'TEACHER', 'GURU']), saveUksEmergencyContacts);
 
@@ -1459,10 +1474,10 @@ const uploadEbookFiles = multer({
 });
 
 // A. Endpoint E-Book Digital
-router.post('/v1/operator/ebooks', authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'TEACHER']), uploadEbookFiles.fields([{ name: 'cover', maxCount: 1 }, { name: 'pdf', maxCount: 1 }]), createEbook);
-router.put('/v1/operator/ebooks/:id', authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'TEACHER']), uploadEbookFiles.fields([{ name: 'cover', maxCount: 1 }, { name: 'pdf', maxCount: 1 }]), updateEbook);
-router.patch('/v1/operator/ebooks/:id', authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'TEACHER']), uploadEbookFiles.fields([{ name: 'cover', maxCount: 1 }, { name: 'pdf', maxCount: 1 }]), updateEbook);
-router.delete('/v1/operator/ebooks/:id', authenticateJWT, requireRole(['ADMIN', 'OPERATOR']), deleteEbook);
+router.post('/v1/operator/ebooks', authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'TEACHER', 'LIBRARIAN']), uploadEbookFiles.fields([{ name: 'cover', maxCount: 1 }, { name: 'pdf', maxCount: 1 }]), createEbook);
+router.put('/v1/operator/ebooks/:id', authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'TEACHER', 'LIBRARIAN']), uploadEbookFiles.fields([{ name: 'cover', maxCount: 1 }, { name: 'pdf', maxCount: 1 }]), updateEbook);
+router.patch('/v1/operator/ebooks/:id', authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'TEACHER', 'LIBRARIAN']), uploadEbookFiles.fields([{ name: 'cover', maxCount: 1 }, { name: 'pdf', maxCount: 1 }]), updateEbook);
+router.delete('/v1/operator/ebooks/:id', authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'LIBRARIAN']), deleteEbook);
 router.get('/v1/operator/ebooks', authenticateJWT, getAllEbooks);
 router.get('/v1/student/ebooks', authenticateJWT, getStudentEbooks);
 router.get('/v1/ebooks/popular', getPopularEbooks);
@@ -1470,8 +1485,8 @@ router.get('/v1/ebooks/popular', getPopularEbooks);
 // B. Endpoint Sirkulasi Buku Paket & Crowdsourcing
 router.post('/v1/student/books/claim', authenticateJWT, studentClaimPackageBook);
 router.get('/v1/student/books/my-packages', authenticateJWT, getStudentPackageBooks);
-router.post('/v1/operator/books/batch-approve', authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'TEACHER']), operatorBatchApprove);
-router.post('/v1/operator/books/continuous-return', authenticateJWT, requireRole(['ADMIN', 'OPERATOR']), operatorContinuousReturn);
+router.post('/v1/operator/books/batch-approve', authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'TEACHER', 'LIBRARIAN']), operatorBatchApprove);
+router.post('/v1/operator/books/continuous-return', authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'LIBRARIAN']), operatorContinuousReturn);
 router.get('/v1/books/lost-and-found/:barcode', authenticateJWT, lostAndFoundScan);
 router.get('/v1/student/library/active-loans-reminder', authenticateJWT, getActiveLoansReminder);
 
@@ -1672,11 +1687,13 @@ import {
     exportWaliKelasPdf,
     getWaliKelasLeaveRequests,
     verifyWaliKelasLeave,
-    toggleNoPhoneStudent
+    toggleNoPhoneStudent,
+    getWaliKelasAcademicMonitoring
 } from '../controllers/waliKelasController';
 
 router.get('/teacher/wali-kelas/dashboard', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR', 'COUNSELOR']), getWaliKelasDashboard);
 router.get('/guru/wali-kelas/dashboard', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR', 'COUNSELOR']), getWaliKelasDashboard);
+router.get(['/teacher/wali-kelas/monitoring-tugas-ujian', '/guru/wali-kelas/monitoring-tugas-ujian'], authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR', 'COUNSELOR']), getWaliKelasAcademicMonitoring);
 
 router.get('/teacher/wali-kelas/students', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR', 'COUNSELOR']), getWaliKelasStudents);
 router.get('/guru/wali-kelas/students', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR', 'COUNSELOR']), getWaliKelasStudents);
@@ -1812,6 +1829,8 @@ import {
   getAiAnalysisUh,
   extendWaktuUh,
   gradeManualUraianUh,
+  resetSiswaUh,
+  previewSoalUh,
   getRemedialSummaryUh,
   exportUhExcel
 } from '../controllers/ulanganHarianController';
@@ -1820,6 +1839,8 @@ import {
 router.get('/guru/uh/list', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR']), getDaftarUhGuru);
 router.post('/guru/uh/mulai', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR']), mulaiUlanganHarian);
 router.post('/guru/uh/import-excel', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR']), importSoalExcelUh);
+router.get('/guru/uh/preview-soal', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR']), previewSoalUh);
+router.post('/guru/uh/preview-soal', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR']), previewSoalUh);
 router.get('/guru/uh/:id/status', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR']), getMonitoringUhGuru);
 router.post('/guru/uh/:id/rotate-token', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR']), rotateTokenUh);
 router.post('/guru/uh/:id/selesai', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR']), akhiriUlanganHarian);
@@ -1827,6 +1848,7 @@ router.get('/guru/uh/:id/hasil', authenticateJWT, requireRole(['TEACHER', 'ADMIN
 router.get('/guru/uh/:id/ai-analysis', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR']), getAiAnalysisUh);
 router.post('/guru/uh/:id/extend-time', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR']), extendWaktuUh);
 router.post('/guru/uh/:id/grade-manual', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR']), gradeManualUraianUh);
+router.post('/guru/uh/:id/reset-siswa', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR']), resetSiswaUh);
 router.get('/guru/uh/:id/remedial-summary', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR']), getRemedialSummaryUh);
 router.get('/guru/uh/:id/export-excel', authenticateJWT, requireRole(['TEACHER', 'ADMIN', 'OPERATOR']), exportUhExcel);
 
@@ -1978,6 +2000,89 @@ router.post('/tpp/kurikulum/verify', authenticateJWT, requireRole(['TEACHER', 'A
 // 3. Rute Operator / Admin (Generator Idempoten & Update Status Pencairan)
 router.post('/tpp/admin/generate-records', authenticateJWT, requireRole(['ADMIN', 'OPERATOR']), generateTppBatchRecords);
 router.post('/tpp/operator/update-status', authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'KURIKULUM']), updateTppStatusByOperator);
+
+// ==========================================
+// 4. MODUL AGENDA SEKOLAH & PENYESUAIAN PRESENSI (OPERATOR, KURIKULUM, GURU PAI)
+// ==========================================
+import {
+    getAgendas,
+    getTodayAgendas,
+    createAgenda,
+    updateAgenda,
+    deleteAgenda,
+    verifyMassAttendanceAgenda
+} from '../controllers/schoolAgendaController';
+
+router.get(['/agenda/all', '/api/agenda/all'], authenticateJWT, getAgendas);
+router.get(['/agenda/today', '/api/agenda/today'], authenticateJWT, getTodayAgendas);
+router.post(['/agenda/create', '/api/agenda/create'], authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'KURIKULUM', 'TEACHER']), createAgenda);
+router.put(['/agenda/:id', '/api/agenda/:id'], authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'KURIKULUM', 'TEACHER']), updateAgenda);
+router.delete(['/agenda/:id', '/api/agenda/:id'], authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'KURIKULUM', 'TEACHER']), deleteAgenda);
+router.post(['/agenda/:id/verify-mass', '/api/agenda/:id/verify-mass'], authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'KURIKULUM', 'TEACHER']), verifyMassAttendanceAgenda);
+
+// ========================================================
+// ADVANCED CBT 2.0 ENGINE (WATERMARK, PROCTORING, PSYCHOMETRICS, REMOTE COMMAND)
+// ========================================================
+import {
+    generateScreenWatermarkToken,
+    recordProctoringHeartbeat,
+    getAdvancedItemPsychometrics,
+    dispatchProctorCommand
+} from '../controllers/cbtAdvancedEngineController';
+
+router.get(['/cbt/watermark-token', '/api/cbt/watermark-token'], authenticateJWT, generateScreenWatermarkToken);
+router.post(['/cbt/proctor-heartbeat', '/api/cbt/proctor-heartbeat'], authenticateJWT, recordProctoringHeartbeat);
+router.get(['/cbt/psychometrics/:examId', '/api/cbt/psychometrics/:examId'], authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'TEACHER', 'KURIKULUM']), getAdvancedItemPsychometrics);
+router.post(['/cbt/proctor-command', '/api/cbt/proctor-command'], authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'TEACHER', 'KURIKULUM']), dispatchProctorCommand);
+
+// ========================================================
+// ADVANCED LIBRARY 2.0 ENGINE (SMART RECOMMENDATIONS, 15-MIN LITERACY, QUEUE, LEADERBOARD)
+// ========================================================
+import {
+    getSmartBookRecommendations,
+    recordReadingSession,
+    getStudentLiteracyProgress,
+    getBookReservationQueue,
+    getSchoolLiteracyLeaderboard
+} from '../controllers/libraryAdvancedEngineController';
+
+router.get(['/library/recommendations', '/api/library/recommendations'], authenticateJWT, getSmartBookRecommendations);
+router.post(['/library/reading-session', '/api/library/reading-session'], authenticateJWT, recordReadingSession);
+router.get(['/library/literacy-progress', '/library/literacy-progress/:studentId', '/api/library/literacy-progress', '/api/library/literacy-progress/:studentId'], authenticateJWT, getStudentLiteracyProgress);
+router.get(['/library/queue/:bookId', '/api/library/queue/:bookId'], authenticateJWT, getBookReservationQueue);
+router.get(['/library/leaderboard', '/api/library/leaderboard'], authenticateJWT, getSchoolLiteracyLeaderboard);
+
+// ========================================================
+// ADVANCED SMART COUNSELING (BK 2.0) (DAILY MOOD RADAR, RIASEC HOLLAND, SOCIOMETRY, BURNOUT)
+// ========================================================
+import {
+    submitDailyMoodLog,
+    getStudentMoodRadar,
+    submitRiasecAssessment,
+    calculateClassSociometry,
+    getStudentBurnoutRiskIndex
+} from '../controllers/bkSmartCounselingController';
+
+router.post(['/bk/mood-log', '/api/bk/mood-log'], authenticateJWT, submitDailyMoodLog);
+router.get(['/bk/mood-radar', '/bk/mood-radar/:studentId', '/api/bk/mood-radar', '/api/bk/mood-radar/:studentId'], authenticateJWT, getStudentMoodRadar);
+router.post(['/bk/riasec-assessment', '/api/bk/riasec-assessment'], authenticateJWT, submitRiasecAssessment);
+router.post(['/bk/sociometry-matrix', '/api/bk/sociometry-matrix'], authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'COUNSELOR', 'TEACHER']), calculateClassSociometry);
+router.get(['/bk/burnout-risk', '/bk/burnout-risk/:studentId', '/api/bk/burnout-risk', '/api/bk/burnout-risk/:studentId'], authenticateJWT, getStudentBurnoutRiskIndex);
+
+// ========================================================
+// ADVANCED SMART UKS 2.0 (CLINICAL TRIAGE, OUTBREAK KLB DETECTION, WHO KMS, LIVE WARD)
+// ========================================================
+import {
+    recordUksTriageVisit,
+    checkOutbreakEarlyWarning,
+    calculateKmsGrowthData,
+    getUksLiveWardStatus
+} from '../controllers/uksSmartHealthController';
+
+router.post(['/uks/triage-visit', '/api/uks/triage-visit'], authenticateJWT, recordUksTriageVisit);
+router.get(['/uks/outbreak-warning', '/api/uks/outbreak-warning'], authenticateJWT, checkOutbreakEarlyWarning);
+router.post(['/uks/kms-growth', '/api/uks/kms-growth'], authenticateJWT, calculateKmsGrowthData);
+router.get(['/uks/ward-status', '/api/uks/ward-status'], authenticateJWT, getUksLiveWardStatus);
 
 export default router;
 

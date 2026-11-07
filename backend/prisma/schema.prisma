@@ -137,6 +137,33 @@ model SchoolHoliday {
   updatedAt         DateTime @updatedAt
 }
 
+model SchoolAgenda {
+  id                  String    @id @default(uuid())
+  title               String    // e.g. "Peringatan Hari Santri Nasional & Sholat Dhuha Akbar"
+  description         String?   // Keterangan kegiatan / pakaian / petunjuk
+  category            String    // "KEAGAMAAN" | "UPACARA" | "AKADEMIK" | "NON_KBM"
+  date                String    // Format "YYYY-MM-DD"
+  startTime           String    @default("06:30") // e.g. "06:30"
+  endTime             String    @default("11:30") // e.g. "11:30"
+  targetScope         String    @default("ALL")   // "ALL" | "VII" | "VIII" | "IX" | "CUSTOM"
+  targetClasses       String?   // CSV / JSON rombel e.g. "VII-A,VII-B"
+  autoExtendGateUntil String?   @default("10:30") // Batas toleransi Gate-In baru selama agenda
+  suppressAlpaBlast   Boolean   @default(true)    // Cegah blast alpa jam 15:00 WIB
+  autoGrantDhuha      Boolean   @default(false)   // Jika diverifikasi PAI, otomatis catat Sholat Dhuha
+  autoGrantGateIn     Boolean   @default(false)   // Jika diverifikasi PAI/Piket, otomatis catat Gate-In masuk
+  isCompleted         Boolean   @default(false)   // Status agenda telah diverifikasi
+  verifiedAt          DateTime?
+  verifiedBy          String?   // Nama / NIP yang memverifikasi
+  verifiedRole        String?   // Role verifikator: "PAI" | "KURIKULUM" | "OPERATOR"
+  createdBy           String?   // Username pembuat
+  creatorRole         String?   // "OPERATOR" | "KURIKULUM" | "PAI" | "ADMIN"
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([date])
+  @@index([category])
+}
+
 model GateSetting {
   id                  String   @id @default("default")
   gateInStartTime     String   @default("06:00") // Jam mulai buka gerbang masuk

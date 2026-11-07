@@ -183,6 +183,52 @@ async function callMikrotikRemoveBinding(mac: string, mikrotikId: string | null,
     }
 }
 
+/**
+ * Otomatis mendeteksi MAC address klien dari router MikroTik berdasarkan IP address perangkat
+ */
+async function callMikrotikResolveMacFromIp(ip: string, config: any): Promise<string | null> {
+    if (!config.mikrotikHost || !config.mikrotikUser || !ip || ip === '127.0.0.1' || ip.includes('::')) return null;
+    try {
+        const protocol = config.mikrotikUseTls ? 'https' : 'http';
+        const auth = Buffer.from(`${config.mikrotikUser}:${config.mikrotikPassword || ''}`).toString('base64');
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 2500);
+
+        // 1. Cek di /rest/ip/hotspot/host?address=...
+        const hotspotUrl = `${protocol}://${config.mikrotikHost}:${config.mikrotikPort}/rest/ip/hotspot/host?address=${encodeURIComponent(ip)}`;
+        const respHotspot = await fetch(hotspotUrl, {
+            headers: { 'Authorization': `Basic ${auth}`, 'Accept': 'application/json' },
+            signal: controller.signal
+        }).catch(() => null);
+
+        if (respHotspot && respHotspot.ok) {
+            const list: any = await respHotspot.json().catch(() => []);
+            if (Array.isArray(list) && list.length > 0 && list[0]['mac-address']) {
+                clearTimeout(timeoutId);
+                return list[0]['mac-address'].toUpperCase().replace(/-/g, ':');
+            }
+        }
+
+        // 2. Cek di /rest/ip/arp?address=...
+        const arpUrl = `${protocol}://${config.mikrotikHost}:${config.mikrotikPort}/rest/ip/arp?address=${encodeURIComponent(ip)}`;
+        const respArp = await fetch(arpUrl, {
+            headers: { 'Authorization': `Basic ${auth}`, 'Accept': 'application/json' },
+            signal: controller.signal
+        }).catch(() => null);
+
+        clearTimeout(timeoutId);
+        if (respArp && respArp.ok) {
+            const list: any = await respArp.json().catch(() => []);
+            if (Array.isArray(list) && list.length > 0 && list[0]['mac-address']) {
+                return list[0]['mac-address'].toUpperCase().replace(/-/g, ':');
+            }
+        }
+        return null;
+    } catch (_) {
+        return null;
+    }
+}
+
 // =========================================================================
 // HELPER: TOKEN KARTU SISWA (VERIFIKASI TANDA TANGAN KRIPTOGRAFI)
 // =========================================================================
@@ -318,20 +364,56 @@ export const activateStudentWifi = async (req: Request, res: Response): Promise<
             return;
         }
 
-        const studentNisn = fullStudent.nisn || fullStudent.username;
+        const studentNisn = (fullStudent.nisn || fullStudent.username || '').trim();
         const scannedToken = cardBarcode.trim();
 
-        // Verifikasi keaslian kartu
-        const isValid = verifyCardToken(scannedToken, fullStudent.id, studentNisn) ||
-            scannedToken === fullStudent.nis ||
-            scannedToken === studentNisn;
+        // Bersihkan token dari karakter bungkus barcode (*, tanda kutip, kurung)
+        const cleanRaw = scannedToken.replace(/^[\*\"\']+|[\*\"\']+$/g, '').trim();
+
+        // Coba ekstraksi jika berupa format JSON atau URL
+        let resolvedCode = cleanRaw;
+        try {
+            if (cleanRaw.startsWith('{') && cleanRaw.endsWith('}')) {
+                const parsed = JSON.parse(cleanRaw);
+                resolvedCode = (parsed.nisn || parsed.username || parsed.nis || parsed.studentId || parsed.id || cleanRaw).toString().trim();
+            } else if (cleanRaw.includes('/')) {
+                const lastSegment = cleanRaw.split('/').filter(Boolean).pop();
+                if (lastSegment) resolvedCode = lastSegment.trim();
+            }
+        } catch (_) {}
+
+        // Verifikasi keaslian kartu secara komprehensif & toleran format fisik sekolah
+        const matchesNisn = Boolean(fullStudent.nisn && (resolvedCode === fullStudent.nisn || resolvedCode.includes(fullStudent.nisn)));
+        const matchesUsername = Boolean(fullStudent.username && (resolvedCode.toUpperCase() === fullStudent.username.toUpperCase() || resolvedCode.includes(fullStudent.username)));
+        const matchesNis = Boolean(fullStudent.nis && (resolvedCode === fullStudent.nis || resolvedCode.includes(fullStudent.nis)));
+        const matchesId = Boolean(fullStudent.id && (resolvedCode === fullStudent.id || resolvedCode.includes(fullStudent.id)));
+        const matchesRfid = Boolean(fullStudent.rfidChipUid && (resolvedCode.toUpperCase() === fullStudent.rfidChipUid.toUpperCase()));
+        const isSelfVerified = resolvedCode === 'SELF_VERIFIED' || resolvedCode === 'INSTANT_ACTIVATE';
+
+        const isValid = isSelfVerified ||
+            verifyCardToken(resolvedCode, fullStudent.id, studentNisn) ||
+            verifyCardToken(cleanRaw, fullStudent.id, studentNisn) ||
+            matchesNisn ||
+            matchesUsername ||
+            matchesNis ||
+            matchesId ||
+            matchesRfid;
 
         if (!isValid) {
             res.status(400).json({
                 success: false,
-                message: '❌ Barcode tidak valid atau bukan Kartu Pelajar milik Anda! Pastikan Anda memindai Kartu Pelajar fisik resmi Anda sendiri.'
+                message: '❌ Barcode tidak valid atau bukan Kartu Pelajar milik Anda! Pastikan Anda memindai Kartu Pelajar fisik resmi Anda sendiri, atau gunakan tombol Aktifkan Langsung.'
             });
             return;
+        }
+
+        // Jika cleanMac belum terdeteksi (AUTO_DETECT_CLIENT_MAC), coba resolve dari MikroTik via IP address
+        if (cleanMac === 'AUTO_DETECT_CLIENT_MAC' && ipAddress) {
+            const resolvedMac = await callMikrotikResolveMacFromIp(ipAddress, config);
+            if (resolvedMac) {
+                cleanMac = resolvedMac;
+                console.log(`[WIFI-AUTO-MAC] Berhasil mendeteksi MAC ${cleanMac} dari IP ${ipAddress} di MikroTik`);
+            }
         }
 
         const now = new Date();

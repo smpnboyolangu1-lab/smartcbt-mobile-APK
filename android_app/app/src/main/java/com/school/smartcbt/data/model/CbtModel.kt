@@ -230,7 +230,10 @@ data class ProctorExamDto(
     val classProctors: Map<String, String>? = null,
     val remainingSeconds: Long? = null,
     val tokenLifetimeSeconds: Long? = null,
-    val tokenStatusNotice: String? = null
+    val tokenStatusNotice: String? = null,
+    val isTokenReleased: Boolean? = true,
+    val isExpired: Boolean? = false,
+    val isTokenRequired: Boolean? = true
 )
 
 data class ProctorClassStudentsResponse(

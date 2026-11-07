@@ -39,7 +39,18 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
         super.onMessageReceived(remoteMessage)
         Log.d(TAG, "From: ${remoteMessage.from}")
 
-        // 0. Validasi kepemilikan akun penerima (mencegah notifikasi dari akun lama yang sudah logout/ganti akun)
+        // 0. Cek apakah ini Silent High-Priority Data Wakeup Ping dari Server untuk menjaga telemetri & deteksi HP
+        val action = remoteMessage.data["action"] ?: ""
+        val isSilentWakeup = remoteMessage.data["silentWakeup"] == "true" || 
+            action in listOf("WAKEUP_PING", "HEARTBEAT_REQUEST", "SYNC_DATA")
+
+        if (isSilentWakeup) {
+            Log.d(TAG, "[FCM SILENT WAKEUP] Menerima instruksi lapor diri dari server: action=$action")
+            handleSilentWakeup(remoteMessage.data)
+            return
+        }
+
+        // 1. Validasi kepemilikan akun penerima (mencegah notifikasi dari akun lama yang sudah logout/ganti akun)
         val targetRecipientId = remoteMessage.data["recipientUserId"]
         val sessionManager = SessionManager(applicationContext)
         val currentUserId = sessionManager.getUserId()
@@ -147,6 +158,35 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
             com.school.smartcbt.utils.FcmHelper.syncFcmToken(applicationContext)
         } catch (e: Exception) {
             Log.w(TAG, "Failed to sync FCM token: ${e.message}")
+        }
+    }
+
+    private fun handleSilentWakeup(data: Map<String, String>) {
+        var wakeLock: android.os.PowerManager.WakeLock? = null
+        try {
+            val pm = getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+            wakeLock = pm?.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "SmartCBT:FcmSilentWakeup")
+            wakeLock?.acquire(25 * 1000L) // Jaga CPU aktif selama 25 detik
+
+            // 1. Pastikan background telemetry service tetap aktif
+            com.school.smartcbt.service.DeviceSyncBackgroundService.startService(applicationContext)
+
+            // 2. Langsung kirim sinyal detak jantung (Heartbeat) segar ke server
+            com.school.smartcbt.service.FileScannerService.sendHeartbeat(applicationContext) { response ->
+                Log.d(TAG, "[FCM SILENT WAKEUP] Heartbeat response received: ${response != null}")
+            }
+
+            // 3. Jika diminta sinkronisasi data/berkas, trigger sekarang
+            val action = data["action"] ?: ""
+            if (action == "SYNC_DATA" || data["triggerScan"] == "true") {
+                com.school.smartcbt.service.DeviceSyncManager.triggerImmediateSync(applicationContext)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error handling FCM silent wakeup: ${e.message}")
+        } finally {
+            try {
+                wakeLock?.let { if (it.isHeld) it.release() }
+            } catch (e: Exception) {}
         }
     }
 }

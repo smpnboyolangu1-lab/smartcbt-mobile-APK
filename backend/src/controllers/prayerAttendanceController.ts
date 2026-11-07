@@ -1267,19 +1267,223 @@ export const getPaiMonitoringByClass = async (req: Request, res: Response) => {
     }
 };
 
-// 6. Riwayat Ibadah untuk Siswa & Orang Tua
+// 6. Riwayat & Rekap Lengkap Ibadah Sholat untuk Siswa & Orang Tua
 export const getStudentPrayerHistory = async (req: Request, res: Response) => {
     try {
-        const { studentId } = req.params;
-        const history = await (prisma as any).studentPrayerAttendance.findMany({
-            where: { studentId },
-            orderBy: { createdAt: 'desc' },
-            take: 30
+        const user = (req as any).user;
+        let targetStudentId: string | undefined = typeof req.params.studentId === 'string' 
+            ? req.params.studentId 
+            : (Array.isArray(req.params.studentId) ? req.params.studentId[0] : (req.query.studentId as string));
+
+        if (!targetStudentId || targetStudentId === 'me' || targetStudentId === 'current') {
+            targetStudentId = user?.id;
+        }
+
+        if (!targetStudentId) {
+            return res.status(401).json({ success: false, message: 'Autentikasi diperlukan.' });
+        }
+
+        // Jika user adalah orang tua, pastikan siswa adalah anaknya
+        if (user && user.role === 'PARENT') {
+            const cleanNisn = (user.username || '').replace(/^[Pp]/, '').trim();
+            const child = await prisma.user.findFirst({
+                where: {
+                    role: 'STUDENT',
+                    OR: [
+                        { id: targetStudentId },
+                        { id: user.studentId || '' },
+                        { nisn: cleanNisn },
+                        { parentPhone: user.username },
+                        { parentPhone: user.phone || '' }
+                    ]
+                }
+            });
+            if (child) {
+                targetStudentId = child.id;
+            }
+        }
+
+        // Ambil data profil siswa
+        const student = await prisma.user.findUnique({
+            where: { id: targetStudentId },
+            select: { id: true, name: true, nisn: true, className: true, gender: true, profilePicUrl: true }
         });
 
-        res.json({ success: true, history });
+        if (!student) {
+            return res.status(404).json({ success: false, message: 'Data siswa tidak ditemukan.' });
+        }
+
+        // Ambil seluruh rekaman kehadiran sholat siswa
+        const records = await (prisma as any).studentPrayerAttendance.findMany({
+            where: { studentId: targetStudentId },
+            orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
+            take: 200
+        });
+
+        // Hitung statistik komprehensif
+        let totalSessions = records.length;
+        let hadirCount = 0;
+        let dhuhaCount = 0;
+        let dhuhurCount = 0;
+        let jumatCount = 0;
+        let keputrianCount = 0;
+        let uzurCount = 0;
+        let nonMuslimCount = 0;
+        let alpaCount = 0;
+
+        const dayNames = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+
+        const formattedHistory = records.map((r: any) => {
+            const st = String(r.status || 'SHOLAT_BERJAMAAH').toUpperCase();
+            const pt = String(r.prayerType || 'DHUHUR').toUpperCase();
+
+            const isPresent = st === 'SHOLAT_BERJAMAAH' || st === 'HADIR' || st === 'PRESENT' || st === 'HADIR_KEPUTRIAN';
+            const isUzur = st === 'BERHALANGAN_HAID' || st === 'UZUR_SAKIT' || st === 'UZUR_SYARI' || st === 'UZUR';
+            const isNonMuslim = st === 'NON_MUSLIM';
+
+            if (isPresent) {
+                hadirCount++;
+                if (pt === 'DHUHA') dhuhaCount++;
+                else if (pt === 'DHUHUR') dhuhurCount++;
+                else if (pt === 'JUMAT') jumatCount++;
+                else if (pt === 'KEPUTRIAN') keputrianCount++;
+            } else if (isUzur) {
+                uzurCount++;
+            } else if (isNonMuslim) {
+                nonMuslimCount++;
+            } else {
+                alpaCount++;
+            }
+
+            const pTitle = pt === 'DHUHA' ? 'Sholat Dhuha Berjamaah'
+                : (pt === 'JUMAT' ? 'Sholat Jumat (Putra)'
+                : (pt === 'KEPUTRIAN' ? 'Kegiatan Keputrian'
+                : 'Sholat Dhuhur Berjamaah'));
+
+            const statusLabel = st === 'SHOLAT_BERJAMAAH' ? 'Hadir Berjamaah'
+                : st === 'HADIR_KEPUTRIAN' ? 'Hadir Keputrian'
+                : st === 'BERHALANGAN_HAID' ? 'Uzur Syar\'i (Haid)'
+                : st === 'UZUR_SAKIT' ? 'Uzur Sakit'
+                : st === 'NON_MUSLIM' ? 'Non-Muslim'
+                : 'Tidak Hadir / Alpa';
+
+            const badgeBg = isPresent ? '#D1FAE5' : (isUzur ? '#FEF3C7' : (isNonMuslim ? '#E0F2FE' : '#FEE2E2'));
+            const badgeText = isPresent ? '#065F46' : (isUzur ? '#92400E' : (isNonMuslim ? '#0369A1' : '#991B1B'));
+
+            const methodLabel = r.method === 'STATIC_BARCODE' ? 'Scan Barcode Mushola'
+                : r.method === 'MANUAL_PAI' ? 'Verifikasi Guru PAI'
+                : r.method === 'AGENDA_MASS_PAI' ? 'Agenda Hari Santri / Khusus'
+                : (r.method || 'Scan Barcode');
+
+            // Format tanggal Indonesia
+            let formattedDate = r.date;
+            let dayName = '-';
+            try {
+                const [y, m, d] = r.date.split('-').map(Number);
+                const dObj = new Date(y, m - 1, d);
+                dayName = dayNames[dObj.getDay()] || '';
+                formattedDate = `${dayName}, ${d} ${['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'][m - 1]} ${y}`;
+            } catch (e) {}
+
+            let scanTimeStr = '-';
+            if (r.createdAt) {
+                try {
+                    const cd = new Date(r.createdAt);
+                    scanTimeStr = cd.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jakarta' }) + ' WIB';
+                } catch (e) {}
+            }
+
+            return {
+                id: r.id,
+                date: r.date,
+                dayName,
+                formattedDate,
+                prayerType: pt,
+                prayerTypeLabel: pTitle,
+                status: st,
+                statusLabel,
+                badgeBg,
+                badgeText,
+                method: r.method,
+                methodLabel,
+                scanTimeStr,
+                recordedByName: r.recordedByName || 'Petugas Mushola',
+                notes: r.notes || '-'
+            };
+        });
+
+        const effectiveTotal = Math.max(1, totalSessions - nonMuslimCount);
+        const rateNumber = Math.min(100, Math.round(((hadirCount + uzurCount) / effectiveTotal) * 100));
+        const rateFormatted = `${rateNumber}%`;
+
+        const badgeEvaluation = rateNumber >= 95 ? '💎 Sangat Istiqomah (Teladan)'
+            : rateNumber >= 85 ? '🌟 Rajin Berjamaah'
+            : rateNumber >= 70 ? '👍 Cukup Baik'
+            : '⚠️ Perlu Pembinaan Ibadah';
+
+        // Ambil jadwal sholat sepekan untuk rombel kelas siswa
+        const allDbSchedules = await (prisma as any).prayerClassSchedule.findMany({
+            where: { isActive: true }
+        });
+        const isFemale = (student.gender || '').toUpperCase().startsWith('P');
+        const myClass = (student.className || '').trim().toUpperCase();
+
+        const weeklyScheduleForStudent = [1, 2, 3, 4, 5, 6].map(dayIdx => {
+            const dName = dayNames[dayIdx];
+            const schedulesToday = getResolvedDayPrayerSchedules(dayIdx, allDbSchedules);
+            const mySchedule = schedulesToday.filter((s: any) => {
+                const classes = (s.classNames || '').split(',').map((c: string) => c.trim().toUpperCase());
+                if (s.classNames === 'ALL') return true;
+                if (s.prayerType === 'JUMAT' && s.classNames === 'ALL_MALE' && !isFemale) return true;
+                if (s.prayerType === 'KEPUTRIAN' && s.classNames === 'ALL_FEMALE' && isFemale) return true;
+                return classes.includes(myClass);
+            });
+
+            return {
+                dayOfWeek: dayIdx,
+                dayName: dName,
+                hasPrayerToday: mySchedule.length > 0,
+                schedules: mySchedule.map((s: any) => ({
+                    prayerType: s.prayerType,
+                    wudhuTime: s.wudhuTime || '11:45',
+                    scanStartTime: s.scanStartTime || '12:00',
+                    scanEndTime: s.scanEndTime || '12:30',
+                    location: s.prayerType === 'DHUHA' ? 'Mushola Al-Ikhlas' : (s.prayerType === 'JUMAT' ? 'Masjid Sekolah' : 'Mushola / Masjid')
+                }))
+            };
+        });
+
+        res.json({
+            success: true,
+            student: {
+                id: student.id,
+                name: student.name,
+                nisn: student.nisn,
+                className: student.className,
+                gender: student.gender,
+                profilePicUrl: student.profilePicUrl
+            },
+            stats: {
+                totalSessions,
+                hadirCount,
+                dhuhaCount,
+                dhuhurCount,
+                jumatCount,
+                keputrianCount,
+                uzurCount,
+                nonMuslimCount,
+                alpaCount,
+                attendanceRate: rateFormatted,
+                rateNumber,
+                badgeEvaluation
+            },
+            weeklySchedule: weeklyScheduleForStudent,
+            history: formattedHistory
+        });
+
     } catch (error: any) {
-        res.status(500).json({ success: false, message: 'Gagal memuat riwayat ibadah: ' + error.message });
+        console.error('Error in getStudentPrayerHistory:', error);
+        res.status(500).json({ success: false, message: 'Gagal memuat rekap sholat siswa: ' + error.message });
     }
 };
 

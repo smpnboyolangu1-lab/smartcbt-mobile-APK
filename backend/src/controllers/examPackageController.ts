@@ -94,9 +94,11 @@ export const getExamPackages = async (req: Request, res: Response) => {
 export const assignExamAuthors = async (req: Request, res: Response) => {
     try {
         const user = (req as any).user;
-        const { examId, authorTeacherIds, reviewerTeacherIds } = req.body;
+        const { examId, authorTeacherIds, teacherIds, authorIds, reviewerTeacherIds, reviewerIds } = req.body;
+        const resolvedAuthors = authorTeacherIds || teacherIds || authorIds;
+        const resolvedReviewers = reviewerTeacherIds || reviewerIds;
 
-        const isKurikulum = user && (user.role === 'ADMIN' || (user.rolesTambahan && user.rolesTambahan.includes('kurikulum')));
+        const isKurikulum = user && (user.role === 'ADMIN' || user.role === 'KURIKULUM' || user.isKurikulum || (user.rolesTambahan && user.rolesTambahan.includes('kurikulum')) || (user.roles_tambahan && user.roles_tambahan.includes('kurikulum')));
         if (!isKurikulum) {
             return res.status(403).json({ success: false, message: 'Hanya Kurikulum yang berhak menugaskan Guru Penyusun Ujian.' });
         }
@@ -107,12 +109,12 @@ export const assignExamAuthors = async (req: Request, res: Response) => {
         const updated = await prisma.exam.update({
             where: { id: examId },
             data: {
-                authorTeacherIds: authorTeacherIds ? JSON.stringify(authorTeacherIds) : exam.authorTeacherIds,
-                reviewerTeacherIds: reviewerTeacherIds ? JSON.stringify(reviewerTeacherIds) : exam.reviewerTeacherIds
+                authorTeacherIds: resolvedAuthors ? (typeof resolvedAuthors === 'string' ? resolvedAuthors : JSON.stringify(resolvedAuthors)) : exam.authorTeacherIds,
+                reviewerTeacherIds: resolvedReviewers ? (typeof resolvedReviewers === 'string' ? resolvedReviewers : JSON.stringify(resolvedReviewers)) : exam.reviewerTeacherIds
             }
         });
 
-        await logAudit(req, 'ASSIGN_EXAM_AUTHORS', `Penugasan penyusun paket ${exam.title}`, { authorTeacherIds, reviewerTeacherIds });
+        await logAudit(req, 'ASSIGN_EXAM_AUTHORS', `Penugasan penyusun paket ${exam.title}`, { authorTeacherIds: resolvedAuthors, reviewerTeacherIds: resolvedReviewers });
 
         res.json({ success: true, message: 'Guru Penyusun & Reviewer berhasil ditugaskan!', exam: updated });
     } catch (error: any) {

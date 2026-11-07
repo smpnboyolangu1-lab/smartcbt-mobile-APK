@@ -1,0 +1,104 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="96dp"
+    android:height="96dp"
+    android:viewportWidth="96"
+    android:viewportHeight="96">
+    <!-- Background Circle - Soft Warm Cream -->
+    <path
+        android:fillColor="#FEF3C7"
+        android:pathData="M48,48m-44,0a44,44 0,1 1,88 0a44,44 0,1 1,-88 0" />
+
+    <!-- Baju Seragam Keki / Khaki PNS Guru (Tubuh & Pundak) -->
+    <path
+        android:fillColor="#BFA054"
+        android:pathData="M22,92 C24,74 34,68 48,68 C62,68 72,74 74,92 Z" />
+
+    <!-- Kerah Kemeja Dinas Keki Pria -->
+    <path
+        android:fillColor="#A88B42"
+        android:pathData="M38,68 L48,82 L58,68 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M44,68 L48,74 L52,68 Z" />
+
+    <!-- Lencana KORPRI Emas / Tanda Jabatan PNS -->
+    <path
+        android:fillColor="#FBBF24"
+        android:pathData="M31,78 L35,78 L33,82 Z" />
+    <!-- Name Tag Putih Guru -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M60,78 L68,78 L68,81 L60,81 Z" />
+
+    <!-- Leher -->
+    <path
+        android:fillColor="#ECC9A9"
+        android:pathData="M42,56 L54,56 L54,68 L42,68 Z" />
+
+    <!-- Kepala / Wajah Kartun Guru Pria -->
+    <path
+        android:fillColor="#FDE4D0"
+        android:pathData="M48,22 C36,22 35,32 35,46 C35,58 41,62 48,62 C55,62 61,58 61,46 C61,32 60,22 48,22 Z" />
+
+    <!-- Rambut Rapi Guru Pria (Hitam / Coklat Gelap) -->
+    <path
+        android:fillColor="#262626"
+        android:pathData="M48,16 C34,16 33,26 33,36 C35,34 38,32 44,32 C50,32 54,28 62,32 C63,34 63,36 63,36 C63,26 62,16 48,16 Z" />
+    <!-- Rambut Samping / Jambang Rapi -->
+    <path
+        android:fillColor="#262626"
+        android:pathData="M33,34 L36,34 L36,44 L33,40 Z" />
+    <path
+        android:fillColor="#262626"
+        android:pathData="M63,34 L60,34 L60,44 L63,40 Z" />
+
+    <!-- Telinga -->
+    <path
+        android:fillColor="#FDE4D0"
+        android:pathData="M34,44m-2.5,0a2.5,4 0,1 1,5 0a2.5,4 0,1 1,-5 0" />
+    <path
+        android:fillColor="#FDE4D0"
+        android:pathData="M62,44m-2.5,0a2.5,4 0,1 1,5 0a2.5,4 0,1 1,-5 0" />
+
+    <!-- Alis Mata Rapi -->
+    <path
+        android:fillColor="#262626"
+        android:strokeColor="#262626"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:pathData="M39,38 C41,37 44,37 45,38" />
+    <path
+        android:fillColor="#262626"
+        android:strokeColor="#262626"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:pathData="M51,38 C52,37 55,37 57,38" />
+
+    <!-- Mata Kartun Bersinar & Ramah -->
+    <path
+        android:fillColor="#1E293B"
+        android:pathData="M42,43m-2.8,0a2.8,3.2 0,1 1,5.6 0a2.8,3.2 0,1 1,-5.6 0" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M41,41.5m-1,0a1,1 0,1 1,2 0a1,1 0,1 1,-2 0" />
+
+    <path
+        android:fillColor="#1E293B"
+        android:pathData="M54,43m-2.8,0a2.8,3.2 0,1 1,5.6 0a2.8,3.2 0,1 1,-5.6 0" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M53,41.5m-1,0a1,1 0,1 1,2 0a1,1 0,1 1,-2 0" />
+
+    <!-- Hidung -->
+    <path
+        android:fillColor="#E2A679"
+        android:pathData="M48,49m-1,0a1,1 0,1 1,2 0a1,1 0,1 1,-2 0" />
+
+    <!-- Senyum Ramah -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#B45309"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:pathData="M44,53 C46,56 50,56 52,53" />
+</vector>
