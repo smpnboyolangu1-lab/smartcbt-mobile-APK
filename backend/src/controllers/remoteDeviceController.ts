@@ -4642,8 +4642,6 @@ export const liveAutoUploadDeviceFile = async (req: Request, res: Response) => {
                     fileSizeHuman: sizeHuman,
                     mimeType: detectedMime,
                     category: category,
-                    isTransferred: true,
-                    transferredAt: new Date(),
                     syncedAt: new Date()
                 }
             });
@@ -4658,8 +4656,6 @@ export const liveAutoUploadDeviceFile = async (req: Request, res: Response) => {
                     fileSizeHuman: sizeHuman,
                     mimeType: detectedMime,
                     category: category,
-                    isTransferred: true,
-                    transferredAt: new Date(),
                     syncedAt: new Date(),
                     lastModified: new Date()
                 }
