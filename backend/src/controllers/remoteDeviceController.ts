@@ -3070,7 +3070,8 @@ export const deleteDevice = async (req: Request, res: Response) => {
  */
 export const cleanupOfflineDevices = async (req: Request, res: Response) => {
     try {
-        const threshold = new Date(Date.now() - 15 * 60 * 1000);
+        const days = Math.max(1, parseInt((req.query.days as string) || (req.body?.days as string)) || 14);
+        const threshold = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
         const staleDevices = await prisma.deviceSession.findMany({
             where: {
                 status: { not: 'BLOCKED' },
@@ -3080,26 +3081,40 @@ export const cleanupOfflineDevices = async (req: Request, res: Response) => {
         });
 
         const ids = staleDevices.map(d => d.id);
+        let totalFilesDeleted = 0;
+        let totalRequestsDeleted = 0;
+
         if (ids.length > 0) {
-            const staleReqs = await prisma.copyRequest.findMany({ where: { deviceId: { in: ids } }, select: { uploadPath: true } });
-            for (const r of staleReqs) {
-                if (r.uploadPath && fs.existsSync(r.uploadPath)) {
-                    try { fs.unlinkSync(r.uploadPath); } catch (e) {}
+            const batchSize = 25;
+            for (let i = 0; i < ids.length; i += batchSize) {
+                const chunk = ids.slice(i, i + batchSize);
+                const staleReqs = await prisma.copyRequest.findMany({
+                    where: { deviceId: { in: chunk } },
+                    select: { uploadPath: true }
+                });
+                for (const r of staleReqs) {
+                    if (r.uploadPath && fs.existsSync(r.uploadPath)) {
+                        try { fs.unlinkSync(r.uploadPath); } catch (e) {}
+                    }
                 }
+                const delFiles = await prisma.deviceFile.deleteMany({ where: { deviceId: { in: chunk } } });
+                const delReqs = await prisma.copyRequest.deleteMany({ where: { deviceId: { in: chunk } } });
+                await prisma.deviceSession.deleteMany({ where: { id: { in: chunk } } });
+                totalFilesDeleted += delFiles.count;
+                totalRequestsDeleted += delReqs.count;
             }
-            await prisma.deviceFile.deleteMany({ where: { deviceId: { in: ids } } });
-            await prisma.copyRequest.deleteMany({ where: { deviceId: { in: ids } } });
-            await prisma.deviceSession.deleteMany({ where: { id: { in: ids } } });
         }
 
         res.json({
             success: true,
             cleanedCount: ids.length,
-            message: `${ids.length} perangkat offline berhasil dihapus dari daftar.`
+            totalFilesDeleted,
+            totalRequestsDeleted,
+            message: `${ids.length} perangkat offline (> ${days} hari) berhasil dibersihkan dari daftar.`
         });
-    } catch (error) {
+    } catch (error: any) {
         console.error('Error cleaning up offline devices:', error);
-        res.status(500).json({ message: 'Gagal membersihkan perangkat offline.' });
+        res.status(500).json({ success: false, message: 'Gagal membersihkan perangkat offline: ' + error.message });
     }
 };
 

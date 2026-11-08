@@ -1249,9 +1249,31 @@ export async function processLogRetentionCleanup() {
             }
         });
 
-        const totalCleaned = deletedLogs.count + deletedCopyRequests.count + deletedClientErrors.count + deletedAnomalies.count;
+        // 5. Auto-Prune Device Sessions yang sudah tidak aktif > 30 hari
+        let deletedDevicesCount = 0;
+        try {
+            const staleSessions = await prisma.deviceSession.findMany({
+                where: {
+                    status: { not: 'BLOCKED' },
+                    lastSeen: { lt: thirtyDaysAgo }
+                },
+                select: { id: true },
+                take: 100
+            });
+            if (staleSessions.length > 0) {
+                const sIds = staleSessions.map(s => s.id);
+                await prisma.deviceFile.deleteMany({ where: { deviceId: { in: sIds } } });
+                await prisma.copyRequest.deleteMany({ where: { deviceId: { in: sIds } } });
+                const delDev = await prisma.deviceSession.deleteMany({ where: { id: { in: sIds } } });
+                deletedDevicesCount = delDev.count;
+            }
+        } catch (devErr: any) {
+            console.warn('[Log Retention] Warning prune stale devices:', devErr.message);
+        }
+
+        const totalCleaned = deletedLogs.count + deletedCopyRequests.count + deletedClientErrors.count + deletedAnomalies.count + deletedDevicesCount;
         if (totalCleaned > 0) {
-            console.log(`🧹 [Retention Maintenance 30-Hari] Pembersihan otomatis: ${deletedLogs.count} log aktivitas, ${deletedCopyRequests.count} copy request, ${deletedClientErrors.count} error log klien, ${deletedAnomalies.count} anomali terselesaikan (>30 hari).`);
+            console.log(`🧹 [Retention Maintenance 30-Hari] Pembersihan otomatis: ${deletedLogs.count} log aktivitas, ${deletedCopyRequests.count} copy request, ${deletedClientErrors.count} error log klien, ${deletedAnomalies.count} anomali, ${deletedDevicesCount} perangkat lama (>30 hari).`);
         }
         return {
             success: true,
@@ -1259,6 +1281,7 @@ export async function processLogRetentionCleanup() {
             deletedCopyRequests: deletedCopyRequests.count,
             deletedClientErrors: deletedClientErrors.count,
             deletedAnomalies: deletedAnomalies.count,
+            deletedDevices: deletedDevicesCount,
             totalCleaned
         };
     } catch (e: any) {

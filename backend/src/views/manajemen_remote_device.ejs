@@ -3016,12 +3016,13 @@
         }
 
         async function cleanupOfflineDevices() {
-            if (!confirm('Apakah Anda yakin ingin menghapus riwayat perangkat offline yang sudah tidak aktif? Perangkat akan otomatis terdaftar kembali jika membuka aplikasi CBT.')) return;
+            if (!confirm('Apakah Anda yakin ingin menghapus riwayat perangkat offline yang sudah tidak aktif (> 14 hari)? Perangkat akan otomatis terdaftar kembali jika membuka aplikasi CBT.')) return;
             try {
                 if (!token) token = await getFreshToken();
                 const res = await fetch('/api/admin/remote-devices/cleanup-offline', {
                     method: 'POST',
-                    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }
+                    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ days: 14 })
                 });
                 const data = await res.json();
                 if (data.success) {
