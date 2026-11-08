@@ -70,7 +70,7 @@ async function main() {
         update: {
             versionCode: betaConfig.versionCode,
             versionName: betaConfig.versionName,
-            downloadUrl: '/uploads/smartcbt-latest.apk',
+            downloadUrl: 'https://cbt.smpn1boyolangu.my.id/uploads/smartcbt-latest.apk',
             fileSizeMb: betaConfig.fileSizeMb,
             releaseNotes: betaConfig.releaseNotes,
             isForceUpdate: betaConfig.isForceUpdate
@@ -79,7 +79,7 @@ async function main() {
             id: 'latest',
             versionCode: betaConfig.versionCode,
             versionName: betaConfig.versionName,
-            downloadUrl: '/uploads/smartcbt-latest.apk',
+            downloadUrl: 'https://cbt.smpn1boyolangu.my.id/uploads/smartcbt-latest.apk',
             fileSizeMb: betaConfig.fileSizeMb,
             releaseNotes: betaConfig.releaseNotes,
             isForceUpdate: betaConfig.isForceUpdate
@@ -91,7 +91,7 @@ async function main() {
         data: {
             versionCode: betaConfig.versionCode,
             versionName: betaConfig.versionName,
-            downloadUrl: '/uploads/smartcbt-latest.apk',
+            downloadUrl: 'https://cbt.smpn1boyolangu.my.id/uploads/smartcbt-latest.apk',
             fileSizeMb: betaConfig.fileSizeMb,
             releaseNotes: betaConfig.releaseNotes,
             isForceUpdate: betaConfig.isForceUpdate
