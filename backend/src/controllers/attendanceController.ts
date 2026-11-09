@@ -757,15 +757,15 @@ export const scanClassGate = async (req: Request, res: Response) => {
         // SMART AUTO-CORRECTION (SIANG HARI - JAM KEPULANGAN):
         // Jika scan dilakukan saat jam kepulangan resmi sekolah (isCurrentlyDismissalTime === true),
         // siswa SUDAH memiliki presensi masuk pagi (todayInRecord ada) dan BELUM presensi pulang (todayOutRecord belum ada):
-        // Jika siswa memindai barcode GATE_IN di kelas (karena kamera menyorot barcode masuk atau salah pilih menu),
+        // Jika siswa memindai barcode GATE_IN di kelas atau QR Dinamis Pengurus Kelas:
         // otomatis konversi menjadi presensi pulang (GATE_OUT)!
         // Ini mencegah 100% siswa terkecoh respons "✅ Anda sudah tercatat Presensi Masuk pukul 06.56 WIB" lalu pulang tanpa data kepulangan.
         let autoRedirectedFromGateIn = false;
         if (isCurrentlyDismissalTime && todayInRecord && !todayOutRecord && !isBkGateIn && !isMusholaIn) {
-            if (scanType === 'GATE_IN' || (barcodeCode && (barcodeCode.startsWith('GATE_IN') || barcodeCode.startsWith('GATE-CLASS')))) {
+            if (scanType === 'GATE_IN' || isDynamicOfficerQr || (barcodeCode && (barcodeCode.startsWith('GATE_IN') || barcodeCode.startsWith('GATE-CLASS') || barcodeCode.startsWith('DYNAMIC_CLASS_QR|')))) {
                 scanType = 'GATE_OUT';
                 autoRedirectedFromGateIn = true;
-                console.log(`[SMART SCAN AUTO-CORRECT SIANG] Siswa ${student.name} (${student.className}) scan barcode GATE_IN di jam pulang (${currentTimeStr} WIB) -> Otomatis dikonversi ke GATE_OUT.`);
+                console.log(`[SMART SCAN AUTO-CORRECT SIANG] Siswa ${student.name} (${student.className}) scan barcode/QR Dinamis di jam pulang (${currentTimeStr} WIB) -> Otomatis dikonversi ke GATE_OUT.`);
             }
         }
 
@@ -783,7 +783,20 @@ export const scanClassGate = async (req: Request, res: Response) => {
         } else if (!scanType) {
             if (isBkGateIn) scanType = 'GATE_IN';
             else if (isBkGateOut) scanType = 'GATE_OUT';
-            else if (barcodeCode.startsWith('GATE_IN') || barcodeCode.startsWith('GATE-CLASS')) {
+            else if (isDynamicOfficerQr || (barcodeCode && barcodeCode.startsWith('DYNAMIC_CLASS_QR|'))) {
+                // Presensi via QR Dinamis Pengurus Kelas:
+                // Jika sudah jam pulang dan sudah presensi masuk -> otomatis GATE_OUT (Kepulangan)
+                // Jika sudah jam pulang tapi belum presensi masuk -> periksa apakah checkout khusus
+                // Jika pagi hari (atau sebelum jam pulang) -> otomatis GATE_IN (Kedatangan)
+                if (isCurrentlyDismissalTime && todayInRecord && !todayOutRecord) {
+                    scanType = 'GATE_OUT';
+                    autoRedirectedFromGateIn = true;
+                } else if (isCurrentlyDismissalTime && !todayInRecord) {
+                    scanType = req.body.isSpecialCheckoutWithoutIn ? 'GATE_OUT' : 'GATE_IN';
+                } else {
+                    scanType = 'GATE_IN';
+                }
+            } else if (barcodeCode.startsWith('GATE_IN') || barcodeCode.startsWith('GATE-CLASS')) {
                 if (isCurrentlyDismissalTime && todayInRecord && !todayOutRecord) {
                     scanType = 'GATE_OUT';
                     autoRedirectedFromGateIn = true;
