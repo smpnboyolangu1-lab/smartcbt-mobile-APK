@@ -189,6 +189,10 @@ class ExamActivity : AppCompatActivity() {
             WindowManager.LayoutParams.FLAG_SECURE,
             WindowManager.LayoutParams.FLAG_SECURE
         )
+        window.addFlags(
+            WindowManager.LayoutParams.FLAG_FULLSCREEN or
+            WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+        )
 
         // 2. EXAMBROWSER ENTERPRISE SECURITY: Blokir Floating Overlays & Chat Bubbles (Android 12+)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -197,8 +201,36 @@ class ExamActivity : AppCompatActivity() {
             } catch (e: Exception) {}
         }
 
+        // 3. Android 14+ Screenshot Hardware Detection Callback
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            try {
+                registerScreenCaptureCallback(mainExecutor) {
+                    val now = System.currentTimeMillis()
+                    if (now - lastStrikeTime > 2000) {
+                        lastStrikeTime = now
+                        strikeCount++
+                        reportCheatStrikeToServer("Terdeteksi Mencoba Mengambil Screenshot")
+                        showCheatWarningModal()
+                    }
+                }
+            } catch (e: Exception) {}
+        }
+
+        // 4. Deteksi Awal Layar Terbagi (Split-Screen / Multi-Window Dilarang Keras)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && isInMultiWindowMode) {
+            val now = System.currentTimeMillis()
+            lastStrikeTime = now
+            strikeCount++
+            reportCheatStrikeToServer("Terdeteksi Membuka Layar Terbagi (Split-Screen) saat Memulai CBT")
+        }
+
         binding = ActivityExamBinding.inflate(layoutInflater)
         setContentView(binding.root)
+
+        // 5. Kiosk Lock Task Mode (App Pinning)
+        try {
+            startLockTask()
+        } catch (e: Exception) {}
 
         sessionManager = SessionManager(this)
 
@@ -467,13 +499,43 @@ class ExamActivity : AppCompatActivity() {
         if (hasFocus) {
             applyKioskImmersiveMode()
             clearSystemClipboard()
+        } else if (!isExamFinishedNormally && !isFinishing) {
+            // Tutup otomatis notification drawer atau quick settings dialog jika siswa mencoba swipe ke bawah
+            try {
+                @Suppress("DEPRECATION")
+                val closeIntent = Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS)
+                sendBroadcast(closeIntent)
+            } catch (e: Exception) {}
         }
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        if (!isExamFinishedNormally) {
+            when (keyCode) {
+                KeyEvent.KEYCODE_BACK -> {
+                    Toast.makeText(this@ExamActivity, "🔒 Tombol Kembali Dinonaktifkan demi Integritas CBT!", Toast.LENGTH_SHORT).show()
+                    return true
+                }
+                KeyEvent.KEYCODE_HOME, KeyEvent.KEYCODE_APP_SWITCH -> {
+                    Toast.makeText(this@ExamActivity, "🔒 Tombol Home & Recent Apps Dinonaktifkan selama CBT!", Toast.LENGTH_SHORT).show()
+                    val now = System.currentTimeMillis()
+                    if (now - lastStrikeTime > 2000) {
+                        lastStrikeTime = now
+                        strikeCount++
+                        reportCheatStrikeToServer("Mencoba Menekan Tombol Home / Recent Apps")
+                        showCheatWarningModal()
+                    }
+                    return true
+                }
+            }
+        }
+        return super.onKeyDown(keyCode, event)
     }
 
     private fun applyKioskImmersiveMode() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             window.insetsController?.let {
-                it.hide(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
+                it.hide(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars() or WindowInsets.Type.systemBars())
                 it.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             }
         } else {
@@ -489,17 +551,21 @@ class ExamActivity : AppCompatActivity() {
         }
     }
 
-    private fun applyAntiPasteSecurity() {
-        val noOpActionMode = object : ActionMode.Callback {
-            override fun onCreateActionMode(mode: ActionMode?, menu: Menu?): Boolean = false
-            override fun onPrepareActionMode(mode: ActionMode?, menu: Menu?): Boolean = false
-            override fun onActionItemClicked(mode: ActionMode?, item: MenuItem?): Boolean = false
-            override fun onDestroyActionMode(mode: ActionMode?) {}
-        }
+    private val noOpActionMode = object : ActionMode.Callback {
+        override fun onCreateActionMode(mode: ActionMode?, menu: Menu?): Boolean = false
+        override fun onPrepareActionMode(mode: ActionMode?, menu: Menu?): Boolean = false
+        override fun onActionItemClicked(mode: ActionMode?, item: MenuItem?): Boolean = false
+        override fun onDestroyActionMode(mode: ActionMode?) {}
+    }
 
+    private fun applyAntiPasteSecurity() {
         binding.tvQuestionText.customSelectionActionModeCallback = noOpActionMode
         binding.tvQuestionText.isLongClickable = false
         binding.tvQuestionText.setTextIsSelectable(false)
+        binding.tvQuestionText.isClickable = false
+
+        binding.etEssayAnswer.customSelectionActionModeCallback = noOpActionMode
+        binding.etEssayAnswer.isLongClickable = false
 
         clearSystemClipboard()
     }
@@ -1055,6 +1121,9 @@ class ExamActivity : AppCompatActivity() {
             binding.wvQuestionMath.visibility = View.VISIBLE
             binding.wvQuestionMath.settings.javaScriptEnabled = true
             binding.wvQuestionMath.settings.domStorageEnabled = true
+            binding.wvQuestionMath.isLongClickable = false
+            binding.wvQuestionMath.setOnLongClickListener { true }
+            binding.wvQuestionMath.isHapticFeedbackEnabled = false
             
             val katexHtml = """
                 <!DOCTYPE html>
@@ -1065,11 +1134,22 @@ class ExamActivity : AppCompatActivity() {
                     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
                     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js" onload="renderMathInElement(document.body, {delimiters: [{left: '$$', right: '$$', display: true}, {left: '\\(', right: '\\)', display: false}, {left: '$', right: '$', display: false}]});"></script>
                     <style>
-                        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: ${(16 * currentFontSizeScale).toInt()}px; font-weight: bold; color: #1E293B; margin: 0; padding: 4px; line-height: 1.6; }
-                        img { max-width: 100%; height: auto; border-radius: 8px; margin: 8px 0; }
+                        body { 
+                            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+                            font-size: ${(16 * currentFontSizeScale).toInt()}px; 
+                            font-weight: bold; 
+                            color: #1E293B; 
+                            margin: 0; 
+                            padding: 4px; 
+                            line-height: 1.6;
+                            user-select: none;
+                            -webkit-user-select: none;
+                            -webkit-touch-callout: none;
+                        }
+                        img { max-width: 100%; height: auto; border-radius: 8px; margin: 8px 0; -webkit-touch-callout: none; pointer-events: none; }
                     </style>
                 </head>
-                <body>
+                <body oncopy="return false;" oncut="return false;" onselectstart="return false;">
                     ${q.text}
                 </body>
                 </html>
@@ -1217,7 +1297,7 @@ class ExamActivity : AppCompatActivity() {
                     }
                 }
 
-                // Teks Pilihan Jawaban
+                // Teks Pilihan Jawaban (Blokir Seleksi Teks & Long Click)
                 val tvOptionText = TextView(this).apply {
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f)
                     text = q.options[i]
@@ -1225,6 +1305,9 @@ class ExamActivity : AppCompatActivity() {
                     setTextColor(if (isSelected) Color.parseColor("#1E3A8A") else Color.parseColor("#1E293B"))
                     if (isSelected) typeface = Typeface.DEFAULT_BOLD
                     setLineSpacing(4f * density, 1f)
+                    isLongClickable = false
+                    setTextIsSelectable(false)
+                    customSelectionActionModeCallback = noOpActionMode
                 }
 
                 rowLayout.addView(circleBadge)
@@ -1718,6 +1801,9 @@ class ExamActivity : AppCompatActivity() {
 
     private fun showExamFinishedSuccessFullScreen(score: Double?, sExamId: String) {
         isExamFinishedNormally = true
+        try {
+            stopLockTask()
+        } catch (e: Exception) {}
         if (examId != null) {
             getSharedPreferences("CbtExamPrefs", Context.MODE_PRIVATE).edit()
                 .putBoolean("cbt_submitted_$examId", true)

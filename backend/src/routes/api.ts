@@ -1933,6 +1933,7 @@ router.post(['/app/activity-logs', '/activity-logs/app'], receiveApkActivityLogs
 import {
   triggerLateBlast,
   triggerAbsentBlast,
+  triggerExcusedBlast,
   getWhatsAppStatus,
   getWhatsAppConfigEndpoint,
   testSendWhatsApp,
@@ -1946,6 +1947,7 @@ import {
 
 router.post('/whatsapp/blast/late', authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'TEACHER']), triggerLateBlast);
 router.post('/whatsapp/blast/absent', authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'TEACHER']), triggerAbsentBlast);
+router.post('/whatsapp/blast/excused', authenticateJWT, requireRole(['ADMIN', 'OPERATOR', 'TEACHER']), triggerExcusedBlast);
 router.get('/whatsapp/status', authenticateJWT, requireRole(['ADMIN', 'OPERATOR']), getWhatsAppStatus);
 router.get('/whatsapp/config', authenticateJWT, requireRole(['ADMIN', 'OPERATOR']), getWhatsAppConfigEndpoint);
 router.post('/whatsapp/test-send', authenticateJWT, requireRole(['ADMIN', 'OPERATOR']), testSendWhatsApp);

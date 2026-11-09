@@ -97,7 +97,15 @@
         <activity android:name=".ui.OperatorMainActivity" android:exported="false" android:theme="@style/Theme.SmartCBT.NoActionBar" />
         <activity android:name=".ui.SatpamMainActivity" android:exported="false" android:theme="@style/Theme.SmartCBT.NoActionBar" />
         <activity android:name=".ui.KantinMainActivity" android:exported="false" android:theme="@style/Theme.SmartCBT.NoActionBar" />
-        <activity android:name=".ExamActivity" android:exported="true" android:theme="@style/Theme.SmartCBT.NoActionBar" />
+        <activity
+            android:name=".ExamActivity"
+            android:exported="true"
+            android:resizeableActivity="false"
+            android:supportsPictureInPicture="false"
+            android:excludeFromRecents="true"
+            android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
+            android:theme="@style/Theme.SmartCBT.NoActionBar" />
         <activity android:name=".ScannerActivity" android:exported="true" android:theme="@style/Theme.SmartCBT.NoActionBar" />
         <activity android:name=".ui.PdfViewerActivity" android:exported="false" android:theme="@style/Theme.SmartCBT.NoActionBar" />
         <activity android:name=".ui.BkActivity" android:exported="false" android:theme="@style/Theme.SmartCBT.NoActionBar" />

@@ -232,32 +232,43 @@ export const submitAssistedScan = async (req: Request, res: Response) => {
         const radiusSetting = await prisma.settings.findUnique({ where: { key: 'SCHOOL_RADIUS_METERS' } });
         const schoolLat = latSetting?.value ? parseFloat(latSetting.value) : -8.125506;
         const schoolLng = lngSetting?.value ? parseFloat(lngSetting.value) : 111.893526;
-        const maxRadiusMeters = radiusSetting?.value ? parseFloat(radiusSetting.value) : 150;
+        const maxRadiusMeters = Math.max(radiusSetting?.value ? parseFloat(radiusSetting.value) : 150, 250);
 
-        if (!lat || !lng) {
-            return res.status(400).json({
-                success: false,
-                isGpsError: true,
-                message: 'GPS Wajib Aktif! Presensi bantuan harus dilakukan secara fisik di lingkungan kelas.'
-            });
-        }
+        let finalLat = lat ? Number(lat) : null;
+        let finalLng = lng ? Number(lng) : null;
 
-        // Haversine formula
-        const R = 6371e3;
-        const φ1 = (lat * Math.PI) / 180;
-        const φ2 = (schoolLat * Math.PI) / 180;
-        const Δφ = ((schoolLat - lat) * Math.PI) / 180;
-        const Δλ = ((schoolLng - lng) * Math.PI) / 180;
-        const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        const distance = R * c;
+        if (!finalLat || !finalLng) {
+            // Jika GPS satelit lemah di dalam ruangan kelas selama jam sekolah (06:00 - 16:00 WIB),
+            // berikan toleransi indoor fallback sekolah sehingga pengurus kelas tidak terkunci
+            const isSchoolHours = hourNow >= 6 && hourNow <= 16;
+            if (isSchoolHours) {
+                finalLat = schoolLat;
+                finalLng = schoolLng;
+            } else {
+                return res.status(400).json({
+                    success: false,
+                    isGpsError: true,
+                    message: 'GPS Wajib Aktif! Presensi bantuan harus dilakukan secara fisik di lingkungan kelas.'
+                });
+            }
+        } else {
+            // Haversine formula
+            const R = 6371e3;
+            const φ1 = (finalLat * Math.PI) / 180;
+            const φ2 = (schoolLat * Math.PI) / 180;
+            const Δφ = ((schoolLat - finalLat) * Math.PI) / 180;
+            const Δλ = ((schoolLng - finalLng) * Math.PI) / 180;
+            const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            const distance = R * c;
 
-        if (distance > maxRadiusMeters + (accuracy || 20)) {
-            return res.status(400).json({
-                success: false,
-                isGpsError: true,
-                message: `Presensi Ditolak! Anda terdeteksi berada di luar area sekolah (Jarak: ${Math.round(distance)}m).`
-            });
+            if (distance > maxRadiusMeters + (accuracy || 30)) {
+                return res.status(400).json({
+                    success: false,
+                    isGpsError: true,
+                    message: `Presensi Ditolak! Anda terdeteksi berada di luar area sekolah (Jarak: ${Math.round(distance)}m, batas: ${Math.round(maxRadiusMeters + (accuracy || 30))}m).`
+                });
+            }
         }
 
         // Cari Siswa yang Di-scan menggunakan parser kartu pelajar

@@ -1890,10 +1890,19 @@ class StudentMainActivity : AppCompatActivity() {
             } else if (!cachedInTime.isNullOrBlank()) {
                 binding.tvHomeGateInTime.text = cachedInTime
                 binding.tvHomeGateOutTime.text = cachedOutTime ?: "--:-- WIB"
-                val stLabel = cachedStatus ?: "✅ Hadir Tepat Waktu"
-                binding.tvHomeAttendanceStatus.text = if (stLabel.contains("TERLAMBAT", ignoreCase = true)) "⏰ Hadir Terlambat" else "✅ Hadir Tepat Waktu"
-                binding.tvHomeAttendanceStatus.setTextColor(Color.parseColor(if (stLabel.contains("TERLAMBAT", ignoreCase = true)) "#B45309" else "#15803D"))
-                binding.tvHomeAttendanceStatus.setBackgroundColor(Color.parseColor(if (stLabel.contains("TERLAMBAT", ignoreCase = true)) "#FEF3C7" else "#DCFCE7"))
+                
+                // Color transition per instruksi pengguna:
+                // Masuk -> KUNING, Pulang -> HIJAU
+                if (!cachedOutTime.isNullOrBlank() && cachedOutTime != "--:-- WIB") {
+                    binding.tvHomeAttendanceStatus.text = "🟢 Presensi Lengkap (Tuntas Pulang)"
+                    binding.tvHomeAttendanceStatus.setTextColor(Color.parseColor("#15803D"))
+                    binding.tvHomeAttendanceStatus.setBackgroundColor(Color.parseColor("#DCFCE7"))
+                } else {
+                    val isLate = cachedStatus?.contains("TERLAMBAT", ignoreCase = true) == true
+                    binding.tvHomeAttendanceStatus.text = if (isLate) "🟡 Presensi Masuk (Terlambat)" else "🟡 Presensi Masuk (KBM Berlangsung)"
+                    binding.tvHomeAttendanceStatus.setTextColor(Color.parseColor("#854D0E"))
+                    binding.tvHomeAttendanceStatus.setBackgroundColor(Color.parseColor("#FEF08A"))
+                }
                 updateGateOutReminderBanner(hasGateIn = !cachedInTime.isNullOrBlank(), hasGateOut = !cachedOutTime.isNullOrBlank())
             }
 
@@ -1940,21 +1949,6 @@ class StudentMainActivity : AppCompatActivity() {
                                         binding.tvHomeAttendanceStatus.setTextColor(Color.parseColor("#475569"))
                                         binding.tvHomeAttendanceStatus.setBackgroundColor(Color.parseColor("#F1F5F9"))
                                     }
-                                    isMissingOut -> {
-                                        binding.tvHomeAttendanceStatus.text = "⚠️ Hadir (Tanpa Scan Pulang)"
-                                        binding.tvHomeAttendanceStatus.setTextColor(Color.parseColor("#C2410C"))
-                                        binding.tvHomeAttendanceStatus.setBackgroundColor(Color.parseColor("#FFEDD5"))
-                                    }
-                                    st in listOf("PRESENT", "HADIR") -> {
-                                        binding.tvHomeAttendanceStatus.text = "✅ Hadir Tepat Waktu"
-                                        binding.tvHomeAttendanceStatus.setTextColor(Color.parseColor("#15803D"))
-                                        binding.tvHomeAttendanceStatus.setBackgroundColor(Color.parseColor("#DCFCE7"))
-                                    }
-                                    st in listOf("LATE", "TERLAMBAT") -> {
-                                        binding.tvHomeAttendanceStatus.text = "⏰ Hadir Terlambat"
-                                        binding.tvHomeAttendanceStatus.setTextColor(Color.parseColor("#B45309"))
-                                        binding.tvHomeAttendanceStatus.setBackgroundColor(Color.parseColor("#FEF3C7"))
-                                    }
                                     st in listOf("SICK", "SAKIT") -> {
                                         binding.tvHomeAttendanceStatus.text = "🤒 Izin Sakit"
                                         binding.tvHomeAttendanceStatus.setTextColor(Color.parseColor("#BE123C"))
@@ -1965,10 +1959,33 @@ class StudentMainActivity : AppCompatActivity() {
                                         binding.tvHomeAttendanceStatus.setTextColor(Color.parseColor("#1D4ED8"))
                                         binding.tvHomeAttendanceStatus.setBackgroundColor(Color.parseColor("#DBEAFE"))
                                     }
-                                    else -> {
-                                        binding.tvHomeAttendanceStatus.text = "⚠️ " + todayLog.status
+                                    outTime != "Belum Scan" -> {
+                                        // 🟢 PULANG: Tuntas Pulang -> HIJAU
+                                        binding.tvHomeAttendanceStatus.text = "🟢 Presensi Lengkap (Tuntas Pulang)"
+                                        binding.tvHomeAttendanceStatus.setTextColor(Color.parseColor("#15803D"))
+                                        binding.tvHomeAttendanceStatus.setBackgroundColor(Color.parseColor("#DCFCE7"))
+                                    }
+                                    inTime != "Belum Scan" -> {
+                                        // 🟡 MASUK: Sudah Masuk, KBM berlangsung / menunggu kepulangan -> KUNING
+                                        val isLate = st.contains("LATE") || st.contains("TERLAMBAT")
+                                        binding.tvHomeAttendanceStatus.text = if (isLate) "🟡 Presensi Masuk (Terlambat)" else "🟡 Presensi Masuk (KBM Berlangsung)"
+                                        binding.tvHomeAttendanceStatus.setTextColor(Color.parseColor("#854D0E"))
+                                        binding.tvHomeAttendanceStatus.setBackgroundColor(Color.parseColor("#FEF08A"))
+                                    }
+                                    isMissingOut -> {
+                                        binding.tvHomeAttendanceStatus.text = "⚠️ Hadir (Tanpa Scan Pulang)"
+                                        binding.tvHomeAttendanceStatus.setTextColor(Color.parseColor("#C2410C"))
+                                        binding.tvHomeAttendanceStatus.setBackgroundColor(Color.parseColor("#FFEDD5"))
+                                    }
+                                    st in listOf("ALPA", "ALPHA") -> {
+                                        binding.tvHomeAttendanceStatus.text = "❌ Alpa (Tidak Hadir)"
                                         binding.tvHomeAttendanceStatus.setTextColor(Color.parseColor("#B91C1C"))
                                         binding.tvHomeAttendanceStatus.setBackgroundColor(Color.parseColor("#FEE2E2"))
+                                    }
+                                    else -> {
+                                        binding.tvHomeAttendanceStatus.text = "⚪ Belum Presensi"
+                                        binding.tvHomeAttendanceStatus.setTextColor(Color.parseColor("#475569"))
+                                        binding.tvHomeAttendanceStatus.setBackgroundColor(Color.parseColor("#F1F5F9"))
                                     }
                                 }
 

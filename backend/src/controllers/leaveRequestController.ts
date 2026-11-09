@@ -3,6 +3,7 @@ import prisma from '../utils/db';
 import { logAudit } from '../services/auditLogger';
 import { analyzeAndProcessLeaveWithAi } from '../services/aiLeaveService';
 import { sendFcmToUser } from '../services/fcmService';
+import { sendSingleWhatsApp, getWaConfig } from '../services/whatsappBlastService';
 import fs from 'fs';
 import path from 'path';
 
@@ -744,7 +745,7 @@ export const verifyLeaveRequest = async (req: Request, res: Response) => {
                     studentId: leaveReq.studentId,
                     studentName: leaveReq.studentName,
                     className: leaveReq.className,
-                    category: 'LEAVE_VERIFICATION',
+                    category: status === 'APPROVED' ? 'FLAG_IZIN_SAKIT' : 'LEAVE_VERIFICATION',
                     title: parentTitle,
                     message: parentMsg
                 }
@@ -758,10 +759,27 @@ export const verifyLeaveRequest = async (req: Request, res: Response) => {
                     {
                         type: 'LEAVE_VERIFICATION',
                         status,
+                        disciplineFlag: status === 'APPROVED' ? 'FLAG_IZIN_SAKIT' : '',
                         studentId: leaveReq.studentId,
                         leaveId: leaveReq.id
                     }
                 );
+            }
+
+            // Kirim WhatsApp ke Orang Tua jika permohonan disetujui (Kondisi Resmi Izin/Sakit dengan Flag)
+            if (status === 'APPROVED' && leaveReq.parentPhone) {
+                const waLeaveText = `*PEMBERITAHUAN TIDAK MASUK DENGAN KETERANGAN [FLAG: IZIN/SAKIT]*\n` +
+                    `*SMP NEGERI 1 BOYOLANGU*\n\n` +
+                    `Yth. Bapak/Ibu Orang Tua / Wali Murid dari ananda *${leaveReq.studentName}* (Kelas ${leaveReq.className || '-'}),\n\n` +
+                    `Kami mengonfirmasi bahwa ananda tercatat *tidak masuk sekolah dengan keterangan sah (${docTypeStr})* untuk periode *${dateSpanStr} (${approvedDays} hari)*.\n` +
+                    `Alasan: "${leaveReq.reason || 'Keterangan izin/sakit sah'}"\n\n` +
+                    `Surat perizinan telah diverifikasi oleh Guru BK (${verifiedBy}) dan otomatis tercatat di Rekap Presensi Sekolah. Pantau riwayat kehadiran ananda melalui aplikasi Smart CBT:\n` +
+                    `${getWaConfig().schoolDownloadUrl}\n\n` +
+                    `— Tim Kesiswaan SMP Negeri 1 Boyolangu`;
+
+                sendSingleWhatsApp(leaveReq.parentPhone, waLeaveText).catch(waErr => {
+                    console.warn(`[WA Leave Alert] Gagal kirim WA izin ke ${leaveReq.parentPhone}:`, waErr.message);
+                });
             }
         } catch (parErr) {
             console.warn('Parent notif non-fatal:', parErr);

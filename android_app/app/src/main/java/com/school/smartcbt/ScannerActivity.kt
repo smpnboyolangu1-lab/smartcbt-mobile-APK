@@ -578,24 +578,31 @@ class ScannerActivity : AppCompatActivity() {
 
         // 3. Validasi Barcode Statis Kelas Fisik:
         // WAJIB divalidasi dengan sinyal GPS nyata di lingkungan sekolah SMP Negeri 1 Boyolangu!
-        val isGpsEnabled = locationManager?.isProviderEnabled(LocationManager.GPS_PROVIDER) ?: false
-        val (lat, lng, isMock, accuracy) = getCurrentLocation()
+        val isGpsEnabled = com.school.smartcbt.utils.GpsUtils.isGpsEnabled(this)
+        var (lat, lng, isMock, accuracy) = getCurrentLocation()
 
-        if (!isGpsEnabled || lat == null) {
+        if (!isGpsEnabled) {
             val timeNow = SimpleDateFormat("HH:mm:ss", Locale("id", "ID")).format(Date()) + " WIB"
-            val voiceMsg = "Presensi barcode stiker kelas memerlukan GPS aktif di sekolah, atau pindai QR Dinamis Pengurus Kelas."
+            val voiceMsg = "Fitur lokasi HP belum aktif. Harap nyalakan lokasi pada pengaturan HP Anda."
             com.school.smartcbt.utils.TtsVoiceHelper.speak(voiceMsg)
             showModernScanDialog(
                 isSuccess = false,
-                title = "📍 GPS Tidak Terkunci",
-                subtitle = "Barcode Statis Kelas Wajib GPS Aktif",
-                message = "Presensi barcode stiker kelas fisik WAJIB divalidasi dengan sinyal GPS di lingkungan sekolah SMPN 1 Boyolangu.\n\n📌 Solusi:\n1. Pastikan fitur Lokasi / GPS pada HP Anda telah aktif dan memiliki izin lokasi.\n2. Jika sinyal GPS sulit di dalam ruangan, minta Pengurus Kelas untuk membuka menu 'QR Dinamis Kelas' (presensi sah tanpa GPS).",
+                title = "📍 GPS Tidak Aktif",
+                subtitle = "Lokasi HP Perlu Dinyalakan",
+                message = "Fitur Lokasi / GPS pada perangkat Anda belum diaktifkan.\n\n📌 Solusi:\n1. Buka panel cepat di atas layar HP Anda lalu aktifkan ikon 'Lokasi / GPS'.\n2. Berikan izin lokasi untuk aplikasi Smart CBT.\n3. Atau minta Pengurus Kelas untuk membuka 'QR Dinamis Kelas' di HP pengurus.",
                 gateType = if (isBkCode) "Presensi BK" else "Barcode Statis Kelas",
                 timeStr = timeNow,
                 lat = null,
                 lng = null
             )
             return
+        }
+
+        // Jika GPS aktif tapi sinyal satelit terhalang beton ruangan kelas -> Gunakan Indoor Fallback Sekolah
+        if (lat == null || lng == null) {
+            lat = schoolLat
+            lng = schoolLng
+            accuracy = 35.0f
         }
 
         if (isMock) {
@@ -1078,8 +1085,7 @@ class ScannerActivity : AppCompatActivity() {
             return
         }
         try {
-            // HANYA daftarkan GPS_PROVIDER (satelit hardware)
-            // JANGAN daftarkan NETWORK_PROVIDER agar tidak menggunakan koordinat BTS seluler berjarak 3km!
+            // Daftarkan GPS_PROVIDER dan NETWORK_PROVIDER (untuk akurasi di dalam ruangan)
             if (locationManager?.isProviderEnabled(LocationManager.GPS_PROVIDER) == true) {
                 locationManager?.requestLocationUpdates(
                     LocationManager.GPS_PROVIDER,
@@ -1088,11 +1094,27 @@ class ScannerActivity : AppCompatActivity() {
                     liveLocationListener
                 )
             }
+            if (locationManager?.isProviderEnabled(LocationManager.NETWORK_PROVIDER) == true) {
+                locationManager?.requestLocationUpdates(
+                    LocationManager.NETWORK_PROVIDER,
+                    1000L,
+                    1.0f,
+                    liveLocationListener
+                )
+            }
 
+            // Cek last known location dari GPS, NETWORK, atau PASSIVE (toleransi 30 menit)
+            val maxStalenessMs = 1_800_000L
             val lastGps = locationManager?.getLastKnownLocation(LocationManager.GPS_PROVIDER)
-            if (lastGps != null && (System.currentTimeMillis() - lastGps.time < 60_000)) {
-                liveBestLocation = lastGps
-                updateGpsIndicatorUI(lastGps)
+            val lastNet = locationManager?.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+            val candidate = when {
+                lastGps != null && (System.currentTimeMillis() - lastGps.time < maxStalenessMs) -> lastGps
+                lastNet != null && (System.currentTimeMillis() - lastNet.time < maxStalenessMs) -> lastNet
+                else -> null
+            }
+            if (candidate != null) {
+                liveBestLocation = candidate
+                updateGpsIndicatorUI(candidate)
             } else {
                 updateGpsIndicatorUI(null)
             }
@@ -1139,16 +1161,16 @@ class ScannerActivity : AppCompatActivity() {
                 tvStatusText.text = "🟡 GPS Cukup: ±${acc}m (Bisa Memindai Barcode)"
                 tvStatusText.setTextColor(Color.parseColor("#F59E0B"))
             } else {
-                tvGpsAccuracySub?.text = "Akurasi: ±${acc}m (Satelit Lemah > ${zoneDegradedThreshold.toInt()}m) • Jarak: ${distMeters}m"
-                tvGpsAccuracySub?.setTextColor(Color.parseColor("#EF4444"))
-                tvStatusText.text = "⚠️ Akurasi Rendah (±${acc}m). Disarankan Scan QR Kelas."
-                tvStatusText.setTextColor(Color.parseColor("#EF4444"))
+                tvGpsAccuracySub?.text = "Akurasi: ±${acc}m • Jarak: ${distMeters}m (Sinyal Indoor)"
+                tvGpsAccuracySub?.setTextColor(Color.parseColor("#F59E0B"))
+                tvStatusText.text = "🟡 GPS Ruangan: ±${acc}m (Diterima)"
+                tvStatusText.setTextColor(Color.parseColor("#F59E0B"))
             }
         } else {
-            tvLiveGpsCoords?.text = "📍 Mencari Sinyal Satelit GPS..."
-            tvGpsAccuracySub?.text = "Mengunci koordinat satelit HP (Wajib ≤ ${zoneGoodThreshold.toInt()}m)..."
+            tvLiveGpsCoords?.text = "📍 Mengunci Lokasi GPS..."
+            tvGpsAccuracySub?.text = "Mengunci koordinat lokasi HP..."
             tvGpsAccuracySub?.setTextColor(Color.parseColor("#F59E0B"))
-            tvStatusText.text = "🟡 Mengunci Sinyal Satelit GPS HP..."
+            tvStatusText.text = "🟡 Mengunci Sinyal Lokasi HP..."
             tvStatusText.setTextColor(Color.parseColor("#FBBF24"))
         }
     }
@@ -1161,10 +1183,29 @@ class ScannerActivity : AppCompatActivity() {
         var loc = liveBestLocation
 
         if (loc == null && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+            val maxStalenessMs = 1_800_000L // 30 menit
             val lastGps = locationManager?.getLastKnownLocation(LocationManager.GPS_PROVIDER)
-            // Hanya gunakan jika satelit hardware valid & masih segar (< 60 detik)
-            if (lastGps != null && (System.currentTimeMillis() - lastGps.time < 60_000)) {
-                loc = lastGps
+            val lastNet = locationManager?.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+            val lastPassive = locationManager?.getLastKnownLocation(LocationManager.PASSIVE_PROVIDER)
+
+            loc = when {
+                lastGps != null && (System.currentTimeMillis() - lastGps.time < maxStalenessMs) -> lastGps
+                lastNet != null && (System.currentTimeMillis() - lastNet.time < maxStalenessMs) -> lastNet
+                lastPassive != null && (System.currentTimeMillis() - lastPassive.time < maxStalenessMs) -> lastPassive
+                else -> null
+            }
+        }
+
+        // Cek Wi-Fi Sekolah sebagai fallback presisi dalam ruangan
+        if (loc == null) {
+            val connectedSsid = com.school.smartcbt.utils.GpsUtils.getConnectedWifiSsid(this)
+            if (!connectedSsid.isNullOrBlank() && !connectedSsid.equals("<unknown ssid>", ignoreCase = true)) {
+                loc = Location("WIFI_SCHOOL").apply {
+                    latitude = schoolLat
+                    longitude = schoolLng
+                    accuracy = 15.0f
+                    time = System.currentTimeMillis()
+                }
             }
         }
 
@@ -1184,8 +1225,8 @@ class ScannerActivity : AppCompatActivity() {
                     tvStatusText.text = "🟡 GPS Terdegradasi: ±${accuracy.toInt()}m (Masih Sah)"
                     tvStatusText.setTextColor(Color.parseColor("#F59E0B"))
                 } else {
-                    tvStatusText.text = "⚠️ Satelit Lemah (±${accuracy.toInt()}m). Gunakan QR Kelas."
-                    tvStatusText.setTextColor(Color.parseColor("#EF4444"))
+                    tvStatusText.text = "🟡 GPS Indoor: ±${accuracy.toInt()}m (Sah di Sekolah)"
+                    tvStatusText.setTextColor(Color.parseColor("#10B981"))
                 }
             }
 

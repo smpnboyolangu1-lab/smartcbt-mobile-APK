@@ -26,22 +26,36 @@ import path from 'path';
  * ============================================================================
  */
 export const WHATSAPP_NOTIFICATION_POLICY = {
-  // Flag penegakan aturan: HANYA siswa Terlambat atau Alpa yang boleh menerima WhatsApp
-  ONLY_LATE_OR_ALPA: true,
-  // Larangan tegas pengiriman WhatsApp untuk kehadiran tepat waktu (ON_TIME / PRESENT)
+  // Flag penegakan aturan: HANYA siswa Terlambat, Alpa, atau Tidak Masuk Dengan Alasan (Izin/Sakit) yang dikirimi WhatsApp
+  ONLY_LATE_ALPA_OR_EXCUSED: true,
+  // Larangan pengiriman WhatsApp untuk kehadiran tepat waktu normal (mencegah spam)
   ALLOW_ON_TIME_NOTIF: false,
-  // Larangan tegas pengiriman WhatsApp untuk kepulangan normal
+  // Larangan pengiriman WhatsApp untuk kepulangan normal
   ALLOW_NORMAL_GATE_OUT_NOTIF: false,
-  // Kategori presensi yang diizinkan untuk WhatsApp orang tua
-  ALLOWED_CATEGORIES: ['LATE', 'ALPA', 'ABSENT_NO_CHECKLOCK', 'ATTENDANCE_ALPA'] as const,
+  // Kategori presensi yang diizinkan untuk WhatsApp orang tua sesuai instruksi resmi
+  ALLOWED_CATEGORIES: [
+    'LATE', 'TERLAMBAT',
+    'ALPA', 'ALPHA', 'ABSENT_NO_CHECKLOCK', 'ATTENDANCE_ALPA',
+    'SICK', 'SAKIT', 'PERMISSION', 'IZIN', 'DISPENSATION', 'DISPENSASI'
+  ] as const,
 
   /**
    * Helper guard validator untuk mengecek apakah sebuah kategori presensi boleh mengirim WhatsApp
    */
   isDispatchAllowed(category: string): boolean {
-    if (!this.ONLY_LATE_OR_ALPA) return false;
     const cat = (category || '').toUpperCase().trim();
-    return this.ALLOWED_CATEGORIES.includes(cat as any) || cat === 'TERLAMBAT';
+    return this.ALLOWED_CATEGORIES.includes(cat as any);
+  },
+
+  /**
+   * Label Flag Resmi Sesuai Kondisi
+   */
+  getDisciplineFlag(category: string): 'FLAG_TERLAMBAT' | 'FLAG_ALPHA' | 'FLAG_IZIN_SAKIT' | 'FLAG_NONE' {
+    const cat = (category || '').toUpperCase().trim();
+    if (['LATE', 'TERLAMBAT'].includes(cat)) return 'FLAG_TERLAMBAT';
+    if (['ALPA', 'ALPHA', 'ABSENT_NO_CHECKLOCK', 'ATTENDANCE_ALPA'].includes(cat)) return 'FLAG_ALPHA';
+    if (['SICK', 'SAKIT', 'PERMISSION', 'IZIN', 'DISPENSATION', 'DISPENSASI'].includes(cat)) return 'FLAG_IZIN_SAKIT';
+    return 'FLAG_NONE';
   }
 };
 
@@ -50,7 +64,10 @@ export interface WaBlastRecipient {
   studentName: string;
   className: string;
   parentPhone: string;
-  type: 'LATE' | 'ABSENT_NO_CHECKLOCK';
+  type: 'LATE' | 'ABSENT_NO_CHECKLOCK' | 'EXCUSED';
+  disciplineFlag?: 'FLAG_TERLAMBAT' | 'FLAG_ALPHA' | 'FLAG_IZIN_SAKIT';
+  excuseCategory?: string;
+  reason?: string;
   lateMinutes?: number;
   inTimeStr?: string;
   dateStr: string;
@@ -134,15 +151,26 @@ export function saveWaConfig(cfg: Partial<WaGatewayConfig>) {
 export function formatWaMessage(data: WaBlastRecipient, appUrl: string): string {
   if (data.type === 'LATE') {
     return (
+      `*PEMBERITAHUAN KETERLAMBATAN SISWA [FLAG: TERLAMBAT]*\n\n` +
       `Bapak/Ibu Orang Tua/Wali dari ananda *${data.studentName}* (Kelas *${data.className}*), kami menginformasikan bahwa ananda tercatat tiba di sekolah terlambat *${data.lateMinutes || 0} menit* pada pukul *${data.inTimeStr || '-'} WIB* hari ini, *${data.dateStr}*.\n\n` +
       `Mohon bantuan Bapak/Ibu untuk memberikan bimbingan kepada ananda agar dapat hadir tepat waktu pada kegiatan belajar selanjutnya. Pantau riwayat kehadiran ananda melalui aplikasi Smart CBT:\n` +
       `${appUrl}\n\n` +
       `— Tim Kesiswaan SMP Negeri 1 Boyolangu`
     );
+  } else if (data.type === 'EXCUSED') {
+    const reasonText = data.reason ? `\nAlasan/Keterangan: "${data.reason}"` : '';
+    return (
+      `*PEMBERITAHUAN TIDAK MASUK DENGAN KETERANGAN [FLAG: IZIN/SAKIT]*\n\n` +
+      `Bapak/Ibu Orang Tua/Wali dari ananda *${data.studentName}* (Kelas *${data.className}*), kami mengonfirmasi bahwa ananda tercatat *tidak masuk sekolah dengan keterangan sah (${data.excuseCategory || 'Izin/Sakit'})* pada hari ini, *${data.dateStr}*.${reasonText}\n\n` +
+      `Data perizinan ini telah diverifikasi resmi oleh pihak sekolah. Pantau riwayat kehadiran ananda melalui aplikasi Smart CBT:\n` +
+      `${appUrl}\n\n` +
+      `— Tim Kesiswaan SMP Negeri 1 Boyolangu`
+    );
   } else {
     return (
+      `*PEMBERITAHUAN KETIDAKHADIRAN TANPA KETERANGAN [FLAG: ALPHA]*\n\n` +
       `Bapak/Ibu Orang Tua/Wali dari ananda *${data.studentName}* (Kelas *${data.className}*), kami menginformasikan bahwa hingga saat ini ananda belum tercatat melakukan presensi (checklock) di gerbang sekolah pada hari ini, *${data.dateStr}*.\n\n` +
-      `Apabila ananda berhalangan hadir dikarenakan sakit atau keperluan keluarga, mohon segera memberikan konfirmasi melalui wali kelas. Pantau status presensi ananda melalui aplikasi Smart CBT:\n` +
+      `Apabila ananda berhalangan hadir dikarenakan sakit atau keperluan keluarga, mohon segera mengirim surat izin melalui aplikasi Smart CBT atau konfirmasi kepada wali kelas. Pantau status presensi ananda melalui aplikasi Smart CBT:\n` +
       `${appUrl}\n\n` +
       `— Tim Kesiswaan SMP Negeri 1 Boyolangu`
     );
@@ -524,6 +552,87 @@ export async function dispatchAbsentStudentsBlastToday(): Promise<WaBlastResult[
     results.push({
       studentId: student.id,
       studentName: student.name,
+      parentPhone,
+      status: sendRes.success ? 'SENT' : 'FAILED',
+      message: sendRes.success ? 'Berhasil dikirim ke orang tua via WhatsApp Resmi' : `Gagal: ${sendRes.error}`,
+      error: sendRes.error
+    });
+
+    await new Promise((r) => setTimeout(r, 500));
+  }
+
+  return results;
+}
+
+/**
+ * Scan & kirim blast khusus siswa TIDAK MASUK DENGAN ALASAN (Izin / Sakit / Dispensasi) hari ini
+ */
+export async function dispatchExcusedStudentsBlastToday(): Promise<WaBlastResult[]> {
+  const config = getWaConfig();
+  const now = new Date();
+  const startOfDay = new Date(now);
+  startOfDay.setHours(0, 0, 0, 0);
+  const endOfDay = new Date(now);
+  endOfDay.setHours(23, 59, 59, 999);
+
+  const dateStr = now.toLocaleDateString('id-ID', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric'
+  });
+
+  const approvedLeaves = await prisma.studentLeaveRequest.findMany({
+    where: {
+      status: 'APPROVED',
+      startDate: { lte: endOfDay },
+      endDate: { gte: startOfDay }
+    }
+  });
+
+  const results: WaBlastResult[] = [];
+
+  for (const leave of approvedLeaves) {
+    let parentPhone = leave.parentPhone;
+    if (!parentPhone) {
+      const bio = await (prisma as any).biodataSiswa?.findUnique({
+        where: { siswaId: leave.studentId },
+        select: { teleponOrangTua: true, noHpAyah: true, noHpIbu: true, noHpWali: true }
+      });
+      parentPhone = bio?.teleponOrangTua || bio?.noHpIbu || bio?.noHpAyah || bio?.noHpWali || null;
+    }
+
+    if (!parentPhone) {
+      results.push({
+        studentId: leave.studentId,
+        studentName: leave.studentName,
+        parentPhone: '-',
+        status: 'SKIPPED_NO_PHONE',
+        message: 'Tidak ada nomor telepon orang tua/wali di profil siswa'
+      });
+      continue;
+    }
+
+    const text = formatWaMessage(
+      {
+        studentId: leave.studentId,
+        studentName: leave.studentName,
+        className: leave.className || 'Kelas Siswa',
+        parentPhone,
+        type: 'EXCUSED',
+        disciplineFlag: 'FLAG_IZIN_SAKIT',
+        excuseCategory: leave.category || 'IZIN',
+        reason: leave.reason || 'Keterangan Sah',
+        dateStr
+      },
+      config.schoolDownloadUrl
+    );
+
+    const sendRes = await sendSingleWhatsApp(parentPhone, text);
+
+    results.push({
+      studentId: leave.studentId,
+      studentName: leave.studentName,
       parentPhone,
       status: sendRes.success ? 'SENT' : 'FAILED',
       message: sendRes.success ? 'Berhasil dikirim ke orang tua via WhatsApp Resmi' : `Gagal: ${sendRes.error}`,

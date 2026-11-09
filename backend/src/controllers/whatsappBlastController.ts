@@ -3,6 +3,7 @@ import prisma from '../utils/db';
 import {
   dispatchLateStudentsBlastToday,
   dispatchAbsentStudentsBlastToday,
+  dispatchExcusedStudentsBlastToday,
   getWaConfig,
   saveWaConfig,
   getWhatsAppLiveStatusAndQr,
@@ -32,6 +33,7 @@ export const triggerAbsentBlast = async (req: Request, res: Response) => {
     const results = await dispatchAbsentStudentsBlastToday();
     res.json({
       success: true,
+      disciplineFlag: 'FLAG_ALPHA',
       totalProcessed: results.length,
       sentCount: results.filter(r => r.status === 'SENT').length,
       skippedCount: results.filter(r => r.status === 'SKIPPED_NO_PHONE').length,
@@ -40,6 +42,23 @@ export const triggerAbsentBlast = async (req: Request, res: Response) => {
     });
   } catch (err: any) {
     res.status(500).json({ success: false, message: 'Gagal menjalankan blast alpa/tanpa checklock: ' + err.message });
+  }
+};
+
+export const triggerExcusedBlast = async (req: Request, res: Response) => {
+  try {
+    const results = await dispatchExcusedStudentsBlastToday();
+    res.json({
+      success: true,
+      disciplineFlag: 'FLAG_IZIN_SAKIT',
+      totalProcessed: results.length,
+      sentCount: results.filter(r => r.status === 'SENT').length,
+      skippedCount: results.filter(r => r.status === 'SKIPPED_NO_PHONE').length,
+      failedCount: results.filter(r => r.status === 'FAILED').length,
+      results
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: 'Gagal menjalankan blast izin/sakit: ' + err.message });
   }
 };
 

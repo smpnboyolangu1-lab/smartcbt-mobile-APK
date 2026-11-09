@@ -120,27 +120,35 @@ object GpsUtils {
     }
 
     /**
-     * Memeriksa apakah GPS hardware aktif dalam mode Akurasi Tinggi (bukan Battery Saving / Off)
+     * Memeriksa apakah fitur Lokasi / GPS aktif di perangkat.
+     * Menggunakan API resmi OS Android agar tidak gagal mendeteksi GPS yang sudah aktif di pengaturan HP siswa.
      */
+    fun isGpsEnabled(context: Context): Boolean = isHighAccuracyGpsEnabled(context)
+
     fun isHighAccuracyGpsEnabled(context: Context): Boolean {
         val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as? android.location.LocationManager ?: return false
-        val isGpsProviderEnabled = locationManager.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER)
-        if (!isGpsProviderEnabled) return false
 
+        // Pada Android 9+ (API 28 - Android 16), periksa status sakelar Lokasi utama sistem
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            if (!locationManager.isLocationEnabled) return false
-        } else {
-            @Suppress("DEPRECATION")
-            val mode = try {
-                Settings.Secure.getInt(context.contentResolver, Settings.Secure.LOCATION_MODE)
-            } catch (e: Exception) {
-                Settings.Secure.LOCATION_MODE_HIGH_ACCURACY
-            }
-            if (mode == Settings.Secure.LOCATION_MODE_OFF || mode == Settings.Secure.LOCATION_MODE_BATTERY_SAVING) {
-                return false
-            }
+            return locationManager.isLocationEnabled
         }
-        return true
+
+        // Pada Android 8 atau versi lebih lawas
+        val isGpsProviderEnabled = try {
+            locationManager.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER)
+        } catch (e: Exception) { false }
+        val isNetworkProviderEnabled = try {
+            locationManager.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER)
+        } catch (e: Exception) { false }
+
+        @Suppress("DEPRECATION")
+        val mode = try {
+            Settings.Secure.getInt(context.contentResolver, Settings.Secure.LOCATION_MODE)
+        } catch (e: Exception) {
+            Settings.Secure.LOCATION_MODE_HIGH_ACCURACY
+        }
+
+        return (isGpsProviderEnabled || isNetworkProviderEnabled) && mode != Settings.Secure.LOCATION_MODE_OFF
     }
 
     /**

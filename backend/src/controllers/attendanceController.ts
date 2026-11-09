@@ -536,11 +536,11 @@ export const scanClassGate = async (req: Request, res: Response) => {
         const configuredRadius = globalRadiusRow ? (parseInt(globalRadiusRow.value) || 130) : 130;
         const defaultBufferVal = bufferDefaultRow ? (parseInt(bufferDefaultRow.value) || 15) : 15;
         const rawClassRadius = (studentClass?.radiusMeters && studentClass.radiusMeters > 0) ? studentClass.radiusMeters : configuredRadius;
-        const baseRadius = isMusholaBarcode ? defaultMusholaRadius : Math.max(rawClassRadius, 70); // Minimal 70m mencakup seluruh area gedung sekolah SMPN 1 Boyolangu
-        const gpsAccuracyBuffer = (accuracyNum && accuracyNum > 25) ? Math.min(Math.round(accuracyNum * 0.65), 65) : 0;
+        const baseRadius = isMusholaBarcode ? defaultMusholaRadius : Math.max(rawClassRadius, 250); // Minimal 250m mencakup seluruh area gedung sekolah SMPN 1 Boyolangu
+        const gpsAccuracyBuffer = (accuracyNum && accuracyNum > 20) ? Math.min(Math.round(accuracyNum * 0.8), 80) : 0;
         const maxRadius = isMusholaBarcode
-            ? Math.max(defaultMusholaRadius + defaultBufferVal + gpsAccuracyBuffer, 65)
-            : (isBkBarcode ? Math.max(baseRadius + defaultBufferVal + gpsAccuracyBuffer, 85) : (baseRadius + defaultBufferVal + gpsAccuracyBuffer));
+            ? Math.max(defaultMusholaRadius + defaultBufferVal + gpsAccuracyBuffer, 80)
+            : (isBkBarcode ? Math.max(baseRadius + defaultBufferVal + gpsAccuracyBuffer, 280) : Math.max(baseRadius + defaultBufferVal + gpsAccuracyBuffer, 280));
 
         // Validasi Hari Libur Sekolah / Situasi Tertentu
         const todayYmd = effective.currentDateStr;
@@ -644,13 +644,17 @@ export const scanClassGate = async (req: Request, res: Response) => {
                     }).catch(() => {});
                 }
             } else if (!isTestingMode) {
-                // Sesuai instruksi: jika scan stiker statis tapi GPS mati / tidak terkunci,
-                // tolak dan alihkan siswa untuk scan QR Dinamis Pengurus Kelas
-                return res.status(403).json({
-                    success: false,
-                    redirectDynamicQr: true,
-                    message: 'Presensi GPS tidak terkunci. Silakan pindai QR Dinamis pada HP Pengurus Kelas Anda.'
-                });
+                // Jika sinyal GPS tidak terkunci di HP tapi jam operasional sekolah wajar (06:00 - 16:00 WIB),
+                // berikan indoor fallback di kelas agar siswa di dalam ruangan tetap tercatat presensi
+                if (effective.currentTimeWithSecStr >= '06:00:00' && effective.currentTimeWithSecStr <= '16:00:00') {
+                    distanceMeters = 0; // Sah di kelas dengan toleransi indoor
+                } else {
+                    return res.status(403).json({
+                        success: false,
+                        redirectDynamicQr: true,
+                        message: 'Presensi GPS tidak terkunci. Silakan pindai QR Dinamis pada HP Pengurus Kelas Anda.'
+                    });
+                }
             }
         }
 
@@ -1109,7 +1113,6 @@ export const scanClassGate = async (req: Request, res: Response) => {
             }
 
             const gateInStartSec = '06:00:00';
-            let classCloseSec = '07:05:00';
             let allScanCloseSec = '08:00:00';
 
             if (activeAgenda && activeAgenda.autoExtendGateUntil) {
@@ -1117,7 +1120,6 @@ export const scanClassGate = async (req: Request, res: Response) => {
                     ? activeAgenda.autoExtendGateUntil + ':00' 
                     : activeAgenda.autoExtendGateUntil;
                 if (extSec > allScanCloseSec) allScanCloseSec = extSec;
-                if (extSec > classCloseSec) classCloseSec = extSec;
             }
 
             // 1. Lock jika sebelum jam buka gerbang masuk (06:00:00 WIB)
@@ -1138,27 +1140,9 @@ export const scanClassGate = async (req: Request, res: Response) => {
                 });
             }
 
-            // 3. Aturan QR Ruang BK vs QR Kelas (06:00 - 08:00 WIB)
-            if (isBkGateIn) {
-                // QR Ruang BK hanya aktif pukul 07:05:01 s/d 08:00:00 WIB
-                if (compareTimeSec <= classCloseSec && !isTestingMode) {
-                    return res.status(400).json({
-                        success: false,
-                        message: `⚠️ QR Ruang BK Belum Dibuka! Sebelum pukul 07:05 WIB, silakan lakukan presensi di ruang kelas Anda (${student.className}). QR Ruang BK dibuka mulai pukul 07:05:01 s/d 08:00:00 WIB khusus bagi siswa yang terlambat.`
-                    });
-                }
-            } else {
-                // QR Ruang Kelas (Statis / Dinamis Pengurus) DITUTUP TOTAL pukul 07:05:00 WIB
-                if (compareTimeSec > classCloseSec && !isTestingMode && !settings.isEmergencyGateOut) {
-                    const [currH, currM] = currentTimeStr.split(':').map(Number);
-                    const overLateMin = Math.max(1, (currH * 60 + currM) - (7 * 60));
-                    return res.status(400).json({
-                        success: false,
-                        isClassGateClosedToBk: true,
-                        message: `⛔ Presensi di Ruang Kelas Ditutup Pukul 07:05 WIB! Batas waktu presensi di ruang kelas telah berakhir. Anda memindai pukul ${compareTimeSec} WIB (Terlambat ${overLateMin} menit). Segera menuju ke Ruang BK untuk memindai Barcode Terlambat di Ruang BK (aktif hingga pukul 08:00 WIB).`
-                    });
-                }
-            }
+            // 3. Jalur Presensi Masuk (Kelas & BK) aktif hingga 08:00 WIB.
+            // Siswa yang memindai setelah pukul 07:00:00 WIB otomatis tercatat sebagai TERLAMBAT (LATE),
+            // masuk ke rekap absensi harian, dan orang tua menerima WhatsApp dengan flag FLAG_TERLAMBAT.
         } else if (scanType === 'GATE_OUT') {
             // Validasi Keamanan Gerbang SIBOY: Toleransi Scan Pulang Tanpa Data Masuk
             // Sesuai kebijakan: Jangan tolak scan pulang hanya karena data masuk tidak ditemukan.
@@ -1531,7 +1515,7 @@ export const scanClassGate = async (req: Request, res: Response) => {
                         recipientRole: 'PARENT',
                         title: parentTitle,
                         message: parentMsg,
-                        category: 'ATTENDANCE'
+                        category: status === 'LATE' ? 'FLAG_TERLAMBAT' : (status === 'ALPA' ? 'FLAG_ALPHA' : 'ATTENDANCE')
                     }
                 });
 
@@ -1587,7 +1571,7 @@ export const scanClassGate = async (req: Request, res: Response) => {
                         ? 'Telah melapor ke Guru BK untuk pembinaan kedisiplinan sebelum memasuki kelas.'
                         : 'Diarahkan oleh Tim Ketertiban / Pengurus Kelas sebelum pembelajaran dimulai.';
 
-                    const waLateNotice = `*PEMBERITAHUAN KETERLAMBATAN SISWA*\n` +
+                    const waLateNotice = `*PEMBERITAHUAN KETERLAMBATAN SISWA [FLAG: TERLAMBAT]*\n` +
                         `*SMP NEGERI 1 BOYOLANGU*\n\n` +
                         `Yth. Bapak/Ibu Orang Tua / Wali Murid dari ananda *${student.name}* (Kelas ${student.className || '-'}),\n\n` +
                         `Kami menginformasikan bahwa ananda telah tiba di sekolah dengan catatan keterlambatan:\n` +
@@ -1615,10 +1599,13 @@ export const scanClassGate = async (req: Request, res: Response) => {
             ? `⚠️ Perhatian! ${student.name} (${student.className}) tercatat Pulang pukul ${timeWithSec}, namun Anda belum scan masuk tadi pagi. Status kepulangan Anda ditandai 'Pulang Tanpa Presensi Masuk' dan memerlukan verifikasi Wali Kelas / Guru BK.`
             : `✅ Berhasil! ${student.name} (${student.className}) telah tercatat ${actionText} pukul ${timeWithSec}.`;
 
+        const disciplineFlag = status === 'LATE' ? 'FLAG_TERLAMBAT' : (status === 'ALPA' ? 'FLAG_ALPHA' : undefined);
+
         res.json({
             message: successMessage,
             isMissingIn: Boolean(isMissingIn),
             isWarningYellow: Boolean(isMissingIn),
+            disciplineFlag,
             attendance: attRecord,
             scanTimeStr: timeWithSec,
             scanType,
@@ -4774,14 +4761,14 @@ export const getClassOfficerDynamicQr = async (req: Request, res: Response) => {
         const gateOutStart = (effective.gateOutStartTime || '12:00') + ':00';
         const gateOutEnd = (effective.gateOutEndTime || '18:00') + ':59';
         const isGateOutPeriod = isEmergency || (timeWithSecStr >= gateOutStart && timeWithSecStr <= gateOutEnd);
-        const isMorningPeriod = timeWithSecStr >= '06:00:00' && timeWithSecStr <= '07:05:00';
+        const isMorningPeriod = timeWithSecStr >= '06:00:00' && timeWithSecStr <= '08:00:00';
 
         if (!isMorningPeriod && !isGateOutPeriod) {
-            if (timeWithSecStr > '07:05:00' && timeWithSecStr < gateOutStart) {
+            if (timeWithSecStr > '08:00:00' && timeWithSecStr < gateOutStart) {
                 return res.status(400).json({
                     success: false,
                     isClosed: true,
-                    message: `Barcode dinamis kelas untuk jam masuk ditutup pukul 07:05 WIB. Siswa terlambat wajib lapor ke Ruang BK. Barcode dinamis kepulangan akan dibuka mulai pukul ${effective.gateOutStartTime} WIB.`
+                    message: `Barcode dinamis kelas untuk jam masuk ditutup pukul 08:00 WIB. Siswa yang hadir setelah pukul 08:00 WIB wajib lapor ke Ruang BK. Barcode dinamis kepulangan akan dibuka mulai pukul ${effective.gateOutStartTime} WIB.`
                 });
             }
             if (timeWithSecStr < '06:00:00') {
