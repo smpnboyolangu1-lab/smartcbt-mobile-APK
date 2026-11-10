@@ -344,48 +344,9 @@ export const submitAssistedScan = async (req: Request, res: Response) => {
         if (scanType === 'GATE_OUT') {
             typeToRecord = 'GATE_OUT';
         } else if (!scanType || scanType === 'AUTO') {
-            // Jika sudah ada GATE_IN dan waktu sudah masuk siang (>= 11:30 WIB), otomatis menjadi GATE_OUT
-            if (existingGateIn && (hourNow >= 12 || (hourNow === 11 && minuteNow >= 30))) {
+            // Jika waktu sudah masuk siang (>= 11:30 WIB), otomatis menjadi GATE_OUT
+            if (hourNow >= 12 || (hourNow === 11 && minuteNow >= 30)) {
                 typeToRecord = 'GATE_OUT';
-            }
-        }
-
-        // Jika GATE_OUT, cek apakah gerbang pulang kelas ditutup karena ada jadwal sholat di mushola
-        if (typeToRecord === 'GATE_OUT') {
-            const todayDay = getWibDayOfWeek(now);
-            const userRel = String(targetStudent.religion || '').toUpperCase().trim();
-            const isNonMuslim = userRel.length > 0 && !userRel.includes('ISLAM');
-
-            if (!isNonMuslim) {
-                const dbScheds = await (prisma as any).prayerClassSchedule.findMany({
-                    where: { dayOfWeek: todayDay, isActive: true, prayerType: { in: ['DHUHUR', 'JUMAT', 'KEPUTRIAN'] } }
-                }).catch(() => []);
-                const dayScheds = dbScheds.length > 0 ? dbScheds : (DEFAULT_PRAYER_SCHEDULES_MAP[todayDay] || []).filter((s: any) => ['DHUHUR', 'JUMAT', 'KEPUTRIAN'].includes(s.prayerType));
-                
-                const studentGender = (targetStudent.gender || 'L').toUpperCase().startsWith('P') ? 'P' : 'L';
-                const sClass = (targetStudent.className || '').trim().toUpperCase();
-
-                for (const sched of dayScheds) {
-                    const scheduledClasses = (sched.classNames || '').split(',').map((c: string) => c.trim().toUpperCase());
-                    const isAll = scheduledClasses.includes('ALL') || scheduledClasses.includes('SEMUA');
-                    const isAllMale = sched.prayerType === 'JUMAT' || scheduledClasses.includes('ALL_MALE');
-                    const isAllFemale = sched.prayerType === 'KEPUTRIAN' || scheduledClasses.includes('ALL_FEMALE');
-
-                    let match = false;
-                    if (isAll) match = true;
-                    else if (isAllMale && studentGender === 'L') match = true;
-                    else if (isAllFemale && studentGender === 'P') match = true;
-                    else if (scheduledClasses.includes(sClass)) match = true;
-
-                    if (match) {
-                        return res.status(403).json({
-                            success: false,
-                            isClassGateClosedDueToPrayer: true,
-                            prayerType: sched.prayerType || 'DHUHUR',
-                            message: `🕌 Barcode Pulang di Kelas Ditutup! Rombel ${targetStudent.className} memiliki jadwal Sholat ${sched.prayerType || 'Dhuhur'} Berjamaah di Mushola hari ini. Siswa wajib scan kepulangan langsung di Mushola setelah sholat.`
-                        });
-                    }
-                }
             }
         }
 
@@ -429,6 +390,28 @@ export const submitAssistedScan = async (req: Request, res: Response) => {
                 note: noteRecord
             }
         });
+
+        // Auto Backfill GATE_IN jika siswa dibantu scan pulang tanpa rekam masuk
+        if (typeToRecord === 'GATE_OUT' && !existingGateIn) {
+            try {
+                await prisma.attendance.create({
+                    data: {
+                        userId: targetStudent.id,
+                        type: 'GATE_IN',
+                        method: methodRecord,
+                        status: 'LATE',
+                        scanTime: new Date(now.getTime() - 60000),
+                        lat: lat,
+                        lng: lng,
+                        accuracyMeters: accuracy || 10,
+                        note: 'Hadir KBM (Auto Gate-In: Presensi Pulang Pengurus Tanpa Scan Pagi)'
+                    }
+                });
+                console.log(`[AUTO BACKFILL GATE_IN PENGURUS] Siswa ${targetStudent.name} dibantu scan pulang -> Auto-created GATE_IN.`);
+            } catch (bfErr) {
+                console.warn('Error backfilling gate-in for pengurus scan:', bfErr);
+            }
+        }
 
         // Notifikasi ke Orang Tua Siswa yang Dibantu
         const parentUser = await prisma.user.findFirst({

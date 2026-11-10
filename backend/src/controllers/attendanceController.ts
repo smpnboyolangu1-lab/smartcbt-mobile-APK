@@ -564,45 +564,8 @@ export const scanClassGate = async (req: Request, res: Response) => {
             });
         }
 
-        // Cek Dini: Kunci Barcode Pulang Ruang Kelas jika kelas terjadwal Sholat Berjamaah / Keputrian di Mushola
+        // Deteksi Barcode Pulang Kelas: Siswa berhak melakukan scan kepulangan resmi di ruang kelas maupun via Pengurus Kelas
         const isClassGateOutScanEarly = (rawCodeUpper.startsWith('GATE_OUT') || (barcodeCode && barcodeCode.startsWith('GATE_OUT')) || req.body.scanType === 'GATE_OUT' || req.body.type === 'GATE_OUT') && !isMusholaBarcode && !isBkBarcode;
-        if (isClassGateOutScanEarly) {
-            const todayDayNum = getWibDayOfWeek(now);
-            const userRel = String(student.religion || '').toUpperCase().trim();
-            const isNonMuslim = userRel.length > 0 && !userRel.includes('ISLAM');
-
-            if (!isNonMuslim) {
-                const dbScheds = await (prisma as any).prayerClassSchedule.findMany({
-                    where: { dayOfWeek: todayDayNum, isActive: true, prayerType: { in: ['DHUHUR', 'JUMAT', 'KEPUTRIAN'] } }
-                }).catch(() => []);
-                const dayScheds = dbScheds.length > 0 ? dbScheds : (DEFAULT_PRAYER_SCHEDULES_MAP[todayDayNum] || []).filter((s: any) => ['DHUHUR', 'JUMAT', 'KEPUTRIAN'].includes(s.prayerType));
-                const studentGender = (student.gender || 'L').toUpperCase().startsWith('P') ? 'P' : 'L';
-                const sClass = (student.className || '').trim().toUpperCase();
-
-                let isScheduledForPrayerToday = false;
-                for (const sched of dayScheds) {
-                    const clsList = (sched.classNames || '').split(',').map((c: string) => c.trim().toUpperCase());
-                    const isAll = clsList.includes('ALL') || clsList.includes('SEMUA');
-                    const isAllMale = sched.prayerType === 'JUMAT' || clsList.includes('ALL_MALE');
-                    const isAllFemale = sched.prayerType === 'KEPUTRIAN' || clsList.includes('ALL_FEMALE');
-
-                    if (isAll || (isAllMale && studentGender === 'L') || (isAllFemale && studentGender === 'P') || clsList.includes(sClass)) {
-                        isScheduledForPrayerToday = true;
-                        break;
-                    }
-                }
-
-                const isEmergencyDismissalActive = Boolean(isTestingMode || settings.isEmergencyGateOut || settings.isEarlyDismissal);
-                if (isScheduledForPrayerToday && !isEmergencyDismissalActive) {
-                    return res.status(400).json({
-                        success: false,
-                        isWarningYellow: true,
-                        isClassGateClosedDueToPrayer: true,
-                        message: `🕌 QR Code Pulang di kelas DITUTUP untuk kelas ${student.className || sClass} hari ini karena terjadwal Sholat Berjamaah! Seluruh siswa wajib sholat berjamaah dan melakukan scan kepulangan resmi di Mushola Sekolah.`
-                    });
-                }
-            }
-        }
 
         let distanceMeters: number | null = null;
 
@@ -755,13 +718,12 @@ export const scanClassGate = async (req: Request, res: Response) => {
         }
 
         // SMART AUTO-CORRECTION (SIANG HARI - JAM KEPULANGAN):
-        // Jika scan dilakukan saat jam kepulangan resmi sekolah (isCurrentlyDismissalTime === true),
-        // siswa SUDAH memiliki presensi masuk pagi (todayInRecord ada) dan BELUM presensi pulang (todayOutRecord belum ada):
-        // Jika siswa memindai barcode GATE_IN di kelas atau QR Dinamis Pengurus Kelas:
+        // Jika scan dilakukan saat jam kepulangan resmi sekolah (isCurrentlyDismissalTime === true)
+        // dan siswa BELUM presensi pulang (todayOutRecord belum ada):
         // otomatis konversi menjadi presensi pulang (GATE_OUT)!
-        // Ini mencegah 100% siswa terkecoh respons "✅ Anda sudah tercatat Presensi Masuk pukul 06.56 WIB" lalu pulang tanpa data kepulangan.
+        // Ini memastikan 100% siswa yang memindai barcode di kelas atau QR Dinamis langsung tercatat PULANG.
         let autoRedirectedFromGateIn = false;
-        if (isCurrentlyDismissalTime && todayInRecord && !todayOutRecord && !isBkGateIn && !isMusholaIn) {
+        if (isCurrentlyDismissalTime && !todayOutRecord && !isBkGateIn && !isMusholaIn) {
             if (scanType === 'GATE_IN' || isDynamicOfficerQr || (barcodeCode && (barcodeCode.startsWith('GATE_IN') || barcodeCode.startsWith('GATE-CLASS') || barcodeCode.startsWith('DYNAMIC_CLASS_QR|')))) {
                 scanType = 'GATE_OUT';
                 autoRedirectedFromGateIn = true;
@@ -785,27 +747,30 @@ export const scanClassGate = async (req: Request, res: Response) => {
             else if (isBkGateOut) scanType = 'GATE_OUT';
             else if (isDynamicOfficerQr || (barcodeCode && barcodeCode.startsWith('DYNAMIC_CLASS_QR|'))) {
                 // Presensi via QR Dinamis Pengurus Kelas:
-                // Jika sudah jam pulang dan sudah presensi masuk -> otomatis GATE_OUT (Kepulangan)
-                // Jika sudah jam pulang tapi belum presensi masuk -> periksa apakah checkout khusus
-                // Jika pagi hari (atau sebelum jam pulang) -> otomatis GATE_IN (Kedatangan)
-                if (isCurrentlyDismissalTime && todayInRecord && !todayOutRecord) {
+                // Jika sudah jam pulang -> otomatis GATE_OUT (Kepulangan)
+                // Jika pagi hari (sebelum jam pulang) -> otomatis GATE_IN (Kedatangan)
+                if (isCurrentlyDismissalTime && !todayOutRecord) {
                     scanType = 'GATE_OUT';
                     autoRedirectedFromGateIn = true;
-                } else if (isCurrentlyDismissalTime && !todayInRecord) {
-                    scanType = req.body.isSpecialCheckoutWithoutIn ? 'GATE_OUT' : 'GATE_IN';
+                } else if (isCurrentlyDismissalTime && todayOutRecord) {
+                    scanType = 'GATE_OUT'; // Lolos ke validasi anti-duplikasi hari ini
                 } else {
                     scanType = 'GATE_IN';
                 }
             } else if (barcodeCode.startsWith('GATE_IN') || barcodeCode.startsWith('GATE-CLASS')) {
-                if (isCurrentlyDismissalTime && todayInRecord && !todayOutRecord) {
+                if (isCurrentlyDismissalTime && !todayOutRecord) {
                     scanType = 'GATE_OUT';
                     autoRedirectedFromGateIn = true;
+                } else if (isCurrentlyDismissalTime && todayOutRecord) {
+                    scanType = 'GATE_OUT';
                 } else {
                     scanType = 'GATE_IN';
                 }
             } else if (barcodeCode.startsWith('GATE_OUT')) {
                 scanType = 'GATE_OUT';
-            } else scanType = 'GATE_IN';
+            } else {
+                scanType = isCurrentlyDismissalTime ? 'GATE_OUT' : 'GATE_IN';
+            }
         }
 
         if (!student.className || student.className.trim() === '') {
@@ -1239,7 +1204,7 @@ export const scanClassGate = async (req: Request, res: Response) => {
                 const isEmergency = Boolean(settings.isEmergencyGateOut);
                 const isEarlyDismissalAll = Boolean(settings.isEarlyDismissal);
 
-                const gateOutStartSec = (effective.gateOutStartTime || '12:30') + ':00';
+                const gateOutStartSec = (effective.gateOutStartTime || '12:00') + ':00';
                 const gateOutEndSec = (effective.gateOutEndTime || '18:00') + ':59';
                 const isWithinOfficialDismissal = effective.currentTimeWithSecStr >= gateOutStartSec && effective.currentTimeWithSecStr <= gateOutEndSec;
 
@@ -1251,48 +1216,6 @@ export const scanClassGate = async (req: Request, res: Response) => {
                         isGateOutClosed: true,
                         message: `⛔ Gerbang Kepulangan Belum Dibuka! Presensi kepulangan (Gate-Out) baru dibuka mulai pukul ${effective.gateOutStartTime} WIB sesuai jadwal operasional sekolah hari ${effective.currentDayName} (${effective.gateOutStartTime} - ${effective.gateOutEndTime} WIB). Saat ini baru pukul ${effective.currentTimeWithSecStr} WIB. KBM masih berlangsung.`
                     });
-                }
-
-                // ============================================================
-                // ATURAN 3 & 4: Penanganan Presensi Pulang Kelas vs Mushola
-                // ============================================================
-                const todayDay = getWibDayOfWeek(now);
-                const userRel = String(student.religion || '').toUpperCase().trim();
-                const isNonMuslim = userRel.length > 0 && !userRel.includes('ISLAM');
-
-                if (!isNonMuslim && !isEmergency && !isEarlyDismissalAll && !isTestingMode) {
-                    const dbScheds = await (prisma as any).prayerClassSchedule.findMany({
-                        where: { dayOfWeek: todayDay, isActive: true, prayerType: { in: ['DHUHUR', 'JUMAT', 'KEPUTRIAN'] } }
-                    }).catch(() => []);
-                    const dayScheds = dbScheds.length > 0 ? dbScheds : (DEFAULT_PRAYER_SCHEDULES_MAP[todayDay] || []).filter((s: any) => ['DHUHUR', 'JUMAT', 'KEPUTRIAN'].includes(s.prayerType));
-
-                    const studentGender = (student.gender || 'L').toUpperCase().startsWith('P') ? 'P' : 'L';
-                    const sClass = (student.className || '').trim().toUpperCase();
-
-                    for (const prayerSchedule of dayScheds) {
-                        const scheduledClasses = (prayerSchedule.classNames || '').split(',').map((c: string) => c.trim().toUpperCase());
-                        const isAll = scheduledClasses.includes('ALL') || scheduledClasses.includes('SEMUA');
-                        const isAllMaleSchedule = prayerSchedule.prayerType === 'JUMAT' || scheduledClasses.includes('ALL_MALE');
-                        const isAllFemaleSchedule = prayerSchedule.prayerType === 'KEPUTRIAN' || scheduledClasses.includes('ALL_FEMALE');
-
-                        let isClassScheduled = false;
-                        if (isAll) isClassScheduled = true;
-                        else if (isAllMaleSchedule && studentGender === 'L') isClassScheduled = true;
-                        else if (isAllFemaleSchedule && studentGender === 'P') isClassScheduled = true;
-                        else if (scheduledClasses.includes(sClass)) isClassScheduled = true;
-
-                        if (isClassScheduled) {
-                            // Sesuai Instruksi Resmi: Ketika ada jadwal sholat di mushola, QR Code pulang di kelas DITUTUP TOTAL!
-                            // Barcode kepulangan berada di Mushola. Seluruh siswa wajib menuju ke Mushola.
-                            // Siswi berhalangan (uzur/haid) melakukan presensi di Pos Bimbingan Keputrian Mushola.
-                            return res.status(403).json({
-                                success: false,
-                                isClassGateClosedDueToPrayer: true,
-                                prayerType: prayerSchedule.prayerType || 'DHUHUR',
-                                message: `🕌 Barcode Pulang di Kelas Ditutup! Rombel ${student.className} memiliki jadwal Sholat ${prayerSchedule.prayerType || 'Dhuhur'} Berjamaah di Mushola hari ini. Seluruh siswa wajib menuju ke Mushola untuk melaksanakan sholat dan memindai Barcode Kepulangan di Mushola (siswi yang berhalangan/haid memindai di pos bimbingan Keputrian Mushola).`
-                            });
-                        }
-                    }
                 }
             }
         }
@@ -1432,6 +1355,33 @@ export const scanClassGate = async (req: Request, res: Response) => {
                 note
             }
         });
+
+        // Auto Backfill GATE_IN jika siswa scan pulang tanpa presensi masuk (Lupa / Kendala GPS pagi)
+        // Mencegah siswa dianggap ALPA secara keliru di rekap absensi sekolah
+        if (scanType === 'GATE_OUT' && !todayInRecord) {
+            try {
+                await prisma.attendance.create({
+                    data: {
+                        userId: student.id,
+                        type: 'GATE_IN',
+                        method: finalMethod,
+                        status: 'LATE',
+                        scanTime: new Date(effectiveScanTime.getTime() - 60000),
+                        lat: lat ? Number(lat) : null,
+                        lng: lng ? Number(lng) : null,
+                        isFakeGps: Boolean(isFakeGps),
+                        accuracyMeters: accuracyNum,
+                        jarakKeSekolah: distanceMeters,
+                        statusVerifikasi: 'AUTO',
+                        kalmanApplied: Boolean(req.body.kalmanApplied),
+                        note: 'Hadir KBM (Auto Gate-In: Presensi Pulang Tanpa Scan Pagi)'
+                    }
+                });
+                console.log(`[AUTO BACKFILL GATE_IN] Siswa ${student.name} (${student.className}) scan pulang tanpa masuk -> Otomatis dibuatkan GATE_IN agar tidak Alpa.`);
+            } catch (backfillErr) {
+                console.warn('Error auto backfilling gate-in:', backfillErr);
+            }
+        }
 
         // Catat poin kedisiplinan otomatis jika melakukan Pulang Khusus tanpa scan masuk
         if (scanType === 'GATE_OUT' && isSpecialCheckout && !todayInRecord) {
@@ -1870,62 +1820,6 @@ export const recordAttendanceScan = async (req: Request, res: Response) => {
         }
 
         if (scanType === 'GATE_OUT') {
-            // CEK OTOMATIS: Kunci QR Pulang di Ruang Kelas jika ada jadwal sholat hari ini
-            const studentUser = await prisma.user.findUnique({
-                where: { id: user.id },
-                select: { className: true, gender: true, religion: true }
-            });
-            const sClass = (studentUser?.className || '').trim().toUpperCase();
-            const todayDay = getWibDayOfWeek(now);
-            const userRel = String(studentUser?.religion || '').toUpperCase().trim();
-            const isNonMuslim = userRel.length > 0 && !userRel.includes('ISLAM');
-
-            let isClassScheduledForPrayer = false;
-            let targetPrayerName = 'Dhuhur';
-
-            if (!isNonMuslim) {
-                const dbScheds = await (prisma as any).prayerClassSchedule.findMany({
-                    where: { dayOfWeek: todayDay, isActive: true, prayerType: { in: ['DHUHUR', 'JUMAT', 'KEPUTRIAN'] } }
-                }).catch(() => []);
-                const dayScheds = dbScheds.length > 0 ? dbScheds : (DEFAULT_PRAYER_SCHEDULES_MAP[todayDay] || []).filter((s: any) => ['DHUHUR', 'JUMAT', 'KEPUTRIAN'].includes(s.prayerType));
-
-                const studentGender = (studentUser?.gender || 'L').toUpperCase().startsWith('P') ? 'P' : 'L';
-
-                for (const sched of dayScheds) {
-                    const clsList = (sched.classNames || '').split(',').map((c: string) => c.trim().toUpperCase());
-                    const isAll = clsList.includes('ALL') || clsList.includes('SEMUA');
-                    const isAllMale = sched.prayerType === 'JUMAT' || clsList.includes('ALL_MALE');
-                    const isAllFemale = sched.prayerType === 'KEPUTRIAN' || clsList.includes('ALL_FEMALE');
-
-                    let match = false;
-                    if (isAll) match = true;
-                    else if (isAllMale && studentGender === 'L') match = true;
-                    else if (isAllFemale && studentGender === 'P') match = true;
-                    else if (clsList.includes(sClass)) match = true;
-
-                    if (match) {
-                        isClassScheduledForPrayer = true;
-                        targetPrayerName = sched.prayerType || 'Dhuhur';
-                        break;
-                    }
-                }
-            }
-
-            const cleanGateCode = String(req.body.gateCode || req.body.barcodeCode || req.body.barcode || req.body.identifier || '').toUpperCase();
-            const isMusholaOrKeputrianScan = cleanGateCode.includes('MUSHOLA') || 
-                cleanGateCode.includes('MASJID') || 
-                cleanGateCode.includes('KEPUTRIAN') || 
-                cleanGateCode.includes('SHOLAT');
-
-            const isEmergencyDismissalActive = Boolean(isTestingMode || settings.isEmergencyGateOut || settings.isEarlyDismissal);
-            if (isClassScheduledForPrayer && !isMusholaOrKeputrianScan && !isEmergencyDismissalActive) {
-                return res.status(400).json({
-                    success: false,
-                    isWarningYellow: true,
-                    message: `🕌 QR Code Pulang di kelas DITUTUP untuk kelas ${studentUser?.className || sClass} hari ini karena terjadwal Sholat Berjamaah! Seluruh siswa wajib sholat berjamaah dan melakukan scan kepulangan resmi di Mushola Sekolah.`
-                });
-            }
-
             const isPermittedOut = isTestingMode || settings.isEmergencyGateOut || settings.isEarlyDismissal ||
                 (effective.currentTimeWithSecStr >= gateOutStartSec && effective.currentTimeWithSecStr <= gateOutEndSec);
             if (!isPermittedOut) {
@@ -2066,6 +1960,31 @@ export const recordAttendanceScan = async (req: Request, res: Response) => {
                 }
             }
         });
+
+        // Auto Backfill GATE_IN jika siswa scan pulang tanpa data masuk
+        if (scanType === 'GATE_OUT' && isMissingIn) {
+            try {
+                await prisma.attendance.create({
+                    data: {
+                        userId: user.id,
+                        type: 'GATE_IN',
+                        method: method || 'GPS',
+                        status: 'LATE',
+                        scanTime: new Date(now.getTime() - 60000),
+                        lat: numLat,
+                        lng: numLng,
+                        isFakeGps: effectiveMock,
+                        accuracyMeters: numAccuracy,
+                        jarakKeSekolah: validationResult.jarakKeSekolah,
+                        statusVerifikasi: 'AUTO',
+                        note: 'Hadir KBM (Auto Gate-In: Presensi Pulang Tanpa Scan Pagi)'
+                    }
+                });
+                console.log(`[AUTO BACKFILL GATE_IN] Siswa ${user.name} (${user.className}) scan pulang tanpa masuk -> Otomatis dibuatkan GATE_IN LATE agar tidak Alpa.`);
+            } catch (backfillErr) {
+                console.warn('Error auto backfilling gate-in:', backfillErr);
+            }
+        }
 
         res.json({
             success: true,
