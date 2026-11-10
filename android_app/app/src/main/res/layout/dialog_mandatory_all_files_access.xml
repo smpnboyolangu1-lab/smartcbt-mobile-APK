@@ -223,11 +223,11 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="Jika posisi di-enable akses semua file, maka otomatis SEMUA FITUR APLIKASI AKAN DI-ENABLE dan siap digunakan."
+                        android:text="📌 Jika tombol di Pengaturan HP berwarna abu-abu / tidak bisa digeser (Restricted Settings Android 13/14):\n• Buka 'Info Izin Aplikasi' ➔ Ketuk Titik 3 di pojok kanan atas ➔ Pilih 'Izinkan setelan terbatas'.\n• Atau langsung ketuk tombol hijau 'Lanjutkan ke Aplikasi' di bawah untuk mulai menggunakan aplikasi."
                         android:textColor="#166534"
                         android:textSize="11.5sp"
                         android:textStyle="bold"
-                        android:lineSpacingExtra="1dp" />
+                        android:lineSpacingExtra="2dp" />
                 </LinearLayout>
 
                 <!-- Action Button 1 (Activate) -->
@@ -243,6 +243,19 @@
                     android:textStyle="bold"
                     app:cornerRadius="14dp" />
 
+                <!-- Action Button Continue Standard (Bypass jika tombol abu-abu / tidak bisa digeser) -->
+                <Button
+                    android:id="@+id/btnContinueStandard"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:layout_marginTop="8dp"
+                    android:backgroundTint="#16A34A"
+                    android:text="➡️ Lanjutkan ke Aplikasi (Gunakan Izin Standar)"
+                    android:textColor="#FFFFFF"
+                    android:textSize="12.5sp"
+                    android:textStyle="bold"
+                    app:cornerRadius="12dp" />
+
                 <!-- Action Button Alternative (Direct App Settings) -->
                 <Button
                     android:id="@+id/btnAlternativeSettings"
@@ -250,7 +263,7 @@
                     android:layout_height="44dp"
                     android:layout_marginTop="8dp"
                     android:backgroundTint="#E2E8F0"
-                    android:text="⚙️ Info Izin Aplikasi (Alternatif Jika Tertutup)"
+                    android:text="⚙️ Info Izin Aplikasi (Buka Setelan Terbatas)"
                     android:textColor="#1E293B"
                     android:textSize="12sp"
                     android:textStyle="bold"

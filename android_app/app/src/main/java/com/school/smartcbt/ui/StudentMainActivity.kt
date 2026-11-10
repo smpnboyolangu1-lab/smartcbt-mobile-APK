@@ -19,6 +19,7 @@ import android.view.Gravity
 import com.school.smartcbt.R
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.widget.*
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -47,6 +48,22 @@ data class HomeworkQuestionItem(
 )
 
 class StudentMainActivity : AppCompatActivity() {
+
+    private var isHomeworkDialogShowing = false
+
+    private fun applySecurityPolicyForCurrentTab() {
+        if (currentTabIndex == 1 || isHomeworkDialogShowing) {
+            window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                try { window.setHideOverlayWindows(true) } catch (e: Exception) {}
+            }
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                try { window.setHideOverlayWindows(false) } catch (e: Exception) {}
+            }
+        }
+    }
 
     private var cachedStudentUserDto: StudentUserDto? = null
     private var selectedHomeworkFileBase64: String? = null
@@ -246,6 +263,23 @@ class StudentMainActivity : AppCompatActivity() {
         setupBottomNav()
         setupGridMenu()
         setupNoticeBoard()
+
+        // Proteksi Hardware Anti-Screenshot & Screen Recording pada CBT, PR & Tugas Siswa (Android 14+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            try {
+                registerScreenCaptureCallback(mainExecutor) {
+                    if (currentTabIndex == 1 || isHomeworkDialogShowing) {
+                        runOnUiThread {
+                            Toast.makeText(
+                                this@StudentMainActivity,
+                                "⚠️ Dilarang Mengambil Tangkapan Layar (Screenshot) atau Merekam Layar pada Halaman CBT, Tugas, dan PR Siswa demi Integritas Akademik!",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
+                }
+            } catch (e: Exception) {}
+        }
         setupEFilesListeners()
         setupHomeworkTabs()
         setupListeners()
@@ -2533,6 +2567,9 @@ class StudentMainActivity : AppCompatActivity() {
         } else if (index == 2) {
             loadStudentWeeklyPrayerSchedule()
         }
+
+        // Terapkan Proteksi Anti-Screenshot & Screen Recording jika di tab Tugas & CBT
+        applySecurityPolicyForCurrentTab()
     }
 
     private fun setupListeners() {
@@ -2799,6 +2836,12 @@ class StudentMainActivity : AppCompatActivity() {
     }
 
     private var lastPermissionState: Boolean? = null
+
+    fun onAllFilesAccessBypassed() {
+        runOnUiThread {
+            checkAllFilesAccess()
+        }
+    }
 
     private fun checkAllFilesAccess() {
         val granted = com.school.smartcbt.utils.DialogHelper.isAllFilesAccessGranted(this)
@@ -5292,7 +5335,18 @@ class StudentMainActivity : AppCompatActivity() {
         if (!isDone) {
             dialog.setNegativeButton("Tutup", null)
         }
-        dialog.show()
+        val alert = dialog.create()
+        alert.window?.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            try { alert.window?.setHideOverlayWindows(true) } catch (e: Exception) {}
+        }
+        isHomeworkDialogShowing = true
+        applySecurityPolicyForCurrentTab()
+        alert.setOnDismissListener {
+            isHomeworkDialogShowing = false
+            applySecurityPolicyForCurrentTab()
+        }
+        alert.show()
     }
 
     private fun showHomeworkSolutionsDialog(hw: HomeworkDto) {
@@ -5403,11 +5457,22 @@ class StudentMainActivity : AppCompatActivity() {
         } catch (_: Exception) {}
 
         val sv = ScrollView(this).apply { addView(root) }
-        AlertDialog.Builder(this)
+        val alert = AlertDialog.Builder(this)
             .setTitle("💡 Kunci & Pembahasan")
             .setView(sv)
             .setPositiveButton("Tutup", null)
-            .show()
+            .create()
+        alert.window?.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            try { alert.window?.setHideOverlayWindows(true) } catch (e: Exception) {}
+        }
+        isHomeworkDialogShowing = true
+        applySecurityPolicyForCurrentTab()
+        alert.setOnDismissListener {
+            isHomeworkDialogShowing = false
+            applySecurityPolicyForCurrentTab()
+        }
+        alert.show()
     }
 
     // ==========================================
@@ -6332,6 +6397,8 @@ class StudentMainActivity : AppCompatActivity() {
             setTextColor(Color.parseColor("#0F172A"))
             textSize = 13.5f
             setTypeface(null, Typeface.BOLD)
+            setTextIsSelectable(false)
+            isLongClickable = false
         }
         rootLayout.addView(tvInfo)
 
@@ -6341,6 +6408,8 @@ class StudentMainActivity : AppCompatActivity() {
                 setTextColor(Color.parseColor("#475569"))
                 textSize = 11.5f
                 setPadding(0, (4 * density).toInt(), 0, (8 * density).toInt())
+                setTextIsSelectable(false)
+                isLongClickable = false
             }
             rootLayout.addView(tvDesc)
         }
@@ -6566,7 +6635,7 @@ class StudentMainActivity : AppCompatActivity() {
             addView(rootLayout)
         }
 
-        AlertDialog.Builder(this)
+        val submitDialog = AlertDialog.Builder(this)
             .setTitle("📤 Kumpulkan Tugas: ${hw.title}")
             .setView(scroll)
             .setPositiveButton("Kirim Sekarang") { _, _ ->
@@ -6647,7 +6716,26 @@ class StudentMainActivity : AppCompatActivity() {
                 })
             }
             .setNegativeButton("Batal", null)
-            .show()
+            .create()
+
+        submitDialog.window?.setFlags(
+            WindowManager.LayoutParams.FLAG_SECURE,
+            WindowManager.LayoutParams.FLAG_SECURE
+        )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            try {
+                submitDialog.window?.setHideOverlayWindows(true)
+            } catch (e: Exception) {
+                // Ignore if not supported
+            }
+        }
+        isHomeworkDialogShowing = true
+        applySecurityPolicyForCurrentTab()
+        submitDialog.setOnDismissListener {
+            isHomeworkDialogShowing = false
+            applySecurityPolicyForCurrentTab()
+        }
+        submitDialog.show()
     }
 
     private fun promptUploadEFileDialog(uri: android.net.Uri) {

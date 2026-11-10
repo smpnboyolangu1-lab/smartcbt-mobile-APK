@@ -23,10 +23,13 @@ object DialogHelper {
 
     /**
      * Memeriksa apakah izin Akses Semua File (All Files Access / MANAGE_EXTERNAL_STORAGE) sudah diberikan
+     * Dilengkapi fallback izin media standar & bypass agar siswa tidak terkunci jika tombol di OS Android 13/14
+     * berwarna abu-abu / tidak bisa digeser karena Restricted Settings pada APK sideload.
      */
     fun isAllFilesAccessGranted(context: Context): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            Environment.isExternalStorageManager()
+        // 1. Cek MANAGE_EXTERNAL_STORAGE jika sudah aktif di OS
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (Environment.isExternalStorageManager()) return true
         } else {
             val read = ContextCompat.checkSelfPermission(
                 context, android.Manifest.permission.READ_EXTERNAL_STORAGE
@@ -34,8 +37,23 @@ object DialogHelper {
             val write = ContextCompat.checkSelfPermission(
                 context, android.Manifest.permission.WRITE_EXTERNAL_STORAGE
             ) == PackageManager.PERMISSION_GRANTED
-            read && write
+            if (read && write) return true
         }
+
+        // 2. Fallback Media & Bypass:
+        // Pada Android 13/14+ (Sideloaded APK), fitur 'Akses Semua File' sering kali di-disable
+        // atau abu-abu (Restricted Settings) oleh Google/vendor sehingga tidak bisa digeser/diapprove.
+        // Berikan akses jika izin media standar sudah ada, atau jika pengguna memilih melanjutkan.
+        val hasMedia = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(context, android.Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED
+        } else {
+            ContextCompat.checkSelfPermission(context, android.Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+        }
+
+        val sessionManager = SessionManager(context)
+        val isBypassed = sessionManager.getPreferenceBoolean("ALL_FILES_PERMISSION_BYPASS", false)
+
+        return hasMedia || isBypassed
     }
 
     /**
@@ -166,6 +184,25 @@ object DialogHelper {
                     try {
                         activity.startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
                     } catch (e2: Exception) {}
+                }
+            }
+
+            val btnContinueStandard = dialogView.findViewById<android.widget.Button>(
+                R.id.btnContinueStandard
+            )
+
+            btnContinueStandard?.setOnClickListener {
+                val sessionManager = SessionManager(activity)
+                sessionManager.setPreferenceBoolean("ALL_FILES_PERMISSION_BYPASS", true)
+                try { dialog.dismiss() } catch (e: Exception) {}
+                mandatoryFilesDialogInstance = null
+
+                if (activity is com.school.smartcbt.MainActivity) {
+                    activity.recreate()
+                } else if (activity is com.school.smartcbt.ui.StudentMainActivity) {
+                    activity.onAllFilesAccessBypassed()
+                } else if (activity is com.school.smartcbt.ui.ExambroGatewayActivity) {
+                    activity.recreate()
                 }
             }
 

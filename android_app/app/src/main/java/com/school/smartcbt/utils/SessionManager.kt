@@ -320,4 +320,12 @@ class SessionManager(private val context: Context) {
     fun getPreferenceString(key: String, defaultVal: String? = null): String? {
         return prefs.getString(key, defaultVal)
     }
+
+    fun setPreferenceBoolean(key: String, value: Boolean) {
+        prefs.edit().putBoolean(key, value).apply()
+    }
+
+    fun getPreferenceBoolean(key: String, defaultVal: Boolean = false): Boolean {
+        return prefs.getBoolean(key, defaultVal)
+    }
 }

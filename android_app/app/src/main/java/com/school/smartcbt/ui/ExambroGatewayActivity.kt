@@ -10,6 +10,7 @@ import android.os.BatteryManager
 import android.os.Bundle
 import android.view.Gravity
 import android.view.View
+import android.view.WindowManager
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -81,6 +82,33 @@ class ExambroGatewayActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // 1. Anti-Screenshot & Screen Recording: FLAG_SECURE
+        window.setFlags(
+            WindowManager.LayoutParams.FLAG_SECURE,
+            WindowManager.LayoutParams.FLAG_SECURE
+        )
+
+        // 2. Blokir Floating Apps & Screen Recorder Overlays (Android 12+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            try {
+                window.setHideOverlayWindows(true)
+            } catch (e: Exception) {}
+        }
+
+        // 3. Android 14+ Screen Capture Detection
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            try {
+                registerScreenCaptureCallback(mainExecutor) {
+                    Toast.makeText(
+                        this,
+                        "⚠️ Tangkapan Layar Diblokir: Dilarang mengambil screenshot atau merekam token & naskah ujian CBT!",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            } catch (e: Exception) {}
+        }
+
         binding = ActivityExambroGatewayBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
